@@ -1,0 +1,41 @@
+# macOS
+.DS_Store
+*.swp
+
+# Xcode
+DerivedData/
+*.xcworkspace/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.xcodeproj/project.xcworkspace/
+*.xcodeproj/xcuserdata/
+
+# SwiftPM
+.build/
+.swiftpm/
+
+# CocoaPods (not used, but ignore just in case)
+Pods/
+
+# Generated caches and exports
+# Ignore contents but keep .gitkeep placeholders
+**/cache/*
+!**/cache/.gitkeep
+**/exports/*
+!**/exports/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+
+node_modules/
+**/node_modules/
+
+.next/
+**/.next/
+
+out/
+**/out/
+
+ 
