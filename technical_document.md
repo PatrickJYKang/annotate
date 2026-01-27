@@ -3,6 +3,8 @@
 ## Overview
 This repository contains a working **Next.js (React 18 + TypeScript)** web application under `webapp/` for stills-first football match analysis.
 
+This repository is licensed under the **Apache-2.0** license.
+
 The as-built workflow is:
 
 1. Create/open a project folder on disk (Chromium File System Access API).
@@ -89,7 +91,7 @@ This document describes the **current implementation** (routes, on-disk formats,
 - File: `webapp/app/segmentation-test/page.tsx`
 - Responsibilities:
   - Local image input + foreground cutout demos.
-  - Not integrated into the annotation pipeline.
+  - Uses the same segmentation helpers as the editor's optional foreground occlusion feature.
 
 ---
 
@@ -246,6 +248,8 @@ Files:
 - The `/stills` page attempts to pass the live directory handle via `postMessage`.
 - The annotation page can also restore the last project directory handle from IndexedDB.
 - The editor supports autosave with debouncing and flush-on-hide behavior.
+- The editor includes optional foreground occlusion (edge-based or ML person segmentation) to render annotations under the detected foreground.
+- Text supports an optional highlight style for readability and is rendered above the occlusion layer.
 
 Files:
 - Host page: `webapp/app/annotate/[stillId]/page.tsx`
@@ -341,13 +345,13 @@ The `segmentation-test` route is a sandbox for foreground extraction from a stil
 
 ### Purpose
 - Provide a quick way to validate segmentation approaches and tune parameters.
-- Not currently used in the annotation editor or export pipeline.
+- The same underlying segmentation helpers are used by the annotation editor for optional foreground occlusion.
 
 ### Implemented methods
 1. **Edge-based segmentation**
   - File: `webapp/lib/segmentation/edgeSegmentation.ts`
   - Approach:
-    - downscale to `maxDim`
+    - compute mask at `maskMaxDim` (or `maxDim`)
     - grayscale + blur
     - Sobel magnitude thresholding by percentile
     - morphological dilation/closing
@@ -367,4 +371,5 @@ Both methods return (or `null` on failure):
 - `cutout`: a canvas containing the input masked by alpha
 - `mask`: an `ImageData` alpha mask
 - `ratio`: foreground pixel ratio
-- `w`, `h`: internal resolution after downscale
+- `w`, `h`: cutout canvas dimensions
+- `maskW`, `maskH`: mask dimensions
