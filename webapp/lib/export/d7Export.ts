@@ -1,4 +1,5 @@
 import type { ProjectManifestV1 } from '../types/project';
+import { selectionToTagList } from '../tagging/schema';
 import { writeManifest } from '../fs/projectFolder';
 import type { AnnotationsV1, ExportShape } from './d7Render';
 import { renderAnnotatedPng } from './d7Render';
@@ -177,7 +178,9 @@ function findTagsAndVideoLabel(manifest: ProjectManifestV1, videoId: string, t_m
   for (const m of manifest.marks || []) {
     if (m.videoId !== videoId) continue;
     const d = Math.abs((m.t_ms || 0) - (t_ms || 0));
-    if (d <= tolMs && (!best || d < Math.abs(best.t_ms - t_ms))) best = { t_ms: m.t_ms, tags: m.tags };
+    if (d <= tolMs && (!best || d < Math.abs(best.t_ms - t_ms))) {
+      best = { t_ms: m.t_ms, tags: selectionToTagList(m.tags) };
+    }
   }
   return { tags: best?.tags || [], videoLabel: video?.label || '' };
 }

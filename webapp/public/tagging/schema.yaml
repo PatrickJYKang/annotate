@@ -1,0 +1,301 @@
+version: 1
+
+# Tagging is modeled as:
+# - a single "primary path" selection (dropdown, can stop early)
+# - zero-or-more facet selections (multi-select traits)
+#
+# Notes:
+# - Outcomes are represented as facets (not embedded in the primary tree).
+# - This is intended to be configuration for UI + export, not a relational data model.
+
+facet_groups:
+  - id: zone.vertical_third
+    label: Vertical third
+    mode: single
+    options:
+      - id: defensive_third
+        label: Defensive third
+      - id: middle_third
+        label: Middle third
+      - id: final_third
+        label: Final third
+
+  - id: zone.channel
+    label: Channel
+    mode: single
+    options:
+      - id: inside
+        label: Inside
+      - id: half_space
+        label: Half-space
+      - id: wing
+        label: Wing
+
+  - id: transition.turnover_height
+    label: Turnover height
+    mode: single
+    options:
+      - id: high
+        label: High turnover
+      - id: low
+        label: Low turnover
+
+  - id: cross.type
+    label: Cross type
+    mode: single
+    options:
+      - id: floated
+        label: Floated
+      - id: whipped
+        label: Whipped
+      - id: low
+        label: Low
+
+  - id: cross.origin_depth
+    label: Cross location
+    mode: single
+    options:
+      - id: deep
+        label: Deep
+      - id: middle
+        label: Middle
+      - id: byline
+        label: Byline
+
+  - id: pass.length
+    label: Pass length
+    mode: single
+    options:
+      - id: short
+        label: Short
+      - id: medium
+        label: Medium
+      - id: long
+        label: Long
+
+  - id: pass.type
+    label: Pass type
+    mode: single
+    options:
+      - id: through_ball
+        label: Through ball
+      - id: switch
+        label: Switch
+      - id: other
+        label: Other
+
+  - id: outcome.general
+    label: Outcome
+    mode: single
+    options:
+      - id: goal
+        label: Goal
+      - id: turnover
+        label: Turnover
+      - id: foul
+        label: Foul
+      - id: offside
+        label: Offside
+
+  - id: outcome.pass
+    label: Pass outcome
+    mode: single
+    options:
+      - id: complete
+        label: Complete
+      - id: incomplete
+        label: Incomplete
+      - id: offside
+        label: Offside
+      - id: goal
+        label: Goal
+      - id: progression
+        label: Progression
+
+  - id: outcome.success
+    label: Take-on outcome
+    mode: single
+    options:
+      - id: successful
+        label: Successful
+      - id: unsuccessful
+        label: Unsuccessful
+
+  - id: goal.method
+    label: Goal method
+    mode: single
+    requires_any:
+      - facet_group_id: outcome.general
+        option_id: goal
+      - facet_group_id: outcome.pass
+        option_id: goal
+    options:
+      - id: header
+        label: Header
+      - id: volley
+        label: Volley
+      - id: ground
+        label: Ground
+
+  - id: turnover.method
+    label: Turnover method
+    mode: single
+    requires_any:
+      - facet_group_id: outcome.general
+        option_id: turnover
+    options:
+      - id: headed
+        label: Headed
+      - id: foot
+        label: Foot
+      - id: other
+        label: Other
+
+primary_tree:
+  - id: phase.offensive
+    label: Offensive
+    children:
+      - id: offensive.open_play
+        label: Open play
+        children:
+          - id: offensive.open_play.possession
+            label: Possession
+            facet_group_ids:
+              - zone.vertical_third
+
+          - id: offensive.open_play.transition
+            label: Transition
+            facet_group_ids:
+              - transition.turnover_height
+              - outcome.general
+              - goal.method
+
+          - id: offensive.open_play.cross
+            label: Cross
+            facet_group_ids:
+              - cross.type
+              - cross.origin_depth
+              - outcome.general
+              - goal.method
+              - turnover.method
+
+          - id: offensive.open_play.pass
+            label: Pass
+            facet_group_ids:
+              - pass.length
+              - pass.type
+              - outcome.pass
+              - goal.method
+
+          - id: offensive.open_play.take_on
+            label: Take-on
+            facet_group_ids:
+              - zone.vertical_third
+              - zone.channel
+              - outcome.success
+
+      - id: offensive.set_piece
+        label: Set piece
+        facet_group_ids:
+          - outcome.general
+          - goal.method
+        children:
+          - id: offensive.set_piece.corner
+            label: Corner
+            facet_group_ids:
+              - outcome.general
+              - goal.method
+          - id: offensive.set_piece.free_kick
+            label: Free kick
+            facet_group_ids:
+              - outcome.general
+              - goal.method
+          - id: offensive.set_piece.goal_kick
+            label: Goal kick
+            facet_group_ids:
+              - outcome.general
+              - goal.method
+          - id: offensive.set_piece.throw_in
+            label: Throw in
+            facet_group_ids:
+              - outcome.general
+              - goal.method
+          - id: offensive.set_piece.penalty
+            label: Penalty
+            facet_group_ids:
+              - outcome.general
+              - goal.method
+
+  - id: phase.defensive
+    label: Defensive
+    children:
+      - id: defensive.open_play
+        label: Open play
+        children:
+          - id: defensive.open_play.possession
+            label: Possession
+            facet_group_ids:
+              - zone.vertical_third
+
+          - id: defensive.open_play.transition
+            label: Transition
+            facet_group_ids:
+              - transition.turnover_height
+              - outcome.general
+              - goal.method
+
+          - id: defensive.open_play.cross
+            label: Cross
+            facet_group_ids:
+              - cross.type
+              - cross.origin_depth
+              - outcome.general
+              - goal.method
+              - turnover.method
+
+          - id: defensive.open_play.pass
+            label: Pass
+            facet_group_ids:
+              - pass.length
+              - pass.type
+              - outcome.pass
+              - goal.method
+
+          - id: defensive.open_play.take_on
+            label: Take-on
+            facet_group_ids:
+              - zone.vertical_third
+              - zone.channel
+              - outcome.success
+
+      - id: defensive.set_piece
+        label: Set piece
+        facet_group_ids:
+          - outcome.general
+          - goal.method
+        children:
+          - id: defensive.set_piece.corner
+            label: Corner
+            facet_group_ids:
+              - outcome.general
+              - goal.method
+          - id: defensive.set_piece.free_kick
+            label: Free kick
+            facet_group_ids:
+              - outcome.general
+              - goal.method
+          - id: defensive.set_piece.goal_kick
+            label: Goal kick
+            facet_group_ids:
+              - outcome.general
+              - goal.method
+          - id: defensive.set_piece.throw_in
+            label: Throw in
+            facet_group_ids:
+              - outcome.general
+              - goal.method
+          - id: defensive.set_piece.penalty
+            label: Penalty
+            facet_group_ids:
+              - outcome.general
+              - goal.method

@@ -1,10 +1,17 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useProject } from "../../lib/state/ProjectContext";
 import type { ProjectManifestV1 } from "../../lib/types/project";
 import { writeManifest } from "../../lib/fs/projectFolder";
 import VideoPlayerUnit, { VideoPlayerHandle } from "../../components/player/VideoPlayerUnit";
+import TaggingMenu, { TaggingMenuCloseReason } from "../../components/tagging/TaggingMenu";
+import {
+  createEmptyTaggingSelection,
+  ensureTaggingSelection,
+  selectionToTagList,
+  TaggingSelection,
+} from "../../lib/tagging/schema";
 
 function pad2(n: number) { return n < 10 ? `0${n}` : `${n}`; }
 function pad3(n: number) { return n.toString().padStart(3, '0'); }
@@ -23,6 +30,10 @@ export default function PlayerPage() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [selectedMarkId, setSelectedMarkId] = useState<string | null>(null);
   const [seekMs, setSeekMs] = useState<number | null>(null);
+  const [tagMenuOpen, setTagMenuOpen] = useState(false);
+  const [tagMenuAnchor, setTagMenuAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [tagMenuSelection, setTagMenuSelection] = useState<TaggingSelection>(createEmptyTaggingSelection());
+  const [tagMenuMarkId, setTagMenuMarkId] = useState<string | null>(null);
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const manifestRef = useRef<ProjectManifestV1 | null>(null);
   const selectedVideoIdRef = useRef<string | null>(null);
@@ -105,27 +116,10 @@ export default function PlayerPage() {
     const next = await mutateManifestExclusive((mf) => {
       const video = mf.videos.find(v => v.id === vid);
       if (!video) return mf;
-      return { ...mf, marks: [...mf.marks, { id, videoId: video.id, t_ms, tags: [] }] };
+      return { ...mf, marks: [...mf.marks, { id, videoId: video.id, t_ms, tags: createEmptyTaggingSelection() }] };
     });
     if (next) setSelectedMarkIdSafe(id);
   }, [mutateManifestExclusive, setSelectedMarkIdSafe]);
-
-  const toggleTagDigit = useCallback(async (digit: string) => {
-    const vid = selectedVideoIdRef.current;
-    if (!vid) return;
-    await mutateManifestExclusive((mf) => {
-      const marksForVideo = mf.marks.filter(m => m.videoId === vid);
-      const targetId = selectedMarkIdRef.current || (marksForVideo.length ? marksForVideo[marksForVideo.length - 1].id : null);
-      if (!targetId) return mf;
-      const nextMarks = mf.marks.map(m => {
-        if (m.id !== targetId) return m;
-        const set = new Set(m.tags);
-        if (set.has(digit)) set.delete(digit); else set.add(digit);
-        return { ...m, tags: Array.from(set).sort() };
-      });
-      return { ...mf, marks: nextMarks };
-    });
-  }, [mutateManifestExclusive]);
 
   const deleteSelectedMark = useCallback(async () => {
     const target = selectedMarkIdRef.current;
@@ -140,6 +134,37 @@ export default function PlayerPage() {
   const marksForVideo = (manifest && selectedVideoId)
     ? manifest.marks.filter(m => m.videoId === selectedVideoId).sort((a, b) => a.t_ms - b.t_ms)
     : [];
+
+  const markTagLists = useMemo(() => {
+    return new Map(marksForVideo.map((mark) => [mark.id, selectionToTagList(mark.tags)]));
+  }, [marksForVideo]);
+
+  const openTagMenuForMark = useCallback((event: React.MouseEvent, markId: string) => {
+    event.preventDefault();
+    const mark = marksForVideo.find((entry) => entry.id === markId);
+    const selection = ensureTaggingSelection(mark?.tags);
+    setSelectedMarkIdSafe(markId);
+    setTagMenuSelection(selection);
+    setTagMenuMarkId(markId);
+    setTagMenuAnchor({ x: event.clientX, y: event.clientY });
+    setTagMenuOpen(true);
+  }, [marksForVideo, setSelectedMarkIdSafe]);
+
+  const saveTaggingSelection = useCallback(async (markId: string, selection: TaggingSelection) => {
+    await mutateManifestExclusive((mf) => {
+      const nextMarks = mf.marks.map((mark) => (mark.id === markId ? { ...mark, tags: selection } : mark));
+      return { ...mf, marks: nextMarks };
+    });
+  }, [mutateManifestExclusive]);
+
+  const handleTagMenuClose = useCallback(async (selection: TaggingSelection, reason: TaggingMenuCloseReason) => {
+    setTagMenuOpen(false);
+    setTagMenuAnchor(null);
+    if (reason === "confirm" && tagMenuMarkId) {
+      await saveTaggingSelection(tagMenuMarkId, selection);
+    }
+    setTagMenuMarkId(null);
+  }, [saveTaggingSelection, tagMenuMarkId]);
 
   // Global keyboard shortcuts for the entire page
   useEffect(() => {
@@ -173,11 +198,10 @@ export default function PlayerPage() {
       if (key === 'ArrowRight') { e.preventDefault(); shift ? api.nudgeLarge(1) : api.nudgeSmall(1); return; }
       if (key === 'm' || key === 'M') { e.preventDefault(); api.addMark(); return; }
       if (key === 'Backspace' || key === 'Delete') { if (selectedMarkId) { e.preventDefault(); await deleteSelectedMark(); } return; }
-      if (/^[1-9]$/.test(key)) { e.preventDefault(); await toggleTagDigit(key); return; }
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [addMarkAt, toggleTagDigit, deleteSelectedMark, selectedMarkId, marksForVideo]);
+  }, [addMarkAt, deleteSelectedMark, selectedMarkId, marksForVideo]);
 
   if (!projectDir || !manifest) {
     return (
@@ -219,7 +243,6 @@ export default function PlayerPage() {
               fps={(manifest?.videos.find(v => v.id === selectedVideoId)?.fps) || 30}
               marks={marksForVideo.map(m => ({ id: m.id, t_ms: m.t_ms, tags: m.tags }))}
               onAddMark={addMarkAt}
-              onToggleTag={toggleTagDigit}
               externalSeekMs={seekMs}
               selectedMarkId={selectedMarkId}
               onSelectMark={(id: string, t_ms: number) => { setSelectedMarkId(id); setSeekMs(t_ms); }}
@@ -227,7 +250,7 @@ export default function PlayerPage() {
               skipLargeSeconds={2}
               allowFullscreen
             />
-            <div className="status" style={{ marginTop: 8 }}>Hotkeys anywhere: J/K/L, ←/→, ,/. · Hold Shift for ±2s skips · M adds mark · 1–9 toggle tags</div>
+            <div className="status" style={{ marginTop: 8 }}>Hotkeys anywhere: J/K/L, ←/→, ,/. · Hold Shift for ±2s skips · M adds mark · Right-click a mark to tag</div>
           </div>
           <div style={{ flex: '0 0 260px', minWidth: 260, height: 'calc(100vh - var(--player-headroom))', display: 'flex', flexDirection: 'column' }}>
             <strong>Marks</strong>
@@ -237,15 +260,16 @@ export default function PlayerPage() {
                   <li key={m.id} style={{ flex: '1 1 120px', minWidth: 120 }}>
                     <button
                       onClick={() => { setSelectedMarkId(m.id); setSeekMs(m.t_ms || 0); }}
+                      onContextMenu={(event) => openTagMenuForMark(event, m.id)}
                       style={{ width: '100%', textAlign: 'left', background: selectedMarkId === m.id ? '#0f172a' : '#1f2937', borderColor: selectedMarkId === m.id ? '#60a5fa' : '#334155' }}
                     >
-                      {formatTime(m.t_ms)} {m.tags.length ? ` · [${m.tags.join(',')}]` : ''}
+                      {formatTime(m.t_ms)} {markTagLists.get(m.id)?.length ? ` · [${markTagLists.get(m.id)?.join(", ")}]` : ""}
                     </button>
                   </li>
                 ))}
               </ul>
             </div>
-            <div className="status">Press 1-9 to tag</div>
+            <div className="status">Right-click a mark to tag</div>
             <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button onClick={deleteSelectedMark} disabled={!selectedMarkId} title="Delete selected mark">Delete</button>
               <button onClick={onBack}>Back</button>
@@ -253,6 +277,13 @@ export default function PlayerPage() {
             </div>
           </div>
         </div>
+        <TaggingMenu
+          open={tagMenuOpen}
+          selection={tagMenuSelection}
+          anchorPoint={tagMenuAnchor}
+          onSelectionChange={setTagMenuSelection}
+          onClose={handleTagMenuClose}
+        />
       </div>
     </div>
   );

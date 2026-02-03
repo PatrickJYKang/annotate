@@ -1,7 +1,8 @@
 "use client";
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import type { TaggingSelection } from "../../lib/tagging/schema";
 
-type Mark = { id: string; t_ms: number; tags?: string[]; label?: string };
+type Mark = { id: string; t_ms: number; tags?: TaggingSelection | string[]; label?: string };
 
 type Props = {
   src: string | null;
