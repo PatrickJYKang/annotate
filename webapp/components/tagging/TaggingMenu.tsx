@@ -30,6 +30,7 @@ type TaggingMenuProps = {
   selection: TaggingSelection | string[] | null | undefined;
   onSelectionChange: (selection: TaggingSelection) => void;
   onClose: (selection: TaggingSelection, reason: TaggingMenuCloseReason) => void;
+  onClear?: () => void;
   anchorPoint?: { x: number; y: number } | null;
   menuStyle?: React.CSSProperties;
 };
@@ -41,6 +42,7 @@ export default function TaggingMenu({
   selection,
   onSelectionChange,
   onClose,
+  onClear,
   anchorPoint,
   menuStyle,
 }: TaggingMenuProps) {
@@ -102,15 +104,15 @@ export default function TaggingMenu({
 
     const updatePosition = () => {
       const padding = 12;
-      const fallbackWidth = 640;
-      const fallbackHeight = 420;
+      const fallbackWidth = 480;
+      const fallbackHeight = 360;
       const anchorX = anchorPoint?.x ?? 120;
       const anchorY = anchorPoint?.y ?? 120;
-      const rect = menuRef.current?.getBoundingClientRect();
-      const width = rect?.width ?? fallbackWidth;
-      const height = rect?.height ?? fallbackHeight;
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
+      const rect = menuRef.current?.getBoundingClientRect();
+      const width = Math.min(rect?.width ?? fallbackWidth, Math.max(0, viewportWidth - padding * 2));
+      const height = Math.min(rect?.height ?? fallbackHeight, Math.max(0, viewportHeight - padding * 2));
       let left = anchorX;
       let top = anchorY;
 
@@ -127,10 +129,15 @@ export default function TaggingMenu({
     };
 
     const frame = window.requestAnimationFrame(updatePosition);
+    const observer = menuRef.current ? new ResizeObserver(updatePosition) : null;
+    if (menuRef.current && observer) {
+      observer.observe(menuRef.current);
+    }
     window.addEventListener("resize", updatePosition);
     return () => {
       window.cancelAnimationFrame(frame);
       window.removeEventListener("resize", updatePosition);
+      observer?.disconnect();
     };
   }, [open, anchorPoint]);
 
@@ -306,176 +313,181 @@ export default function TaggingMenu({
     top: menuPosition?.top ?? anchorPoint?.y ?? 120,
     left: menuPosition?.left ?? anchorPoint?.x ?? 120,
     zIndex: 50,
-    minWidth: 640,
-    maxWidth: 840,
-    padding: 16,
-    borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.15)",
-    background: "rgba(12,12,16,0.95)",
-    boxShadow: "0 18px 40px rgba(0,0,0,0.35)",
+    minWidth: 280,
+    maxWidth: "calc(100vw - 24px)",
+    maxHeight: "calc(100vh - 24px)",
+    overflow: "auto",
+    padding: "4px 0",
+    borderRadius: 6,
+    border: "1px solid rgba(51,65,85,0.8)",
+    background: "#1e293b",
+    boxShadow: "0 6px 16px rgba(0,0,0,0.3)",
     ...menuStyle,
   };
 
+  const optionButtonBase: React.CSSProperties = {
+    width: "100%",
+    textAlign: "left",
+    padding: "4px 10px",
+    borderRadius: 4,
+    border: "none",
+    outline: "none",
+    background: "transparent",
+    color: "inherit",
+    cursor: "pointer",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 6,
+    fontSize: 13,
+  };
+
+  const optionButtonSelected: React.CSSProperties = {
+    background: "rgba(255,255,255,0.1)",
+  };
+
+  const optionButtonLabel: React.CSSProperties = {
+    ...optionButtonBase,
+    fontWeight: 600,
+    opacity: 0.5,
+    cursor: "default",
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+    padding: "6px 10px 2px",
+  };
+
+  const getOptionStyle = (isSelected: boolean): React.CSSProperties => ({
+    ...optionButtonBase,
+    ...(isSelected ? optionButtonSelected : null),
+  });
+
   return (
     <div ref={menuRef} style={menuStyleResolved}>
-      <div style={{ fontWeight: 600, marginBottom: 8 }}>Tag mark</div>
       {schemaError ? (
         <div className="status">Failed to load tagging schema: {schemaError}</div>
       ) : !schema ? (
         <div className="status">Loading tagging schema...</div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(260px, 1.2fr) minmax(260px, 1fr)", gap: 16 }}>
-          <div>
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>Primary path</div>
-            <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 8 }}>
-              {levelOptions.map((level) => (
-                <div key={level.depth} style={{ minWidth: 200, borderRight: "1px solid rgba(255,255,255,0.08)", paddingRight: 12 }}>
-                  {level.options.map((option) => {
-                    const isSelected = pathIds[level.depth] === option.id;
-                    return (
-                      <button
-                        key={option.id}
-                        type="button"
-                        onClick={() => handlePrimarySelect(option.id)}
-                        onDoubleClick={() => onClose({ primary: option.id, facets: { ...facetSelections } }, "confirm")}
-                        style={{
-                          width: "100%",
-                          textAlign: "left",
-                          padding: "6px 8px",
-                          borderRadius: 8,
-                          border: "1px solid transparent",
-                          background: isSelected ? "rgba(255,255,255,0.18)" : "transparent",
-                          color: "inherit",
-                          cursor: "pointer",
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          gap: 6,
-                        }}
-                      >
-                        <span>{option.label}</span>
-                        {option.children?.length ? <span style={{ opacity: 0.6 }}>&gt;</span> : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-            <div className="status" style={{ marginTop: 8 }}>
-              {selectedPathLabel ? `Current: ${selectedPathLabel}` : "Select a path."}
-            </div>
-          </div>
-
-          <div>
-            <div style={{ fontWeight: 600, marginBottom: 8 }}>Facet tags</div>
-            {facetGroups.length === 0 ? (
-              <div className="status">Select a primary path to see available facets.</div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {facetGroups.map((group) => {
-                  const enabled = isFacetGroupEnabled(group);
-                  if (!enabled) {
-                    return (
-                      <div key={group.id} style={{ opacity: 0.5, fontSize: 12 }}>
-                        {group.label} (requires: {group.requires_any?.map((req) => `${req.facet_group_id}=${req.option_id}`).join(" OR ")})
-                      </div>
-                    );
-                  }
-
-                  if (group.mode === "multi") {
-                    const selected = new Set(
-                      Array.isArray(facetSelections[group.id]) ? (facetSelections[group.id] as string[]) : [],
-                    );
-                    return (
-                      <div key={group.id} style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12 }}>
-                        <div style={{ fontWeight: 600 }}>{group.label}</div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          {group.options.map((option) => {
-                            const isSelected = selected.has(option.id);
-                            const nextSelection: TaggingSelection = {
-                              primary: currentSelection.primary ?? null,
-                              facets: {
-                                ...facetSelections,
-                                [group.id]: isSelected
-                                  ? Array.from(selected).filter((id) => id !== option.id)
-                                  : Array.from(new Set([...selected, option.id])),
-                              },
-                            };
-                            if (Array.isArray(nextSelection.facets[group.id]) && (nextSelection.facets[group.id] as string[]).length === 0) {
-                              delete nextSelection.facets[group.id];
-                            }
-                            return (
-                              <button
-                                key={option.id}
-                                type="button"
-                                onClick={() => handleFacetMultiToggle(group.id, option.id, !isSelected)}
-                                onDoubleClick={() => onClose(nextSelection, "confirm")}
-                                style={{
-                                  padding: "6px 10px",
-                                  borderRadius: 999,
-                                  border: "1px solid rgba(255,255,255,0.2)",
-                                  background: isSelected ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.25)",
-                                  color: "inherit",
-                                  cursor: "pointer",
-                                }}
-                              >
-                                {option.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  const currentValue = (facetSelections[group.id] as string) ?? "";
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+            {levelOptions.map((level) => (
+              <div key={level.depth} style={{ minWidth: 170, borderRight: "1px solid rgba(255,255,255,0.08)", paddingRight: 8 }}>
+                {level.options.map((option) => {
+                  const isSelected = pathIds[level.depth] === option.id;
                   return (
-                    <div key={group.id} style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12 }}>
-                      <div style={{ fontWeight: 600 }}>{group.label}</div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {group.options.map((option) => {
-                          const isSelected = currentValue === option.id;
-                          const nextSelection: TaggingSelection = {
-                            primary: currentSelection.primary ?? null,
-                            facets: {
-                              ...facetSelections,
-                              [group.id]: isSelected ? "" : option.id,
-                            },
-                          };
-                          if (isSelected) {
-                            delete nextSelection.facets[group.id];
-                          }
-                          return (
-                            <button
-                              key={option.id}
-                              type="button"
-                              onClick={() => handleFacetSingleChange(group.id, isSelected ? "" : option.id)}
-                              onDoubleClick={() => onClose(nextSelection, "confirm")}
-                              style={{
-                                padding: "6px 10px",
-                                borderRadius: 999,
-                                border: "1px solid rgba(255,255,255,0.2)",
-                                background: isSelected ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.25)",
-                                color: "inherit",
-                                cursor: "pointer",
-                              }}
-                            >
-                              {option.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => handlePrimarySelect(option.id)}
+                      onDoubleClick={() => onClose({ primary: option.id, facets: { ...facetSelections } }, "confirm")}
+                      style={getOptionStyle(isSelected)}
+                    >
+                      <span>{option.label}</span>
+                      {option.children?.length ? <span style={{ opacity: 0.6 }}>&gt;</span> : null}
+                    </button>
                   );
                 })}
               </div>
-            )}
+            ))}
           </div>
+
+          {onClear ? (
+            <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", padding: "4px 0" }}>
+              <button
+                type="button"
+                onClick={() => { onClear(); onClose(createEmptyTaggingSelection(), "confirm"); }}
+                style={{ ...optionButtonBase, opacity: 0.7 }}
+              >
+                Clear tags
+              </button>
+            </div>
+          ) : null}
+
+          {facetGroups.length > 0 ? (
+            <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 6 }}>
+              {facetGroups.map((group) => {
+                const enabled = isFacetGroupEnabled(group);
+                if (!enabled) {
+                  return (
+                    <div key={group.id} style={{ opacity: 0.55, fontSize: 12, padding: "2px 4px" }}>
+                      {group.label}
+                    </div>
+                  );
+                }
+
+                if (group.mode === "multi") {
+                  const selected = new Set(
+                    Array.isArray(facetSelections[group.id]) ? (facetSelections[group.id] as string[]) : [],
+                  );
+                  return (
+                    <div key={group.id} style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+                      <div style={optionButtonLabel}>{group.label}</div>
+                      {group.options.map((option) => {
+                        const isSelected = selected.has(option.id);
+                        const nextSelection: TaggingSelection = {
+                          primary: currentSelection.primary ?? null,
+                          facets: {
+                            ...facetSelections,
+                            [group.id]: isSelected
+                              ? Array.from(selected).filter((id) => id !== option.id)
+                              : Array.from(new Set([...selected, option.id])),
+                          },
+                        };
+                        if (Array.isArray(nextSelection.facets[group.id]) && (nextSelection.facets[group.id] as string[]).length === 0) {
+                          delete nextSelection.facets[group.id];
+                        }
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            onClick={() => handleFacetMultiToggle(group.id, option.id, !isSelected)}
+                            onDoubleClick={() => onClose(nextSelection, "confirm")}
+                            style={getOptionStyle(isSelected)}
+                          >
+                            <span>{isSelected ? "[x] " : "[ ] "}{option.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                }
+
+                const currentValue = (facetSelections[group.id] as string) ?? "";
+                return (
+                  <div key={group.id} style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+                    <div style={optionButtonLabel}>{group.label}</div>
+                    {group.options.map((option) => {
+                      const isSelected = currentValue === option.id;
+                      const nextSelection: TaggingSelection = {
+                        primary: currentSelection.primary ?? null,
+                        facets: {
+                          ...facetSelections,
+                          [group.id]: isSelected ? "" : option.id,
+                        },
+                      };
+                      if (isSelected) {
+                        delete nextSelection.facets[group.id];
+                      }
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => handleFacetSingleChange(group.id, isSelected ? "" : option.id)}
+                          onDoubleClick={() => onClose(nextSelection, "confirm")}
+                          style={getOptionStyle(isSelected)}
+                        >
+                          <span>{option.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       )}
-      <div className="status" style={{ marginTop: 12 }}>
-        Tip: double-click a tag or press Enter to finish.
-      </div>
     </div>
   );
 }

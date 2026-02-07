@@ -34,6 +34,8 @@ export default function PlayerPage() {
   const [tagMenuAnchor, setTagMenuAnchor] = useState<{ x: number; y: number } | null>(null);
   const [tagMenuSelection, setTagMenuSelection] = useState<TaggingSelection>(createEmptyTaggingSelection());
   const [tagMenuMarkId, setTagMenuMarkId] = useState<string | null>(null);
+  const undoStackRef = useRef<{ marks: ProjectManifestV1['marks']; selectedMarkId: string | null }[]>([]);
+  const redoStackRef = useRef<{ marks: ProjectManifestV1['marks']; selectedMarkId: string | null }[]>([]);
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const manifestRef = useRef<ProjectManifestV1 | null>(null);
   const selectedVideoIdRef = useRef<string | null>(null);
@@ -109,9 +111,43 @@ export default function PlayerPage() {
     return () => { if (revoked) URL.revokeObjectURL(revoked); };
   }, [projectDir, selectedVideoId]);
 
+  const pushUndo = useCallback(() => {
+    const cur = manifestRef.current;
+    if (!cur) return;
+    undoStackRef.current = [...undoStackRef.current.slice(-49), { marks: cur.marks, selectedMarkId: selectedMarkIdRef.current }];
+    redoStackRef.current = [];
+  }, []);
+
+  const undo = useCallback(async () => {
+    const stack = undoStackRef.current;
+    if (stack.length === 0) return;
+    const cur = manifestRef.current;
+    if (cur) {
+      redoStackRef.current = [...redoStackRef.current.slice(-49), { marks: cur.marks, selectedMarkId: selectedMarkIdRef.current }];
+    }
+    const prev = stack[stack.length - 1];
+    undoStackRef.current = stack.slice(0, -1);
+    await mutateManifestExclusive((mf) => ({ ...mf, marks: prev.marks }));
+    setSelectedMarkIdSafe(prev.selectedMarkId);
+  }, [mutateManifestExclusive, setSelectedMarkIdSafe]);
+
+  const redo = useCallback(async () => {
+    const stack = redoStackRef.current;
+    if (stack.length === 0) return;
+    const cur = manifestRef.current;
+    if (cur) {
+      undoStackRef.current = [...undoStackRef.current.slice(-49), { marks: cur.marks, selectedMarkId: selectedMarkIdRef.current }];
+    }
+    const next = stack[stack.length - 1];
+    redoStackRef.current = stack.slice(0, -1);
+    await mutateManifestExclusive((mf) => ({ ...mf, marks: next.marks }));
+    setSelectedMarkIdSafe(next.selectedMarkId);
+  }, [mutateManifestExclusive, setSelectedMarkIdSafe]);
+
   const addMarkAt = useCallback(async (t_ms: number) => {
     const vid = selectedVideoIdRef.current;
     if (!vid) return;
+    pushUndo();
     const id = (globalThis.crypto && 'randomUUID' in globalThis.crypto) ? (globalThis.crypto as any).randomUUID() : `mark_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
     const next = await mutateManifestExclusive((mf) => {
       const video = mf.videos.find(v => v.id === vid);
@@ -119,17 +155,28 @@ export default function PlayerPage() {
       return { ...mf, marks: [...mf.marks, { id, videoId: video.id, t_ms, tags: createEmptyTaggingSelection() }] };
     });
     if (next) setSelectedMarkIdSafe(id);
-  }, [mutateManifestExclusive, setSelectedMarkIdSafe]);
+  }, [mutateManifestExclusive, setSelectedMarkIdSafe, pushUndo]);
 
   const deleteSelectedMark = useCallback(async () => {
     const target = selectedMarkIdRef.current;
     if (!target) return;
+    pushUndo();
     await mutateManifestExclusive((mf) => {
       const nextMarks = mf.marks.filter(m => m.id !== target);
       return { ...mf, marks: nextMarks };
     });
     setSelectedMarkIdSafe(null);
-  }, [mutateManifestExclusive, setSelectedMarkIdSafe]);
+  }, [mutateManifestExclusive, setSelectedMarkIdSafe, pushUndo]);
+
+  const clearTagsOnSelectedMark = useCallback(async () => {
+    const target = selectedMarkIdRef.current;
+    if (!target) return;
+    pushUndo();
+    await mutateManifestExclusive((mf) => {
+      const nextMarks = mf.marks.map((m) => (m.id === target ? { ...m, tags: createEmptyTaggingSelection() } : m));
+      return { ...mf, marks: nextMarks };
+    });
+  }, [mutateManifestExclusive, pushUndo]);
 
   const marksForVideo = (manifest && selectedVideoId)
     ? manifest.marks.filter(m => m.videoId === selectedVideoId).sort((a, b) => a.t_ms - b.t_ms)
@@ -151,11 +198,12 @@ export default function PlayerPage() {
   }, [marksForVideo, setSelectedMarkIdSafe]);
 
   const saveTaggingSelection = useCallback(async (markId: string, selection: TaggingSelection) => {
+    pushUndo();
     await mutateManifestExclusive((mf) => {
       const nextMarks = mf.marks.map((mark) => (mark.id === markId ? { ...mark, tags: selection } : mark));
       return { ...mf, marks: nextMarks };
     });
-  }, [mutateManifestExclusive]);
+  }, [mutateManifestExclusive, pushUndo]);
 
   const handleTagMenuClose = useCallback(async (selection: TaggingSelection, reason: TaggingMenuCloseReason) => {
     setTagMenuOpen(false);
@@ -198,10 +246,13 @@ export default function PlayerPage() {
       if (key === 'ArrowRight') { e.preventDefault(); shift ? api.nudgeLarge(1) : api.nudgeSmall(1); return; }
       if (key === 'm' || key === 'M') { e.preventDefault(); api.addMark(); return; }
       if (key === 'Backspace' || key === 'Delete') { if (selectedMarkId) { e.preventDefault(); await deleteSelectedMark(); } return; }
+      if (key === 'c' || key === 'C') { if (selectedMarkId) { e.preventDefault(); await clearTagsOnSelectedMark(); } return; }
+      if (key === 'z' && (meta || e.ctrlKey) && !shift) { e.preventDefault(); await undo(); return; }
+      if (key === 'z' && (meta || e.ctrlKey) && shift) { e.preventDefault(); await redo(); return; }
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [addMarkAt, deleteSelectedMark, selectedMarkId, marksForVideo]);
+  }, [addMarkAt, deleteSelectedMark, clearTagsOnSelectedMark, undo, redo, selectedMarkId, marksForVideo]);
 
   if (!projectDir || !manifest) {
     return (
@@ -250,7 +301,7 @@ export default function PlayerPage() {
               skipLargeSeconds={2}
               allowFullscreen
             />
-            <div className="status" style={{ marginTop: 8 }}>Hotkeys anywhere: J/K/L, ←/→, ,/. · Hold Shift for ±2s skips · M adds mark · Right-click a mark to tag</div>
+            <div className="status" style={{ marginTop: 8 }}>J/K/L ←/→ ,/. · Shift=±2s · M=mark · C=clear tags · ⌘Z=undo · ⌘⇧Z=redo · Right-click=tag</div>
           </div>
           <div style={{ flex: '0 0 260px', minWidth: 260, height: 'calc(100vh - var(--player-headroom))', display: 'flex', flexDirection: 'column' }}>
             <strong>Marks</strong>
@@ -261,9 +312,9 @@ export default function PlayerPage() {
                     <button
                       onClick={() => { setSelectedMarkId(m.id); setSeekMs(m.t_ms || 0); }}
                       onContextMenu={(event) => openTagMenuForMark(event, m.id)}
-                      style={{ width: '100%', textAlign: 'left', background: selectedMarkId === m.id ? '#0f172a' : '#1f2937', borderColor: selectedMarkId === m.id ? '#60a5fa' : '#334155' }}
+                      style={{ width: '100%', textAlign: 'left', background: selectedMarkId === m.id ? (markTagLists.get(m.id)?.length ? '#1e3a5f' : '#0f172a') : (markTagLists.get(m.id)?.length ? '#1e3a5f' : '#1f2937'), borderColor: selectedMarkId === m.id ? '#60a5fa' : '#334155' }}
                     >
-                      {formatTime(m.t_ms)} {markTagLists.get(m.id)?.length ? ` · [${markTagLists.get(m.id)?.join(", ")}]` : ""}
+                      {formatTime(m.t_ms)}
                     </button>
                   </li>
                 ))}
@@ -283,6 +334,14 @@ export default function PlayerPage() {
           anchorPoint={tagMenuAnchor}
           onSelectionChange={setTagMenuSelection}
           onClose={handleTagMenuClose}
+          onClear={() => {
+            const empty = createEmptyTaggingSelection();
+            setTagMenuSelection(empty);
+            if (tagMenuMarkId) {
+              pushUndo();
+              saveTaggingSelection(tagMenuMarkId, empty);
+            }
+          }}
         />
       </div>
     </div>

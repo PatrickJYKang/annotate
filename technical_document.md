@@ -28,7 +28,8 @@ This document describes the **current implementation** (routes, on-disk formats,
 7. Persistence and synchronization
 8. Concurrency / locking
 9. Browser requirements and limitations
-10. Segmentation test page (experimental)
+10. Tagging schema system
+11. Segmentation test page (experimental)
 
 ---
 
@@ -48,6 +49,9 @@ This document describes the **current implementation** (routes, on-disk formats,
 - Project context: `webapp/lib/state/ProjectContext.tsx`
 - Project folder utilities: `webapp/lib/fs/projectFolder.ts`
 - Manifest schema: `webapp/lib/types/project.ts`
+- Tagging schema & helpers: `webapp/lib/tagging/schema.ts`
+- Tagging UI component: `webapp/components/tagging/TaggingMenu.tsx`
+- Tagging schema data: `webapp/public/tagging/schema.yaml`
 - Video player: `webapp/components/player/VideoPlayerUnit.tsx`
 - Stills export: `webapp/lib/export/d7Export.ts`, `webapp/lib/export/d7Render.ts`
 - Annotation editor: `webapp/components/annotate/Editor.tsx`
@@ -68,7 +72,9 @@ This document describes the **current implementation** (routes, on-disk formats,
 - File: `webapp/app/player/page.tsx`
 - Responsibilities:
   - Load video bytes from the project folder and play them via `<video>`.
-  - Create marks at timestamps (`t_ms`) and toggle numeric tags (`1`–`9`).
+  - Create marks at timestamps (`t_ms`).
+  - Tag marks via a hierarchical tagging menu (right-click a mark to open `TaggingMenu`).
+  - Undo/redo for mark and tag edits (⌘Z / ⌘⇧Z), with a 50-entry stack.
   - Persist mark edits by rewriting `project.json`.
 
 ### `/stills` – Still capture + thumbnail grid + export
@@ -86,6 +92,14 @@ This document describes the **current implementation** (routes, on-disk formats,
   - Connect to the project directory handle (via `postMessage` from `/stills` or restore from IndexedDB).
   - Load the still image from `stills/...`.
   - Provide editing tools and autosave to `annotations/<stillId>.json`.
+
+### `/dropdown-test` – Tagging dropdown sandbox
+- File: `webapp/app/dropdown-test/page.tsx`
+- Responsibilities:
+  - Standalone test page for the hierarchical tagging dropdown.
+  - Loads `schema.yaml` from `public/tagging/` and renders the primary tree + facet pickers.
+  - Displays current selection as JSON.
+  - Not integrated into the main workflow; exists for development/testing.
 
 ### `/segmentation-test` – Experimental segmentation sandbox
 - File: `webapp/app/segmentation-test/page.tsx`
@@ -133,12 +147,14 @@ Notes:
 Defined in `webapp/lib/types/project.ts`.
 
 ```ts
+import type { TaggingSelection } from "../tagging/schema";
+
 export interface ProjectManifestV1 {
   schema: 'project.v1';
   name: string;
   created: string;
   videos: { id: string; label: string; file: string; durationMs?: number; width?: number; height?: number; fps?: number }[];
-  marks: { id: string; videoId: string; t_ms: number; tags: string[] }[];
+  marks: { id: string; videoId: string; t_ms: number; tags?: TaggingSelection | string[] }[];
   stills: { id: string; videoId: string; t_ms: number; file: string; width?: number; height?: number }[];
   annotations: { stillId: string; file: string; lastModified?: string }[];
   reports: string[];
@@ -149,6 +165,7 @@ export interface ProjectManifestV1 {
 Key invariants:
 - `schema` must equal `"project.v1"`.
 - `videos[].file`, `stills[].file`, and the strings in `thumbnails[]` / `reports[]` are **relative paths** within the project directory.
+- `marks[].tags` may be a `TaggingSelection` object (`{ primary, facets }`) or a legacy `string[]`. Readers must handle both via `ensureTaggingSelection()` from `webapp/lib/tagging/schema.ts`.
 - A still is linked to marks by **time tolerance**, not by mark ID. Export uses a ±2 frame tolerance based on FPS.
 
 ---
@@ -224,15 +241,23 @@ Files:
 - `webapp/lib/media/metadata.ts`
 
 ### 6.3 Marks (timestamps + tags)
-- Marks are stored in `project.json` as `{ id, videoId, t_ms, tags[] }`.
+- Marks are stored in `project.json` as `{ id, videoId, t_ms, tags }` where `tags` is a `TaggingSelection` object (or legacy `string[]`).
+- Tags are assigned via a hierarchical tagging menu (`TaggingMenu` component) opened by right-clicking a mark.
+- The tagging menu renders a multi-column primary tree selector plus context-dependent facet pickers, driven by `schema.yaml`.
 - The player supports keyboard shortcuts globally on the page:
   - `M` add mark
-  - `1`–`9` toggle tags for selected (or most recent) mark
+  - `Backspace/Delete` delete selected mark
+  - `C` clear tags on selected mark
+  - `⌘Z` undo, `⌘⇧Z` redo (50-entry stack)
+  - `⌘←/⌘→` jump to prev/next mark
   - `J/K/L`, `,/.`, `←/→` for stepping and nudging
+  - `Space` play/pause
 
 Files:
 - Page logic: `webapp/app/player/page.tsx`
 - Player component: `webapp/components/player/VideoPlayerUnit.tsx`
+- Tagging menu: `webapp/components/tagging/TaggingMenu.tsx`
+- Tagging schema helpers: `webapp/lib/tagging/schema.ts`
 
 ### 6.4 Still capture + thumbnails
 - Stills are created by drawing the current `<video>` frame to a canvas and encoding PNG.
@@ -339,7 +364,63 @@ If locks are not available, the code falls back to direct writes.
 
 ---
 
-## 10) Segmentation test page (experimental)
+## 10) Tagging schema system
+
+### Schema source
+- Machine-readable schema: `webapp/public/tagging/schema.yaml` (served as a static asset, fetched at runtime).
+- Design docs: `plans/post-mvp/tagging/schema.md` and `plans/post-mvp/tagging/schema.yaml`.
+
+### Schema structure (`TaggingSchema`)
+Defined in `webapp/lib/tagging/schema.ts`, parsed from YAML at runtime using the `yaml` npm package.
+
+```ts
+type TaggingSchema = {
+  version: number;
+  facet_groups: TaggingFacetGroup[];
+  primary_tree: TaggingNode[];
+};
+```
+
+- **`primary_tree`**: hierarchical tree of event categories (e.g., Offensive > Open play > Cross). Each node has `id`, `label`, optional `children`, and optional `facet_group_ids`.
+- **`facet_groups`**: flat list of optional trait pickers. Each group has `id`, `label`, `mode` (`single` | `multi`), `options`, and optional `requires_any` (conditional visibility).
+
+### Selection model (`TaggingSelection`)
+```ts
+type TaggingSelection = {
+  primary: string | null;
+  facets: Record<string, string | string[]>;
+};
+```
+
+- `primary`: the selected node ID from the primary tree (can stop at any depth).
+- `facets`: keyed by facet group ID, value is a single option ID (for `single` mode) or an array of option IDs (for `multi` mode).
+
+Helper functions:
+- `createEmptyTaggingSelection()` — returns `{ primary: null, facets: {} }`.
+- `ensureTaggingSelection(input)` — normalizes legacy `string[]` or `null` to `TaggingSelection`.
+- `selectionToTagList(input)` — flattens a selection into a string array for display (primary ID + `groupId=optionId` entries).
+- `fetchTaggingSchema()` — fetches and parses `/tagging/schema.yaml`.
+
+### TaggingMenu component
+- File: `webapp/components/tagging/TaggingMenu.tsx`
+- A fixed-position popup menu rendered when `open` is true.
+- Renders the primary tree as horizontally scrolling columns (multi-level cascade).
+- Shows applicable facet groups below the primary selector, with conditional facets gated by `requires_any`.
+- Closing behavior:
+  - `Enter` → confirm selection.
+  - `Escape` or click-outside → dismiss.
+  - Double-click an option → confirm immediately.
+- Props accept a `selection` that can be `TaggingSelection | string[] | null` for backward compatibility.
+- Includes an optional "Clear tags" action.
+
+### Integration in `/player`
+- Right-clicking a mark opens `TaggingMenu` anchored at the click position.
+- On confirm, the selection is saved to `mark.tags` as a `TaggingSelection` object.
+- The mark list visually distinguishes tagged vs untagged marks (different background colors).
+
+---
+
+## 11) Segmentation test page (experimental)
 
 The `segmentation-test` route is a sandbox for foreground extraction from a still image.
 

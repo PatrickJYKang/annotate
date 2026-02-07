@@ -1,15 +1,25 @@
-# Football Analysis Annotator (Web PWA) – Documentation Only
+# Football Analysis Annotator
 
-This repository currently contains the documentation for a web-based Progressive Web App (PWA) annotator for football analysis. The MVP is stills-first, with a path to video overlays using ffmpeg.wasm as a fallback for VFR/unsupported codecs.
+A stills-first web application for football match analysis. Built with **Next.js 14 (App Router)**, **React 18**, **TypeScript**, and **Konva** for canvas-based annotation.
 
-Implementation is gated by a phase described in `MVP_Implementation_Plan.md`. No code will be added until sign-off.
+Requires a **Chromium-based browser** (Chrome, Edge, Arc, etc.) for the File System Access API.
 
-## Contents
-- `technical_document.md` – High-level architecture/design for the Web PWA
-- `MVP_Implementation_Plan.md` – Detailed MVP plan, scope, milestones, dependencies, and risks
+## Quick start
+```bash
+cd webapp
+npm install
+npm run dev
+```
 
-## Next steps (post sign-off)
-- Begin M0 bootstrap per `MVP_Implementation_Plan.md` (initialize Next.js, PWA scaffold)
-- Implement media playback and canvas capture with ffmpeg.wasm fallback
-- Build annotation canvas and sidecar persistence
-- Implement export (PNG/CSV/JSON/ZIP)
+## Key features
+- **Project folders** on disk (`.matchproj` convention) with a `project.json` manifest
+- **Video import** and playback with frame-level stepping
+- **Marks** at timestamps with a hierarchical **tagging system** (primary path + facet traits, driven by `schema.yaml`)
+- **Still capture** from video frames with automatic thumbnails
+- **Annotation editor** (Konva canvas) — boxes, circles, arrows, text, polygons, highlights, perspective-aware placement
+- **Export** annotated PNGs and CSV/JSON reports
+
+## Documentation
+- `technical_document.md` – As-built technical specification (routes, schemas, workflows, persistence)
+- `MVP_Implementation_Plan.md` – Original MVP plan and milestones
+- `plans/` – Per-deliverable implementation plans and post-MVP design docs (tagging schema, etc.)
