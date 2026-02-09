@@ -10,6 +10,7 @@ import {
   TaggingSchema,
   TaggingSelection,
 } from "../../lib/tagging/schema";
+// fetchTaggingSchema is kept only as a legacy fallback when no schema prop is provided.
 
 export type TaggingMenuCloseReason = "confirm" | "dismiss";
 
@@ -27,6 +28,7 @@ type PathInfo = {
 
 type TaggingMenuProps = {
   open: boolean;
+  schema?: TaggingSchema | null;
   selection: TaggingSelection | string[] | null | undefined;
   onSelectionChange: (selection: TaggingSelection) => void;
   onClose: (selection: TaggingSelection, reason: TaggingMenuCloseReason) => void;
@@ -39,6 +41,7 @@ const EMPTY_SELECTION = createEmptyTaggingSelection();
 
 export default function TaggingMenu({
   open,
+  schema: schemaProp,
   selection,
   onSelectionChange,
   onClose,
@@ -46,8 +49,9 @@ export default function TaggingMenu({
   anchorPoint,
   menuStyle,
 }: TaggingMenuProps) {
-  const [schema, setSchema] = useState<TaggingSchema | null>(null);
+  const [schemaFetched, setSchemaFetched] = useState<TaggingSchema | null>(null);
   const [schemaError, setSchemaError] = useState<string | null>(null);
+  const schema = schemaProp ?? schemaFetched;
   const menuRef = useRef<HTMLDivElement | null>(null);
   const selectionRef = useRef<TaggingSelection>(ensureTaggingSelection(selection));
   const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null);
@@ -57,12 +61,12 @@ export default function TaggingMenu({
   }, [selection]);
 
   useEffect(() => {
-    if (schema || schemaError) return;
+    if (schemaProp || schemaFetched || schemaError) return;
     let active = true;
     fetchTaggingSchema()
       .then((data) => {
         if (!active) return;
-        setSchema(data);
+        setSchemaFetched(data);
       })
       .catch((err) => {
         if (!active) return;
@@ -72,7 +76,7 @@ export default function TaggingMenu({
     return () => {
       active = false;
     };
-  }, [schema, schemaError]);
+  }, [schemaProp, schemaFetched, schemaError]);
 
   useEffect(() => {
     if (!open) return;

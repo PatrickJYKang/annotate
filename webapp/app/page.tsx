@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { ensureProjectFolderStructure, validateProjectFolderStructure, writeManifest } from "../lib/fs/projectFolder";
 import { uniqueFileName } from "../lib/fs/utils";
 import { extractVideoMetadata } from "../lib/media/metadata";
+import { readTaggingSchema, writeDefaultTaggingSchema } from "../lib/tagging/schema";
 
 function useToast() {
   const [msg, setMsg] = useState<string | null>(null);
@@ -31,7 +32,7 @@ function formatTime(ms: number): string {
 
 export default function Page() {
   const router = useRouter();
-  const { projectDir, setProjectDir, manifest, setManifest, selectedVideoId, setSelectedVideoId } = useProject();
+  const { projectDir, setProjectDir, manifest, setManifest, selectedVideoId, setSelectedVideoId, setTaggingSchema } = useProject();
   const [mounted, setMounted] = useState(false);
   const [fsSupported, setFsSupported] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -76,8 +77,10 @@ export default function Page() {
       const project = await parent.getDirectoryHandle(name, { create: true });
       await ensurePermission(project);
       const mf = await ensureProjectFolderStructure(project, name.replace(/\.matchproj$/i, ""));
+      const schema = await readTaggingSchema(project);
       setProjectDir(project);
       setManifest(mf);
+      setTaggingSchema(schema);
       show("Project created");
     } catch (e: any) {
       if (e?.name === "AbortError") return;
@@ -98,8 +101,22 @@ export default function Page() {
         throw new Error(`Not a valid project folder: ${v.reason}`);
       }
       const mf = v.manifest;
+      let schema = await readTaggingSchema(dir);
+      if (!schema) {
+        const addDefault = confirm(
+          "This project does not have a tagging schema.\nAdd the default schema?"
+        );
+        if (addDefault) {
+          try {
+            schema = await writeDefaultTaggingSchema(dir);
+          } catch (e2: any) {
+            show(e2?.message || "Failed to write default schema");
+          }
+        }
+      }
       setProjectDir(dir);
       setManifest(mf);
+      setTaggingSchema(schema);
       show("Project opened");
     } catch (e: any) {
       if (e?.name === "AbortError") return;
@@ -121,7 +138,8 @@ export default function Page() {
     setProjectDir(null);
     setManifest(null);
     setSelectedVideoId(null);
-  }, [setProjectDir, setManifest, setSelectedVideoId]);
+    setTaggingSchema(null);
+  }, [setProjectDir, setManifest, setSelectedVideoId, setTaggingSchema]);
 
   const addVideosToManifest = useCallback((mf: ProjectManifestV1, entries: { name: string; relPath: string; meta: { durationMs?: number; width?: number; height?: number; fps?: number } }[]) => {
     const next = { ...mf, videos: [...mf.videos] };

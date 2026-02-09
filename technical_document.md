@@ -43,6 +43,7 @@ This document describes the **current implementation** (routes, on-disk formats,
   - the open project directory handle
   - the loaded manifest (`project.json`)
   - the currently selected video ID
+  - the loaded tagging schema (`TaggingSchema | null`)
 
 ### Key implementation files
 - App shell: `webapp/app/layout.tsx`
@@ -51,7 +52,7 @@ This document describes the **current implementation** (routes, on-disk formats,
 - Manifest schema: `webapp/lib/types/project.ts`
 - Tagging schema & helpers: `webapp/lib/tagging/schema.ts`
 - Tagging UI component: `webapp/components/tagging/TaggingMenu.tsx`
-- Tagging schema data: `webapp/public/tagging/schema.yaml`
+- Tagging schema default template: `webapp/public/tagging/schema.yaml`
 - Video player: `webapp/components/player/VideoPlayerUnit.tsx`
 - Stills export: `webapp/lib/export/d7Export.ts`, `webapp/lib/export/d7Render.ts`
 - Annotation editor: `webapp/components/annotate/Editor.tsx`
@@ -63,8 +64,8 @@ This document describes the **current implementation** (routes, on-disk formats,
 ### `/` – Project + import
 - File: `webapp/app/page.tsx`
 - Responsibilities:
-  - Create a new project folder (creates required subdirectories + `project.json`).
-  - Open an existing project folder (validates structure + loads `project.json`).
+  - Create a new project folder (creates required subdirectories + `project.json` + `tagging-schema.yaml`).
+  - Open an existing project folder (validates structure + loads `project.json` + reads `tagging-schema.yaml`; if missing, prompts to add the default schema).
   - Import video files into `media/` (streaming copy).
   - Choose a video to work on (sets `selectedVideoId` then routes to `/player`).
 
@@ -73,9 +74,13 @@ This document describes the **current implementation** (routes, on-disk formats,
 - Responsibilities:
   - Load video bytes from the project folder and play them via `<video>`.
   - Create marks at timestamps (`t_ms`).
-  - Tag marks via a hierarchical tagging menu (right-click a mark to open `TaggingMenu`).
+  - Tag marks via a hierarchical tagging menu (right-click a mark to open `TaggingMenu`); schema is passed as a prop from `ProjectContext`.
   - Undo/redo for mark and tag edits (⌘Z / ⌘⇧Z), with a 50-entry stack.
   - Persist mark edits by rewriting `project.json`.
+
+### `/player-legacy` – Legacy playback + marks (preserved)
+- File: `webapp/app/player-legacy/page.tsx`
+- The original `/player` page, preserved as-is for reference/fallback. Not reachable from normal navigation.
 
 ### `/stills` – Still capture + thumbnail grid + export
 - File: `webapp/app/stills/page.tsx`
@@ -121,6 +126,7 @@ Created/validated by `webapp/lib/fs/projectFolder.ts`.
 ```text
 MyMatch.matchproj/
   project.json
+  tagging-schema.yaml
   media/
   stills/
   thumbnails/
@@ -131,6 +137,7 @@ MyMatch.matchproj/
 ```
 
 Notes:
+- `tagging-schema.yaml` is written from the default template on project creation. For existing projects opened without one, the user is prompted to add it.
 - `reports/annotated/` is created during export.
 - `clips/` exists but is not used by the current app.
 
@@ -219,13 +226,17 @@ Shape model (high-level):
 ### 6.1 Create/open project
 - Create:
   - UI prompts for a folder name (adds `.matchproj` suffix if missing).
-  - Writes required subdirectories and `project.json`.
+  - Writes required subdirectories, `project.json`, and `tagging-schema.yaml` (default template).
+  - Reads the schema back and stores it in `ProjectContext.taggingSchema`.
 - Open:
   - Validates that required subdirectories exist and `project.json` parses as `project.v1`.
+  - Reads `tagging-schema.yaml` from the project directory.
+  - If the schema file is missing, shows a `confirm()` prompt: "This project does not have a tagging schema. Add the default schema?". On accept, writes the default template; on cancel, tagging features remain disabled (`taggingSchema = null`).
 
 Files:
 - UI: `webapp/app/page.tsx`
 - Implementation: `webapp/lib/fs/projectFolder.ts`
+- Schema I/O: `webapp/lib/tagging/schema.ts`
 
 ### 6.2 Import video
 - Video import copies selected files into `media/`.
@@ -367,8 +378,9 @@ If locks are not available, the code falls back to direct writes.
 ## 10) Tagging schema system
 
 ### Schema source
-- Machine-readable schema: `webapp/public/tagging/schema.yaml` (served as a static asset, fetched at runtime).
-- Design docs: `plans/post-mvp/tagging/schema.md` and `plans/post-mvp/tagging/schema.yaml`.
+- **Per-project**: each project carries its own schema at `<project>/tagging-schema.yaml`. This is the runtime source.
+- **Default template**: `webapp/public/tagging/schema.yaml` (bundled static asset). Written into new projects automatically and offered to existing projects missing a schema.
+- **Design docs**: `plans/post-mvp/tagging/schema.md`, `plans/post-mvp/tagging/schema.yaml`, and `plans/post-mvp/tagging/tagging-page-redesign.md`.
 
 ### Schema structure (`TaggingSchema`)
 Defined in `webapp/lib/tagging/schema.ts`, parsed from YAML at runtime using the `yaml` npm package.
@@ -399,11 +411,15 @@ Helper functions:
 - `createEmptyTaggingSelection()` — returns `{ primary: null, facets: {} }`.
 - `ensureTaggingSelection(input)` — normalizes legacy `string[]` or `null` to `TaggingSelection`.
 - `selectionToTagList(input)` — flattens a selection into a string array for display (primary ID + `groupId=optionId` entries).
-- `fetchTaggingSchema()` — fetches and parses `/tagging/schema.yaml`.
+- `readTaggingSchema(dir)` — reads and parses `tagging-schema.yaml` from a project directory; returns `null` if not found.
+- `writeDefaultTaggingSchema(dir)` — fetches the default template from `public/tagging/schema.yaml` and writes it into the project directory; returns the parsed schema.
+- `fetchDefaultTaggingSchema()` — fetches the raw YAML text of the default template.
+- `fetchTaggingSchema()` — **deprecated**; legacy wrapper that fetches the default template and parses it. Kept for reference / `dropdown-test` page.
 
 ### TaggingMenu component
 - File: `webapp/components/tagging/TaggingMenu.tsx`
 - A fixed-position popup menu rendered when `open` is true.
+- Accepts an optional `schema: TaggingSchema` prop. When provided, the schema is used directly. When omitted, falls back to fetching the default template via `fetchTaggingSchema()` (legacy behavior for `dropdown-test`).
 - Renders the primary tree as horizontally scrolling columns (multi-level cascade).
 - Shows applicable facet groups below the primary selector, with conditional facets gated by `requires_any`.
 - Closing behavior:
@@ -414,6 +430,7 @@ Helper functions:
 - Includes an optional "Clear tags" action.
 
 ### Integration in `/player`
+- The player page reads `taggingSchema` from `ProjectContext` and passes it as a prop to `TaggingMenu`.
 - Right-clicking a mark opens `TaggingMenu` anchored at the click position.
 - On confirm, the selection is saved to `mark.tags` as a `TaggingSelection` object.
 - The mark list visually distinguishes tagged vs untagged marks (different background colors).

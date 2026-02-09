@@ -1,4 +1,5 @@
 import { ProjectManifestV1, defaultProjectManifest } from '../types/project';
+import { writeDefaultTaggingSchema } from '../tagging/schema';
 
 async function getOrCreateDir(parent: FileSystemDirectoryHandle, name: string) {
   return await parent.getDirectoryHandle(name, { create: true });
@@ -21,6 +22,11 @@ export async function ensureProjectFolderStructure(projectDir: FileSystemDirecto
   await getOrCreateDir(projectDir, 'reports');
   await getOrCreateDir(projectDir, 'clips');
   const manifest = await ensureManifest(projectDir, projectName);
+  try {
+    await writeDefaultTaggingSchema(projectDir);
+  } catch {
+    // Non-fatal: project still usable without schema
+  }
   return manifest;
 }
 

@@ -74,17 +74,54 @@ export const selectionToTagList = (
   return tags;
 };
 
-export const TAGGING_SCHEMA_PATH = "/tagging/schema.yaml";
+export const TAGGING_SCHEMA_FILENAME = "tagging-schema.yaml";
+
+export const TAGGING_SCHEMA_DEFAULT_PATH = "/tagging/schema.yaml";
 
 export const parseTaggingSchema = (source: string): TaggingSchema => {
   return parse(source) as TaggingSchema;
 };
 
-export const fetchTaggingSchema = async (): Promise<TaggingSchema> => {
-  const response = await fetch(TAGGING_SCHEMA_PATH);
-  if (!response.ok) {
-    throw new Error(`Failed to load tagging schema (${response.status})`);
+/** Read the tagging schema from a project directory. Returns null if not found. */
+export const readTaggingSchema = async (
+  dir: FileSystemDirectoryHandle,
+): Promise<TaggingSchema | null> => {
+  try {
+    const fh = await dir.getFileHandle(TAGGING_SCHEMA_FILENAME, { create: false });
+    const file = await fh.getFile();
+    const text = await file.text();
+    return parseTaggingSchema(text);
+  } catch (e: any) {
+    if (e?.name === "NotFoundError" || e?.name === "TypeMismatchError") {
+      return null;
+    }
+    throw e;
   }
-  const text = await response.text();
+};
+
+/** Fetch the default template schema bundled with the app. */
+export const fetchDefaultTaggingSchema = async (): Promise<string> => {
+  const response = await fetch(TAGGING_SCHEMA_DEFAULT_PATH);
+  if (!response.ok) {
+    throw new Error(`Failed to load default tagging schema (${response.status})`);
+  }
+  return response.text();
+};
+
+/** Write the default tagging schema template into a project directory. */
+export const writeDefaultTaggingSchema = async (
+  dir: FileSystemDirectoryHandle,
+): Promise<TaggingSchema> => {
+  const source = await fetchDefaultTaggingSchema();
+  const fh = await dir.getFileHandle(TAGGING_SCHEMA_FILENAME, { create: true });
+  const ws = await fh.createWritable();
+  await ws.write(source);
+  await ws.close();
+  return parseTaggingSchema(source);
+};
+
+/** @deprecated Use readTaggingSchema(dir) for per-project schema loading. */
+export const fetchTaggingSchema = async (): Promise<TaggingSchema> => {
+  const text = await fetchDefaultTaggingSchema();
   return parseTaggingSchema(text);
 };
