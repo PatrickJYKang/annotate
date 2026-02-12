@@ -29,7 +29,8 @@ This document describes the **current implementation** (routes, on-disk formats,
 8. Concurrency / locking
 9. Browser requirements and limitations
 10. Tagging schema system
-11. Segmentation test page (experimental)
+11. Planned: match metadata screen
+12. Segmentation test page (experimental)
 
 ---
 
@@ -51,7 +52,8 @@ This document describes the **current implementation** (routes, on-disk formats,
 - Project folder utilities: `webapp/lib/fs/projectFolder.ts`
 - Manifest schema: `webapp/lib/types/project.ts`
 - Tagging schema & helpers: `webapp/lib/tagging/schema.ts`
-- Tagging UI component: `webapp/components/tagging/TaggingMenu.tsx`
+- Tagging UI — menu: `webapp/components/tagging/TaggingMenu.tsx`
+- Tagging UI — folder tree: `webapp/components/tagging/TagFolderTree.tsx`
 - Tagging schema default template: `webapp/public/tagging/schema.yaml`
 - Video player: `webapp/components/player/VideoPlayerUnit.tsx`
 - Stills export: `webapp/lib/export/d7Export.ts`, `webapp/lib/export/d7Render.ts`
@@ -69,12 +71,15 @@ This document describes the **current implementation** (routes, on-disk formats,
   - Import video files into `media/` (streaming copy).
   - Choose a video to work on (sets `selectedVideoId` then routes to `/player`).
 
-### `/player` – Playback + marks
+### `/player` – Playback + tagging
 - File: `webapp/app/player/page.tsx`
+- Layout: two-pane — video player (left) + tag folder tree (right).
 - Responsibilities:
   - Load video bytes from the project folder and play them via `<video>`.
-  - Create marks at timestamps (`t_ms`).
+  - Create marks at timestamps (`t_ms`); adding a mark auto-opens the `TaggingMenu`.
+  - Display marks organised into collapsible folders mirroring the `primary_tree` schema, via the `TagFolderTree` component.
   - Tag marks via a hierarchical tagging menu (right-click a mark to open `TaggingMenu`); schema is passed as a prop from `ProjectContext`.
+  - Re-tag marks by dragging them onto a folder in the tree (sets `primary` to the target node ID, clears facets).
   - Undo/redo for mark and tag edits (⌘Z / ⌘⇧Z), with a 50-entry stack.
   - Persist mark edits by rewriting `project.json`.
 
@@ -253,10 +258,20 @@ Files:
 
 ### 6.3 Marks (timestamps + tags)
 - Marks are stored in `project.json` as `{ id, videoId, t_ms, tags }` where `tags` is a `TaggingSelection` object (or legacy `string[]`).
-- Tags are assigned via a hierarchical tagging menu (`TaggingMenu` component) opened by right-clicking a mark.
-- The tagging menu renders a multi-column primary tree selector plus context-dependent facet pickers, driven by `schema.yaml`.
+- The right pane of the player page shows a **tag folder tree** (`TagFolderTree`) that groups marks into collapsible folders matching the `primary_tree` from the schema:
+  - Marks are placed by matching `mark.tags.primary` to a node ID.
+  - An **"Untagged"** bucket collects marks with `primary = null`.
+  - An **"Unknown tag"** bucket collects marks whose `primary` does not match any schema node (displays the raw ID).
+  - Parent folders show recursive mark counts as badges.
+  - Folders with marks are auto-expanded on first load; empty folders are dimmed.
+  - Clicking a mark timestamp selects it and seeks the video.
+  - The selected mark is automatically scrolled into view.
+- Tags are assigned via a hierarchical tagging menu (`TaggingMenu` component):
+  - Right-click a mark in the tree → opens menu at cursor.
+  - Adding a mark (`M`) auto-opens the menu (centered on viewport).
+  - Drag-and-drop a mark onto a folder to set its `primary` tag (clears facets).
 - The player supports keyboard shortcuts globally on the page:
-  - `M` add mark
+  - `M` add mark (+ auto-open tagging menu)
   - `Backspace/Delete` delete selected mark
   - `C` clear tags on selected mark
   - `⌘Z` undo, `⌘⇧Z` redo (50-entry stack)
@@ -267,6 +282,7 @@ Files:
 Files:
 - Page logic: `webapp/app/player/page.tsx`
 - Player component: `webapp/components/player/VideoPlayerUnit.tsx`
+- Tagging folder tree: `webapp/components/tagging/TagFolderTree.tsx`
 - Tagging menu: `webapp/components/tagging/TaggingMenu.tsx`
 - Tagging schema helpers: `webapp/lib/tagging/schema.ts`
 
@@ -429,15 +445,42 @@ Helper functions:
 - Props accept a `selection` that can be `TaggingSelection | string[] | null` for backward compatibility.
 - Includes an optional "Clear tags" action.
 
+### TagFolderTree component
+- File: `webapp/components/tagging/TagFolderTree.tsx`
+- A scrollable collapsible tree view that mirrors the schema's `primary_tree`.
+- Props: `schema`, `marks`, `selectedMarkId`, `onSelectMark`, `onContextMenu`, optional `onDropMarkOnNode`.
+- Pure presentation + interaction; no data fetching or schema loading.
+- Builds a mark index by matching each mark's `tags.primary` to schema node IDs.
+- Special buckets: **Untagged** (`primary = null`) and **Unknown tag** (primary not in schema, displayed with raw ID in amber).
+- Recursive mark counts on parent folders via badge.
+- Folder collapse/expand with CSS `grid-template-rows` animation (200ms ease).
+- Auto-expands non-empty folders on initial render; subsequent mark changes expand newly non-empty folders without collapsing user-opened ones.
+- Selected mark is scrolled into view via `scrollIntoView({ block: "nearest", behavior: "smooth" })`.
+- Mark items are draggable (`draggable`, MIME type `application/x-mark-id`); folder headers accept drops when `onDropMarkOnNode` is provided (visual drag-over feedback).
+
 ### Integration in `/player`
-- The player page reads `taggingSchema` from `ProjectContext` and passes it as a prop to `TaggingMenu`.
-- Right-clicking a mark opens `TaggingMenu` anchored at the click position.
+- The player page reads `taggingSchema` from `ProjectContext` and passes it as a prop to both `TagFolderTree` and `TaggingMenu`.
+- Layout: video player (left, flex-grow) + tag folder tree (right, fixed 300px).
+- Right-clicking a mark in the tree opens `TaggingMenu` anchored at the click position.
+- Adding a mark via `M` auto-opens `TaggingMenu` (centered on viewport) after the mark is created.
+- Drag-and-drop a mark onto a folder header sets `mark.tags = { primary: nodeId, facets: {} }` (undo-aware).
 - On confirm, the selection is saved to `mark.tags` as a `TaggingSelection` object.
-- The mark list visually distinguishes tagged vs untagged marks (different background colors).
+- When no schema is loaded, the right pane shows a placeholder message.
 
 ---
 
-## 11) Segmentation test page (experimental)
+## 11) Planned: match metadata screen
+
+A detailed design document exists at `plans/post-mvp/metadata/match-metadata-screen.md` for a future `/metadata` route. Key planned features:
+- Match details (date, venue, competition, score, referee).
+- Home/away teamsheets with CSV/TSV/plain-text import.
+- Half/period boundaries (start/end timestamps within the video).
+- `MatchInfo` extension to `ProjectManifestV1`.
+- None of this is implemented yet — the design doc captures requirements and component plans.
+
+---
+
+## 12) Segmentation test page (experimental)
 
 The `segmentation-test` route is a sandbox for foreground extraction from a still image.
 

@@ -54,6 +54,9 @@ export interface MatchInfo {
   // --- Result ---
   score: { home: number | null; away: number | null } | null;
 
+  // --- Substitutions (optional) ---
+  substitutions: Substitution[];
+
   // --- Periods / half boundaries ---
   periods: MatchPeriod[];
 
@@ -75,6 +78,14 @@ export interface PlayerEntry {
   position: string | null;           // e.g. "GK", "CB", "LW", free-text
   isCaptain?: boolean;
   isSubstitute?: boolean;
+}
+
+export interface Substitution {
+  id: string;                        // UUID
+  team: "home" | "away";
+  minute: number | null;             // match minute (not video time)
+  playerOut: string;                 // PlayerEntry.id
+  playerIn: string;                  // PlayerEntry.id
 }
 
 export interface MatchPeriod {
@@ -100,6 +111,7 @@ const defaultMatchInfo: MatchInfo = {
   venue: null,
   referee: null,
   score: null,
+  substitutions: [],
   periods: [],
   notes: null,
 };
@@ -113,9 +125,151 @@ needed — the field is simply absent until the user fills it in.
 
 ---
 
-## Teamsheet import
+## Import match metadata (football-data.org)
 
-### Supported formats (initial)
+For professional matches the **primary import path** is the
+[football-data.org v4 API](https://docs.football-data.org/general/v4/match.html).
+A single `GET /v4/matches/{id}` call returns everything needed to populate the entire
+metadata form — teams, coaches, formations, full lineups & bench, date, competition,
+venue, referee, score, and substitutions — in one shot. This is exposed as a top-level
+**"Import match metadata"** button on the metadata page, not buried inside a
+per-team teamsheet panel.
+
+#### API overview
+
+- **Base URL**: `https://api.football-data.org/v4`
+- **Auth**: `X-Auth-Token` header (free tier available with rate limits).
+- **Key endpoints**:
+  - `GET /v4/matches/{id}` — full match detail.
+  - `GET /v4/competitions/{code}/matches?dateFrom=&dateTo=` — list matches in a
+    competition within a date range.
+  - `GET /v4/teams/{id}/matches?dateFrom=&dateTo=` — list matches for a team.
+  - `GET /v4/matches?date=YYYY-MM-DD` — all matches on a given date.
+- **Coverage**: Major European leagues (Premier League, La Liga, Bundesliga, Serie A,
+  Ligue 1, Eredivisie, Primeira Liga, Championship) plus Champions League, EC, World
+  Cup, etc. Exact coverage depends on the subscription tier.
+
+#### Field mapping — API → MatchInfo
+
+| API field                           | → MatchInfo field              |
+|-------------------------------------|--------------------------------|
+| `homeTeam.name`                     | `homeTeam.name`                |
+| `homeTeam.coach.name`               | `homeTeam.coach`               |
+| `homeTeam.formation`                | `homeTeam.formation`           |
+| `homeTeam.lineup[]`                 | `homeTeam.players` (starting)  |
+| `homeTeam.bench[]`                  | `homeTeam.players` (subs)      |
+| *(same for `awayTeam`)*             |                                |
+| `utcDate`                           | `date` + `kickoffTime`         |
+| `competition.name`                  | `competition`                  |
+| `season.startDate` / `endDate`      | `season`                       |
+| `matchday` / `stage`                | `round`                        |
+| `venue`                             | `venue`                        |
+| `referees[]` (type = `REFEREE`)     | `referee`                      |
+| `score.fullTime.home` / `.away`     | `score`                        |
+| `substitutions[]`                   | `substitutions`                |
+
+The API substitution objects `{ minute, team, playerOut, playerIn }` map to our
+`Substitution` type. Player references are resolved by matching the API player name
+back to the imported `PlayerEntry` by name (since we don't persist external IDs).
+
+Each player in `lineup` / `bench` has `{ id, name, position, shirtNumber }`. These
+map directly to `PlayerEntry`:
+
+| API player field | → PlayerEntry field  | Notes                                  |
+|------------------|----------------------|----------------------------------------|
+| `id`             | *(not stored)*       | External ID; we mint our own UUIDs     |
+| `name`           | `name`               |                                        |
+| `shirtNumber`    | `number`             |                                        |
+| `position`       | `position`           | API uses long form ("Centre-Back"); normalise to short codes ("CB") for consistency |
+| *(derived)*      | `isSubstitute`       | `true` if player came from `bench[]`   |
+| *(not provided)* | `isCaptain`          | API doesn't flag captain; leave `false`|
+
+#### Position normalisation map
+
+```ts
+const POSITION_SHORT: Record<string, string> = {
+  "Goalkeeper": "GK",
+  "Centre-Back": "CB",
+  "Left-Back": "LB",
+  "Right-Back": "RB",
+  "Defensive Midfield": "DM",
+  "Central Midfield": "CM",
+  "Attacking Midfield": "AM",
+  "Left Winger": "LW",
+  "Right Winger": "RW",
+  "Centre-Forward": "CF",
+  "Left Midfield": "LM",
+  "Right Midfield": "RM",
+};
+```
+
+#### User flow — search, select, preview, confirm
+
+1. User clicks **"Import match metadata"** at the top of the metadata page.
+2. A modal (`FootballDataImporter`) opens with:
+   - **API key field** (persisted in `localStorage` so it only needs to be entered
+     once; never written to the project manifest or disk).
+   - **Search controls**:
+     - **By competition + date range**: dropdowns for known competition codes
+       (PL, BL1, SA, PD, FL1, etc.) + date pickers.
+     - **By team + date range**: text search for team name, then date pickers.
+     - **By match ID**: direct numeric input if the user already knows the ID.
+3. App calls the appropriate list endpoint and displays results in a scrollable table
+   showing: date, home team vs away team, score, competition.
+4. User selects a match → app calls `GET /v4/matches/{id}` for full detail.
+5. A **preview panel** shows all the data that will be imported, grouped into:
+   - Match details (date, competition, venue, referee, score)
+   - Home team (coach, formation, lineup, bench)
+   - Away team (same)
+6. User can **deselect** individual sections (e.g. keep existing teamsheets but import
+   match details only).
+7. On **Confirm**, the selected data merges into `matchInfo`:
+   - Imported fields overwrite existing values.
+   - Players get fresh UUIDs (external API IDs are not persisted).
+   - Any existing manually-entered data in deselected sections is preserved.
+
+#### API key management
+
+- Stored in `localStorage` under key `football_data_api_key`.
+- **Never** written to the project directory, manifest, or any file on disk.
+- The modal shows a small note: *"Your API key is stored locally in this browser and
+  is never saved to your project files."*
+- A "Clear key" button lets the user remove it.
+- If no key is set, the import button in the modal is disabled with a prompt to get a
+  free key at https://www.football-data.org/client/register.
+
+#### Rate limiting & error handling
+
+- Free tier: 10 requests/minute. The UI should debounce search requests and show a
+  clear message if rate-limited (HTTP 429).
+- Network errors / invalid key (HTTP 403) → show inline error, don't close the modal.
+- If a match has `status: SCHEDULED` or `TIMED`, lineup data may be unavailable.
+  Warn the user: *"Lineups are not yet available for this match."*
+
+#### New component
+
+- **`webapp/components/metadata/FootballDataImporter.tsx`** — Modal with search,
+  results list, match preview, section toggles, and confirm/cancel. Receives
+  `onImport: (partial: Partial<MatchInfo>) => void` and `onCancel`.
+
+#### New utility
+
+- **`webapp/lib/metadata/footballDataApi.ts`** — Thin API client:
+  - `searchMatchesByCompetition(apiKey, competitionCode, dateFrom, dateTo)`
+  - `searchMatchesByTeam(apiKey, teamId, dateFrom, dateTo)`
+  - `searchMatchesByDate(apiKey, date)`
+  - `fetchMatch(apiKey, matchId)` → returns raw API JSON.
+  - `mapMatchToMatchInfo(apiMatch)` → transforms API response to `Partial<MatchInfo>`.
+  - `normalisePosition(apiPosition: string | null): string | null`
+
+---
+
+## Manual teamsheet import
+
+For non-professional matches or leagues not covered by the API, teamsheets can be
+imported manually per team.
+
+### Supported formats
 
 1. **CSV / TSV** — one row per player. Expected columns (flexible header matching):
    - `number` / `#` / `shirt`
@@ -131,7 +285,7 @@ needed — the field is simply absent until the user fills it in.
 
 ### Import flow
 
-1. User clicks **Import teamsheet** on either the Home or Away panel.
+1. User clicks **"Import teamsheet"** on the Home or Away team panel.
 2. File picker opens (accept `.csv`, `.tsv`, `.txt`) **or** the user pastes text into
    a textarea.
 3. App parses the input and presents a **preview table** showing the detected columns
@@ -142,11 +296,21 @@ needed — the field is simply absent until the user fills it in.
 4. On confirm, the parsed players replace (or merge into) the team's `players` array.
    Each player gets a fresh UUID.
 
-### Future formats (out of scope now)
+### Image OCR import (future)
 
-- JSON / XML teamsheet exports from third-party tools.
+For printed or photographed teamsheets (match programmes, whiteboards, handwritten
+sheets), an OCR pipeline could extract player names and numbers from an image.
+
+- User uploads or photographs a teamsheet image.
+- App runs OCR (likely via a cloud API such as Google Cloud Vision or Tesseract.js
+  for offline) and attempts to extract rows of `<number> <name>`.
+- Parsed output is fed into the same preview table as CSV/plain-text import for the
+  user to correct before confirming.
+- This is a stretch feature — prioritise after the API and CSV paths are solid.
+
+### Other future formats (out of scope now)
+
 - Opta / StatsBomb / Wyscout XML feeds.
-- Image OCR of printed teamsheets.
 
 ---
 
@@ -304,6 +468,28 @@ dynamically populate its options from `matchInfo.homeTeam.players` and
 `matchInfo.awayTeam.players`. This is **not in scope now** but the data model supports
 it — each `PlayerEntry` has a stable `id` that can be stored in `TaggingSelection.facets`.
 
+### Substitution recording on the tagging page
+
+Substitutions are **not** regular tagging events — they are a separate first-class
+concept. On the tagging page, a dedicated **"Record substitution"** action (hotkey or
+button) lets the user stamp a sub at the current video time:
+
+1. User triggers **Record substitution** (e.g. hotkey `S` or a toolbar button).
+2. A lightweight picker appears showing the players for each team (drawn from
+   `matchInfo.homeTeam.players` / `matchInfo.awayTeam.players`).
+3. User selects **team**, **player out**, and **player in**.
+4. The current video time is converted to match-minute (using period boundaries) and
+   a `Substitution` entry is appended to `matchInfo.substitutions`.
+5. The sub is displayed in a small **"Substitutions"** sidebar section (separate from
+   the tag folder tree), ordered by minute.
+
+Substitutions imported from football-data.org are pre-populated and shown the same
+way. Manually-recorded subs and API-imported subs coexist in the same array.
+
+This is **entirely optional** — the user can ignore substitutions completely. The
+teamsheet player table has an `isSubstitute` flag for bench players, but that is
+independent of actual in-match substitution events.
+
 ### Period-aware timestamps (future integration)
 
 Once periods are set, the tagging page can display match-relative timestamps instead
@@ -360,6 +546,24 @@ change in `TagFolderTree` and the status bar. **Not in scope now.**
 - [ ] Preview table with column mapping.
 - [ ] Confirm → populate team's player array.
 
+### 5b. football-data.org API import
+- [ ] Create `webapp/lib/metadata/footballDataApi.ts` (API client + response mapper).
+- [ ] Implement `searchMatchesByCompetition`, `searchMatchesByTeam`, `searchMatchesByDate`, `fetchMatch`.
+- [ ] Implement `mapMatchToMatchInfo` with position normalisation and substitution mapping.
+- [ ] Create `webapp/components/metadata/FootballDataImporter.tsx` (search modal).
+- [ ] API key input with `localStorage` persistence.
+- [ ] Search by competition + date range, team + date range, or direct match ID.
+- [ ] Results table → select match → preview panel.
+- [ ] Section toggles (match details / home team / away team / substitutions) before confirm.
+- [ ] Rate-limit handling (429) and error display.
+- [ ] Wire "Import from football-data.org" button on metadata page.
+
+### 5c. Image OCR teamsheet import
+- [ ] Evaluate OCR approach (Tesseract.js for offline vs cloud API).
+- [ ] Create `webapp/lib/metadata/teamsheetOcr.ts` (image → text extraction).
+- [ ] Feed OCR output into existing preview table flow.
+- [ ] Handle camera capture / image file upload in `TeamsheetImporter`.
+
 ### 6. Period editor
 - [ ] Create `webapp/components/metadata/PeriodEditor.tsx`.
 - [ ] List periods with start/end time fields.
@@ -373,7 +577,15 @@ change in `TagFolderTree` and the status bar. **Not in scope now.**
 - [ ] Metadata page: navigation toolbar (back, save, forward to player).
 - [ ] Player page: optional "← Match info" link.
 
-### 8. Visual polish
+### 8. Substitution recording (tagging page)
+- [ ] Add "Record substitution" action to tagging page (hotkey + toolbar button).
+- [ ] Player picker UI: team selector, player-out dropdown, player-in dropdown (filtered to bench/available).
+- [ ] Convert current video time to match-minute using period boundaries.
+- [ ] Append `Substitution` to `matchInfo.substitutions` via manifest mutation.
+- [ ] Display substitutions in a dedicated sidebar section on the tagging page.
+- [ ] Show both API-imported and manually-recorded subs in the same list.
+
+### 9. Visual polish
 - [ ] Consistent dark-theme styling matching the tagging page.
 - [ ] Form validation hints (e.g. date format, shirt number uniqueness).
 - [ ] Responsive layout (two-column team panels collapse to single column on narrow viewports).
@@ -384,10 +596,11 @@ change in `TagFolderTree` and the status bar. **Not in scope now.**
 ## Out of scope (for now)
 
 - Opta / StatsBomb / Wyscout XML feed import.
-- Image OCR for printed teamsheets.
 - Player photo / headshot import.
-- Substitution tracking (which player replaced whom, at what minute).
 - Dynamic facet population from teamsheet (architecture supports it; see above).
 - Match-relative timestamp display on the tagging page.
 - Multi-video period spanning (one period across two video files).
 - Undo/redo on the metadata form (use manifest-level undo if ever needed).
+- Persisting football-data.org external player/team IDs (we mint our own UUIDs).
+- Tracking which players are "currently on pitch" at a given video timestamp (subs
+  are recorded but we don't compute a live roster state).
