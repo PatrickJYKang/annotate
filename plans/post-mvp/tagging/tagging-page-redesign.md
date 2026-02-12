@@ -260,36 +260,36 @@ The following are **not in scope now** but the architecture must not prevent the
 - [x] Verify `/player-legacy` route works as a fallback (quick smoke test).
 
 ### 3. TagFolderTree component
-- [ ] Create `webapp/components/tagging/TagFolderTree.tsx`.
-- [ ] Props: `schema`, `marks`, `selectedMarkId`, `onSelectMark`, `onContextMenu`.
-- [ ] Build tree from `schema.primary_tree`; place marks by matching `mark.tags.primary` to node ids.
-- [ ] Add "Untagged" bucket for `primary = null`.
-- [ ] Add "Unknown tag" bucket for marks whose primary doesn't match any schema node (display raw id).
-- [ ] Recursive mark counts on parent folders.
-- [ ] Collapsible folder expand/collapse.
-- [ ] Highlight selected mark in the tree.
+- [x] Create `webapp/components/tagging/TagFolderTree.tsx`.
+- [x] Props: `schema`, `marks`, `selectedMarkId`, `onSelectMark`, `onContextMenu`.
+- [x] Build tree from `schema.primary_tree`; place marks by matching `mark.tags.primary` to node ids.
+- [x] Add "Untagged" bucket for `primary = null`.
+- [x] Add "Unknown tag" bucket for marks whose primary doesn't match any schema node (display raw id).
+- [x] Recursive mark counts on parent folders.
+- [x] Collapsible folder expand/collapse.
+- [x] Highlight selected mark in the tree.
 
 ### 4. New `/player` (tagging) page
-- [ ] Create new `webapp/app/player/page.tsx`.
-- [ ] Read schema from project directory on mount; hold in state.
-- [ ] Render `VideoPlayerUnit` (left) + `TagFolderTree` (right) side-by-side.
-- [ ] Pass schema as a prop to `TagFolderTree` and `TaggingMenu`.
-- [ ] Wire mark click → select + seek video.
-- [ ] Wire mark right-click → open `TaggingMenu` at cursor.
-- [ ] Wire `TaggingMenu` confirm → save tag selection (undo-aware).
+- [x] Create new `webapp/app/player/page.tsx`.
+- [x] Read schema from project directory on mount; hold in state.
+- [x] Render `VideoPlayerUnit` (left) + `TagFolderTree` (right) side-by-side.
+- [x] Pass schema as a prop to `TagFolderTree` and `TaggingMenu`.
+- [x] Wire mark click → select + seek video.
+- [x] Wire mark right-click → open `TaggingMenu` at cursor.
+- [x] Wire `TaggingMenu` confirm → save tag selection (undo-aware).
 
 ### 5. Hotkeys and mutation logic
-- [ ] Port `addMarkAt`, `deleteSelectedMark`, `clearTagsOnSelectedMark` from legacy.
-- [ ] Port undo/redo stacks and `pushUndo` logic.
-- [ ] Port all keyboard shortcuts: M, Delete/Backspace, C, ⌘Z, ⌘⇧Z, J/K/L, ←/→, ,/., ⌘←/⌘→.
-- [ ] Verify mark appears in "Untagged" on add, moves to correct folder on tag.
+- [x] Port `addMarkAt`, `deleteSelectedMark`, `clearTagsOnSelectedMark` from legacy.
+- [x] Port undo/redo stacks and `pushUndo` logic.
+- [x] Port all keyboard shortcuts: M, Delete/Backspace, C, ⌘Z, ⌘⇧Z, J/K/L, ←/→, ,/., ⌘←/⌘→.
+- [x] Verify mark appears in "Untagged" on add, moves to correct folder on tag.
 
 ### 6. Visual polish
-- [ ] Folder expand/collapse animation (CSS transition or similar).
-- [ ] Dimmed/collapsed appearance for empty folders.
-- [ ] Mark count badges on folder labels.
-- [ ] Scroll selected mark into view in the tree.
-- [ ] Status bar / hotkey hints at the bottom.
+- [x] Folder expand/collapse animation (CSS transition or similar).
+- [x] Dimmed/collapsed appearance for empty folders.
+- [x] Mark count badges on folder labels.
+- [x] Scroll selected mark into view in the tree.
+- [x] Status bar / hotkey hints at the bottom.
 
 ---
 

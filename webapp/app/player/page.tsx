@@ -6,23 +6,12 @@ import type { ProjectManifestV1 } from "../../lib/types/project";
 import { writeManifest } from "../../lib/fs/projectFolder";
 import VideoPlayerUnit, { VideoPlayerHandle } from "../../components/player/VideoPlayerUnit";
 import TaggingMenu, { TaggingMenuCloseReason } from "../../components/tagging/TaggingMenu";
+import TagFolderTree from "../../components/tagging/TagFolderTree";
 import {
   createEmptyTaggingSelection,
   ensureTaggingSelection,
-  selectionToTagList,
   TaggingSelection,
 } from "../../lib/tagging/schema";
-
-function pad2(n: number) { return n < 10 ? `0${n}` : `${n}`; }
-function pad3(n: number) { return n.toString().padStart(3, '0'); }
-function formatTime(ms: number): string {
-  const clamped = Math.max(0, Math.floor(ms || 0));
-  let r = clamped;
-  const hh = Math.floor(r / 3600000); r %= 3600000;
-  const mm = Math.floor(r / 60000); r %= 60000;
-  const ss = Math.floor(r / 1000); const mmm = r % 1000;
-  return hh > 0 ? `${hh}:${pad2(mm)}:${pad2(ss)}.${pad3(mmm)}` : `${mm}:${pad2(ss)}.${pad3(mmm)}`;
-}
 
 export default function PlayerPage() {
   const router = useRouter();
@@ -144,6 +133,24 @@ export default function PlayerPage() {
     setSelectedMarkIdSafe(next.selectedMarkId);
   }, [mutateManifestExclusive, setSelectedMarkIdSafe]);
 
+  const openTagMenuForMarkById = useCallback((markId: string, anchor?: { x: number; y: number }) => {
+    const mf = manifestRef.current;
+    const vid = selectedVideoIdRef.current;
+    const marks = mf && vid ? mf.marks.filter(m => m.videoId === vid) : [];
+    const mark = marks.find((entry) => entry.id === markId);
+    const selection = ensureTaggingSelection(mark?.tags);
+    setSelectedMarkIdSafe(markId);
+    setTagMenuSelection(selection);
+    setTagMenuMarkId(markId);
+    setTagMenuAnchor(anchor ?? { x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 2) });
+    setTagMenuOpen(true);
+  }, [setSelectedMarkIdSafe]);
+
+  const openTagMenuForMark = useCallback((markId: string, event: React.MouseEvent) => {
+    event.preventDefault();
+    openTagMenuForMarkById(markId, { x: event.clientX, y: event.clientY });
+  }, [openTagMenuForMarkById]);
+
   const addMarkAt = useCallback(async (t_ms: number) => {
     const vid = selectedVideoIdRef.current;
     if (!vid) return;
@@ -154,8 +161,11 @@ export default function PlayerPage() {
       if (!video) return mf;
       return { ...mf, marks: [...mf.marks, { id, videoId: video.id, t_ms, tags: createEmptyTaggingSelection() }] };
     });
-    if (next) setSelectedMarkIdSafe(id);
-  }, [mutateManifestExclusive, setSelectedMarkIdSafe, pushUndo]);
+    if (next) {
+      setSelectedMarkIdSafe(id);
+      openTagMenuForMarkById(id);
+    }
+  }, [mutateManifestExclusive, setSelectedMarkIdSafe, pushUndo, openTagMenuForMarkById]);
 
   const deleteSelectedMark = useCallback(async () => {
     const target = selectedMarkIdRef.current;
@@ -178,24 +188,32 @@ export default function PlayerPage() {
     });
   }, [mutateManifestExclusive, pushUndo]);
 
-  const marksForVideo = (manifest && selectedVideoId)
-    ? manifest.marks.filter(m => m.videoId === selectedVideoId).sort((a, b) => a.t_ms - b.t_ms)
-    : [];
+  const marksForVideo = useMemo(() => {
+    if (!manifest || !selectedVideoId) return [];
+    return manifest.marks.filter(m => m.videoId === selectedVideoId).sort((a, b) => a.t_ms - b.t_ms);
+  }, [manifest, selectedVideoId]);
 
-  const markTagLists = useMemo(() => {
-    return new Map(marksForVideo.map((mark) => [mark.id, selectionToTagList(mark.tags)]));
-  }, [marksForVideo]);
-
-  const openTagMenuForMark = useCallback((event: React.MouseEvent, markId: string) => {
-    event.preventDefault();
-    const mark = marksForVideo.find((entry) => entry.id === markId);
-    const selection = ensureTaggingSelection(mark?.tags);
-    setSelectedMarkIdSafe(markId);
-    setTagMenuSelection(selection);
-    setTagMenuMarkId(markId);
-    setTagMenuAnchor({ x: event.clientX, y: event.clientY });
-    setTagMenuOpen(true);
+  const handleTreeSelectMark = useCallback((markId: string) => {
+    const mark = marksForVideo.find((m) => m.id === markId);
+    if (mark) {
+      setSelectedMarkIdSafe(markId);
+      setSeekMs(mark.t_ms);
+    }
   }, [marksForVideo, setSelectedMarkIdSafe]);
+
+  const handleDropMarkOnNode = useCallback(async (markId: string, nodeId: string) => {
+    const mf = manifestRef.current;
+    if (!mf) return;
+    const mark = mf.marks.find((m) => m.id === markId);
+    const existing = ensureTaggingSelection(mark?.tags);
+    if (existing.primary === nodeId) return;
+    const updated: TaggingSelection = { primary: nodeId, facets: {} };
+    pushUndo();
+    await mutateManifestExclusive((m) => {
+      const nextMarks = m.marks.map((mk) => (mk.id === markId ? { ...mk, tags: updated } : mk));
+      return { ...m, marks: nextMarks };
+    });
+  }, [mutateManifestExclusive, pushUndo]);
 
   const saveTaggingSelection = useCallback(async (markId: string, selection: TaggingSelection) => {
     pushUndo();
@@ -282,12 +300,19 @@ export default function PlayerPage() {
 
   return (
     <div className="fullbleed">
-      <div className="panel">
-        <div className="toolbar" style={{ marginBottom: 12 }}>
+      <div className="panel" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+        {/* Toolbar */}
+        <div className="toolbar" style={{ marginBottom: 8, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
           <button onClick={onBack}>Back</button>
+          <span style={{ flex: 1 }} />
+          <button onClick={deleteSelectedMark} disabled={!selectedMarkId} title="Delete selected mark (Delete)">Delete</button>
+          <button onClick={() => router.push('/stills')}>Next</button>
         </div>
-        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'nowrap' }}>
-          <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+
+        {/* Main content: video left, tag tree right */}
+        <div style={{ display: 'flex', gap: 12, flex: '1 1 auto', minHeight: 0 }}>
+          {/* Left pane — Video */}
+          <div style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
             <VideoPlayerUnit
               ref={playerRef}
               src={videoUrl}
@@ -296,38 +321,37 @@ export default function PlayerPage() {
               onAddMark={addMarkAt}
               externalSeekMs={seekMs}
               selectedMarkId={selectedMarkId}
-              onSelectMark={(id: string, t_ms: number) => { setSelectedMarkId(id); setSeekMs(t_ms); }}
+              onSelectMark={(id: string, t_ms: number) => { setSelectedMarkIdSafe(id); setSeekMs(t_ms); }}
               hotkeys={false}
               skipLargeSeconds={2}
               allowFullscreen
             />
-            <div className="status" style={{ marginTop: 8 }}>J/K/L ←/→ ,/. · Shift=±2s · M=mark · C=clear tags · ⌘Z=undo · ⌘⇧Z=redo · Right-click=tag</div>
           </div>
-          <div style={{ flex: '0 0 260px', minWidth: 260, height: 'calc(100vh - var(--player-headroom))', display: 'flex', flexDirection: 'column' }}>
-            <strong>Marks</strong>
-            <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', marginTop: 8 }}>
-              <ul style={{ listStyle: 'none', paddingLeft: 0, margin: 0, display: 'flex', flexWrap: 'wrap', gap: 8, alignContent: 'flex-start' }}>
-                {marksForVideo.map(m => (
-                  <li key={m.id} style={{ flex: '1 1 120px', minWidth: 120 }}>
-                    <button
-                      onClick={() => { setSelectedMarkId(m.id); setSeekMs(m.t_ms || 0); }}
-                      onContextMenu={(event) => openTagMenuForMark(event, m.id)}
-                      style={{ width: '100%', textAlign: 'left', background: selectedMarkId === m.id ? (markTagLists.get(m.id)?.length ? '#1e3a5f' : '#0f172a') : (markTagLists.get(m.id)?.length ? '#1e3a5f' : '#1f2937'), borderColor: selectedMarkId === m.id ? '#60a5fa' : '#334155' }}
-                    >
-                      {formatTime(m.t_ms)}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div className="status">Right-click a mark to tag</div>
-            <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button onClick={deleteSelectedMark} disabled={!selectedMarkId} title="Delete selected mark">Delete</button>
-              <button onClick={onBack}>Back</button>
-              <button onClick={() => router.push('/stills')}>Next</button>
-            </div>
+
+          {/* Right pane — Tag folder tree */}
+          <div style={{ flex: '0 0 300px', minWidth: 280, display: 'flex', flexDirection: 'column', borderLeft: '1px solid #1e293b', paddingLeft: 8 }}>
+            {taggingSchema ? (
+              <TagFolderTree
+                schema={taggingSchema}
+                marks={marksForVideo}
+                selectedMarkId={selectedMarkId}
+                onSelectMark={handleTreeSelectMark}
+                onContextMenu={openTagMenuForMark}
+                onDropMarkOnNode={handleDropMarkOnNode}
+              />
+            ) : (
+              <div style={{ padding: 12, color: '#64748b', fontSize: 13 }}>
+                No tagging schema loaded. Open project settings to add one.
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Status bar */}
+        <div className="status" style={{ flexShrink: 0, marginTop: 4, fontSize: 11 }}>
+          M=mark · Delete=delete · C=clear tags · ⌘Z=undo · ⌘⇧Z=redo · Right-click=tag · J/K/L ←/→ ,/.=navigate
+        </div>
+
         <TaggingMenu
           open={tagMenuOpen}
           schema={taggingSchema}
