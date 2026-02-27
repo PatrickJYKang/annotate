@@ -9,6 +9,9 @@ structure of the video (half boundaries). The data collected here enriches expor
 enables filtering across projects, and gives the tagging page contextual awareness
 (e.g. "which player?" facets can be drawn from the teamsheet).
 
+Substitution tracking is explicitly optional and must not block normal analysis
+workflows.
+
 ---
 
 ## Workflow position
@@ -16,13 +19,16 @@ enables filtering across projects, and gives the tagging page contextual awarene
 ```
 Home (/):                   Metadata (/metadata):          Tagging (/player):
   Create / open project       Enter match info               Tag marks in video
-  Import video(s)             Import teamsheets
+  Import video(s)             Import match metadata
   Select video ──────────►    Set half boundaries  ────────► Begin tagging
 ```
 
 The metadata screen is **not blocking** — the user can skip straight to `/player` at
 any time and come back to fill in metadata later. However the home page should nudge
 the user toward `/metadata` after a video is imported for the first time.
+
+Delivery rule: substitution recording is optional and can be deferred without blocking
+the metadata/timestamp rollout.
 
 ---
 
@@ -357,6 +363,8 @@ The user can add more (e.g. extra time) or remove unused ones.
 │  ← Back to project                              Save  │ Player → │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                  │
+│  [Import match metadata]                                         │
+│                                                                  │
 │  ┌─ Match Details ────────────────────────────────────────────┐  │
 │  │  Date: [________]  Kickoff: [______]  Competition: [_____] │  │
 │  │  Season: [______]  Round: [________]  Venue: [___________] │  │
@@ -426,13 +434,20 @@ The user can add more (e.g. extra time) or remove unused ones.
 ### New types
 
 - **`webapp/lib/types/project.ts`** — Add `MatchInfo`, `TeamInfo`, `PlayerEntry`,
-  `MatchPeriod` interfaces and extend `ProjectManifestV1` with optional `matchInfo`.
+  `Substitution`, `MatchPeriod` interfaces and extend `ProjectManifestV1` with
+  optional `matchInfo`.
 
 ### New utilities
 
 - **`webapp/lib/metadata/teamsheetParser.ts`** — CSV/TSV/plain-text parsing logic.
   Exports `parseTeamsheetCSV(text: string): PlayerEntry[]` and
   `parseTeamsheetPlainText(text: string): PlayerEntry[]`.
+- **`webapp/lib/metadata/footballDataApi.ts`** — football-data.org client +
+  response mapping utilities.
+- **`webapp/lib/metadata/teamsheetOcr.ts`** — OCR extraction helpers for
+  image-based teamsheet import.
+- **`webapp/lib/metadata/timeDisplay.ts`** — Visual-only match-relative timestamp
+  formatting with raw-time fallback when period boundaries are missing.
 
 ---
 
@@ -468,7 +483,7 @@ dynamically populate its options from `matchInfo.homeTeam.players` and
 `matchInfo.awayTeam.players`. This is **not in scope now** but the data model supports
 it — each `PlayerEntry` has a stable `id` that can be stored in `TaggingSelection.facets`.
 
-### Substitution recording on the tagging page
+### Substitution recording on the tagging page (optional)
 
 Substitutions are **not** regular tagging events — they are a separate first-class
 concept. On the tagging page, a dedicated **"Record substitution"** action (hotkey or
@@ -478,23 +493,28 @@ button) lets the user stamp a sub at the current video time:
 2. A lightweight picker appears showing the players for each team (drawn from
    `matchInfo.homeTeam.players` / `matchInfo.awayTeam.players`).
 3. User selects **team**, **player out**, and **player in**.
-4. The current video time is converted to match-minute (using period boundaries) and
-   a `Substitution` entry is appended to `matchInfo.substitutions`.
+4. The current video time is converted to match-minute (using period boundaries).
+   If boundaries are missing, the user can enter the minute manually. The
+   `Substitution` entry is appended to `matchInfo.substitutions`.
 5. The sub is displayed in a small **"Substitutions"** sidebar section (separate from
    the tag folder tree), ordered by minute.
 
 Substitutions imported from football-data.org are pre-populated and shown the same
 way. Manually-recorded subs and API-imported subs coexist in the same array.
 
-This is **entirely optional** — the user can ignore substitutions completely. The
+This is **entirely optional** — the user can ignore substitutions completely and still
+complete analysis. The
 teamsheet player table has an `isSubstitute` flag for bench players, but that is
 independent of actual in-match substitution events.
 
-### Period-aware timestamps (future integration)
+### Period-aware timestamps (in scope, visual-only)
 
 Once periods are set, the tagging page can display match-relative timestamps instead
 of raw video times (e.g. "1H 34:12" instead of "34:12.500"). This is a display-layer
-change in `TagFolderTree` and the status bar. **Not in scope now.**
+change in `TagFolderTree` and the status bar only.
+
+If period boundaries are not tagged, the UI should gracefully fall back to the
+existing raw video timestamp display. No tag data model change is required.
 
 ---
 
@@ -512,51 +532,56 @@ change in `TagFolderTree` and the status bar. **Not in scope now.**
 
 ## Implementation checklist
 
+Delivery gating:
+- **Required for rollout:** Sections 1-5b, 6, 7, 9, and 10.
+- **Optional / can defer:** Section 5c (image OCR) and Section 8
+  (substitution recording).
+
 ### 1. Data model
-- [ ] Add `MatchInfo`, `TeamInfo`, `PlayerEntry`, `MatchPeriod` interfaces to `webapp/lib/types/project.ts`.
-- [ ] Add optional `matchInfo?: MatchInfo` to `ProjectManifestV1`.
-- [ ] Add `defaultMatchInfo()` helper.
-- [ ] Ensure `readManifest` / `writeManifest` round-trip `matchInfo` correctly (no special handling needed — it's just JSON).
+- [x] Add `MatchInfo`, `TeamInfo`, `PlayerEntry`, `Substitution`, `MatchPeriod` interfaces to `webapp/lib/types/project.ts`.
+- [x] Add optional `matchInfo?: MatchInfo` to `ProjectManifestV1`.
+- [x] Add `defaultMatchInfo()` helper.
+- [x] Ensure `readManifest` / `writeManifest` round-trip `matchInfo` correctly (no special handling needed — it's just JSON).
 
 ### 2. Teamsheet parser
-- [ ] Create `webapp/lib/metadata/teamsheetParser.ts`.
-- [ ] Implement `parseTeamsheetCSV(text: string): PlayerEntry[]` with flexible header matching.
-- [ ] Implement `parseTeamsheetPlainText(text: string): PlayerEntry[]` for paste-friendly format.
-- [ ] Unit tests for both parsers with edge cases (missing columns, extra whitespace, unicode names).
+- [x] Create `webapp/lib/metadata/teamsheetParser.ts`.
+- [x] Implement `parseTeamsheetCSV(text: string): PlayerEntry[]` with flexible header matching.
+- [x] Implement `parseTeamsheetPlainText(text: string): PlayerEntry[]` for paste-friendly format.
+- [x] Unit tests for both parsers with edge cases (missing columns, extra whitespace, unicode names).
 
 ### 3. Metadata page shell
-- [ ] Create `webapp/app/metadata/page.tsx`.
-- [ ] Read `matchInfo` from manifest via `ProjectContext`.
-- [ ] Layout the page sections (match details, teams, periods, notes).
-- [ ] Wire save: on change, update manifest in context and flush to disk (debounced).
-- [ ] Navigation: back to home, forward to player.
+- [x] Create `webapp/app/metadata/page.tsx`.
+- [x] Read `matchInfo` from manifest via `ProjectContext`.
+- [x] Layout the page sections (match details, teams, periods, notes).
+- [x] Wire save: on change, update manifest in context and flush to disk (debounced).
+- [x] Navigation: back to home, forward to player.
 
 ### 4. Match details form
-- [ ] Create `webapp/components/metadata/MatchDetailsForm.tsx`.
-- [ ] Fields: date, kickoff time, competition, season, round, venue, referee, score.
-- [ ] Controlled inputs, `onChange` callback.
+- [x] Create `webapp/components/metadata/MatchDetailsForm.tsx`.
+- [x] Fields: date, kickoff time, competition, season, round, venue, referee, score.
+- [x] Controlled inputs, `onChange` callback.
 
 ### 5. Team panel + teamsheet import
-- [ ] Create `webapp/components/metadata/TeamPanel.tsx`.
-- [ ] Team name, coach, formation fields.
-- [ ] Inline editable player table (number, name, position, captain, substitute).
-- [ ] Add / remove player rows.
-- [ ] Create `webapp/components/metadata/TeamsheetImporter.tsx`.
-- [ ] File picker (CSV/TSV/TXT) and paste-from-clipboard textarea.
-- [ ] Preview table with column mapping.
-- [ ] Confirm → populate team's player array.
+- [x] Create `webapp/components/metadata/TeamPanel.tsx`.
+- [x] Team name, coach, formation fields.
+- [x] Inline editable player table (number, name, position, captain, substitute).
+- [x] Add / remove player rows.
+- [x] Create `webapp/components/metadata/TeamsheetImporter.tsx`.
+- [x] File picker (CSV/TSV/TXT) and paste-from-clipboard textarea.
+- [x] Preview table with column mapping.
+- [x] Confirm → populate team's player array.
 
 ### 5b. football-data.org API import
-- [ ] Create `webapp/lib/metadata/footballDataApi.ts` (API client + response mapper).
-- [ ] Implement `searchMatchesByCompetition`, `searchMatchesByTeam`, `searchMatchesByDate`, `fetchMatch`.
-- [ ] Implement `mapMatchToMatchInfo` with position normalisation and substitution mapping.
-- [ ] Create `webapp/components/metadata/FootballDataImporter.tsx` (search modal).
-- [ ] API key input with `localStorage` persistence.
-- [ ] Search by competition + date range, team + date range, or direct match ID.
-- [ ] Results table → select match → preview panel.
-- [ ] Section toggles (match details / home team / away team / substitutions) before confirm.
-- [ ] Rate-limit handling (429) and error display.
-- [ ] Wire "Import from football-data.org" button on metadata page.
+- [x] Create `webapp/lib/metadata/footballDataApi.ts` (API client + response mapper).
+- [x] Implement `searchMatchesByCompetition`, `searchMatchesByTeam`, `searchMatchesByDate`, `fetchMatch`.
+- [x] Implement `mapMatchToMatchInfo` with position normalisation and substitution mapping.
+- [x] Create `webapp/components/metadata/FootballDataImporter.tsx` (search modal).
+- [x] API key input with `localStorage` persistence.
+- [x] Search by competition + date range, team + date range, or direct match ID.
+- [x] Results table → select match → preview panel.
+- [x] Section toggles (match details / home team / away team / substitutions) before confirm.
+- [x] Rate-limit handling (429) and error display.
+- [x] Wire "Import match metadata" button on metadata page.
 
 ### 5c. Image OCR teamsheet import
 - [ ] Evaluate OCR approach (Tesseract.js for offline vs cloud API).
@@ -565,31 +590,40 @@ change in `TagFolderTree` and the status bar. **Not in scope now.**
 - [ ] Handle camera capture / image file upload in `TeamsheetImporter`.
 
 ### 6. Period editor
-- [ ] Create `webapp/components/metadata/PeriodEditor.tsx`.
-- [ ] List periods with start/end time fields.
-- [ ] "Set" buttons that capture current scrubber position.
-- [ ] Mini video scrubber (lightweight — could reuse `<video>` with custom controls or a thin wrapper around `VideoPlayerUnit`).
-- [ ] Add / remove period rows.
-- [ ] Auto-create default periods (1st Half, 2nd Half) for new videos.
+- [x] Create `webapp/components/metadata/PeriodEditor.tsx`.
+- [x] List periods with start/end time fields.
+- [x] "Set" buttons that capture current scrubber position.
+- [x] Mini video scrubber (lightweight — could reuse `<video>` with custom controls or a thin wrapper around `VideoPlayerUnit`).
+- [x] Add / remove period rows.
+- [x] Auto-create default periods (1st Half, 2nd Half) for new videos.
+- [x] Show helper copy that period-aware timestamps only appear when boundaries are set.
 
 ### 7. Navigation updates
-- [ ] Home page: Add "Set up match info →" / "Edit match info" link after video import.
-- [ ] Metadata page: navigation toolbar (back, save, forward to player).
-- [ ] Player page: optional "← Match info" link.
+- [x] Home page: Add "Set up match info →" / "Edit match info" link after video import.
+- [x] Metadata page: navigation toolbar (back, save, forward to player).
+- [x] Player page: optional "← Match info" link.
 
-### 8. Substitution recording (tagging page)
+### 8. Optional substitution recording (tagging page, non-blocking)
 - [ ] Add "Record substitution" action to tagging page (hotkey + toolbar button).
 - [ ] Player picker UI: team selector, player-out dropdown, player-in dropdown (filtered to bench/available).
 - [ ] Convert current video time to match-minute using period boundaries.
+- [ ] If period boundaries are missing, allow manual minute entry fallback for substitution capture.
 - [ ] Append `Substitution` to `matchInfo.substitutions` via manifest mutation.
 - [ ] Display substitutions in a dedicated sidebar section on the tagging page.
 - [ ] Show both API-imported and manually-recorded subs in the same list.
 
-### 9. Visual polish
-- [ ] Consistent dark-theme styling matching the tagging page.
-- [ ] Form validation hints (e.g. date format, shirt number uniqueness).
-- [ ] Responsive layout (two-column team panels collapse to single column on narrow viewports).
-- [ ] Keyboard navigation between form fields.
+### 9. Period-aware timestamps (visual-only)
+- [x] Add visual timestamp formatter using period boundaries (`1H 34:12`, `2H 07:40`, etc.).
+- [x] Update tagging page displays (tree labels + status bar) to use match-relative timestamps when available.
+- [x] Fallback to raw video timestamps when boundaries are unset or incomplete.
+- [x] Keep this display-only: no change to mark storage format.
+- [x] Add unit tests for formatter fallback behavior (complete boundaries vs missing boundaries).
+
+### 10. Visual polish
+- [x] Consistent dark-theme styling matching the tagging page.
+- [x] Form validation hints (e.g. date format, shirt number uniqueness).
+- [x] Responsive layout (two-column team panels collapse to single column on narrow viewports).
+- [x] Keyboard navigation between form fields.
 
 ---
 
@@ -598,7 +632,6 @@ change in `TagFolderTree` and the status bar. **Not in scope now.**
 - Opta / StatsBomb / Wyscout XML feed import.
 - Player photo / headshot import.
 - Dynamic facet population from teamsheet (architecture supports it; see above).
-- Match-relative timestamp display on the tagging page.
 - Multi-video period spanning (one period across two video files).
 - Undo/redo on the metadata form (use manifest-level undo if ever needed).
 - Persisting football-data.org external player/team IDs (we mint our own UUIDs).

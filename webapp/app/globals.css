@@ -1,25 +1,233 @@
-* { box-sizing: border-box; }
- :root { --player-headroom: 114px; }
-html, body { margin: 0; padding: 0; height: 100%; overflow-x: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif; background: #0f172a; color: #e5e7eb; }
-.container { max-width: 920px; margin: 0 auto; padding: 12px; }
-.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.header h1 { font-size: 18px; line-height: 1.2; margin: 0; }
-.subtle { color: #93c5fd; font-size: 12px; }
-.toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
-button { background: #1f2937; color: #e5e7eb; border: 1px solid #334155; border-radius: 8px; padding: 8px 12px; }
-button:hover { background: #111827; }
-.panel { background: #0b1220; border: 1px solid #1f2937; border-radius: 8px; padding: 12px; }
-.status { margin-top: 8px; font-size: 12px; color: #9ca3af; }
-.toast { position: fixed; bottom: 16px; right: 16px; background: #111827; border: 1px solid #334155; color: #e5e7eb; padding: 10px 12px; border-radius: 8px; }
+@import "tailwindcss";
 
-/* Upload overlay */
-.overlay { position: fixed; inset: 0; background: rgba(2, 6, 23, 0.6); display: flex; align-items: center; justify-content: center; z-index: 9999; }
-.loader { background: #0b1220; border: 1px solid #334155; border-radius: 12px; padding: 16px 20px; min-width: 260px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
-.spinner { width: 32px; height: 32px; border-radius: 9999px; border: 3px solid #334155; border-top-color: #93c5fd; animation: spin 1s linear infinite; margin: 0 auto 12px; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.progress { height: 6px; background: #1f2937; border-radius: 9999px; overflow: hidden; margin-top: 8px; }
-.progress > div { height: 100%; background: #3b82f6; width: 0%; transition: width .2s ease; }
-.percent { text-align: center; font-size: 12px; color: #9ca3af; margin-top: 6px; }
+/* ------------------------------------------------------------------ */
+/* Theme — design tokens (replaces tailwind.config.ts in v4)          */
+/* ------------------------------------------------------------------ */
+@theme {
+  --color-base: #0f172a;
+  --color-surface: #0b1220;
+  --color-raised: #1f2937;
+  --color-hover: #111827;
+  --color-selected: #334155;
+  --color-accent: #e5e7eb;
+  --color-accent-hover: #cbd5e1;
+  --color-on-accent: #0f172a;
+  --color-subtle: #1e293b;
+  --color-border: #334155;
+  --color-focus: #e5e7eb;
+  --color-muted: #64748b;
+  --color-secondary: #9ca3af;
+  --color-danger: #ef4444;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-info: #93c5fd;
 
-/* Full-bleed wrapper for pages that should span the entire viewport width */
-.fullbleed { margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw); width: 100vw; }
+  --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", "Cascadia Code", "Fira Code", Menlo, monospace;
+
+  --text-xs: 11px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+
+  --radius: 0px;
+  --radius-none: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-full: 9999px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Custom properties (values outside Tailwind's theme)                */
+/* ------------------------------------------------------------------ */
+:root {
+  --player-headroom: 114px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Base layer — global element resets on top of Preflight             */
+/* ------------------------------------------------------------------ */
+@layer base {
+  html, body {
+    height: 100%;
+    overflow-x: hidden;
+    background: var(--color-base);
+    color: var(--color-accent);
+    font-family: var(--font-sans);
+  }
+
+  /* All buttons: square, monochrome, space-filling */
+  button {
+    background: var(--color-raised);
+    color: var(--color-accent);
+    border: 1px solid var(--color-border);
+    border-radius: 0;
+    font-size: var(--text-sm);
+    padding: 8px 12px;
+    cursor: pointer;
+  }
+  button:hover { background: var(--color-hover); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button:focus-visible { outline: 1px solid var(--color-focus); outline-offset: 0; }
+
+  input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 1px solid var(--color-focus);
+    outline-offset: 0;
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-on-accent);
+  }
+
+  /* Webkit scrollbars */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #334155; }
+  ::-webkit-scrollbar-thumb:hover { background: #475569; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Component layer — composite patterns used across pages             */
+/* ------------------------------------------------------------------ */
+@layer components {
+  .container { max-width: 920px; margin: 0 auto; padding: 12px; }
+
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: stretch;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
+  }
+  .header h1 {
+    font-size: var(--text-lg);
+    font-weight: 700;
+    margin: 0;
+    line-height: 1.2;
+    align-self: center;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 0;
+    margin-bottom: 12px;
+  }
+
+  .panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-subtle);
+    padding: 12px;
+  }
+
+  .status {
+    margin-top: 8px;
+    font-size: var(--text-xs);
+    color: var(--color-secondary);
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    background: var(--color-hover);
+    border: 1px solid var(--color-border);
+    color: var(--color-accent);
+    padding: 10px 12px;
+    font-size: var(--text-sm);
+    z-index: 50;
+  }
+
+  /* Upload overlay */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 23, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+  }
+  .loader {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    padding: 16px 20px;
+    min-width: 260px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  }
+  .spinner {
+    width: 32px;
+    height: 32px;
+    border-radius: 9999px;
+    border: 3px solid var(--color-border);
+    border-top-color: var(--color-secondary);
+    animation: spin 1s linear infinite;
+    margin: 0 auto 12px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .progress {
+    height: 6px;
+    background: var(--color-raised);
+    overflow: hidden;
+    margin-top: 8px;
+  }
+  .progress > div {
+    height: 100%;
+    background: var(--color-accent);
+    width: 0%;
+    transition: width 0.2s ease;
+  }
+  .percent {
+    text-align: center;
+    font-size: var(--text-xs);
+    color: var(--color-secondary);
+    margin-top: 6px;
+  }
+
+  /* Full-bleed wrapper */
+  .fullbleed {
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+    width: 100vw;
+  }
+
+  /* Responsive team grid */
+  .team-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 12px;
+  }
+  @media (max-width: 700px) {
+    .team-grid { grid-template-columns: 1fr; }
+  }
+
+  /* Modals */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 23, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+  }
+  .modal-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    padding: 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    width: 100%;
+    max-width: 36rem;
+  }
+}

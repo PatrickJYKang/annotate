@@ -316,67 +316,24 @@ export default function TaggingMenu({
     position: "fixed",
     top: menuPosition?.top ?? anchorPoint?.y ?? 120,
     left: menuPosition?.left ?? anchorPoint?.x ?? 120,
-    zIndex: 50,
-    minWidth: 280,
-    maxWidth: "calc(100vw - 24px)",
-    maxHeight: "calc(100vh - 24px)",
-    overflow: "auto",
-    padding: "4px 0",
-    borderRadius: 6,
-    border: "1px solid rgba(51,65,85,0.8)",
-    background: "#1e293b",
-    boxShadow: "0 6px 16px rgba(0,0,0,0.3)",
     ...menuStyle,
   };
 
-  const optionButtonBase: React.CSSProperties = {
-    width: "100%",
-    textAlign: "left",
-    padding: "4px 10px",
-    borderRadius: 4,
-    border: "none",
-    outline: "none",
-    background: "transparent",
-    color: "inherit",
-    cursor: "pointer",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 6,
-    fontSize: 13,
-  };
-
-  const optionButtonSelected: React.CSSProperties = {
-    background: "rgba(255,255,255,0.1)",
-  };
-
-  const optionButtonLabel: React.CSSProperties = {
-    ...optionButtonBase,
-    fontWeight: 600,
-    opacity: 0.5,
-    cursor: "default",
-    fontSize: 11,
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
-    padding: "6px 10px 2px",
-  };
-
-  const getOptionStyle = (isSelected: boolean): React.CSSProperties => ({
-    ...optionButtonBase,
-    ...(isSelected ? optionButtonSelected : null),
-  });
+  const optBtnCls = "w-full text-left px-2.5 py-1 border-0 outline-none bg-transparent text-inherit cursor-pointer flex justify-between items-center gap-1.5 text-sm";
+  const optBtnLabelCls = `${optBtnCls} font-semibold opacity-50 cursor-default text-xs uppercase tracking-wide pt-1.5 pb-0.5`;
+  const optBtnSelectedCls = "bg-white/10";
 
   return (
-    <div ref={menuRef} style={menuStyleResolved}>
+    <div ref={menuRef} className="z-50 min-w-[280px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-24px)] overflow-auto py-1 border border-border bg-subtle shadow-lg" style={menuStyleResolved}>
       {schemaError ? (
         <div className="status">Failed to load tagging schema: {schemaError}</div>
       ) : !schema ? (
         <div className="status">Loading tagging schema...</div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2 overflow-x-auto pb-1">
             {levelOptions.map((level) => (
-              <div key={level.depth} style={{ minWidth: 170, borderRight: "1px solid rgba(255,255,255,0.08)", paddingRight: 8 }}>
+              <div key={level.depth} className="min-w-[170px] border-r border-white/[0.08] pr-2">
                 {level.options.map((option) => {
                   const isSelected = pathIds[level.depth] === option.id;
                   return (
@@ -385,10 +342,10 @@ export default function TaggingMenu({
                       type="button"
                       onClick={() => handlePrimarySelect(option.id)}
                       onDoubleClick={() => onClose({ primary: option.id, facets: { ...facetSelections } }, "confirm")}
-                      style={getOptionStyle(isSelected)}
+                      className={`${optBtnCls} ${isSelected ? optBtnSelectedCls : ''}`}
                     >
                       <span>{option.label}</span>
-                      {option.children?.length ? <span style={{ opacity: 0.6 }}>&gt;</span> : null}
+                      {option.children?.length ? <span className="opacity-60">&gt;</span> : null}
                     </button>
                   );
                 })}
@@ -397,11 +354,11 @@ export default function TaggingMenu({
           </div>
 
           {onClear ? (
-            <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", padding: "4px 0" }}>
+            <div className="border-t border-white/[0.08] py-1">
               <button
                 type="button"
                 onClick={() => { onClear(); onClose(createEmptyTaggingSelection(), "confirm"); }}
-                style={{ ...optionButtonBase, opacity: 0.7 }}
+                className={`${optBtnCls} opacity-70`}
               >
                 Clear tags
               </button>
@@ -409,12 +366,12 @@ export default function TaggingMenu({
           ) : null}
 
           {facetGroups.length > 0 ? (
-            <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 6 }}>
+            <div className="border-t border-white/[0.08] pt-1.5">
               {facetGroups.map((group) => {
                 const enabled = isFacetGroupEnabled(group);
                 if (!enabled) {
                   return (
-                    <div key={group.id} style={{ opacity: 0.55, fontSize: 12, padding: "2px 4px" }}>
+                    <div key={group.id} className="opacity-55 text-xs px-1 py-0.5">
                       {group.label}
                     </div>
                   );
@@ -425,8 +382,8 @@ export default function TaggingMenu({
                     Array.isArray(facetSelections[group.id]) ? (facetSelections[group.id] as string[]) : [],
                   );
                   return (
-                    <div key={group.id} style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
-                      <div style={optionButtonLabel}>{group.label}</div>
+                    <div key={group.id} className="flex flex-col gap-1 text-xs">
+                      <div className={optBtnLabelCls}>{group.label}</div>
                       {group.options.map((option) => {
                         const isSelected = selected.has(option.id);
                         const nextSelection: TaggingSelection = {
@@ -447,7 +404,7 @@ export default function TaggingMenu({
                             type="button"
                             onClick={() => handleFacetMultiToggle(group.id, option.id, !isSelected)}
                             onDoubleClick={() => onClose(nextSelection, "confirm")}
-                            style={getOptionStyle(isSelected)}
+                            className={`${optBtnCls} ${isSelected ? optBtnSelectedCls : ''}`}
                           >
                             <span>{isSelected ? "[x] " : "[ ] "}{option.label}</span>
                           </button>
@@ -459,8 +416,8 @@ export default function TaggingMenu({
 
                 const currentValue = (facetSelections[group.id] as string) ?? "";
                 return (
-                  <div key={group.id} style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
-                    <div style={optionButtonLabel}>{group.label}</div>
+                  <div key={group.id} className="flex flex-col gap-1 text-xs">
+                    <div className={optBtnLabelCls}>{group.label}</div>
                     {group.options.map((option) => {
                       const isSelected = currentValue === option.id;
                       const nextSelection: TaggingSelection = {
@@ -479,7 +436,7 @@ export default function TaggingMenu({
                           type="button"
                           onClick={() => handleFacetSingleChange(group.id, isSelected ? "" : option.id)}
                           onDoubleClick={() => onClose(nextSelection, "confirm")}
-                          style={getOptionStyle(isSelected)}
+                          className={`${optBtnCls} ${isSelected ? optBtnSelectedCls : ''}`}
                         >
                           <span>{option.label}</span>
                         </button>

@@ -18,6 +18,7 @@ export type TagFolderTreeProps = {
   onSelectMark: (markId: string) => void;
   onContextMenu: (markId: string, event: React.MouseEvent) => void;
   onDropMarkOnNode?: (markId: string, nodeId: string) => void;
+  formatTimestamp?: (ms: number) => string;
 };
 
 // --- helpers ---
@@ -92,40 +93,10 @@ function collectNonEmptyNodeIds(nodes: TaggingNode[], byNode: MarksByNode, out: 
 
 // --- styles ---
 
-const BADGE_STYLE: React.CSSProperties = {
-  fontSize: 10,
-  lineHeight: "16px",
-  padding: "0 5px",
-  borderRadius: 8,
-  background: "#1e293b",
-  color: "#94a3b8",
-  fontWeight: 600,
-  flexShrink: 0,
-};
-
-const CHEVRON_STYLE: React.CSSProperties = {
-  display: "inline-block",
-  width: 14,
-  textAlign: "center",
-  fontSize: 10,
-  color: "#64748b",
-  flexShrink: 0,
-  transition: "transform 150ms ease",
-};
-
-const COLLAPSIBLE_STYLE_OPEN: React.CSSProperties = {
-  display: "grid",
-  gridTemplateRows: "1fr",
-  overflow: "hidden",
-  transition: "grid-template-rows 200ms ease",
-};
-
-const COLLAPSIBLE_STYLE_CLOSED: React.CSSProperties = {
-  display: "grid",
-  gridTemplateRows: "0fr",
-  overflow: "hidden",
-  transition: "grid-template-rows 200ms ease",
-};
+const badgeCls = "text-[10px] leading-4 px-[5px] rounded-lg bg-subtle text-secondary font-semibold shrink-0";
+const chevronCls = "inline-block w-3.5 text-center text-[10px] text-muted shrink-0 transition-transform duration-150 ease-in-out";
+const collapsibleOpen = "grid grid-rows-[1fr] overflow-hidden transition-[grid-template-rows] duration-200 ease-in-out";
+const collapsibleClosed = "grid grid-rows-[0fr] overflow-hidden transition-[grid-template-rows] duration-200 ease-in-out";
 
 // --- sub-components ---
 
@@ -137,12 +108,14 @@ function MarkItem({
   onSelect,
   onContextMenu,
   label,
+  formatTimestamp,
 }: {
   mark: Mark;
   isSelected: boolean;
   onSelect: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   label?: string;
+  formatTimestamp?: (ms: number) => string;
 }) {
   const handleDragStart = useCallback((e: React.DragEvent) => {
     e.dataTransfer.setData(DRAG_MIME, mark.id);
@@ -156,24 +129,12 @@ function MarkItem({
       onDragStart={handleDragStart}
       onClick={onSelect}
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e); }}
-      style={{
-        display: "block",
-        width: "100%",
-        textAlign: "left",
-        padding: "2px 8px",
-        margin: 0,
-        border: "none",
-        borderRadius: 3,
-        cursor: "grab",
-        fontSize: 12,
-        fontFamily: "monospace",
-        color: isSelected ? "#e2e8f0" : "#94a3b8",
-        background: isSelected ? "#334155" : "transparent",
-        transition: "background 120ms ease, color 120ms ease",
-      }}
+      className={`block w-full text-left px-2 py-0.5 m-0 border-0 cursor-grab text-xs font-mono transition-[background,color] duration-[120ms] ease ${
+        isSelected ? 'text-accent bg-selected' : 'text-secondary bg-transparent'
+      }`}
     >
-      {formatTime(mark.t_ms)}
-      {label && <span style={{ marginLeft: 6, fontSize: 10, color: "#64748b" }}>{label}</span>}
+      {(formatTimestamp ?? formatTime)(mark.t_ms)}
+      {label && <span className="ml-1.5 text-[10px] text-muted">{label}</span>}
     </button>
   );
 }
@@ -236,30 +197,20 @@ function FolderHeader({
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      className={`flex items-center gap-1 w-full text-left px-1 py-[3px] m-0 cursor-pointer text-sm font-medium transition-[opacity,background,border-color] duration-[120ms] ease ${
+        dimmed ? 'opacity-70' : 'opacity-100'
+      }`}
       style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 4,
-        width: "100%",
-        textAlign: "left",
-        padding: "3px 4px",
-        margin: 0,
-        border: dragOver ? "1px dashed #60a5fa" : "1px solid transparent",
-        borderRadius: 3,
-        cursor: "pointer",
-        fontSize: 13,
-        fontWeight: 500,
-        color: color ?? (dimmed ? "#475569" : "#e2e8f0"),
-        background: dragOver ? "rgba(96, 165, 250, 0.1)" : "transparent",
-        opacity: dimmed ? 0.7 : 1,
-        transition: "opacity 150ms ease, background 120ms ease, border-color 120ms ease",
+        border: dragOver ? '1px dashed #60a5fa' : '1px solid transparent',
+        color: color ?? (dimmed ? '#475569' : '#e2e8f0'),
+        background: dragOver ? 'rgba(96, 165, 250, 0.1)' : 'transparent',
       }}
     >
-      <span style={{ ...CHEVRON_STYLE, transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)" }}>
+      <span className={chevronCls} style={{ transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)' }}>
         ▾
       </span>
-      <span style={{ flex: 1 }}>{label}</span>
-      {count > 0 && <span style={BADGE_STYLE}>{count}</span>}
+      <span className="flex-1">{label}</span>
+      {count > 0 && <span className={badgeCls}>{count}</span>}
     </button>
   );
 }
@@ -274,6 +225,7 @@ function FolderNode({
   expanded,
   onToggle,
   onDropMarkOnNode,
+  formatTimestamp,
 }: {
   node: TaggingNode;
   depth: number;
@@ -284,6 +236,7 @@ function FolderNode({
   expanded: Set<string>;
   onToggle: (id: string) => void;
   onDropMarkOnNode?: (markId: string, nodeId: string) => void;
+  formatTimestamp?: (ms: number) => string;
 }) {
   const count = useMemo(
     () => countMarksInNode(node.id, node.children, byNode),
@@ -304,18 +257,19 @@ function FolderNode({
         onDropMarkOnNode={onDropMarkOnNode}
       />
 
-      <div style={isOpen ? COLLAPSIBLE_STYLE_OPEN : COLLAPSIBLE_STYLE_CLOSED}>
-        <div style={{ minHeight: 0 }}>
+      <div className={isOpen ? collapsibleOpen : collapsibleClosed}>
+        <div className="min-h-0">
           {directMarks
             .slice()
             .sort((a, b) => a.t_ms - b.t_ms)
             .map((mark) => (
-              <div key={mark.id} style={{ marginLeft: 18 }}>
+              <div key={mark.id} className="ml-[18px]">
                 <MarkItem
                   mark={mark}
                   isSelected={mark.id === selectedMarkId}
                   onSelect={() => onSelectMark(mark.id)}
                   onContextMenu={(e) => onContextMenu(mark.id, e)}
+                  formatTimestamp={formatTimestamp}
                 />
               </div>
             ))}
@@ -332,6 +286,7 @@ function FolderNode({
               expanded={expanded}
               onToggle={onToggle}
               onDropMarkOnNode={onDropMarkOnNode}
+              formatTimestamp={formatTimestamp}
             />
           ))}
         </div>
@@ -349,6 +304,7 @@ export default function TagFolderTree({
   onSelectMark,
   onContextMenu,
   onDropMarkOnNode,
+  formatTimestamp,
 }: TagFolderTreeProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -407,7 +363,7 @@ export default function TagFolderTree({
   }, [selectedMarkId]);
 
   return (
-    <div ref={containerRef} style={{ overflowY: "auto", padding: "8px 4px", fontSize: 13 }}>
+    <div ref={containerRef} className="overflow-y-auto px-1 py-2 text-sm">
       {/* Schema-derived folders */}
       {schema.primary_tree.map((node) => (
         <FolderNode
@@ -421,11 +377,12 @@ export default function TagFolderTree({
           expanded={expanded}
           onToggle={toggle}
           onDropMarkOnNode={onDropMarkOnNode}
+          formatTimestamp={formatTimestamp}
         />
       ))}
 
       {/* Untagged bucket */}
-      <div style={{ marginTop: 8, borderTop: "1px solid #1e293b", paddingTop: 8 }}>
+      <div className="mt-2 border-t border-subtle pt-2">
         <FolderHeader
           label="Untagged"
           count={untagged.length}
@@ -433,18 +390,19 @@ export default function TagFolderTree({
           onToggle={() => toggle("__untagged")}
           dimmed={untagged.length === 0}
         />
-        <div style={expanded.has("__untagged") ? COLLAPSIBLE_STYLE_OPEN : COLLAPSIBLE_STYLE_CLOSED}>
-          <div style={{ minHeight: 0 }}>
+        <div className={expanded.has("__untagged") ? collapsibleOpen : collapsibleClosed}>
+          <div className="min-h-0">
             {untagged
               .slice()
               .sort((a, b) => a.t_ms - b.t_ms)
               .map((mark) => (
-                <div key={mark.id} style={{ marginLeft: 18 }}>
+                <div key={mark.id} className="ml-[18px]">
                   <MarkItem
                     mark={mark}
                     isSelected={mark.id === selectedMarkId}
                     onSelect={() => onSelectMark(mark.id)}
                     onContextMenu={(e) => onContextMenu(mark.id, e)}
+                    formatTimestamp={formatTimestamp}
                   />
                 </div>
               ))}
@@ -454,7 +412,7 @@ export default function TagFolderTree({
 
       {/* Unknown tag bucket */}
       {unknown.length > 0 && (
-        <div style={{ marginTop: 4 }}>
+        <div className="mt-1">
           <FolderHeader
             label="Unknown tag"
             count={unknown.length}
@@ -462,21 +420,22 @@ export default function TagFolderTree({
             onToggle={() => toggle("__unknown")}
             color="#f59e0b"
           />
-          <div style={expanded.has("__unknown") ? COLLAPSIBLE_STYLE_OPEN : COLLAPSIBLE_STYLE_CLOSED}>
-            <div style={{ minHeight: 0 }}>
+          <div className={expanded.has("__unknown") ? collapsibleOpen : collapsibleClosed}>
+            <div className="min-h-0">
               {unknown
                 .slice()
                 .sort((a, b) => a.t_ms - b.t_ms)
                 .map((mark) => {
                   const primary = ensureTaggingSelection(mark.tags).primary;
                   return (
-                    <div key={mark.id} style={{ marginLeft: 18 }}>
+                    <div key={mark.id} className="ml-[18px]">
                       <MarkItem
                         mark={mark}
                         isSelected={mark.id === selectedMarkId}
                         onSelect={() => onSelectMark(mark.id)}
                         onContextMenu={(e) => onContextMenu(mark.id, e)}
                         label={primary ? `[${primary}]` : undefined}
+                        formatTimestamp={formatTimestamp}
                       />
                     </div>
                   );

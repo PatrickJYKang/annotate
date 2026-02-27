@@ -70,6 +70,12 @@ function VideoPlayerUnitInner({ src, fps = 30, hotkeys = true, allowFullscreen =
   const flashTimer = useRef<number | null>(null);
   const [hoverMarkId, setHoverMarkId] = useState<string | null>(null);
 
+  const activeBtnStyle = (name: string): React.CSSProperties =>
+    activeBtn === name
+      ? { background: '#2563eb', borderColor: '#60a5fa', boxShadow: '0 0 0 2px rgba(96,165,250,0.25) inset' }
+      : {};
+  const btnTransition = 'transition-[background-color,border-color,box-shadow] duration-[120ms] ease';
+
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -268,13 +274,13 @@ function VideoPlayerUnitInner({ src, fps = 30, hotkeys = true, allowFullscreen =
   }, [selectedMarkId, marks, durationMs]);
 
   return (
-    <div ref={wrapperRef} className={className} style={{ position: "relative", borderRadius: 8, overflow: "hidden", ...style }} tabIndex={0} onKeyDownCapture={onKeyDownCapture}>
+    <div ref={wrapperRef} className={`relative overflow-hidden ${className ?? ''}`} style={style} tabIndex={0} onKeyDownCapture={onKeyDownCapture}>
       {/* 16:9 overlay placeholder while loading metadata */}
-      <div style={{ position: "absolute", inset: 0, display: ready ? "none" : "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", zIndex: 1 }}>
-        <div style={{ width: "100%", aspectRatio: "16 / 9", background: "#0b1220", border: "1px solid #1f2937", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+      <div className={`absolute inset-0 items-center justify-center pointer-events-none z-[1] ${ready ? 'hidden' : 'flex'}`}>
+        <div className="w-full aspect-video bg-surface border border-raised flex items-center justify-center">
+          <div className="flex flex-col items-center gap-1.5">
             <div className="spinner" />
-            <div style={{ fontSize: 12, color: "#9ca3af" }}>Loading…</div>
+            <div className="text-xs text-secondary">Loading…</div>
           </div>
         </div>
       </div>
@@ -282,38 +288,40 @@ function VideoPlayerUnitInner({ src, fps = 30, hotkeys = true, allowFullscreen =
         ref={videoRef}
         src={src ?? undefined}
         onClick={() => { wrapperRef.current?.focus(); if (!locked) togglePlay(); }}
-        style={{ width: "100%", height: videoHeight || "calc(100vh - var(--player-headroom))", display: "block", background: "#000", objectFit: "contain" }}
+        className="w-full block bg-black object-contain"
+        style={{ height: videoHeight || 'calc(100vh - var(--player-headroom))' }}
       />
-      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: 8, background: "linear-gradient(180deg, rgba(0,0,0,0.0), rgba(0,0,0,0.55))", zIndex: 3 }}>
-        <div ref={seekRef} style={{ position: "relative", height: 12, background: "#1f2937", borderRadius: 9999, cursor: locked ? "not-allowed" : "pointer" }} onMouseDown={onMouseDown} onTouchStart={onTouchStart}>
-          <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: `${percent}%`, background: "#3b82f6", borderRadius: 9999 }} />
-          <div style={{ position: "absolute", top: 0, left: `${percent}%`, transform: "translateX(-50%)", width: 12, height: 12, borderRadius: 9999, background: "#93c5fd" }} />
+      <div className="absolute left-0 right-0 bottom-0 p-2 z-[3]" style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.0), rgba(0,0,0,0.55))' }}>
+        <div ref={seekRef} className={`relative h-3 bg-raised rounded-full ${locked ? 'cursor-not-allowed' : 'cursor-pointer'}`} onMouseDown={onMouseDown} onTouchStart={onTouchStart}>
+          <div className="absolute top-0 left-0 bottom-0 bg-[#3b82f6] rounded-full" style={{ width: `${percent}%` }} />
+          <div className="absolute top-0 w-3 h-3 rounded-full bg-[#93c5fd]" style={{ left: `${percent}%`, transform: 'translateX(-50%)' }} />
           {markPercents.map(({ id, p, t_ms }) => (
             <div
               key={id}
               onMouseEnter={() => setHoverMarkId(id)}
               onMouseLeave={() => setHoverMarkId(prev => (prev === id ? null : prev))}
               onClick={(e) => { e.stopPropagation(); if (onSelectMark) onSelectMark(id, t_ms); }}
-              style={{ position: "absolute", top: -8, left: `${p}%`, width: 12, height: 28, transform: "translateX(-50%)", background: "transparent", cursor: "pointer" }}
+              className="absolute w-3 h-7 cursor-pointer bg-transparent"
+              style={{ top: -8, left: `${p}%`, transform: 'translateX(-50%)' }}
             >
-              <div style={{ position: "absolute", top: hoverMarkId === id ? -6 : -4, left: "50%", width: 3, height: hoverMarkId === id ? 26 : 20, transform: "translateX(-50%)", background: id === selectedMarkId ? "#f97316" : "#fbbf24", opacity: 0.95, borderRadius: 1.5 }} />
+              <div className="absolute left-1/2 w-[3px] rounded-sm opacity-95" style={{ top: hoverMarkId === id ? -6 : -4, height: hoverMarkId === id ? 26 : 20, transform: 'translateX(-50%)', background: id === selectedMarkId ? '#f97316' : '#fbbf24' }} />
             </div>
           ))}
           {selectedPercent != null && (
-            <div style={{ position: "absolute", top: -6, left: `${selectedPercent}%`, width: 3, height: 24, transform: "translateX(-50%)", background: "#f97316", borderRadius: 1.5 }} />
+            <div className="absolute w-[3px] h-6 rounded-sm bg-[#f97316]" style={{ top: -6, left: `${selectedPercent}%`, transform: 'translateX(-50%)' }} />
           )}
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+        <div className="flex gap-2 items-center mt-2">
           {/* Large skip backward */}
-          <button disabled={locked} aria-label="Skip back" title="Skip back" onClick={() => largeNudge(-1)} style={{ ...(activeBtn === 'large-back' ? { background: '#2563eb', borderColor: '#60a5fa', boxShadow: '0 0 0 2px rgba(96,165,250,0.25) inset' } : {}), transition: 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 80ms ease' }}>
+          <button disabled={locked} aria-label="Skip back" title="Skip back" onClick={() => largeNudge(-1)} className={btnTransition} style={activeBtnStyle('large-back')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="11 19 2 12 11 5"></polyline><line x1="22" y1="19" x2="22" y2="5"></line></svg>
           </button>
           {/* Frame step backward */}
-          <button disabled={locked} aria-label="Step back" title="Step back (frame)" onClick={() => step(-1)} style={{ ...(activeBtn === 'frame-back' ? { background: '#2563eb', borderColor: '#60a5fa', boxShadow: '0 0 0 2px rgba(96,165,250,0.25) inset' } : {}), transition: 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 80ms ease' }}>
+          <button disabled={locked} aria-label="Step back" title="Step back (frame)" onClick={() => step(-1)} className={btnTransition} style={activeBtnStyle('frame-back')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
           </button>
           {/* Play/Pause */}
-          <button disabled={locked} aria-label={playing ? "Pause" : "Play"} title={playing ? "Pause" : "Play"} onClick={togglePlay} style={{ ...(activeBtn === 'play' ? { background: '#2563eb', borderColor: '#60a5fa', boxShadow: '0 0 0 2px rgba(96,165,250,0.25) inset' } : {}), transition: 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 80ms ease' }}>
+          <button disabled={locked} aria-label={playing ? "Pause" : "Play"} title={playing ? "Pause" : "Play"} onClick={togglePlay} className={btnTransition} style={activeBtnStyle('play')}>
             {playing ? (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
             ) : (
@@ -321,22 +329,22 @@ function VideoPlayerUnitInner({ src, fps = 30, hotkeys = true, allowFullscreen =
             )}
           </button>
           {/* Frame step forward */}
-          <button disabled={locked} aria-label="Step forward" title="Step forward (frame)" onClick={() => step(1)} style={{ ...(activeBtn === 'frame-forward' ? { background: '#2563eb', borderColor: '#60a5fa', boxShadow: '0 0 0 2px rgba(96,165,250,0.25) inset' } : {}), transition: 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 80ms ease' }}>
+          <button disabled={locked} aria-label="Step forward" title="Step forward (frame)" onClick={() => step(1)} className={btnTransition} style={activeBtnStyle('frame-forward')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
           </button>
           {/* Large skip forward */}
-          <button disabled={locked} aria-label="Skip forward" title="Skip forward" onClick={() => largeNudge(1)} style={{ ...(activeBtn === 'large-forward' ? { background: '#2563eb', borderColor: '#60a5fa', boxShadow: '0 0 0 2px rgba(96,165,250,0.25) inset' } : {}), transition: 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 80ms ease' }}>
+          <button disabled={locked} aria-label="Skip forward" title="Skip forward" onClick={() => largeNudge(1)} className={btnTransition} style={activeBtnStyle('large-forward')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="13 19 22 12 13 5"></polyline><line x1="2" y1="19" x2="2" y2="5"></line></svg>
           </button>
-          <div style={{ flex: 1 }} />
+          <div className="flex-1" />
           <div className="status">{formatTimeNoMs(Math.round(current * 1000))} / {formatTimeNoMs(durationMs)}</div>
           {showAddMarkButton && (
-            <button disabled={locked} aria-label="Add mark" title="Add mark" onClick={addMark} style={{ ...(activeBtn === 'mark' ? { background: '#2563eb', borderColor: '#60a5fa', boxShadow: '0 0 0 2px rgba(96,165,250,0.25) inset' } : {}), transition: 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 80ms ease' }}>
+            <button disabled={locked} aria-label="Add mark" title="Add mark" onClick={addMark} className={btnTransition} style={activeBtnStyle('mark')}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h12v16l-6-4-6 4z"/></svg>
             </button>
           )}
           {allowFullscreen && (
-            <button disabled={locked} aria-label="Fullscreen" title="Fullscreen" onClick={toggleFullscreen} style={{ ...(activeBtn === 'fullscreen' ? { background: '#2563eb', borderColor: '#60a5fa', boxShadow: '0 0 0 2px rgba(96,165,250,0.25) inset' } : {}), transition: 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 80ms ease' }}>
+            <button disabled={locked} aria-label="Fullscreen" title="Fullscreen" onClick={toggleFullscreen} className={btnTransition} style={activeBtnStyle('fullscreen')}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="15 3 21 3 21 9"></polyline>
                 <polyline points="9 21 3 21 3 15"></polyline>

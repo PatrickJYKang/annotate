@@ -286,12 +286,14 @@ export default function Page() {
         </div>
       )}
 
-      <div className="panel">
-        <strong>Note:</strong> The <code>.matchproj</code> suffix is currently just a naming convention for easier identification during development. It has no functional effect. Reminder: remove for production.
-      </div>
+      {process.env.NODE_ENV === 'development' && (
+        <div className="panel text-sm text-secondary">
+          <strong>Note:</strong> The <code>.matchproj</code> suffix is currently just a naming convention for easier identification during development. It has no functional effect.
+        </div>
+      )}
 
       <div className="panel" onDragOver={onDragOver} onDrop={onDrop}>
-        <h3 style={{ marginTop: 0 }}>Current Project</h3>
+        <h3 className="mt-0 text-base font-bold">Current Project</h3>
         {!projectDir ? (
           <div className="status">No project open.</div>
         ) : (
@@ -303,20 +305,37 @@ export default function Page() {
                 <div>Created: {new Date(manifest.created).toLocaleString()}</div>
                 <div>Videos: {manifest.videos.length} · Marks: {manifest.marks.length} · Stills: {manifest.stills.length}</div>
                 {manifest.videos.length > 0 && (
-                  <div style={{ marginTop: 8 }}>
-                    <strong>Videos</strong>
-                    <ul>
+                  <div className="mt-2">
+                    <strong className="text-sm">Videos</strong>
+                    <div className="mt-1 flex flex-col">
                       {manifest.videos.map(v => (
-                        <li key={v.id}>
-                          <button
-                            onClick={async () => { setSelectedVideoId(v.id); router.push('/player'); }}
-                            style={{ background: selectedVideoId === v.id ? '#0f172a' : '#1f2937', borderColor: selectedVideoId === v.id ? '#60a5fa' : '#334155' }}
-                          >
-                            {v.label} {typeof v.durationMs === 'number' ? `· ${Math.round((v.durationMs||0)/1000)}s` : ''} {v.width && v.height ? `· ${v.width}×${v.height}` : ''}
-                          </button>
-                        </li>
+                        <button
+                          key={v.id}
+                          onClick={async () => { setSelectedVideoId(v.id); router.push('/player'); }}
+                          className={`w-full text-left px-3 py-2 text-sm border border-border ${
+                            selectedVideoId === v.id
+                              ? 'bg-base border-focus'
+                              : 'bg-raised'
+                          }`}
+                        >
+                          <span>{v.label}</span>
+                          <span className="text-secondary ml-2">
+                            {typeof v.durationMs === 'number' ? `${Math.round((v.durationMs||0)/1000)}s` : ''}
+                            {v.width && v.height ? ` · ${v.width}×${v.height}` : ''}
+                          </span>
+                        </button>
                       ))}
-                    </ul>
+                    </div>
+                  </div>
+                )}
+                {manifest.videos.length > 0 && (
+                  <div className="mt-2">
+                    <button
+                      onClick={() => router.push('/metadata')}
+                      className="w-full text-left px-3 py-2 text-sm"
+                    >
+                      {manifest.matchInfo ? 'Edit match info' : 'Set up match info →'}
+                    </button>
                   </div>
                 )}
                 {typeof uploadProgress === 'number' && (
@@ -339,7 +358,7 @@ export default function Page() {
         <div className="overlay" role="status" aria-live="polite">
           <div className="loader">
             <div className="spinner" />
-            <div style={{ textAlign: 'center' }}>{uploadLabel ? `Uploading ${uploadLabel}…` : 'Uploading…'}</div>
+            <div className="text-center text-sm">{uploadLabel ? `Uploading ${uploadLabel}…` : 'Uploading…'}</div>
             {typeof uploadProgress === 'number' && (
               <>
                 <div className="progress"><div style={{ width: `${Math.round(uploadProgress)}%` }} /></div>

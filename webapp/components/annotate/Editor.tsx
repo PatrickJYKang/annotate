@@ -2195,7 +2195,7 @@ export default function Editor({
   });
 
   return (
-    <div ref={hostRef} style={{ position: 'absolute', inset: 0 }}>
+    <div ref={hostRef} className="absolute inset-0">
       {textEdit && (() => {
         const s = shapes.find(x => x.id === textEdit.id);
         if (!s || s.type !== 'text') return null;
@@ -2385,32 +2385,32 @@ export default function Editor({
         </Layer>
       </Stage>
       {ioError && (
-        <div className="panel" style={{ position: 'absolute', right: 8, bottom: 8, padding: 8, minWidth: 260 }}>
+        <div className="panel absolute right-2 bottom-2 p-2 min-w-[260px]">
           <strong>Save Error</strong>
-          <div className="status" style={{ marginTop: 6 }}>{ioError}</div>
-          <div className="toolbar" style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+          <div className="status mt-1.5">{ioError}</div>
+          <div className="toolbar mt-2 flex gap-2">
             <button onClick={() => { setIoError(null); void performSave(); }}>Retry Save</button>
           </div>
         </div>
       )}
       {calibrating && (
-        <div className="panel" style={{ position: 'absolute', left: 8, top: 8, padding: 8, minWidth: 220 }}>
+        <div className="panel absolute left-2 top-2 p-2 min-w-[220px]">
           <strong>Define Pitch</strong>
-          <div className="status" style={{ marginTop: 6 }}>Click 4 corners: TL, TR, BR, BL</div>
-          <div className="toolbar" style={{ marginTop: 8 }}>
+          <div className="status mt-1.5">Click 4 corners: TL, TR, BR, BL</div>
+          <div className="toolbar mt-2">
             <button onClick={() => setCalibPoints([])}>Reset</button>
           </div>
         </div>
       )}
       {isSelecting && selRect && (
-        <div style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, pointerEvents: 'none' }}>
-          <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0 }}>
+        <div className="absolute inset-0 pointer-events-none">
+          <svg width="100%" height="100%" className="absolute inset-0">
             <rect x={selRect.x * stageScale + stageOffset.x} y={selRect.y * stageScale + stageOffset.y} width={selRect.w * stageScale} height={selRect.h * stageScale} fill="rgba(59,130,246,0.15)" stroke="#60a5fa" strokeDasharray="4,4" />
           </svg>
         </div>
       )}
       {(selectedId || (selectedIds && selectedIds.length > 0)) && (
-        <div className="panel" style={{ position: 'absolute', right: 8, top: 8, padding: 8, minWidth: 220 }}>
+        <div className="panel absolute right-2 top-2 p-2 min-w-[220px]">
           <strong>Inspector</strong>
           <div className="status">ID: {(selectedId || selectedIds[0]).slice(0, 8)}</div>
           {(() => {
@@ -2428,7 +2428,7 @@ export default function Editor({
             const anyText = !!textSample;
 
             return (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 8 }}>
+              <div className="grid grid-cols-2 gap-1.5 mt-2">
                 <label className="status">Stroke</label>
                 <input type="color" onChange={(e) => {
                   const v = e.target.value;

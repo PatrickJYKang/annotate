@@ -12,6 +12,7 @@ import {
   ensureTaggingSelection,
   TaggingSelection,
 } from "../../lib/tagging/schema";
+import { formatMatchTimestamp } from "../../lib/metadata/timeDisplay";
 
 export default function PlayerPage() {
   const router = useRouter();
@@ -277,7 +278,7 @@ export default function PlayerPage() {
       <div className="fullbleed">
         <div className="panel">
           <div className="status">No project open. Go back and open a project.</div>
-          <div className="toolbar" style={{ marginTop: 8 }}>
+          <div className="toolbar mt-2">
             <button onClick={() => router.push('/')}>Back to Home</button>
           </div>
         </div>
@@ -290,7 +291,7 @@ export default function PlayerPage() {
       <div className="fullbleed">
         <div className="panel">
           <div className="status">No video selected. Choose a video from the project home.</div>
-          <div className="toolbar" style={{ marginTop: 8 }}>
+          <div className="toolbar mt-2">
             <button onClick={() => router.push('/')}>Back to Home</button>
           </div>
         </div>
@@ -300,19 +301,20 @@ export default function PlayerPage() {
 
   return (
     <div className="fullbleed">
-      <div className="panel" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+      <div className="panel flex flex-col h-screen overflow-hidden">
         {/* Toolbar */}
-        <div className="toolbar" style={{ marginBottom: 8, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="toolbar mb-2 shrink-0 flex items-center gap-2">
           <button onClick={onBack}>Back</button>
-          <span style={{ flex: 1 }} />
+          <button onClick={() => router.push('/metadata')} className="text-xs">← Match info</button>
+          <span className="flex-1" />
           <button onClick={deleteSelectedMark} disabled={!selectedMarkId} title="Delete selected mark (Delete)">Delete</button>
           <button onClick={() => router.push('/stills')}>Next</button>
         </div>
 
         {/* Main content: video left, tag tree right */}
-        <div style={{ display: 'flex', gap: 12, flex: '1 1 auto', minHeight: 0 }}>
+        <div className="flex gap-3 flex-1 min-h-0">
           {/* Left pane — Video */}
-          <div style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <div className="flex-1 min-w-0 flex flex-col">
             <VideoPlayerUnit
               ref={playerRef}
               src={videoUrl}
@@ -329,7 +331,7 @@ export default function PlayerPage() {
           </div>
 
           {/* Right pane — Tag folder tree */}
-          <div style={{ flex: '0 0 300px', minWidth: 280, display: 'flex', flexDirection: 'column', borderLeft: '1px solid #1e293b', paddingLeft: 8 }}>
+          <div className="flex-[0_0_300px] min-w-[280px] flex flex-col border-l border-subtle pl-2">
             {taggingSchema ? (
               <TagFolderTree
                 schema={taggingSchema}
@@ -338,9 +340,14 @@ export default function PlayerPage() {
                 onSelectMark={handleTreeSelectMark}
                 onContextMenu={openTagMenuForMark}
                 onDropMarkOnNode={handleDropMarkOnNode}
+                formatTimestamp={
+                  manifest?.matchInfo?.periods && selectedVideoId
+                    ? (ms: number) => formatMatchTimestamp(ms, selectedVideoId, manifest.matchInfo!.periods).display
+                    : undefined
+                }
               />
             ) : (
-              <div style={{ padding: 12, color: '#64748b', fontSize: 13 }}>
+              <div className="p-3 text-muted text-sm">
                 No tagging schema loaded. Open project settings to add one.
               </div>
             )}
@@ -348,7 +355,7 @@ export default function PlayerPage() {
         </div>
 
         {/* Status bar */}
-        <div className="status" style={{ flexShrink: 0, marginTop: 4, fontSize: 11 }}>
+        <div className="status shrink-0 mt-1 text-xs">
           M=mark · Delete=delete · C=clear tags · ⌘Z=undo · ⌘⇧Z=redo · Right-click=tag · J/K/L ←/→ ,/.=navigate
         </div>
 

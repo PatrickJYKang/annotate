@@ -298,36 +298,41 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
     }
   }, [panning]);
 
+  const toolBtnCls = (t: Tool) =>
+    `px-2 py-1 cursor-pointer text-white border ${
+      tool === t
+        ? 'bg-[#2563eb] border-[#60a5fa]'
+        : 'bg-surface border-border'
+    }`;
+
+  const saveStatusCls =
+    saveStatus?.state === 'error' ? 'text-danger'
+    : saveStatus?.state === 'saving' ? 'text-warning'
+    : saveStatus?.state === 'saved' ? 'text-[#34d399]'
+    : '';
+
   const toolbar = (
-    <div className="toolbar" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+    <div className="toolbar flex items-center gap-2">
       <strong>Annotate</strong>
       {writePermission && writePermission !== 'granted' && (
         <button
           onClick={requestWriteAccess}
-          style={{ background: '#f59e0b', color: '#0b1220', border: '1px solid #fbbf24', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}
+          className="bg-[#f59e0b] text-surface border border-[#fbbf24] px-2.5 py-1 cursor-pointer"
         >
           Enable autosave
         </button>
       )}
-      <div style={{ display: 'flex', gap: 6 }}>
-        <button onClick={() => setTool('select')} aria-pressed={tool === 'select'}
-          style={{ background: tool === 'select' ? '#2563eb' : '#111827', color: '#fff', border: `1px solid ${tool === 'select' ? '#60a5fa' : '#374151'}`, borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}>Select</button>
-        <button onClick={() => setTool('box')} aria-pressed={tool === 'box'}
-          style={{ background: tool === 'box' ? '#2563eb' : '#111827', color: '#fff', border: `1px solid ${tool === 'box' ? '#60a5fa' : '#374151'}`, borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}>Box</button>
-        <button onClick={() => setTool('circle')} aria-pressed={tool === 'circle'}
-          style={{ background: tool === 'circle' ? '#2563eb' : '#111827', color: '#fff', border: `1px solid ${tool === 'circle' ? '#60a5fa' : '#374151'}`, borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}>Circle</button>
-        <button onClick={() => setTool('highlight')} aria-pressed={tool === 'highlight'}
-          style={{ background: tool === 'highlight' ? '#2563eb' : '#111827', color: '#fff', border: `1px solid ${tool === 'highlight' ? '#60a5fa' : '#374151'}`, borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}>Highlight</button>
-        <button onClick={() => setTool('arrow')} aria-pressed={tool === 'arrow'}
-          style={{ background: tool === 'arrow' ? '#2563eb' : '#111827', color: '#fff', border: `1px solid ${tool === 'arrow' ? '#60a5fa' : '#374151'}`, borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}>Arrow</button>
-        <button onClick={() => setTool('poly')} aria-pressed={tool === 'poly'}
-          style={{ background: tool === 'poly' ? '#2563eb' : '#111827', color: '#fff', border: `1px solid ${tool === 'poly' ? '#60a5fa' : '#374151'}`, borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}>Poly</button>
-        <button onClick={() => setTool('text')} aria-pressed={tool === 'text'}
-          style={{ background: tool === 'text' ? '#2563eb' : '#111827', color: '#fff', border: `1px solid ${tool === 'text' ? '#60a5fa' : '#374151'}`, borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}>Text</button>
-        <button onClick={() => setTool('calibrate')} aria-pressed={tool === 'calibrate'}
-          style={{ background: tool === 'calibrate' ? '#2563eb' : '#111827', color: '#fff', border: `1px solid ${tool === 'calibrate' ? '#60a5fa' : '#374151'}`, borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}>Calibrate</button>
+      <div className="flex gap-1.5">
+        <button onClick={() => setTool('select')} aria-pressed={tool === 'select'} className={toolBtnCls('select')}>Select</button>
+        <button onClick={() => setTool('box')} aria-pressed={tool === 'box'} className={toolBtnCls('box')}>Box</button>
+        <button onClick={() => setTool('circle')} aria-pressed={tool === 'circle'} className={toolBtnCls('circle')}>Circle</button>
+        <button onClick={() => setTool('highlight')} aria-pressed={tool === 'highlight'} className={toolBtnCls('highlight')}>Highlight</button>
+        <button onClick={() => setTool('arrow')} aria-pressed={tool === 'arrow'} className={toolBtnCls('arrow')}>Arrow</button>
+        <button onClick={() => setTool('poly')} aria-pressed={tool === 'poly'} className={toolBtnCls('poly')}>Poly</button>
+        <button onClick={() => setTool('text')} aria-pressed={tool === 'text'} className={toolBtnCls('text')}>Text</button>
+        <button onClick={() => setTool('calibrate')} aria-pressed={tool === 'calibrate'} className={toolBtnCls('calibrate')}>Calibrate</button>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 6 }}>
+      <div className="flex items-center gap-1.5 ml-1.5">
         <span className="status">Stroke</span>
         <select value={strokePattern} onChange={(e) => setStrokePattern((e.target.value as StrokePattern) || 'solid')}>
           <option value="solid">Solid</option>
@@ -336,12 +341,12 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
           <option value="dashdot">Dash-dot</option>
         </select>
       </div>
-      <div style={{ flex: 1 }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div className="flex-1" />
+      <div className="flex items-center gap-1.5">
         <span className="status">Color</span>
         <input type="color" value={defaultColor} onChange={(e) => setDefaultColor(e.target.value || '#000000')} />
       </div>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <label className="flex items-center gap-1.5">
         <input
           type="checkbox"
           checked={enableForegroundOcclusion}
@@ -353,20 +358,14 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
         value={occlusionMethod}
         onChange={(e) => setOcclusionMethod(e.target.value as any)}
         disabled={!enableForegroundOcclusion}
-        style={{ opacity: enableForegroundOcclusion ? 1 : 0.6 }}
+        className={enableForegroundOcclusion ? '' : 'opacity-60'}
       >
         <option value="edge">Edge</option>
         <option value="ml">ML</option>
       </select>
       <button onClick={() => { setSaveStatus({ state: 'saving' }); setSaveTick(t => t + 1); }}
-        style={{ background: '#10b981', color: '#0b1220', border: '1px solid #34d399', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>Save</button>
-      <div
-        className="status"
-        style={{
-          minWidth: 110,
-          color: saveStatus?.state === 'error' ? '#fca5a5' : (saveStatus?.state === 'saving' ? '#fbbf24' : (saveStatus?.state === 'saved' ? '#34d399' : undefined)),
-        }}
-      >
+        className="bg-[#10b981] text-surface border border-[#34d399] px-2.5 py-1 cursor-pointer">Save</button>
+      <div className={`status min-w-[110px] ${saveStatusCls}`}>
         {saveStatus?.state === 'saving'
           ? 'Saving…'
           : saveStatus?.state === 'saved'
@@ -384,7 +383,7 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
       <div className="fullbleed">
         <div className="panel">
           <div className="status">No project open. If you opened this page from Stills, it will auto-connect. Otherwise, open your project folder.</div>
-          <div className="toolbar" style={{ marginTop: 8 }}>
+          <div className="toolbar mt-2">
             <button onClick={openProject}>Open Project Folder</button>
           </div>
         </div>
@@ -396,11 +395,11 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
       <div className="fullbleed">
         <div className="panel">
           <div className="status">Project folder connected, but access is not granted yet. Click enable to load the project and allow saving.</div>
-          <div className="toolbar" style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+          <div className="toolbar mt-2 flex gap-2">
             <button onClick={requestWriteAccess}>Enable access</button>
             <button onClick={openProject}>Pick Folder</button>
           </div>
-          {error && <div className="status" style={{ marginTop: 8, color: '#fca5a5' }}>{error}</div>}
+          {error && <div className="status mt-2 text-danger">{error}</div>}
         </div>
       </div>
     );
@@ -417,15 +416,16 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
 
   return (
     <div className="fullbleed">
-      <div className="panel" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - var(--player-headroom) - 12px)', overflow: 'hidden', overscrollBehavior: 'none' }}>
+      <div className="panel flex flex-col overflow-hidden" style={{ height: 'calc(100vh - var(--player-headroom) - 12px)', overscrollBehavior: 'none' }}>
         {toolbar}
-        {error && <div className="status" style={{ color: '#fca5a5' }}>{error}</div>}
+        {error && <div className="status text-danger">{error}</div>}
         <div
           ref={containerRef}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          style={{ position: 'relative', flex: 1, minHeight: 0, background: '#0b1220', overflow: 'hidden', overscrollBehavior: 'none', touchAction: 'none', cursor: panning ? 'grabbing' : 'default' }}
+          className={`relative flex-1 min-h-0 bg-surface overflow-hidden touch-none ${panning ? 'cursor-grabbing' : 'cursor-default'}`}
+          style={{ overscrollBehavior: 'none' }}
         >
           {imgUrl && (
             <Editor

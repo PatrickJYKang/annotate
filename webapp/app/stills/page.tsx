@@ -347,7 +347,7 @@ export default function StillsPage() {
       <div className="fullbleed">
         <div className="panel">
           <div className="status">No project open. Go back and open a project.</div>
-          <div className="toolbar" style={{ marginTop: 8 }}>
+          <div className="toolbar mt-2">
             <button onClick={() => router.push('/')}>Back to Home</button>
           </div>
         </div>
@@ -360,7 +360,7 @@ export default function StillsPage() {
       <div className="fullbleed">
         <div className="panel">
           <div className="status">No video selected. Choose a video from the project home.</div>
-          <div className="toolbar" style={{ marginTop: 8 }}>
+          <div className="toolbar mt-2">
             <button onClick={() => router.push('/')}>Back to Home</button>
           </div>
         </div>
@@ -370,10 +370,10 @@ export default function StillsPage() {
 
   return (
     <div className="fullbleed">
-      <div className="panel" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - var(--player-headroom) + 8px)', overflow: 'hidden' }}>
-        <div className="toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="panel flex flex-col overflow-hidden" style={{ height: 'calc(100vh - var(--player-headroom) + 8px)' }}>
+        <div className="toolbar flex justify-between items-center">
           <strong>Stills + Thumbnails</strong>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="flex gap-2">
             <button onClick={generateHere} disabled={busy}>Generate still here</button>
             <button onClick={exportAll} disabled={exportBusy || busy} title="Export annotated PNGs + reports to reports/">
               {exportBusy ? 'Exporting…' : 'Export All'}
@@ -382,15 +382,15 @@ export default function StillsPage() {
           </div>
         </div>
 
-        {toast && <div className="status" style={{ color: '#fde68a' }}>{toast}</div>}
-        {error && <div className="status" style={{ color: '#fca5a5' }}>{error}</div>}
+        {toast && <div className="status text-warning">{toast}</div>}
+        {error && <div className="status text-danger">{error}</div>}
         {exportProgress && (
-          <div className="status" style={{ color: '#93c5fd' }}>
+          <div className="status text-info">
             {exportProgress.message}
           </div>
         )}
         {exportFailures && exportFailures.length > 0 && (
-          <div className="status" style={{ color: '#fca5a5' }}>
+          <div className="status text-danger">
             Export finished with {exportFailures.length} failures. See console for details.
             {(() => {
               try { console.error('D7 export failures', exportFailures); } catch {}
@@ -399,8 +399,8 @@ export default function StillsPage() {
           </div>
         )}
 
-        <div style={{ marginTop: 12, display: 'flex', gap: 16, alignItems: 'flex-start', flex: '1 1 auto', minHeight: 0 }}>
-          <div style={{ flex: '1 1 50%', maxWidth: '50%', minWidth: 360, height: '100%' }}>
+        <div className="mt-3 flex gap-4 items-start flex-1 min-h-0">
+          <div className="flex-[1_1_50%] max-w-[50%] min-w-[360px] h-full">
             <VideoPlayerUnit
               ref={playerRef}
               src={videoUrl}
@@ -417,16 +417,15 @@ export default function StillsPage() {
               allowFullscreen
             />
           </div>
-          <div style={{ flex: '1 1 50%', minWidth: 320, height: '100%', overflowY: 'auto' }}>
+          <div className="flex-[1_1_50%] min-w-[320px] h-full overflow-y-auto">
             <strong>Stills ({thumbs.length})</strong>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12, marginTop: 8 }}>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 mt-2">
               {thumbs.map(t => (
                 <div
                   key={t.id}
-                  className="panel"
+                  className="panel relative p-1.5"
                   onMouseEnter={() => setHoveredThumbId(t.id)}
                   onMouseLeave={() => setHoveredThumbId(prev => (prev === t.id ? null : prev))}
-                  style={{ position: 'relative', padding: 6 }}
                 >
                   <button
                     onClick={() => {
@@ -444,18 +443,18 @@ export default function StillsPage() {
                       }
                     }}
                     title="Annotate"
-                    style={{ position: 'absolute', top: 6, right: 76, opacity: hoveredThumbId === t.id ? 1 : 0, transition: 'opacity 120ms ease', background: '#1f2937', color: '#fff', border: '1px solid #374151', borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}
+                    className={`absolute top-1.5 right-[76px] transition-opacity duration-[120ms] ease bg-raised text-white border border-border px-2 py-1 cursor-pointer ${hoveredThumbId === t.id ? 'opacity-100' : 'opacity-0'}`}
                   >
                     Annotate
                   </button>
                   <button
                     onClick={() => deleteStill(t.id)}
                     title="Delete still"
-                    style={{ position: 'absolute', top: 6, right: 6, opacity: hoveredThumbId === t.id ? 1 : 0, transition: 'opacity 120ms ease', background: '#991b1b', color: '#fff', border: '1px solid #ef4444', borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}
+                    className={`absolute top-1.5 right-1.5 transition-opacity duration-[120ms] ease bg-[#991b1b] text-white border border-danger px-2 py-1 cursor-pointer ${hoveredThumbId === t.id ? 'opacity-100' : 'opacity-0'}`}
                   >
                     Delete
                   </button>
-                  <img src={t.url} alt="thumb" style={{ width: '100%', display: 'block', borderRadius: 6 }} />
+                  <img src={t.url} alt="thumb" className="w-full block" />
                   <div className="status">{formatTimeNoMs(t.t_ms)}</div>
                 </div>
               ))}

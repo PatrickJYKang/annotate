@@ -16,8 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="container">
             <header className="header">
               <h1>Football Analysis Annotator</h1>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span className="subtle">D1–D3</span>
+              <div className="flex items-stretch">
                 <HeaderControls />
               </div>
             </header>
