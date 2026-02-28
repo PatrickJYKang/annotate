@@ -60,7 +60,6 @@ function formatTimeNoMs(ms: number): string {
 function VideoPlayerUnitInner({ src, fps = 30, hotkeys = true, allowFullscreen = true, onAddMark, onToggleTag, initialTime, externalSeekMs, skipLargeSeconds = 2, className, style, marks = [], selectedMarkId, onSelectMark, showAddMarkButton = true, enableMarkHotkey = true, locked = false, videoHeight }: Props, ref: React.Ref<VideoPlayerHandle>) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const seekRef = useRef<HTMLDivElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [current, setCurrent] = useState(0);
@@ -69,6 +68,7 @@ function VideoPlayerUnitInner({ src, fps = 30, hotkeys = true, allowFullscreen =
   const [activeBtn, setActiveBtn] = useState<string | null>(null);
   const flashTimer = useRef<number | null>(null);
   const [hoverMarkId, setHoverMarkId] = useState<string | null>(null);
+  const prevSelectedMarkIdRef = useRef<string | null>(null);
 
   const activeBtnStyle = (name: string): React.CSSProperties =>
     activeBtn === name
@@ -128,41 +128,7 @@ function VideoPlayerUnitInner({ src, fps = 30, hotkeys = true, allowFullscreen =
     setCurrent(t);
   }, [externalSeekMs]);
 
-  const percent = duration > 0 ? Math.max(0, Math.min(100, (current / duration) * 100)) : 0;
   const durationMs = Math.floor(duration * 1000);
-
-  const seekToClientX = useCallback((clientX: number) => {
-    const bar = seekRef.current;
-    const v = videoRef.current;
-    if (!bar || !v || !(bar instanceof HTMLElement)) return;
-    const rect = bar.getBoundingClientRect();
-    const x = Math.max(rect.left, Math.min(rect.right, clientX));
-    const ratio = rect.width > 0 ? (x - rect.left) / rect.width : 0;
-    const t = ratio * (v.duration || 0);
-    v.currentTime = t;
-    setCurrent(t);
-  }, []);
-
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
-    if (locked) return;
-    setDragging(true);
-    seekToClientX(e.clientX);
-    const onMove = (ev: MouseEvent) => seekToClientX(ev.clientX);
-    const onUp = () => { setDragging(false); window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, [seekToClientX, locked]);
-
-  const onTouchStart = useCallback((e: React.TouchEvent) => {
-    if (locked) return;
-    setDragging(true);
-    if (e.touches[0]) seekToClientX(e.touches[0].clientX);
-    const onMove = (ev: TouchEvent) => { if (ev.touches[0]) seekToClientX(ev.touches[0].clientX); };
-    const onEnd = () => { setDragging(false); window.removeEventListener("touchmove", onMove); window.removeEventListener("touchend", onEnd); window.removeEventListener("touchcancel", onEnd); };
-    window.addEventListener("touchmove", onMove);
-    window.addEventListener("touchend", onEnd);
-    window.addEventListener("touchcancel", onEnd);
-  }, [seekToClientX, locked]);
 
   const togglePlay = useCallback(async () => {
     if (locked) return;
@@ -258,94 +224,270 @@ function VideoPlayerUnitInner({ src, fps = 30, hotkeys = true, allowFullscreen =
     if (/^[1-9]$/.test(key) && onToggleTag) { e.preventDefault(); onToggleTag(key); return; }
   }, [hotkeys, locked, enableMarkHotkey, togglePlay, step, nudge, largeNudge, addMark, onToggleTag]);
 
-  const markPercents = useMemo(() => {
-    const d = durationMs > 0 ? durationMs : 0;
-    if (d <= 0) return [] as { id: string; p: number; t_ms: number }[];
-    return (marks || []).map(m => ({ id: m.id, p: Math.max(0, Math.min(100, (m.t_ms / d) * 100)), t_ms: m.t_ms }));
-  }, [marks, durationMs]);
+  // --- Timeline state ---
+  const [zoom, setZoom] = useState(1);
+  const timelineContainerRef = useRef<HTMLDivElement | null>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [tlScrollLeft, setTlScrollLeft] = useState(0);
 
-  const selectedPercent = useMemo(() => {
-    if (!selectedMarkId) return null as number | null;
-    const d = durationMs > 0 ? durationMs : 0;
-    if (d <= 0) return null;
-    const found = (marks || []).find(m => m.id === selectedMarkId);
-    if (!found) return null;
-    return Math.max(0, Math.min(100, (found.t_ms / d) * 100));
-  }, [selectedMarkId, marks, durationMs]);
+  // Observe timeline container width
+  useEffect(() => {
+    const el = timelineContainerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => {
+      for (const entry of entries) setContainerWidth(entry.contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Derived timeline values
+  const basePps = containerWidth > 0 && duration > 0 ? containerWidth / duration : 1;
+  const pps = basePps * zoom;
+  const totalTimelineWidth = duration > 0 ? duration * pps : containerWidth;
+
+  // Visible time range for tick calculation
+  const visibleStartTime = pps > 0 ? tlScrollLeft / pps : 0;
+  const visibleEndTime = pps > 0 ? Math.min(duration, (tlScrollLeft + containerWidth) / pps) : duration;
+
+  // Tick calculation
+  const ticks = useMemo(() => {
+    const vis = visibleEndTime - visibleStartTime;
+    if (vis <= 0 || duration <= 0) return [] as { time: number; major: boolean; label?: string }[];
+    let maj: number, min: number;
+    if (vis > 30 * 60) { maj = 5 * 60; min = 60; }
+    else if (vis > 5 * 60) { maj = 60; min = 15; }
+    else if (vis > 60) { maj = 15; min = 5; }
+    else if (vis > 15) { maj = 5; min = 1; }
+    else { maj = 1; min = 0.25; }
+    const result: { time: number; major: boolean; label?: string }[] = [];
+    const first = Math.floor(visibleStartTime / min) * min;
+    for (let t = first; t <= visibleEndTime + min; t += min) {
+      if (t < 0) continue;
+      if (t > duration) break;
+      const isMajor = Math.abs(t % maj) < 0.001 || Math.abs(t % maj - maj) < 0.001;
+      let label: string | undefined;
+      if (isMajor) {
+        const ts = Math.round(t);
+        const h = Math.floor(ts / 3600), m = Math.floor((ts % 3600) / 60), s = ts % 60;
+        label = h > 0 ? `${h}:${pad2(m)}:${pad2(s)}` : `${m}:${pad2(s)}`;
+      }
+      result.push({ time: t, major: isMajor, label });
+    }
+    return result;
+  }, [visibleStartTime, visibleEndTime, duration]);
+
+  // Track scroll position
+  const handleTimelineScroll = useCallback(() => {
+    const el = timelineContainerRef.current;
+    if (el) setTlScrollLeft(el.scrollLeft);
+  }, []);
+
+  // Auto-follow playhead during playback
+  useEffect(() => {
+    if (!playing) return;
+    const el = timelineContainerRef.current;
+    if (!el || containerWidth <= 0 || pps <= 0) return;
+    const playheadX = current * pps;
+    const viewLeft = el.scrollLeft;
+    const viewRight = viewLeft + containerWidth;
+    const margin = containerWidth * 0.33;
+    if (playheadX < viewLeft + margin * 0.5 || playheadX > viewRight - margin * 0.5) {
+      el.scrollLeft = Math.max(0, playheadX - margin);
+    }
+  }, [current, playing, pps, containerWidth]);
+
+  // Auto-scroll to selected mark when it's off-screen (only on selection change, not seek/zoom)
+  useEffect(() => {
+    if (!selectedMarkId || selectedMarkId === prevSelectedMarkIdRef.current) {
+      prevSelectedMarkIdRef.current = selectedMarkId ?? null;
+      return;
+    }
+    prevSelectedMarkIdRef.current = selectedMarkId;
+    const el = timelineContainerRef.current;
+    if (!el || containerWidth <= 0 || pps <= 0 || durationMs <= 0) return;
+    const mark = (marks || []).find(m => m.id === selectedMarkId);
+    if (!mark) return;
+    const markX = (mark.t_ms / 1000) * pps;
+    const viewLeft = el.scrollLeft;
+    const viewRight = viewLeft + containerWidth;
+    if (markX < viewLeft || markX > viewRight) {
+      el.scrollLeft = Math.max(0, markX - containerWidth * 0.33);
+    }
+  }, [selectedMarkId, marks, pps, containerWidth, durationMs]);
+
+  // Timeline wheel: Ctrl+wheel = zoom, plain wheel = horizontal scroll
+  const handleTimelineWheel = useCallback((e: React.WheelEvent) => {
+    const el = timelineContainerRef.current;
+    if (!el) return;
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseTime = (el.scrollLeft + mouseX) / pps;
+      const factor = e.deltaY > 0 ? 0.95 : 1.053;
+      const newZoom = Math.max(1, Math.min(100, zoom * factor));
+      setZoom(newZoom);
+      requestAnimationFrame(() => {
+        const newPps = basePps * newZoom;
+        el.scrollLeft = mouseTime * newPps - mouseX;
+      });
+    } else {
+      if (e.deltaX !== 0) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    }
+  }, [zoom, pps, basePps]);
+
+  // Click on track lane to seek
+  const handleLaneMouseDown = useCallback((e: React.MouseEvent) => {
+    if (locked) return;
+    const el = timelineContainerRef.current;
+    const v = videoRef.current;
+    if (!el || !v) return;
+    const rect = el.getBoundingClientRect();
+    const seekToX = (clientX: number) => {
+      const mx = clientX - rect.left + el.scrollLeft;
+      const t = Math.max(0, Math.min(v.duration || 0, mx / pps));
+      v.currentTime = t;
+      setCurrent(t);
+    };
+    seekToX(e.clientX);
+    setDragging(true);
+    const onMove = (ev: MouseEvent) => seekToX(ev.clientX);
+    const onUp = () => {
+      setDragging(false);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [locked, pps]);
 
   return (
-    <div ref={wrapperRef} className={`relative overflow-hidden ${className ?? ''}`} style={style} tabIndex={0} onKeyDownCapture={onKeyDownCapture}>
-      {/* 16:9 overlay placeholder while loading metadata */}
-      <div className={`absolute inset-0 items-center justify-center pointer-events-none z-[1] ${ready ? 'hidden' : 'flex'}`}>
-        <div className="w-full aspect-video bg-surface border border-raised flex items-center justify-center">
-          <div className="flex flex-col items-center gap-1.5">
-            <div className="spinner" />
-            <div className="text-xs text-secondary">Loading…</div>
-          </div>
+    <div ref={wrapperRef} className={`relative flex flex-col flex-1 min-h-0 overflow-hidden ${className ?? ''}`} style={style} tabIndex={0} onKeyDownCapture={onKeyDownCapture}>
+      {/* Loading overlay */}
+      <div className={`absolute inset-0 bg-surface items-center justify-center pointer-events-none z-[1] ${ready ? 'hidden' : 'flex'}`}>
+        <div className="flex flex-col items-center gap-1.5">
+          <div className="spinner" />
+          <div className="text-xs text-secondary">Loading…</div>
         </div>
       </div>
+      {/* Video */}
       <video
         ref={videoRef}
         src={src ?? undefined}
         onClick={() => { wrapperRef.current?.focus(); if (!locked) togglePlay(); }}
-        className="w-full block bg-black object-contain"
-        style={{ height: videoHeight || 'calc(100vh - var(--player-headroom))' }}
+        className="w-full block bg-black object-contain flex-1 min-h-0"
       />
-      <div className="absolute left-0 right-0 bottom-0 p-2 z-[3]" style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.0), rgba(0,0,0,0.55))' }}>
-        <div ref={seekRef} className={`relative h-3 bg-raised rounded-full ${locked ? 'cursor-not-allowed' : 'cursor-pointer'}`} onMouseDown={onMouseDown} onTouchStart={onTouchStart}>
-          <div className="absolute top-0 left-0 bottom-0 bg-[#3b82f6] rounded-full" style={{ width: `${percent}%` }} />
-          <div className="absolute top-0 w-3 h-3 rounded-full bg-[#93c5fd]" style={{ left: `${percent}%`, transform: 'translateX(-50%)' }} />
-          {markPercents.map(({ id, p, t_ms }) => (
-            <div
-              key={id}
-              onMouseEnter={() => setHoverMarkId(id)}
-              onMouseLeave={() => setHoverMarkId(prev => (prev === id ? null : prev))}
-              onClick={(e) => { e.stopPropagation(); if (onSelectMark) onSelectMark(id, t_ms); }}
-              className="absolute w-3 h-7 cursor-pointer bg-transparent"
-              style={{ top: -8, left: `${p}%`, transform: 'translateX(-50%)' }}
-            >
-              <div className="absolute left-1/2 w-[3px] rounded-sm opacity-95" style={{ top: hoverMarkId === id ? -6 : -4, height: hoverMarkId === id ? 26 : 20, transform: 'translateX(-50%)', background: id === selectedMarkId ? '#f97316' : '#fbbf24' }} />
+      {/* Timeline panel */}
+      <div className="shrink-0 bg-surface border-t border-border flex flex-col">
+        {/* Scrollable timeline area */}
+        <div
+          ref={timelineContainerRef}
+          className="overflow-x-auto overflow-y-hidden relative"
+          onWheel={handleTimelineWheel}
+          onScroll={handleTimelineScroll}
+        >
+          <div style={{ width: totalTimelineWidth, minWidth: '100%' }}>
+            {/* Timecode ruler */}
+            <div className="h-5 relative border-b border-subtle select-none">
+              {ticks.map((tick, i) => (
+                <div key={i} className="absolute top-0" style={{ left: tick.time * pps }}>
+                  <div className={`w-px ${tick.major ? 'h-5 bg-secondary' : 'h-2.5 bg-subtle'}`} />
+                  {tick.label && (
+                    <span className="absolute top-0 left-1 text-[10px] text-muted whitespace-nowrap">{tick.label}</span>
+                  )}
+                </div>
+              ))}
             </div>
-          ))}
-          {selectedPercent != null && (
-            <div className="absolute w-[3px] h-6 rounded-sm bg-[#f97316]" style={{ top: -6, left: `${selectedPercent}%`, transform: 'translateX(-50%)' }} />
-          )}
+            {/* Track lane */}
+            <div
+              className={`h-8 bg-raised relative ${locked ? 'cursor-not-allowed' : 'cursor-crosshair'}`}
+              onMouseDown={handleLaneMouseDown}
+            >
+              {/* Mark pips */}
+              {(marks || []).map(m => {
+                if (durationMs <= 0) return null;
+                const x = (m.t_ms / 1000) * pps;
+                const isSelected = m.id === selectedMarkId;
+                const isHovered = m.id === hoverMarkId;
+                return (
+                  <div
+                    key={m.id}
+                    className="absolute top-0 bottom-0 cursor-pointer"
+                    style={{ left: x - 4, width: 8 }}
+                    onMouseEnter={() => setHoverMarkId(m.id)}
+                    onMouseLeave={() => setHoverMarkId(prev => (prev === m.id ? null : prev))}
+                    onClick={(e) => { e.stopPropagation(); if (onSelectMark) onSelectMark(m.id, m.t_ms); }}
+                  >
+                    <div
+                      className="absolute top-0 bottom-0 left-1/2 w-[3px] -translate-x-1/2"
+                      style={{ background: isSelected ? '#f97316' : '#fbbf24', opacity: isHovered ? 1 : 0.85 }}
+                    />
+                    {isHovered && (
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-1.5 py-0.5 bg-surface border border-border text-[10px] text-accent whitespace-nowrap z-10">
+                        {formatTime(m.t_ms)}{m.label ? ` · ${m.label}` : ''}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {/* Playhead */}
+              <div
+                className="absolute top-0 bottom-0 w-[2px] bg-[#ef4444] z-[2] pointer-events-none"
+                style={{ left: current * pps }}
+              />
+            </div>
+          </div>
         </div>
-        <div className="flex gap-2 items-center mt-2">
-          {/* Large skip backward */}
-          <button disabled={locked} aria-label="Skip back" title="Skip back" onClick={() => largeNudge(-1)} className={btnTransition} style={activeBtnStyle('large-back')}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="11 19 2 12 11 5"></polyline><line x1="22" y1="19" x2="22" y2="5"></line></svg>
+        {/* Transport bar */}
+        <div className="flex items-stretch border-t border-border">
+          <button disabled={locked} aria-label="Skip back" title="Skip back" onClick={() => largeNudge(-1)} className={`self-stretch px-3 py-1.5 border-0 border-r border-solid border-border ${btnTransition}`} style={activeBtnStyle('large-back')}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="11 19 2 12 11 5"></polyline><line x1="22" y1="19" x2="22" y2="5"></line></svg>
           </button>
-          {/* Frame step backward */}
-          <button disabled={locked} aria-label="Step back" title="Step back (frame)" onClick={() => step(-1)} className={btnTransition} style={activeBtnStyle('frame-back')}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+          <button disabled={locked} aria-label="Step back" title="Step back (frame)" onClick={() => step(-1)} className={`self-stretch px-3 py-1.5 border-0 border-r border-solid border-border ${btnTransition}`} style={activeBtnStyle('frame-back')}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
           </button>
-          {/* Play/Pause */}
-          <button disabled={locked} aria-label={playing ? "Pause" : "Play"} title={playing ? "Pause" : "Play"} onClick={togglePlay} className={btnTransition} style={activeBtnStyle('play')}>
+          <button disabled={locked} aria-label={playing ? "Pause" : "Play"} title={playing ? "Pause" : "Play"} onClick={togglePlay} className={`self-stretch px-3 py-1.5 border-0 border-r border-solid border-border ${btnTransition}`} style={activeBtnStyle('play')}>
             {playing ? (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
             ) : (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
             )}
           </button>
-          {/* Frame step forward */}
-          <button disabled={locked} aria-label="Step forward" title="Step forward (frame)" onClick={() => step(1)} className={btnTransition} style={activeBtnStyle('frame-forward')}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          <button disabled={locked} aria-label="Step forward" title="Step forward (frame)" onClick={() => step(1)} className={`self-stretch px-3 py-1.5 border-0 border-r border-solid border-border ${btnTransition}`} style={activeBtnStyle('frame-forward')}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
           </button>
-          {/* Large skip forward */}
-          <button disabled={locked} aria-label="Skip forward" title="Skip forward" onClick={() => largeNudge(1)} className={btnTransition} style={activeBtnStyle('large-forward')}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="13 19 22 12 13 5"></polyline><line x1="2" y1="19" x2="2" y2="5"></line></svg>
+          <button disabled={locked} aria-label="Skip forward" title="Skip forward" onClick={() => largeNudge(1)} className={`self-stretch px-3 py-1.5 border-0 border-r border-solid border-border ${btnTransition}`} style={activeBtnStyle('large-forward')}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="13 19 22 12 13 5"></polyline><line x1="2" y1="19" x2="2" y2="5"></line></svg>
           </button>
-          <div className="flex-1" />
-          <div className="status">{formatTimeNoMs(Math.round(current * 1000))} / {formatTimeNoMs(durationMs)}</div>
+          <div className="flex-1 flex items-center px-3">
+            <span className="font-mono text-xs text-accent">{formatTime(Math.round(current * 1000))}</span>
+            <span className="font-mono text-xs text-muted mx-1">/</span>
+            <span className="font-mono text-xs text-muted">{formatTime(durationMs)}</span>
+          </div>
           {showAddMarkButton && (
-            <button disabled={locked} aria-label="Add mark" title="Add mark" onClick={addMark} className={btnTransition} style={activeBtnStyle('mark')}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h12v16l-6-4-6 4z"/></svg>
+            <button disabled={locked} aria-label="Add mark" title="Add mark (M)" onClick={addMark} className={`self-stretch px-3 py-1.5 border-0 border-l border-solid border-border ${btnTransition}`} style={activeBtnStyle('mark')}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h12v16l-6-4-6 4z"/></svg>
             </button>
           )}
+          <div className="flex items-center px-3 gap-2 border-l border-solid border-border">
+            <span className="text-[10px] text-muted">Zoom</span>
+            <input
+              type="range"
+              min={1}
+              max={100}
+              step={0.1}
+              value={zoom}
+              onChange={(e) => setZoom(parseFloat(e.target.value))}
+              className="w-20 accent-[#3b82f6]"
+            />
+            <span className="text-[10px] text-muted font-mono w-8">×{zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)}</span>
+          </div>
           {allowFullscreen && (
-            <button disabled={locked} aria-label="Fullscreen" title="Fullscreen" onClick={toggleFullscreen} className={btnTransition} style={activeBtnStyle('fullscreen')}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <button disabled={locked} aria-label="Fullscreen" title="Fullscreen" onClick={toggleFullscreen} className={`self-stretch px-3 py-1.5 border-0 border-l border-solid border-border ${btnTransition}`} style={activeBtnStyle('fullscreen')}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="15 3 21 3 21 9"></polyline>
                 <polyline points="9 21 3 21 3 15"></polyline>
                 <line x1="21" y1="3" x2="14" y2="10"></line>

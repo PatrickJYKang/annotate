@@ -15,6 +15,8 @@ export default function StillsPage() {
   const { projectDir, manifest, setManifest, selectedVideoId } = useProject();
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const playerRef = useRef<VideoPlayerHandle | null>(null);
+  const pageRootRef = useRef<HTMLDivElement | null>(null);
+  const [pageHeightPx, setPageHeightPx] = useState<number | null>(null);
   const [selectedMarkId, setSelectedMarkId] = useState<string | null>(null);
   const [seekMs, setSeekMs] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -24,6 +26,18 @@ export default function StillsPage() {
   const [exportProgress, setExportProgress] = useState<{ done: number; total: number; message: string } | null>(null);
   const [exportFailures, setExportFailures] = useState<{ stillId: string; error: string }[] | null>(null);
   const [exportCompleted, setExportCompleted] = useState(false);
+
+  useEffect(() => {
+    const updateAvailableHeight = () => {
+      const el = pageRootRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      setPageHeightPx(Math.max(0, Math.floor(window.innerHeight - top)));
+    };
+    updateAvailableHeight();
+    window.addEventListener('resize', updateAvailableHeight);
+    return () => window.removeEventListener('resize', updateAvailableHeight);
+  }, []);
 
   const marksForVideo = useMemo(() => {
     if (!manifest || !selectedVideoId) return [] as ProjectManifestV1["marks"];
@@ -370,27 +384,31 @@ export default function StillsPage() {
 
   return (
     <div className="fullbleed">
-      <div className="panel flex flex-col overflow-hidden" style={{ height: 'calc(100vh - var(--player-headroom) + 8px)' }}>
-        <div className="toolbar flex justify-between items-center">
-          <strong>Stills + Thumbnails</strong>
-          <div className="flex gap-2">
-            <button onClick={generateHere} disabled={busy}>Generate still here</button>
-            <button onClick={exportAll} disabled={exportBusy || busy} title="Export annotated PNGs + reports to reports/">
-              {exportBusy ? 'Exporting…' : 'Export All'}
-            </button>
-            <button onClick={() => router.push('/player')}>Back to Player</button>
-          </div>
+      <div
+        ref={pageRootRef}
+        className="flex flex-col overflow-hidden"
+        style={{ height: pageHeightPx != null ? `${pageHeightPx}px` : 'calc(100vh - var(--player-headroom))' }}
+      >
+        {/* Navbar */}
+        <div className="flex items-stretch bg-surface border-b border-border shrink-0">
+          <button onClick={() => router.push('/player')} className="self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base">← Player</button>
+          <span className="flex-1" />
+          <button onClick={generateHere} disabled={busy} className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base">Generate still here</button>
+          <button onClick={exportAll} disabled={exportBusy || busy} title="Export annotated PNGs + reports to reports/" className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base">
+            {exportBusy ? 'Exporting…' : 'Export All'}
+          </button>
         </div>
 
-        {toast && <div className="status text-warning">{toast}</div>}
-        {error && <div className="status text-danger">{error}</div>}
+        {/* Status strips */}
+        {toast && <div className="shrink-0 px-3 py-1 text-xs text-warning border-b border-subtle">{toast}</div>}
+        {error && <div className="shrink-0 px-3 py-1 text-xs text-danger border-b border-subtle">{error}</div>}
         {exportProgress && (
-          <div className="status text-info">
+          <div className="shrink-0 px-3 py-1 text-xs text-info border-b border-subtle">
             {exportProgress.message}
           </div>
         )}
         {exportFailures && exportFailures.length > 0 && (
-          <div className="status text-danger">
+          <div className="shrink-0 px-3 py-1 text-xs text-danger border-b border-subtle">
             Export finished with {exportFailures.length} failures. See console for details.
             {(() => {
               try { console.error('D7 export failures', exportFailures); } catch {}
@@ -399,8 +417,9 @@ export default function StillsPage() {
           </div>
         )}
 
-        <div className="mt-3 flex gap-4 items-start flex-1 min-h-0">
-          <div className="flex-[1_1_50%] max-w-[50%] min-w-[360px] h-full">
+        {/* Main content: video left, stills right */}
+        <div className="flex flex-1 min-h-0">
+          <div className="flex-[1_1_50%] max-w-[50%] min-w-[360px] min-h-0 flex flex-col">
             <VideoPlayerUnit
               ref={playerRef}
               src={videoUrl}
@@ -412,50 +431,51 @@ export default function StillsPage() {
               hotkeys={false}
               showAddMarkButton={false}
               enableMarkHotkey={false}
-              style={{ height: '100%' }}
-              videoHeight="100%"
               allowFullscreen
             />
           </div>
-          <div className="flex-[1_1_50%] min-w-[320px] h-full overflow-y-auto">
+          <div className="flex-[1_1_50%] min-w-[320px] min-h-0 overflow-y-auto border-l border-subtle p-3">
             <strong>Stills ({thumbs.length})</strong>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 mt-2">
               {thumbs.map(t => (
                 <div
                   key={t.id}
-                  className="panel relative p-1.5"
+                  className="panel relative overflow-hidden"
+                  style={{ padding: 0 }}
                   onMouseEnter={() => setHoveredThumbId(t.id)}
                   onMouseLeave={() => setHoveredThumbId(prev => (prev === t.id ? null : prev))}
                 >
-                  <button
-                    onClick={() => {
-                      const w = window.open(`/annotate/${t.id}`, '_blank');
-                      if (w && projectDir) {
-                        const origin = window.location.origin;
-                        let attempts = 0;
-                        const iv = window.setInterval(() => {
-                          try {
-                            w.postMessage({ type: 'project-handle', handle: projectDir }, origin);
-                            attempts++;
-                            if (attempts >= 5) window.clearInterval(iv);
-                          } catch {}
-                        }, 200);
-                      }
-                    }}
-                    title="Annotate"
-                    className={`absolute top-1.5 right-[76px] transition-opacity duration-[120ms] ease bg-raised text-white border border-border px-2 py-1 cursor-pointer ${hoveredThumbId === t.id ? 'opacity-100' : 'opacity-0'}`}
-                  >
-                    Annotate
-                  </button>
-                  <button
-                    onClick={() => deleteStill(t.id)}
-                    title="Delete still"
-                    className={`absolute top-1.5 right-1.5 transition-opacity duration-[120ms] ease bg-[#991b1b] text-white border border-danger px-2 py-1 cursor-pointer ${hoveredThumbId === t.id ? 'opacity-100' : 'opacity-0'}`}
-                  >
-                    Delete
-                  </button>
                   <img src={t.url} alt="thumb" className="w-full block" />
-                  <div className="status">{formatTimeNoMs(t.t_ms)}</div>
+                  <div className="px-1.5 py-1 text-xs text-muted">{formatTimeNoMs(t.t_ms)}</div>
+                  <div className={`absolute top-0 bottom-0 right-0 flex flex-col border-l border-border transition-[transform,opacity] duration-[120ms] ease w-9 ${hoveredThumbId === t.id ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'}`}>
+                    <button
+                      onClick={() => {
+                        const w = window.open(`/annotate/${t.id}`, '_blank');
+                        if (w && projectDir) {
+                          const origin = window.location.origin;
+                          let attempts = 0;
+                          const iv = window.setInterval(() => {
+                            try {
+                              w.postMessage({ type: 'project-handle', handle: projectDir }, origin);
+                              attempts++;
+                              if (attempts >= 5) window.clearInterval(iv);
+                            } catch {}
+                          }, 200);
+                        }
+                      }}
+                      title="Annotate"
+                      className="flex-1 flex items-center justify-center bg-raised hover:bg-hover border-0 border-b border-solid border-border text-sm cursor-pointer"
+                    >
+                      ✏
+                    </button>
+                    <button
+                      onClick={() => deleteStill(t.id)}
+                      title="Delete still"
+                      className="flex-1 flex items-center justify-center bg-raised hover:bg-[#991b1b] border-0 text-sm text-danger cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

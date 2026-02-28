@@ -72,11 +72,33 @@ export default function MetadataPage() {
   }
 
   return (
-    <div>
-      {/* Toolbar */}
-      <div className="toolbar">
-        <button onClick={() => router.push("/")}>← Back to project</button>
+    <div className="fullbleed">
+      {/* Nav bar */}
+      <div className="flex items-stretch bg-surface border-b border-border">
+        <button
+          onClick={() => router.push("/")}
+          className="self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base"
+        >
+          ← Back to project
+        </button>
+        <button
+          onClick={() => setApiImporterOpen(true)}
+          className="self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base"
+        >
+          Import match metadata
+        </button>
         <span className="flex-1" />
+        <button
+          onClick={async () => {
+            if (flushTimer.current) clearTimeout(flushTimer.current);
+            const updated = { ...manifest, matchInfo: infoRef.current };
+            setManifest(updated);
+            await writeManifest(projectDir, updated);
+          }}
+          className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base"
+        >
+          Save now
+        </button>
         <button
           onClick={async () => {
             // Flush immediately before navigating
@@ -86,16 +108,13 @@ export default function MetadataPage() {
             await writeManifest(projectDir, updated);
             router.push("/player");
           }}
+          className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base"
         >
           Player →
         </button>
       </div>
 
-      {/* Import match metadata button */}
-      <div className="mb-3">
-        <button onClick={() => setApiImporterOpen(true)}>Import match metadata</button>
-      </div>
-
+      <div className="px-4 py-3">
       {/* Match Details */}
       <MatchDetailsForm matchInfo={info} onChange={persist} />
 
@@ -131,6 +150,7 @@ export default function MetadataPage() {
           className="w-full bg-raised text-accent border border-border p-2 resize-y font-sans text-sm"
           placeholder="Free-form match notes…"
         />
+      </div>
       </div>
       {/* Football-data.org API importer modal */}
       {apiImporterOpen && (

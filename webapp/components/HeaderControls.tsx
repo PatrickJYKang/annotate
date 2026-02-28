@@ -17,6 +17,6 @@ export default function HeaderControls() {
   }, []);
 
   return (
-    <button onClick={toggleBrowserFullscreen} title="Fullscreen" className="self-stretch border-0 border-l border-solid border-border px-4 text-sm">Fullscreen</button>
+    <button onClick={toggleBrowserFullscreen} title="Fullscreen" className="self-stretch border-0 border-l border-solid border-border px-4 py-0 text-base">Fullscreen</button>
   );
 }

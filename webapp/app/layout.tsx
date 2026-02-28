@@ -13,13 +13,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <ProjectProvider>
+          <header className="header">
+            <h1>Football Analysis Annotator</h1>
+            <div className="flex items-stretch">
+              <HeaderControls />
+            </div>
+          </header>
           <div className="container">
-            <header className="header">
-              <h1>Football Analysis Annotator</h1>
-              <div className="flex items-stretch">
-                <HeaderControls />
-              </div>
-            </header>
             {children}
           </div>
         </ProjectProvider>

@@ -31,8 +31,9 @@ This document describes the **current implementation** (routes, on-disk formats,
 9. Browser requirements and limitations
 10. Tagging schema system
 11. Match metadata system
-12. Testing
-13. Segmentation test page (experimental)
+12. Styling system (Tailwind CSS v4)
+13. Testing
+14. Segmentation test page (experimental)
 
 ---
 
@@ -50,6 +51,7 @@ This document describes the **current implementation** (routes, on-disk formats,
 
 ### Key implementation files
 - App shell: `webapp/app/layout.tsx`
+- Global header: `webapp/components/HeaderControls.tsx`
 - Project context: `webapp/lib/state/ProjectContext.tsx`
 - Project folder utilities: `webapp/lib/fs/projectFolder.ts`
 - Manifest schema: `webapp/lib/types/project.ts`
@@ -64,6 +66,7 @@ This document describes the **current implementation** (routes, on-disk formats,
 - Metadata components: `webapp/components/metadata/` (MatchDetailsForm, TeamPanel, TeamsheetImporter, PeriodEditor, FootballDataImporter)
 - Metadata utilities: `webapp/lib/metadata/` (teamsheetParser, timeDisplay, footballDataApi)
 - API proxy: `webapp/app/api/football-data/route.ts`
+- Styling: `webapp/app/globals.css` (Tailwind v4 `@theme` + component classes), `webapp/tailwind.config.ts`, `webapp/postcss.config.mjs`
 
 ---
 
@@ -71,15 +74,21 @@ This document describes the **current implementation** (routes, on-disk formats,
 
 ### `/` – Project + import
 - File: `webapp/app/page.tsx`
+- Layout: full-bleed, two-state design.
+  - **Empty state** (no project open): viewport-centered card with title, two large CTA buttons ("Create New Project", "Open Existing Project"), and a Chromium-required warning if the File System Access API is unavailable.
+  - **Dashboard** (project open): two-column layout.
+    - **Left sidebar** (320px fixed): project name, created date, stat counts (videos / marks / stills), action buttons (Match Info, Import Video, Save Now), and a "Close Project" button separated by a divider at the bottom.
+    - **Right area** (flex-grow): video list heading with count, selectable video rows (label, duration, resolution; selected row highlighted with `bg-selected` and left accent border; clicking navigates to `/player`), and a dashed-border drop zone for drag-and-drop video import.
 - Responsibilities:
   - Create a new project folder (creates required subdirectories + `project.json` + `tagging-schema.yaml`).
   - Open an existing project folder (validates structure + loads `project.json` + reads `tagging-schema.yaml`; if missing, prompts to add the default schema).
-  - Import video files into `media/` (streaming copy).
+  - Import video files into `media/` (streaming copy via file picker or drag-and-drop onto the drop zone).
   - Choose a video to work on (sets `selectedVideoId` then routes to `/player`).
-  - After video import, show a "Set up match info →" / "Edit match info" button linking to `/metadata`.
+  - "Set up match info →" / "Edit match info" button in the sidebar links to `/metadata`.
 
 ### `/metadata` – Match metadata
 - File: `webapp/app/metadata/page.tsx`
+- Layout: full-bleed with a navbar replacing the old toolbar. Navbar buttons use the space-filling pattern (`self-stretch`, square, border separators). Left group: "← Back to project", "Import match metadata". Right group: "Save now", "Player →".
 - Responsibilities:
   - Edit match details (date, kickoff, competition, season, round, venue, referee, score).
   - Edit home/away team panels (name, coach, formation, inline editable player table).
@@ -88,11 +97,10 @@ This document describes the **current implementation** (routes, on-disk formats,
   - Edit period boundaries (1st Half, 2nd Half, etc.) with a mini video scrubber and "Set" buttons.
   - Free-form notes field.
   - Debounced auto-save of `matchInfo` to `project.json` (800ms).
-  - Navigation: ← Back to project, Player →.
 
 ### `/player` – Playback + tagging
 - File: `webapp/app/player/page.tsx`
-- Layout: two-pane — video player (left) + tag folder tree (right).
+- Layout: full-bleed, navbar + two-pane content. Navbar uses the space-filling button pattern: left group ("← Back", "Match info"), right group ("Delete", "Stills →"). Below the navbar: video player with editor-style timeline (left, flex-grow) + tag folder tree (right, 300px fixed, `border-l`).
 - Responsibilities:
   - Load video bytes from the project folder and play them via `<video>`.
   - Create marks at timestamps (`t_ms`); adding a mark auto-opens the `TaggingMenu`.
@@ -102,7 +110,6 @@ This document describes the **current implementation** (routes, on-disk formats,
   - Re-tag marks by dragging them onto a folder in the tree (sets `primary` to the target node ID, clears facets).
   - Undo/redo for mark and tag edits (⌘Z / ⌘⇧Z), with a 50-entry stack.
   - Persist mark edits by rewriting `project.json`.
-  - Toolbar includes "← Match info" link back to `/metadata`.
 
 ### `/player-legacy` – Legacy playback + marks (preserved)
 - File: `webapp/app/player-legacy/page.tsx`
@@ -320,6 +327,16 @@ Files:
   - `J/K/L`, `,/.`, `←/→` for stepping and nudging
   - `Space` play/pause
 
+#### VideoPlayerUnit (editor-style timeline)
+The `VideoPlayerUnit` component (`webapp/components/player/VideoPlayerUnit.tsx`) has been redesigned from a YouTube-style seek bar overlay to an editor-style timeline panel below the video. Key elements:
+- **Layout**: video element fills available space (`flex-1 min-h-0`); timeline panel is a `shrink-0` region below with `bg-surface border-t border-border`.
+- **Timecode ruler**: horizontal ruler with major/minor tick marks and time labels. Ticks adapt to zoom level (>30 min visible → 5 min/1 min; 5–30 min → 1 min/15 s; 1–5 min → 15 s/5 s; 15 s–1 min → 5 s/1 s; <15 s → 1 s/0.25 s).
+- **Track lane**: `h-8 bg-raised` strip showing mark pips (3px wide, full lane height; yellow `#fbbf24` = default, orange `#f97316` = selected) and a 2px red playhead line. Clicking the lane seeks; clicking a pip selects the mark and seeks to it. Tooltips on hover show timestamp and label.
+- **Zoom**: internal state (1× to 100×). Controls: range slider in the transport bar + Ctrl/⌘+Scroll on the timeline area. Zoom anchors on the mouse cursor position. `pps = (containerWidth / duration) * zoom`; total timeline width scales accordingly with `overflow-x: auto`.
+- **Horizontal scroll**: mouse wheel on the timeline scrolls horizontally (vertical delta mapped to horizontal). Ctrl+wheel zooms instead. During playback, auto-scrolls to keep the playhead visible (~33% from left edge). When paused, free scroll; selecting an off-screen mark auto-scrolls to it.
+- **Transport bar**: square, space-filling buttons matching the navbar pattern (skip back, step back, play/pause, step forward, skip forward, add mark, fullscreen). Monospace timecode readout (`HH:MM:SS.mmm`). Zoom slider at right end.
+- **Imperative API** (`VideoPlayerHandle`): `playPause`, `stepFrame`, `nudgeSmall`, `nudgeLarge`, `seekMs`, `getCurrentTimeMs`, `addMark`, `getVideoElement`. Used by the parent page for keyboard shortcuts.
+
 Files:
 - Page logic: `webapp/app/player/page.tsx`
 - Player component: `webapp/components/player/VideoPlayerUnit.tsx`
@@ -519,10 +536,11 @@ Design doc: `plans/post-mvp/metadata/match-metadata-screen.md`.
 
 ### Metadata page (`/metadata`)
 - File: `webapp/app/metadata/page.tsx`
+- Full-bleed layout with a navbar (space-filling buttons, border separators). Left: "← Back to project", "Import match metadata". Right: "Save now", "Player →".
 - Reads `matchInfo` from `ProjectContext.manifest`; initialises with `defaultMatchInfo()` if absent.
 - Uses debounced auto-save (800ms) via `writeManifest`. Flushes on unmount and before navigation.
 - Sections: Match details form, Home/Away team panels (side-by-side responsive grid), Period editor, Notes textarea.
-- "Import match metadata" button opens `FootballDataImporter` modal.
+- "Import match metadata" navbar button opens `FootballDataImporter` modal.
 
 ### Components
 - **`MatchDetailsForm`** (`webapp/components/metadata/MatchDetailsForm.tsx`) — 3×3 grid of controlled inputs for date, kickoff, competition, season, round, venue, referee, score (H – A).
@@ -546,9 +564,9 @@ Design doc: `plans/post-mvp/metadata/match-metadata-screen.md`.
   - `COMPETITIONS` — well-known free-tier competition codes (PL, BL1, SA, PD, FL1, ELC, DED, PPL, CL, EC, WC).
 
 ### Navigation integration
-- Home page (`/`): shows "Set up match info →" (or "Edit match info" if `matchInfo` exists) after video import.
-- Metadata page: "← Back to project" and "Player →" buttons.
-- Player page: "← Match info" button in the toolbar.
+- Home page (`/`): "Set up match info →" / "Edit match info" in the left sidebar.
+- Metadata page navbar: "← Back to project" (left), "Player →" (right).
+- Player page navbar: "← Back" and "Match info" (left), "Delete" and "Stills →" (right).
 
 ### Not yet implemented
 - Substitution recording on the tagging page (hotkey + picker UI).
@@ -557,7 +575,76 @@ Design doc: `plans/post-mvp/metadata/match-metadata-screen.md`.
 
 ---
 
-## 12) Testing
+## 12) Styling system (Tailwind CSS v4)
+
+Design doc: `plans/post-mvp/ui-refresh/ui-refresh.md` (audit, design principles, implementation checklist).
+
+### Overview
+The app uses **Tailwind CSS v4** (build-time only, via `@tailwindcss/postcss`). All design tokens are defined in `webapp/app/globals.css` using the `@theme` directive — `tailwind.config.ts` only specifies content paths.
+
+### Dependencies
+- `tailwindcss: ^4.2.1`, `@tailwindcss/postcss: ^4.2.1`, `postcss: ^8.5.6`, `autoprefixer: ^10.4.24` (all dev dependencies).
+- PostCSS config: `webapp/postcss.config.mjs` (plugin: `@tailwindcss/postcss`).
+
+### Design tokens (`@theme` in `globals.css`)
+- **Colours**: `canvas` (#0f172a), `surface` (#0b1220), `raised` (#1f2937), `hover` (#111827), `selected` (#334155), `accent` (#e5e7eb), `accent-hover` (#cbd5e1), `on-accent` (#0f172a), `subtle` (#1e293b), `border` (#334155), `focus` (#e5e7eb), `muted` (#64748b), `secondary` (#9ca3af), `danger` (#ef4444), `success` (#34d399), `warning` (#fbbf24), `info` (#93c5fd).
+- **Fonts**: `--font-sans` (Helvetica Neue, Helvetica, Arial, sans-serif), `--font-mono` (SF Mono, Cascadia Code, Fira Code, Menlo, monospace).
+- **Text sizes**: `xs` (11px), `sm` (13px), `base` (15px), `lg` (18px), `xl` (22px).
+- **Border radius**: all radius tokens (`--radius` through `--radius-3xl`) set to `0px` — everything is square. `--radius-full` remains `9999px` for pills/badges.
+
+### Design principles
+1. **Square and blocked-out** — zero border-radius everywhere.
+2. **Space-filling** — buttons stretch to fill their container height (`self-stretch`); inputs fill available width.
+3. **Dark + monochrome** — colour reserved only for semantic meaning (danger, success, warning).
+4. **Helvetica** font family everywhere; monospace only for timestamps and code.
+5. **Keyboard-friendly** — visible square focus rings (1px solid, monochrome).
+
+### Base layer (`@layer base`)
+- `html, body`: full-height, `overflow-x: hidden`, `bg-canvas`, `text-accent`, `font-sans`.
+- `button`: default styling with `bg-raised`, `border border-border`, `rounded-none`, `text-sm`, hover/disabled/focus-visible states.
+- `input/select/textarea`: `focus-visible` outline (1px solid focus colour).
+- `::selection`: accent background, on-accent text.
+- Webkit scrollbar styling (6px, dark track, slate thumb).
+
+### Component layer (`@layer components`)
+Key composite classes defined via `@apply`-equivalent CSS:
+- `.container` — `max-width: 920px; margin: 0 auto` (used by layout wrapper; homepage opts out via `.fullbleed`).
+- `.header` — flex, `items-stretch`, `border-b border-border`, `bg-surface`. Contains `<h1>` (text-lg bold) and `HeaderControls` (Fullscreen button, space-filling via `self-stretch border-0 border-l border-solid border-border`).
+- `.toolbar` — flex wrap, `items-stretch`, `gap-0`, `mb-12px`.
+- `.panel` — `bg-surface`, `border border-subtle`, `p-12px`.
+- `.fullbleed` — breaks out of `.container` to full viewport width.
+- `.modal-overlay` — fixed full-viewport backdrop (`bg-base/60`, z-50).
+- `.modal-card` — `bg-surface`, `border border-border`, `p-16px`, `max-w-36rem`.
+- `.team-grid` — 2-column responsive grid for team panels; collapses to 1 column below 700px.
+- `.toast`, `.overlay`, `.loader`, `.spinner`, `.progress`, `.status` — utility classes for feedback UI.
+
+### Navbar pattern
+A consistent navigation bar used on `/metadata` and `/player` pages (replacing the old `.toolbar`):
+- Container: `flex items-stretch bg-surface border-b border-border`.
+- Buttons: `self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base` (left-side buttons) or `border-l` (right-side buttons).
+- Spacer: `<span className="flex-1" />` between left and right groups.
+
+### Inline style migration
+Previously, components used duplicated inline style constant objects (`INPUT_STYLE`, `LABEL_STYLE`, `CELL_INPUT`). These have been replaced with Tailwind utility classes across all pages:
+- `/` (homepage): fully restructured with Tailwind classes.
+- `/player`: navbar + content area use Tailwind; no inline styles except `height: calc(100vh - var(--player-headroom))`.
+- `/metadata`: navbar uses Tailwind; content area partially migrated.
+- `/stills`: inline styles largely replaced with Tailwind utilities (`flex`, `gap`, grid template, status colours).
+- `/annotate/[stillId]`: tool buttons extracted to a `toolBtnCls` helper returning Tailwind classes; save status uses semantic colour classes; inspector grid, error panel, and calibration panel use Tailwind.
+- `Editor.tsx`: host div, error/calibration/inspector panels, selection rectangle migrated from inline styles to Tailwind.
+- `TagFolderTree.tsx`: inline style constant objects (`BADGE_STYLE`, `CHEVRON_STYLE`, `COLLAPSIBLE_STYLE_*`) replaced with Tailwind class strings.
+- `TaggingMenu.tsx`: inline style constant objects (`optionButtonBase`, `optionButtonSelected`, `optionButtonLabel`) replaced with Tailwind class strings (`optBtnCls`, `optBtnSelectedCls`, `optBtnLabelCls`).
+
+### Planning docs (UI refresh)
+- `plans/post-mvp/ui-refresh/ui-refresh.md` — master plan: audit, design principles, Tailwind config, component classes, 9-section implementation checklist.
+- `plans/post-mvp/ui-refresh/stage2-homepage-layout.md` — homepage redesign: empty state + dashboard layout (untracked).
+- `plans/post-mvp/ui-refresh/stage2-metadata-layout.md` — metadata layout redesign; marked **DEPRECATED** — only the navbar rework was applied (untracked).
+- `plans/post-mvp/ui-refresh/stage2-player-layout.md` — player page: toolbar→navbar, remove `.panel` wrapper, remove status bar (untracked).
+- `plans/post-mvp/ui-refresh/stage2-videoplayer-timeline.md` — VideoPlayerUnit redesign: editor-style timeline with ruler, track lane, zoom, transport bar (untracked).
+
+---
+
+## 13) Testing
 
 The project uses **Vitest** for unit tests (`vitest: ^4.0.18` dev dependency). Scripts:
 - `npm run test` — single run.
@@ -569,7 +656,7 @@ Existing test files:
 
 ---
 
-## 13) Segmentation test page (experimental)
+## 14) Segmentation test page (experimental)
 
 The `segmentation-test` route is a sandbox for foreground extraction from a still image.
 

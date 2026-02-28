@@ -349,6 +349,11 @@ export default function Editor({
   tool,
   defaultStrokePattern,
   defaultColor,
+  defaultStrokeWidth,
+  defaultFill,
+  defaultFillOpacity,
+  defaultFontSize,
+  defaultTextHighlight,
   enableForegroundOcclusion,
   occlusionMethod,
   onRequestToolChange,
@@ -363,6 +368,11 @@ export default function Editor({
   tool: Tool;
   defaultStrokePattern?: StrokePattern;
   defaultColor?: string;
+  defaultStrokeWidth?: number;
+  defaultFill?: string;
+  defaultFillOpacity?: number;
+  defaultFontSize?: number;
+  defaultTextHighlight?: boolean;
   enableForegroundOcclusion?: boolean;
   occlusionMethod?: 'edge' | 'ml';
   onRequestToolChange?: (t: Tool) => void;
@@ -414,6 +424,11 @@ export default function Editor({
 
   const bgImage = useImage(imgUrl);
   const defaultAnnColor = defaultColor || '#000000';
+  const defStrokeW = defaultStrokeWidth ?? 6;
+  const defFill = defaultFill || defaultAnnColor;
+  const defFillOp = defaultFillOpacity ?? 0.3;
+  const defFontSz = defaultFontSize ?? 48;
+  const defTextHl = defaultTextHighlight ?? false;
 
   const [foregroundCutout, setForegroundCutout] = useState<HTMLCanvasElement | null>(null);
   const foregroundGenRef = useRef(0);
@@ -1029,14 +1044,14 @@ export default function Editor({
       // Flat, screen-space highlight: width=80, height=20 (radiusX=40, radiusY=10)
       const rx = 40;
       const ry = 10;
-      setShapes(prev => [...prev, { id, type: 'highlight', x: p.x, y: p.y, rx, ry, style: { stroke: defaultAnnColor, strokeWidth: 6, strokePattern: (defaultStrokePattern || 'solid'), fill: defaultAnnColor, fillOpacity: 0.3 } }]);
+      setShapes(prev => [...prev, { id, type: 'highlight', x: p.x, y: p.y, rx, ry, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: defFill, fillOpacity: defFillOp } }]);
       return;
     }
     if (tool === 'text') {
       if (!clickedOnEmpty) return;
       const id = makeId();
       const initial = 'Text';
-      setShapes(prev => [...prev, { id, type: 'text', x: p.x, y: p.y, text: initial, style: { stroke: defaultAnnColor, fill: 'transparent', strokeWidth: 1, strokePattern: (defaultStrokePattern || 'solid'), fontSize: 48, fontFamily: 'Inter, system-ui, sans-serif' } }]);
+      setShapes(prev => [...prev, { id, type: 'text', x: p.x, y: p.y, text: initial, style: { stroke: defaultAnnColor, fill: 'transparent', strokeWidth: 1, strokePattern: (defaultStrokePattern || 'solid'), fontSize: defFontSz, fontFamily: 'Inter, system-ui, sans-serif', textHighlight: defTextHl } }]);
       setSelectedId(id);
       setSelectedIds([id]);
       setTextEdit({ id, value: initial, orig: initial, isNew: true });
@@ -1056,7 +1071,7 @@ export default function Editor({
         setShapes(prev => {
           const next = prev.filter(x => !(x as any)._temp || x.id !== '_temp_arrow');
           const refs = [s.refId || null, end.refId || null];
-          return [...next, { id, type: 'arrow', points: [s.x, s.y, end.x, end.y], vertexRefs: refs.some(r => !!r) ? refs : undefined, x: 0, y: 0, style: { stroke: defaultAnnColor, strokeWidth: 6, strokePattern: (defaultStrokePattern || 'solid') } }];
+          return [...next, { id, type: 'arrow', points: [s.x, s.y, end.x, end.y], vertexRefs: refs.some(r => !!r) ? refs : undefined, x: 0, y: 0, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid') } }];
         });
         arrowTempRef.current.start = null;
       }
@@ -1083,7 +1098,7 @@ export default function Editor({
         const closed = bestIdx === 0 && pts.length >= 3;
         setShapes(prev => {
           const next = prev.filter(x => !(x as any)._temp || x.id !== '_temp_poly');
-          next.push({ id, type: 'poly', x: 0, y: 0, points: pts.flatMap(pt => [pt.x, pt.y]), vertexRefs: refs.some(r => !!r) ? refs : undefined, closed, style: { stroke: defaultAnnColor, strokeWidth: 6, strokePattern: (defaultStrokePattern || 'solid'), fill: closed ? defaultAnnColor : undefined, fillOpacity: closed ? 0.3 : undefined } } as any);
+          next.push({ id, type: 'poly', x: 0, y: 0, points: pts.flatMap(pt => [pt.x, pt.y]), vertexRefs: refs.some(r => !!r) ? refs : undefined, closed, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: closed ? defFill : undefined, fillOpacity: closed ? defFillOp : undefined } } as any);
           return next;
         });
         polyTempRef.current = null;
@@ -1099,13 +1114,13 @@ export default function Editor({
         setShapes(prev => {
           const next = prev.filter(x => !(x as any)._temp || x.id !== '_temp_poly');
           const flat = poly.points.flatMap(pt => [pt.x, pt.y]);
-          next.push({ id: '_temp_poly', type: 'poly', x: 0, y: 0, points: flat, closed: false, style: { stroke: defaultAnnColor, strokeWidth: 6, strokePattern: (defaultStrokePattern || 'solid') } } as any);
+          next.push({ id: '_temp_poly', type: 'poly', x: 0, y: 0, points: flat, closed: false, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid') } } as any);
           (next[next.length - 1] as any)._temp = true;
           return next;
         });
       }
     }
-  }, [tool, getPointerPos, findHighlightHit, beginTextEdit, defaultStrokePattern, defaultAnnColor]);
+  }, [tool, getPointerPos, findHighlightHit, beginTextEdit, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp, defFontSz, defTextHl]);
 
   const onDblClick = useCallback(() => {
     if (tool !== 'poly') return;
@@ -1124,12 +1139,12 @@ export default function Editor({
     const refs = pts.map(pt => pt.refId || null);
     setShapes(prev => {
       const next = prev.filter(x => !(x as any)._temp || x.id !== '_temp_poly');
-      next.push({ id, type: 'poly', x: 0, y: 0, points: pts.flatMap(pt => [pt.x, pt.y]), vertexRefs: refs.some(r => !!r) ? refs : undefined, closed: false, style: { stroke: defaultAnnColor, strokeWidth: 6, strokePattern: (defaultStrokePattern || 'solid') } } as any);
+      next.push({ id, type: 'poly', x: 0, y: 0, points: pts.flatMap(pt => [pt.x, pt.y]), vertexRefs: refs.some(r => !!r) ? refs : undefined, closed: false, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid') } } as any);
       return next;
     });
     polyTempRef.current = null;
     polyNearIndexRef.current = -1;
-  }, [tool, isTightDblClick, defaultStrokePattern, defaultAnnColor]);
+  }, [tool, isTightDblClick, defaultStrokePattern, defaultAnnColor, defStrokeW]);
 
   const onMouseMove = useCallback((e: any) => {
     const p = getPointerPos(); if (!p) return;
@@ -1183,7 +1198,7 @@ export default function Editor({
         const pts = rectPlaneToImagePoints(homography.H, cx, cy, w, h);
         setShapes(prev => {
           const next = prev.filter(x => !(x as any)._temp);
-          next.push({ id: '_temp_poly', type: 'poly', x: 0, y: 0, points: pts, closed: true, style: { stroke: defaultAnnColor, strokeWidth: 6, strokePattern: (defaultStrokePattern || 'solid'), fill: defaultAnnColor, fillOpacity: 0.3 } } as any);
+          next.push({ id: '_temp_poly', type: 'poly', x: 0, y: 0, points: pts, closed: true, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: defFill, fillOpacity: defFillOp } } as any);
           (next[next.length - 1] as any)._temp = true;
           return next;
         });
@@ -1213,7 +1228,7 @@ export default function Editor({
         setShapes(prev => {
           const next = [...prev];
           if (next.length > 0 && (next[next.length - 1] as any)._temp) next.pop();
-          next.push({ id: '_temp_rect', type: 'box', x, y, w, h, style: { stroke: defaultAnnColor, strokeWidth: 6, strokePattern: (defaultStrokePattern || 'solid'), fill: defaultAnnColor, fillOpacity: 0.3 } } as any);
+          next.push({ id: '_temp_rect', type: 'box', x, y, w, h, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: defFill, fillOpacity: defFillOp } } as any);
           (next[next.length - 1] as any)._temp = true;
           return next;
         });
@@ -1232,7 +1247,7 @@ export default function Editor({
         const pts = ellipsePlaneToImagePoints(homography.H, sp.u, sp.v, rx, ry);
         setShapes(prev => {
           const next = prev.filter(x => !(x as any)._temp);
-          next.push({ id: '_temp_poly', type: 'poly', x: 0, y: 0, points: pts, closed: true, style: { stroke: defaultAnnColor, strokeWidth: 6, strokePattern: (defaultStrokePattern || 'solid'), fill: defaultAnnColor, fillOpacity: 0.3 } } as any);
+          next.push({ id: '_temp_poly', type: 'poly', x: 0, y: 0, points: pts, closed: true, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: defFill, fillOpacity: defFillOp } } as any);
           (next[next.length - 1] as any)._temp = true;
           return next;
         });
@@ -1258,13 +1273,13 @@ export default function Editor({
         setShapes(prev => {
           const next = [...prev];
           if (next.length > 0 && (next[next.length - 1] as any)._temp) next.pop();
-          next.push({ id: '_temp_circle', type: 'circle', x: s.x, y: s.y, rx, ry, style: { stroke: defaultAnnColor, strokeWidth: 6, strokePattern: (defaultStrokePattern || 'solid'), fill: defaultAnnColor, fillOpacity: 0.3 } } as any);
+          next.push({ id: '_temp_circle', type: 'circle', x: s.x, y: s.y, rx, ry, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: defFill, fillOpacity: defFillOp } } as any);
           (next[next.length - 1] as any)._temp = true;
           return next;
         });
       }
     }
-  }, [isDrawing, isSelecting, tool, getPointerPos, homography, getLocalScales, getMidlineDims, defaultStrokePattern, defaultAnnColor]);
+  }, [isDrawing, isSelecting, tool, getPointerPos, homography, getLocalScales, getMidlineDims, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp]);
 
   const onMouseUp = useCallback((e: any) => {
     const p = getPointerPos();
@@ -1362,7 +1377,7 @@ export default function Editor({
           const w = boxFrac ? boxFrac.w : 0.1;
           const h = boxFrac ? boxFrac.h : 0.06;
           const sz = constrainKey ? Math.max(w, h) : 0;
-          setShapes(prev => [...prev.filter(x => !(x as any)._temp), { id, type: 'box', x: 0, y: 0, plane: { cx: uv.u, cy: uv.v, w: constrainKey ? sz : w, h: constrainKey ? sz : h }, style: { stroke: defaultAnnColor, strokeWidth: 6, strokePattern: (defaultStrokePattern || 'solid'), fill: defaultAnnColor, fillOpacity: 0.3 } }]);
+          setShapes(prev => [...prev.filter(x => !(x as any)._temp), { id, type: 'box', x: 0, y: 0, plane: { cx: uv.u, cy: uv.v, w: constrainKey ? sz : w, h: constrainKey ? sz : h }, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: defFill, fillOpacity: defFillOp } }]);
         } else {
           const sp = applyHomographyInv(homography.Hinv, s.x, s.y);
           const pp = applyHomographyInv(homography.Hinv, p.x, p.y);
@@ -1373,7 +1388,7 @@ export default function Editor({
             const sz = Math.max(w, h);
             w = sz; h = sz;
           }
-          setShapes(prev => [...prev.filter(x => !(x as any)._temp), { id, type: 'box', x: 0, y: 0, plane: { cx, cy, w, h }, style: { stroke: defaultAnnColor, strokeWidth: 6, strokePattern: (defaultStrokePattern || 'solid'), fill: defaultAnnColor, fillOpacity: 0.3 } }]);
+          setShapes(prev => [...prev.filter(x => !(x as any)._temp), { id, type: 'box', x: 0, y: 0, plane: { cx, cy, w, h }, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: defFill, fillOpacity: defFillOp } }]);
         }
       } else {
         let x = Math.min(s.x, p.x);
@@ -1420,7 +1435,7 @@ export default function Editor({
           w = sz; h = sz;
           x = s.x - w / 2; y = s.y - h / 2;
         }
-        setShapes(prev => [...prev.filter(x => !(x as any)._temp), { id, type: 'box', x, y, w, h, style: { stroke: defaultAnnColor, strokeWidth: 6, strokePattern: (defaultStrokePattern || 'solid'), fill: defaultAnnColor, fillOpacity: 0.3 } }]);
+        setShapes(prev => [...prev.filter(x => !(x as any)._temp), { id, type: 'box', x, y, w, h, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: defFill, fillOpacity: defFillOp } }]);
       }
     } else if (tool === 'circle') {
       const id = makeId();
@@ -1433,7 +1448,7 @@ export default function Editor({
           const rx = circFrac ? circFrac.rx : 0.05;
           const ry = circFrac ? circFrac.ry : 0.03;
           const r = constrainKey ? Math.max(rx, ry) : 0;
-          setShapes(prev => [...prev.filter(x => !(x as any)._temp), { id, type: 'circle', x: 0, y: 0, plane: { cx: sp.u, cy: sp.v, rx: constrainKey ? r : rx, ry: constrainKey ? r : ry }, style: { stroke: defaultAnnColor, strokeWidth: 6, strokePattern: (defaultStrokePattern || 'solid'), fill: defaultAnnColor, fillOpacity: 0.3 } }]);
+          setShapes(prev => [...prev.filter(x => !(x as any)._temp), { id, type: 'circle', x: 0, y: 0, plane: { cx: sp.u, cy: sp.v, rx: constrainKey ? r : rx, ry: constrainKey ? r : ry }, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: defFill, fillOpacity: defFillOp } }]);
         } else {
           const pp = applyHomographyInv(homography.Hinv, p.x, p.y);
           let rx = Math.abs(pp.u - sp.u);
@@ -1442,7 +1457,7 @@ export default function Editor({
             const r = Math.max(rx, ry);
             rx = r; ry = r;
           }
-          setShapes(prev => [...prev.filter(x => !(x as any)._temp), { id, type: 'circle', x: 0, y: 0, plane: { cx: sp.u, cy: sp.v, rx, ry }, style: { stroke: defaultAnnColor, strokeWidth: 6, strokePattern: (defaultStrokePattern || 'solid'), fill: defaultAnnColor, fillOpacity: 0.3 } }]);
+          setShapes(prev => [...prev.filter(x => !(x as any)._temp), { id, type: 'circle', x: 0, y: 0, plane: { cx: sp.u, cy: sp.v, rx, ry }, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: defFill, fillOpacity: defFillOp } }]);
         }
       } else {
         let rx = Math.abs(dx);
@@ -1476,12 +1491,12 @@ export default function Editor({
           const r = Math.max(rx, ry);
           rx = r; ry = r;
         }
-        setShapes(prev => [...prev.filter(x => !(x as any)._temp), { id, type: 'circle', x: s.x, y: s.y, rx, ry, style: { stroke: defaultAnnColor, strokeWidth: 6, strokePattern: (defaultStrokePattern || 'solid'), fill: defaultAnnColor, fillOpacity: 0.3 } }]);
+        setShapes(prev => [...prev.filter(x => !(x as any)._temp), { id, type: 'circle', x: s.x, y: s.y, rx, ry, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: defFill, fillOpacity: defFillOp } }]);
       }
     }
     setIsDrawing(false);
     startRef.current = null;
-  }, [isDrawing, isSelecting, tool, getPointerPos, selRect, shapes, homography, boxFrac, circFrac, defaultStrokePattern, defaultAnnColor, selectedId, selectedIds]);
+  }, [isDrawing, isSelecting, tool, getPointerPos, selRect, shapes, homography, boxFrac, circFrac, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp, selectedId, selectedIds]);
 
   // Arrow & Poly preview while placing
   useEffect(() => {
@@ -1496,7 +1511,7 @@ export default function Editor({
           const next = [...prev];
           const idx = next.findIndex(x => (x as any)._temp && x.id === '_temp_arrow');
           if (idx >= 0) next.splice(idx, 1);
-          next.push({ id: '_temp_arrow', type: 'arrow', x: 0, y: 0, points: [st.x, st.y, end.x, end.y], style: { stroke: defaultAnnColor, strokeWidth: 6, strokePattern: (defaultStrokePattern || 'solid') } } as any);
+          next.push({ id: '_temp_arrow', type: 'arrow', x: 0, y: 0, points: [st.x, st.y, end.x, end.y], style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid') } } as any);
           (next[next.length - 1] as any)._temp = true;
           return next;
         });
@@ -1524,7 +1539,7 @@ export default function Editor({
             pts = poly.points.concat([cursor as any]);
           }
           const flat = pts.flatMap(pt => [pt.x, pt.y]);
-          next.push({ id: '_temp_poly', type: 'poly', x: 0, y: 0, points: flat, closed, style: { stroke: defaultAnnColor, strokeWidth: 6, strokePattern: (defaultStrokePattern || 'solid'), fill: closed ? defaultAnnColor : undefined, fillOpacity: closed ? 0.6 : undefined } } as any);
+          next.push({ id: '_temp_poly', type: 'poly', x: 0, y: 0, points: flat, closed, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: closed ? defFill : undefined, fillOpacity: closed ? defFillOp : undefined } } as any);
           (next[next.length - 1] as any)._temp = true;
           return next;
         });
@@ -1533,7 +1548,7 @@ export default function Editor({
     const stage = stageRef.current;
     if (stage) stage.on('mousemove', onMove);
     return () => { if (stage) stage.off('mousemove', onMove); };
-  }, [tool, getPointerPos, findHighlightHit, defaultStrokePattern, defaultAnnColor]);
+  }, [tool, getPointerPos, findHighlightHit, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp]);
 
   // Clear temp shapes when tool changes
   useEffect(() => {

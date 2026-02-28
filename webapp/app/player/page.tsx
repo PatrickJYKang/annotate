@@ -27,6 +27,8 @@ export default function PlayerPage() {
   const undoStackRef = useRef<{ marks: ProjectManifestV1['marks']; selectedMarkId: string | null }[]>([]);
   const redoStackRef = useRef<{ marks: ProjectManifestV1['marks']; selectedMarkId: string | null }[]>([]);
   const playerRef = useRef<VideoPlayerHandle | null>(null);
+  const pageRootRef = useRef<HTMLDivElement | null>(null);
+  const [pageHeightPx, setPageHeightPx] = useState<number | null>(null);
   const manifestRef = useRef<ProjectManifestV1 | null>(null);
   const selectedVideoIdRef = useRef<string | null>(null);
   const selectedMarkIdRef = useRef<string | null>(null);
@@ -34,6 +36,19 @@ export default function PlayerPage() {
   useEffect(() => { manifestRef.current = manifest; }, [manifest]);
   useEffect(() => { selectedVideoIdRef.current = selectedVideoId; }, [selectedVideoId]);
   useEffect(() => { selectedMarkIdRef.current = selectedMarkId; }, [selectedMarkId]);
+
+  useEffect(() => {
+    const updateAvailableHeight = () => {
+      const el = pageRootRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      setPageHeightPx(Math.max(0, Math.floor(window.innerHeight - top)));
+    };
+
+    updateAvailableHeight();
+    window.addEventListener('resize', updateAvailableHeight);
+    return () => window.removeEventListener('resize', updateAvailableHeight);
+  }, []);
 
   const onBack = useCallback(() => {
     if (typeof window !== 'undefined' && window.history.length > 1) {
@@ -301,20 +316,24 @@ export default function PlayerPage() {
 
   return (
     <div className="fullbleed">
-      <div className="panel flex flex-col h-screen overflow-hidden">
-        {/* Toolbar */}
-        <div className="toolbar mb-2 shrink-0 flex items-center gap-2">
-          <button onClick={onBack}>Back</button>
-          <button onClick={() => router.push('/metadata')} className="text-xs">← Match info</button>
+      <div
+        ref={pageRootRef}
+        className="flex flex-col overflow-hidden"
+        style={{ height: pageHeightPx != null ? `${pageHeightPx}px` : 'calc(100vh - var(--player-headroom))' }}
+      >
+        {/* Navbar */}
+        <div className="flex items-stretch bg-surface border-b border-border shrink-0">
+          <button onClick={onBack} className="self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base">← Back</button>
+          <button onClick={() => router.push('/metadata')} className="self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base">Match info</button>
           <span className="flex-1" />
-          <button onClick={deleteSelectedMark} disabled={!selectedMarkId} title="Delete selected mark (Delete)">Delete</button>
-          <button onClick={() => router.push('/stills')}>Next</button>
+          <button onClick={deleteSelectedMark} disabled={!selectedMarkId} title="Delete selected mark (Delete)" className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base">Delete</button>
+          <button onClick={() => router.push('/stills')} className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base">Stills →</button>
         </div>
 
         {/* Main content: video left, tag tree right */}
-        <div className="flex gap-3 flex-1 min-h-0">
+        <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Left pane — Video */}
-          <div className="flex-1 min-w-0 flex flex-col">
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col">
             <VideoPlayerUnit
               ref={playerRef}
               src={videoUrl}
@@ -331,7 +350,7 @@ export default function PlayerPage() {
           </div>
 
           {/* Right pane — Tag folder tree */}
-          <div className="flex-[0_0_300px] min-w-[280px] flex flex-col border-l border-subtle pl-2">
+          <div className="flex-[0_0_300px] min-w-[280px] min-h-0 overflow-hidden flex flex-col border-l border-subtle">
             {taggingSchema ? (
               <TagFolderTree
                 schema={taggingSchema}
@@ -352,11 +371,6 @@ export default function PlayerPage() {
               </div>
             )}
           </div>
-        </div>
-
-        {/* Status bar */}
-        <div className="status shrink-0 mt-1 text-xs">
-          M=mark · Delete=delete · C=clear tags · ⌘Z=undo · ⌘⇧Z=redo · Right-click=tag · J/K/L ←/→ ,/.=navigate
         </div>
 
         <TaggingMenu

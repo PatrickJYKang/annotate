@@ -16,6 +16,11 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
   const [tool, setTool] = useState<Tool>('select');
   const [strokePattern, setStrokePattern] = useState<StrokePattern>('solid');
   const [defaultColor, setDefaultColor] = useState<string>('#000000');
+  const [defaultStrokeWidth, setDefaultStrokeWidth] = useState<number>(6);
+  const [defaultFill, setDefaultFill] = useState<string>('#000000');
+  const [defaultFillOpacity, setDefaultFillOpacity] = useState<number>(0.3);
+  const [defaultFontSize, setDefaultFontSize] = useState<number>(48);
+  const [defaultTextHighlight, setDefaultTextHighlight] = useState<boolean>(false);
   const [enableForegroundOcclusion, setEnableForegroundOcclusion] = useState(false);
   const [occlusionMethod, setOcclusionMethod] = useState<'edge' | 'ml'>('edge');
   const [saveTick, setSaveTick] = useState(0);
@@ -160,6 +165,20 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
   }, [imgUrl]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const pageRootRef = useRef<HTMLDivElement | null>(null);
+  const [pageHeightPx, setPageHeightPx] = useState<number | null>(null);
+
+  useEffect(() => {
+    const updateAvailableHeight = () => {
+      const el = pageRootRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      setPageHeightPx(Math.max(0, Math.floor(window.innerHeight - top)));
+    };
+    updateAvailableHeight();
+    window.addEventListener('resize', updateAvailableHeight);
+    return () => window.removeEventListener('resize', updateAvailableHeight);
+  }, []);
 
   // Lock page scrolling while this page is open
   useEffect(() => {
@@ -299,10 +318,10 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
   }, [panning]);
 
   const toolBtnCls = (t: Tool) =>
-    `px-2 py-1 cursor-pointer text-white border ${
+    `self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base cursor-pointer ${
       tool === t
-        ? 'bg-[#2563eb] border-[#60a5fa]'
-        : 'bg-surface border-border'
+        ? 'bg-[#2563eb] text-white'
+        : 'bg-surface text-primary'
     }`;
 
   const saveStatusCls =
@@ -311,61 +330,17 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
     : saveStatus?.state === 'saved' ? 'text-[#34d399]'
     : '';
 
-  const toolbar = (
-    <div className="toolbar flex items-center gap-2">
-      <strong>Annotate</strong>
-      {writePermission && writePermission !== 'granted' && (
-        <button
-          onClick={requestWriteAccess}
-          className="bg-[#f59e0b] text-surface border border-[#fbbf24] px-2.5 py-1 cursor-pointer"
-        >
-          Enable autosave
-        </button>
-      )}
-      <div className="flex gap-1.5">
-        <button onClick={() => setTool('select')} aria-pressed={tool === 'select'} className={toolBtnCls('select')}>Select</button>
-        <button onClick={() => setTool('box')} aria-pressed={tool === 'box'} className={toolBtnCls('box')}>Box</button>
-        <button onClick={() => setTool('circle')} aria-pressed={tool === 'circle'} className={toolBtnCls('circle')}>Circle</button>
-        <button onClick={() => setTool('highlight')} aria-pressed={tool === 'highlight'} className={toolBtnCls('highlight')}>Highlight</button>
-        <button onClick={() => setTool('arrow')} aria-pressed={tool === 'arrow'} className={toolBtnCls('arrow')}>Arrow</button>
-        <button onClick={() => setTool('poly')} aria-pressed={tool === 'poly'} className={toolBtnCls('poly')}>Poly</button>
-        <button onClick={() => setTool('text')} aria-pressed={tool === 'text'} className={toolBtnCls('text')}>Text</button>
-        <button onClick={() => setTool('calibrate')} aria-pressed={tool === 'calibrate'} className={toolBtnCls('calibrate')}>Calibrate</button>
-      </div>
-      <div className="flex items-center gap-1.5 ml-1.5">
-        <span className="status">Stroke</span>
-        <select value={strokePattern} onChange={(e) => setStrokePattern((e.target.value as StrokePattern) || 'solid')}>
-          <option value="solid">Solid</option>
-          <option value="dashed">Dashed</option>
-          <option value="dotted">Dotted</option>
-          <option value="dashdot">Dash-dot</option>
-        </select>
-      </div>
-      <div className="flex-1" />
-      <div className="flex items-center gap-1.5">
-        <span className="status">Color</span>
-        <input type="color" value={defaultColor} onChange={(e) => setDefaultColor(e.target.value || '#000000')} />
-      </div>
-      <label className="flex items-center gap-1.5">
-        <input
-          type="checkbox"
-          checked={enableForegroundOcclusion}
-          onChange={(e) => setEnableForegroundOcclusion(e.target.checked)}
-        />
-        <span className="status">Occlusion</span>
-      </label>
-      <select
-        value={occlusionMethod}
-        onChange={(e) => setOcclusionMethod(e.target.value as any)}
-        disabled={!enableForegroundOcclusion}
-        className={enableForegroundOcclusion ? '' : 'opacity-60'}
-      >
-        <option value="edge">Edge</option>
-        <option value="ml">ML</option>
-      </select>
+  const hasStroke = ['box', 'circle', 'highlight', 'arrow', 'poly', 'text'].includes(tool);
+  const hasWidth = ['box', 'circle', 'highlight', 'arrow', 'poly'].includes(tool);
+  const hasPattern = ['box', 'circle', 'highlight', 'arrow', 'poly'].includes(tool);
+  const hasFill = ['box', 'circle', 'highlight', 'poly'].includes(tool);
+  const hasFont = tool === 'text';
+
+  const navbar = (
+    <div className="flex items-stretch bg-surface border-b border-border shrink-0">
       <button onClick={() => { setSaveStatus({ state: 'saving' }); setSaveTick(t => t + 1); }}
-        className="bg-[#10b981] text-surface border border-[#34d399] px-2.5 py-1 cursor-pointer">Save</button>
-      <div className={`status min-w-[110px] ${saveStatusCls}`}>
+        className="self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base bg-[#10b981] text-surface cursor-pointer">Save</button>
+      <div className={`self-stretch flex items-center px-3 text-sm min-w-[100px] ${saveStatusCls}`}>
         {saveStatus?.state === 'saving'
           ? 'Saving…'
           : saveStatus?.state === 'saved'
@@ -374,7 +349,88 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
               ? 'Save failed'
               : ''}
       </div>
-      <div className="status">Zoom: {(scale * 100).toFixed(0)}%</div>
+      <span className="flex-1" />
+      <label className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
+        <input
+          type="checkbox"
+          checked={enableForegroundOcclusion}
+          onChange={(e) => setEnableForegroundOcclusion(e.target.checked)}
+        />
+        Occlusion
+      </label>
+      <select
+        value={occlusionMethod}
+        onChange={(e) => setOcclusionMethod(e.target.value as any)}
+        disabled={!enableForegroundOcclusion}
+        className={`self-stretch px-2 border-0 border-l border-solid border-border text-sm ${enableForegroundOcclusion ? '' : 'opacity-60'}`}
+      >
+        <option value="edge">Edge</option>
+        <option value="ml">ML</option>
+      </select>
+      <div className="self-stretch flex items-center px-3 border-0 border-l border-solid border-border text-sm text-muted">
+        Zoom: {(scale * 100).toFixed(0)}%
+      </div>
+    </div>
+  );
+
+  const toolBar = (
+    <div className="flex items-stretch justify-center bg-surface border-b border-border shrink-0">
+      <button onClick={() => setTool('select')} aria-pressed={tool === 'select'} className={toolBtnCls('select')}>Select</button>
+      <button onClick={() => setTool('box')} aria-pressed={tool === 'box'} className={toolBtnCls('box')}>Box</button>
+      <button onClick={() => setTool('circle')} aria-pressed={tool === 'circle'} className={toolBtnCls('circle')}>Circle</button>
+      <button onClick={() => setTool('highlight')} aria-pressed={tool === 'highlight'} className={toolBtnCls('highlight')}>Highlight</button>
+      <button onClick={() => setTool('arrow')} aria-pressed={tool === 'arrow'} className={toolBtnCls('arrow')}>Arrow</button>
+      <button onClick={() => setTool('poly')} aria-pressed={tool === 'poly'} className={toolBtnCls('poly')}>Poly</button>
+      <button onClick={() => setTool('text')} aria-pressed={tool === 'text'} className={toolBtnCls('text')}>Text</button>
+      <button onClick={() => setTool('calibrate')} aria-pressed={tool === 'calibrate'} className={toolBtnCls('calibrate')}>Calibrate</button>
+      {hasStroke && (
+        <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
+          <span className="text-muted">Stroke</span>
+          <input type="color" value={defaultColor} onChange={(e) => setDefaultColor(e.target.value || '#000000')} className="w-7 h-7 cursor-pointer" />
+        </div>
+      )}
+      {hasWidth && (
+        <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
+          <span className="text-muted">Width</span>
+          <input type="number" min={1} max={16} step={1} value={defaultStrokeWidth} onChange={(e) => setDefaultStrokeWidth(Math.max(1, Math.min(16, Number(e.target.value) || 1)))} className="w-12" />
+        </div>
+      )}
+      {hasPattern && (
+        <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
+          <span className="text-muted">Style</span>
+          <select value={strokePattern} onChange={(e) => setStrokePattern((e.target.value as StrokePattern) || 'solid')}>
+            <option value="solid">Solid</option>
+            <option value="dashed">Dashed</option>
+            <option value="dotted">Dotted</option>
+            <option value="dashdot">Dash-dot</option>
+          </select>
+        </div>
+      )}
+      {hasFill && (
+        <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
+          <span className="text-muted">Fill</span>
+          <input type="color" value={defaultFill} onChange={(e) => setDefaultFill(e.target.value || '#000000')} className="w-7 h-7 cursor-pointer" />
+        </div>
+      )}
+      {hasFill && (
+        <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
+          <span className="text-muted">Opacity</span>
+          <input type="range" min={0} max={100} step={1} value={Math.round(defaultFillOpacity * 100)} onChange={(e) => setDefaultFillOpacity(Number(e.target.value) / 100)} className="w-16" />
+          <span className="text-muted text-xs">{Math.round(defaultFillOpacity * 100)}%</span>
+        </div>
+      )}
+      {hasFont && (
+        <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
+          <span className="text-muted">Size</span>
+          <input type="number" min={1} max={300} step={1} value={defaultFontSize} onChange={(e) => setDefaultFontSize(Math.max(1, Math.min(300, Number(e.target.value) || 48)))} className="w-14" />
+        </div>
+      )}
+      {hasFont && (
+        <label className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
+          <input type="checkbox" checked={defaultTextHighlight} onChange={(e) => setDefaultTextHighlight(e.target.checked)} />
+          <span className="text-muted">Highlight</span>
+        </label>
+      )}
     </div>
   );
 
@@ -416,9 +472,20 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
 
   return (
     <div className="fullbleed">
-      <div className="panel flex flex-col overflow-hidden" style={{ height: 'calc(100vh - var(--player-headroom) - 12px)', overscrollBehavior: 'none' }}>
-        {toolbar}
-        {error && <div className="status text-danger">{error}</div>}
+      <div
+        ref={pageRootRef}
+        className="flex flex-col overflow-hidden"
+        style={{ height: pageHeightPx != null ? `${pageHeightPx}px` : 'calc(100vh - var(--player-headroom))', overscrollBehavior: 'none' }}
+      >
+        {navbar}
+        {toolBar}
+        {writePermission && writePermission !== 'granted' && (
+          <div className="shrink-0 px-3 py-1 text-xs text-warning border-b border-subtle flex items-center gap-2">
+            Write access not granted.
+            <button onClick={requestWriteAccess} className="bg-[#f59e0b] text-surface border border-[#fbbf24] px-2 py-0.5 cursor-pointer text-xs">Enable autosave</button>
+          </div>
+        )}
+        {error && <div className="shrink-0 px-3 py-1 text-xs text-danger border-b border-subtle">{error}</div>}
         <div
           ref={containerRef}
           onPointerDown={onPointerDown}
@@ -437,6 +504,11 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
               tool={tool}
               defaultStrokePattern={strokePattern}
               defaultColor={defaultColor}
+              defaultStrokeWidth={defaultStrokeWidth}
+              defaultFill={defaultFill}
+              defaultFillOpacity={defaultFillOpacity}
+              defaultFontSize={defaultFontSize}
+              defaultTextHighlight={defaultTextHighlight}
               enableForegroundOcclusion={enableForegroundOcclusion}
               occlusionMethod={occlusionMethod}
               onRequestToolChange={setTool}
