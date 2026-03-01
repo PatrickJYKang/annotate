@@ -28,6 +28,41 @@ Pods/
 # Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*$py.class
+
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+**/.venv/
+**/venv/
+**/env/
+**/ENV/
+
+# Python tooling / test caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+.tox/
+.nox/
+
+# Python coverage / build artifacts
+.coverage
+.coverage.*
+htmlcov/
+dist/
+build/
+site/
+*.egg-info/
+pip-wheel-metadata/
+
+# Python environment metadata
+.python-version
 
 node_modules/
 **/node_modules/

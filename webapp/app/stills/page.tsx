@@ -4,7 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useProject } from "../../lib/state/ProjectContext";
 import type { ProjectManifestV1 } from "../../lib/types/project";
+import type { Clip } from "../../lib/types/clip";
+import { CLIP_SCHEMA_VERSION } from "../../lib/types/clip";
 import { readManifest, reindexAnnotations, writeManifest } from "../../lib/fs/projectFolder";
+import { listClips, writeClip, deleteClip as deleteClipFile, resolveMarkPinning } from "../../lib/fs/clipStorage";
 import { exportD7All } from "../../lib/export/d7Export";
 import VideoPlayerUnit, { VideoPlayerHandle } from "../../components/player/VideoPlayerUnit";
 
@@ -26,6 +29,17 @@ export default function StillsPage() {
   const [exportProgress, setExportProgress] = useState<{ done: number; total: number; message: string } | null>(null);
   const [exportFailures, setExportFailures] = useState<{ stillId: string; error: string }[] | null>(null);
   const [exportCompleted, setExportCompleted] = useState(false);
+
+  // --- Clips state ---
+  const [clips, setClips] = useState<Clip[]>([]);
+  const [clipThumbs, setClipThumbs] = useState<Map<string, string>>(new Map()); // clipId → blob URL
+  const [showNewClipModal, setShowNewClipModal] = useState(false);
+  const [newClipStartMarkId, setNewClipStartMarkId] = useState<string>('');
+  const [newClipEndMarkId, setNewClipEndMarkId] = useState<string>('');
+  const [newClipStartMs, setNewClipStartMs] = useState<string>('');
+  const [newClipEndMs, setNewClipEndMs] = useState<string>('');
+  const [hoveredClipId, setHoveredClipId] = useState<string | null>(null);
+  const clipThumbVideoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     const updateAvailableHeight = () => {
@@ -253,7 +267,163 @@ export default function StillsPage() {
     });
   }, [manifest, projectDir, setManifest, deleteFileAtPath]);
 
-  
+  // --- Clips: load ---
+  const loadClips = useCallback(async () => {
+    if (!projectDir || !manifest) { setClips([]); return; }
+    try {
+      const raw = await listClips(projectDir);
+      const resolved = raw
+        .filter(c => c.videoId === selectedVideoId)
+        .map(c => resolveMarkPinning(c, manifest.marks));
+      setClips(resolved);
+    } catch {
+      setClips([]);
+    }
+  }, [projectDir, manifest, selectedVideoId]);
+
+  useEffect(() => { void loadClips(); }, [loadClips]);
+
+  // --- Clips: thumbnail generation ---
+  useEffect(() => {
+    if (!videoUrl || clips.length === 0) return;
+    let cancelled = false;
+    const blobUrls: string[] = [];
+
+    (async () => {
+      const video = document.createElement('video');
+      video.muted = true;
+      video.preload = 'auto';
+      video.src = videoUrl;
+      await new Promise<void>((res, rej) => {
+        video.onloadedmetadata = () => res();
+        video.onerror = () => rej(new Error('thumb video load failed'));
+      });
+
+      const newThumbs = new Map<string, string>();
+      for (const clip of clips) {
+        if (cancelled) break;
+        if (clipThumbs.has(clip.id)) { newThumbs.set(clip.id, clipThumbs.get(clip.id)!); continue; }
+        video.currentTime = clip.startMs / 1000;
+        await new Promise<void>(res => { video.onseeked = () => res(); });
+        const canvas = document.createElement('canvas');
+        const scale = Math.min(1, 320 / video.videoWidth);
+        canvas.width = Math.round(video.videoWidth * scale);
+        canvas.height = Math.round(video.videoHeight * scale);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) continue;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const blob: Blob = await new Promise((resolve, reject) =>
+          canvas.toBlob(b => b ? resolve(b) : reject(new Error('encode failed')), 'image/jpeg', 0.7)
+        );
+        const url = URL.createObjectURL(blob);
+        blobUrls.push(url);
+        newThumbs.set(clip.id, url);
+      }
+      if (!cancelled) setClipThumbs(newThumbs);
+    })().catch(() => {});
+
+    return () => {
+      cancelled = true;
+      // Don't revoke here — blobUrls in state are still referenced
+    };
+  }, [clips, videoUrl]); // intentionally omit clipThumbs to avoid loop
+
+  // --- Clips: create ---
+  const createClip = useCallback(async () => {
+    if (!projectDir || !selectedVideoId) return;
+    const marks = manifest?.marks || [];
+
+    let startMs: number;
+    let endMs: number;
+    let startMarkId: string | null = null;
+    let endMarkId: string | null = null;
+
+    if (newClipStartMarkId) {
+      const m = marks.find(m => m.id === newClipStartMarkId);
+      if (!m) { setError('Start mark not found'); return; }
+      startMs = m.t_ms;
+      startMarkId = m.id;
+    } else {
+      startMs = parseFloat(newClipStartMs);
+      if (!Number.isFinite(startMs) || startMs < 0) { setError('Invalid start time'); return; }
+    }
+
+    if (newClipEndMarkId) {
+      const m = marks.find(m => m.id === newClipEndMarkId);
+      if (!m) { setError('End mark not found'); return; }
+      endMs = m.t_ms;
+      endMarkId = m.id;
+    } else {
+      endMs = parseFloat(newClipEndMs);
+      if (!Number.isFinite(endMs) || endMs < 0) { setError('Invalid end time'); return; }
+    }
+
+    if (startMs >= endMs) { setError('Start must be before end'); return; }
+
+    const id = (globalThis.crypto && 'randomUUID' in globalThis.crypto)
+      ? (globalThis.crypto as any).randomUUID()
+      : `clip_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    const clip: Clip = {
+      schema: CLIP_SCHEMA_VERSION,
+      id,
+      videoId: selectedVideoId,
+      startMs,
+      endMs,
+      startMarkId,
+      endMarkId,
+      annotations: [],
+    };
+
+    try {
+      await writeClip(projectDir, clip);
+      setShowNewClipModal(false);
+      setNewClipStartMarkId('');
+      setNewClipEndMarkId('');
+      setNewClipStartMs('');
+      setNewClipEndMs('');
+      setError(null);
+      await loadClips();
+      setToast('Clip created');
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    }
+  }, [projectDir, selectedVideoId, manifest, newClipStartMarkId, newClipEndMarkId, newClipStartMs, newClipEndMs, loadClips]);
+
+  // --- Clips: delete ---
+  const deleteClip = useCallback(async (clipId: string) => {
+    if (!projectDir) return;
+    try {
+      await deleteClipFile(projectDir, clipId);
+      setClipThumbs(prev => {
+        const url = prev.get(clipId);
+        if (url) URL.revokeObjectURL(url);
+        const next = new Map(prev);
+        next.delete(clipId);
+        return next;
+      });
+      await loadClips();
+      setToast('Clip deleted');
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    }
+  }, [projectDir, loadClips]);
+
+  // --- Clips: navigate to editor ---
+  const openClipEditor = useCallback((clipId: string) => {
+    const w = window.open(`/clip/${clipId}`, '_blank');
+    if (w && projectDir) {
+      const origin = window.location.origin;
+      let attempts = 0;
+      const iv = window.setInterval(() => {
+        try {
+          w.postMessage({ type: 'project-handle', handle: projectDir }, origin);
+          attempts++;
+          if (attempts >= 5) window.clearInterval(iv);
+        } catch {}
+      }, 200);
+    }
+  }, [projectDir]);
 
   
 
@@ -393,6 +563,7 @@ export default function StillsPage() {
         <div className="flex items-stretch bg-surface border-b border-border shrink-0">
           <button onClick={() => router.push('/player')} className="self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base">← Player</button>
           <span className="flex-1" />
+          <button onClick={() => setShowNewClipModal(true)} className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base">New Clip</button>
           <button onClick={generateHere} disabled={busy} className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base">Generate still here</button>
           <button onClick={exportAll} disabled={exportBusy || busy} title="Export annotated PNGs + reports to reports/" className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base">
             {exportBusy ? 'Exporting…' : 'Export All'}
@@ -435,6 +606,7 @@ export default function StillsPage() {
             />
           </div>
           <div className="flex-[1_1_50%] min-w-[320px] min-h-0 overflow-y-auto border-l border-subtle p-3">
+            {/* Stills section */}
             <strong>Stills ({thumbs.length})</strong>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 mt-2">
               {thumbs.map(t => (
@@ -479,9 +651,126 @@ export default function StillsPage() {
                 </div>
               ))}
             </div>
+
+            {/* Clips section */}
+            <div className="mt-6">
+              <strong>Clips ({clips.length})</strong>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 mt-2">
+                {clips.map(c => (
+                  <div
+                    key={c.id}
+                    className="panel relative overflow-hidden"
+                    style={{ padding: 0 }}
+                    onMouseEnter={() => setHoveredClipId(c.id)}
+                    onMouseLeave={() => setHoveredClipId(prev => (prev === c.id ? null : prev))}
+                  >
+                    {clipThumbs.has(c.id) ? (
+                      <img src={clipThumbs.get(c.id)} alt="clip thumb" className="w-full block" />
+                    ) : (
+                      <div className="w-full aspect-video bg-raised flex items-center justify-center text-muted text-xs">Loading...</div>
+                    )}
+                    <div className="px-1.5 py-1 text-xs text-muted flex justify-between">
+                      <span>{formatTimeNoMs(c.startMs)} – {formatTimeNoMs(c.endMs)}</span>
+                      <span>{c.annotations.length} ann.</span>
+                    </div>
+                    <div className={`absolute top-0 bottom-0 right-0 flex flex-col border-l border-border transition-[transform,opacity] duration-[120ms] ease w-9 ${hoveredClipId === c.id ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'}`}>
+                      <button
+                        onClick={() => openClipEditor(c.id)}
+                        title="Edit clip"
+                        className="flex-1 flex items-center justify-center bg-raised hover:bg-hover border-0 border-b border-solid border-border text-sm cursor-pointer"
+                      >
+                        ✏
+                      </button>
+                      <button
+                        onClick={() => deleteClip(c.id)}
+                        title="Delete clip"
+                        className="flex-1 flex items-center justify-center bg-raised hover:bg-[#991b1b] border-0 text-sm text-danger cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {clips.length === 0 && (
+                  <div className="text-xs text-muted py-2">No clips yet. Click "New Clip" to create one.</div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* New Clip Modal */}
+      {showNewClipModal && (
+        <div className="modal-overlay" onClick={() => setShowNewClipModal(false)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()} style={{ minWidth: 340, maxWidth: 440 }}>
+            <strong className="block mb-3">New Clip</strong>
+
+            <div className="flex flex-col gap-3">
+              {/* Start */}
+              <div>
+                <label className="text-xs text-muted block mb-1">Start</label>
+                <div className="flex gap-2 items-center">
+                  <select
+                    value={newClipStartMarkId}
+                    onChange={e => { setNewClipStartMarkId(e.target.value); if (e.target.value) setNewClipStartMs(''); }}
+                    className="flex-1 text-sm"
+                  >
+                    <option value="">Manual ms</option>
+                    {marksForVideo.map(m => (
+                      <option key={m.id} value={m.id}>{formatTimeNoMs(m.t_ms)}</option>
+                    ))}
+                  </select>
+                  {!newClipStartMarkId && (
+                    <input
+                      type="number"
+                      min={0}
+                      step={100}
+                      value={newClipStartMs}
+                      onChange={e => setNewClipStartMs(e.target.value)}
+                      placeholder="ms"
+                      className="w-24 text-sm"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* End */}
+              <div>
+                <label className="text-xs text-muted block mb-1">End</label>
+                <div className="flex gap-2 items-center">
+                  <select
+                    value={newClipEndMarkId}
+                    onChange={e => { setNewClipEndMarkId(e.target.value); if (e.target.value) setNewClipEndMs(''); }}
+                    className="flex-1 text-sm"
+                  >
+                    <option value="">Manual ms</option>
+                    {marksForVideo.map(m => (
+                      <option key={m.id} value={m.id}>{formatTimeNoMs(m.t_ms)}</option>
+                    ))}
+                  </select>
+                  {!newClipEndMarkId && (
+                    <input
+                      type="number"
+                      min={0}
+                      step={100}
+                      value={newClipEndMs}
+                      onChange={e => setNewClipEndMs(e.target.value)}
+                      placeholder="ms"
+                      className="w-24 text-sm"
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-4">
+              <button onClick={createClip} className="flex-1 bg-[#2563eb] text-white px-3 py-1.5 text-sm cursor-pointer border-0">Create</button>
+              <button onClick={() => setShowNewClipModal(false)} className="px-3 py-1.5 text-sm cursor-pointer">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

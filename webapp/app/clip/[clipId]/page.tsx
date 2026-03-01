@@ -1,0 +1,359 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import dynamic from "next/dynamic";
+import { useProject } from "../../../lib/state/ProjectContext";
+import { readManifest, validateProjectFolderStructure } from "../../../lib/fs/projectFolder";
+import { readClip, resolveMarkPinning } from "../../../lib/fs/clipStorage";
+import type { Clip } from "../../../lib/types/clip";
+import type { ClipTool } from "../../../components/clip/ClipEditor";
+import { SidecarProvider } from "../../../lib/state/SidecarContext";
+import { setProjectRoot as sidecarSetProjectRoot } from "../../../lib/clip/sidecarClient";
+
+const ClipEditor = dynamic(() => import("../../../components/clip/ClipEditor"), { ssr: false });
+
+export default function ClipPage({ params }: { params: { clipId: string } }) {
+  const { clipId } = params;
+  const { projectDir, setProjectDir, manifest, setManifest } = useProject();
+
+  const [clip, setClip] = useState<Clip | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // --- Tool & style state ---
+  const [tool, setTool] = useState<ClipTool>('select');
+  const [defaultColor, setDefaultColor] = useState('#ff0000');
+  const [defaultStrokeWidth, setDefaultStrokeWidth] = useState(3);
+
+  // --- Sidecar project root ---
+  const [projectRootInput, setProjectRootInput] = useState('');
+  const [projectRootSet, setProjectRootSet] = useState(false);
+
+  // Restore from localStorage and auto-send on mount
+  useEffect(() => {
+    const stored = localStorage.getItem('sidecar-project-root');
+    if (stored) {
+      setProjectRootInput(stored);
+      sidecarSetProjectRoot(stored).then(() => setProjectRootSet(true)).catch(() => {});
+    }
+  }, []);
+
+  const handleSetProjectRoot = useCallback(async () => {
+    if (!projectRootInput.trim()) return;
+    try {
+      await sidecarSetProjectRoot(projectRootInput.trim());
+      localStorage.setItem('sidecar-project-root', projectRootInput.trim());
+      setProjectRootSet(true);
+    } catch (e: any) {
+      alert(e?.message || 'Failed to set project root');
+    }
+  }, [projectRootInput]);
+
+  // --- IndexedDB handle persistence (same pattern as annotate page) ---
+
+  const openDB = useCallback((): Promise<IDBDatabase> => {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('annotate-db', 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('handles')) db.createObjectStore('handles');
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }, []);
+
+  const saveProjectHandle = useCallback(async (handle: FileSystemDirectoryHandle) => {
+    try {
+      const db = await openDB();
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('handles', 'readwrite');
+        tx.objectStore('handles').put(handle as any, 'project');
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => { const err = tx.error; db.close(); reject(err); };
+      });
+    } catch {
+      // ignore persistence errors
+    }
+  }, [openDB]);
+
+  const loadProjectHandle = useCallback(async (): Promise<FileSystemDirectoryHandle | null> => {
+    try {
+      const db = await openDB();
+      const handle = await new Promise<FileSystemDirectoryHandle | null>((resolve, reject) => {
+        const tx = db.transaction('handles', 'readonly');
+        const req = tx.objectStore('handles').get('project');
+        req.onsuccess = () => { const v = req.result as FileSystemDirectoryHandle | undefined; db.close(); resolve(v || null); };
+        req.onerror = () => { const err = req.error; db.close(); reject(err); };
+      });
+      return handle;
+    } catch {
+      return null;
+    }
+  }, [openDB]);
+
+  // Auto-restore project handle from IndexedDB on mount
+  useEffect(() => {
+    (async () => {
+      if (projectDir || manifest) return;
+      try {
+        const handle = await loadProjectHandle();
+        if (!handle) return;
+        const anyHandle: any = handle as any;
+        const q = await (anyHandle?.queryPermission ? anyHandle.queryPermission({ mode: 'read' }) : 'granted');
+        if (q !== 'granted') return;
+        const v = await validateProjectFolderStructure(handle);
+        if (v.ok) {
+          setProjectDir(handle);
+          setManifest(v.manifest);
+        }
+      } catch (e: any) {
+        setError(e?.message || String(e));
+      }
+    })();
+  }, [projectDir, manifest, loadProjectHandle, setProjectDir, setManifest]);
+
+  // Listen for project handle from opener (postMessage)
+  useEffect(() => {
+    const onMsg = async (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+      const data = e.data as any;
+      if (data && data.type === 'project-handle' && data.handle) {
+        try {
+          const handle: FileSystemDirectoryHandle = data.handle as FileSystemDirectoryHandle;
+          await saveProjectHandle(handle);
+          const anyHandle: any = handle as any;
+          const q = await (anyHandle.queryPermission ? anyHandle.queryPermission({ mode: 'read' }) : 'granted');
+          if (q !== 'granted') return;
+          const v = await validateProjectFolderStructure(handle);
+          if (!v.ok) throw new Error(`Not a valid project folder: ${v.reason}`);
+          setProjectDir(handle);
+          setManifest(v.manifest);
+        } catch {
+          // ignore
+        }
+      }
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, [setProjectDir, setManifest, saveProjectHandle]);
+
+  // --- Load clip ---
+  useEffect(() => {
+    (async () => {
+      if (!projectDir || !manifest) return;
+      try {
+        const raw = await readClip(projectDir, clipId);
+        if (!raw) { setError(`Clip not found: ${clipId}`); return; }
+        const resolved = resolveMarkPinning(raw, manifest.marks);
+        setClip(resolved);
+      } catch (e: any) {
+        setError(e?.message || String(e));
+      }
+    })();
+  }, [projectDir, manifest, clipId]);
+
+  // --- Resolve video URL ---
+  const getFileUrlForPath = useCallback(async (dir: FileSystemDirectoryHandle, path: string) => {
+    const parts = path.split('/').filter(Boolean);
+    let cur: FileSystemDirectoryHandle = dir;
+    for (let i = 0; i < parts.length - 1; i++) {
+      cur = await cur.getDirectoryHandle(parts[i], { create: false });
+    }
+    const fh = await cur.getFileHandle(parts[parts.length - 1], { create: false });
+    const file = await fh.getFile();
+    return URL.createObjectURL(file);
+  }, []);
+
+  useEffect(() => {
+    let revoked: string | null = null;
+    (async () => {
+      if (!projectDir || !manifest || !clip) return;
+      const video = manifest.videos.find(v => v.id === clip.videoId);
+      if (!video) { setError(`Video not found for clip (videoId: ${clip.videoId})`); return; }
+      try {
+        const url = await getFileUrlForPath(projectDir, video.file);
+        if (videoUrl) URL.revokeObjectURL(videoUrl);
+        revoked = url;
+        setVideoUrl(url);
+      } catch (e: any) {
+        setError(e?.message || String(e));
+      }
+    })();
+    return () => { if (revoked) URL.revokeObjectURL(revoked); };
+  }, [projectDir, manifest, clip?.videoId, getFileUrlForPath]);
+
+  const videoFps = useMemo(() => {
+    if (!manifest || !clip) return 30;
+    return manifest.videos.find(v => v.id === clip.videoId)?.fps || 30;
+  }, [manifest, clip]);
+
+  const videoPath = useMemo(() => {
+    if (!manifest || !clip) return undefined;
+    return manifest.videos.find(v => v.id === clip.videoId)?.file;
+  }, [manifest, clip]);
+
+  const formatTimeNoMs = useCallback((ms: number) => {
+    const clamped = Math.max(0, Math.floor(ms || 0));
+    let r = clamped;
+    const hh = Math.floor(r / 3600000); r %= 3600000;
+    const mm = Math.floor(r / 60000); r %= 60000;
+    const ss = Math.floor(r / 1000);
+    return hh > 0 ? `${hh}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}` : `${mm}:${String(ss).padStart(2,'0')}`;
+  }, []);
+
+  // --- Open project folder (fallback) ---
+  const openProject = useCallback(async () => {
+    try {
+      const dir: FileSystemDirectoryHandle = await (window as any).showDirectoryPicker();
+      const anyHandle: any = dir as any;
+      const q = await (anyHandle?.queryPermission ? anyHandle.queryPermission({ mode: 'readwrite' }) : 'granted');
+      if (q !== 'granted' && anyHandle?.requestPermission) {
+        const r = await anyHandle.requestPermission({ mode: 'readwrite' });
+        if (r !== 'granted') throw new Error('Write permission not granted');
+      }
+      await saveProjectHandle(dir);
+      const v = await validateProjectFolderStructure(dir);
+      if (!v.ok) throw new Error(`Not a valid project folder: ${v.reason}`);
+      setProjectDir(dir);
+      setManifest(v.manifest);
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    }
+  }, [setProjectDir, setManifest, saveProjectHandle]);
+
+  // --- Render ---
+
+  if (!projectDir) {
+    return (
+      <div className="fullbleed">
+        <div className="panel">
+          <div className="status">No project open. If you opened this page from Stills, it will auto-connect. Otherwise, open your project folder.</div>
+          <div className="toolbar mt-2">
+            <button onClick={openProject}>Open Project Folder</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (!manifest) {
+    return (
+      <div className="fullbleed">
+        <div className="panel">
+          <div className="status">Loading project...</div>
+        </div>
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="fullbleed">
+        <div className="panel">
+          <div className="status text-danger">{error}</div>
+          <div className="toolbar mt-2">
+            <button onClick={openProject}>Open Project Folder</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (!clip) {
+    return (
+      <div className="fullbleed">
+        <div className="panel">
+          <div className="status">Loading clip...</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <SidecarProvider>
+      <div className="fullbleed">
+        <div className="flex flex-col" style={{ height: '100vh' }}>
+          {/* Navbar */}
+          <div className="flex items-stretch bg-surface border-b border-border shrink-0">
+            <button
+              onClick={() => window.close()}
+              className="self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base"
+            >
+              Close
+            </button>
+            <div className="self-stretch flex items-center px-3 text-sm text-muted">
+              Clip: {formatTimeNoMs(clip.startMs)} – {formatTimeNoMs(clip.endMs)}
+              {clip.annotations.length > 0 && ` · ${clip.annotations.length} annotations`}
+            </div>
+            <span className="flex-1" />
+            <div className="self-stretch flex items-center gap-1 px-2 text-xs border-0 border-l border-solid border-border">
+              <span className="text-muted whitespace-nowrap">Root:</span>
+              <input
+                type="text"
+                value={projectRootInput}
+                onChange={e => { setProjectRootInput(e.target.value); setProjectRootSet(false); }}
+                onKeyDown={e => { if (e.key === 'Enter') handleSetProjectRoot(); }}
+                placeholder="/path/to/project.matchproj"
+                className="w-48 px-1 py-0.5 text-xs bg-transparent border border-border"
+              />
+              <button
+                onClick={handleSetProjectRoot}
+                className={`px-2 py-0.5 text-xs border-0 cursor-pointer whitespace-nowrap ${
+                  projectRootSet ? 'text-green-400' : ''
+                }`}
+              >
+                {projectRootSet ? 'Set ✓' : 'Set'}
+              </button>
+            </div>
+            <div className="self-stretch flex items-center px-3 text-sm text-muted border-0 border-l border-solid border-border">
+              {videoFps}fps
+            </div>
+          </div>
+
+          {/* Toolbar */}
+          <div className="flex items-stretch justify-center bg-surface border-b border-border shrink-0">
+            {(['select', 'box', 'circle', 'arrow', 'text', 'highlight'] as ClipTool[]).map(t => (
+              <button
+                key={t}
+                onClick={() => setTool(t)}
+                aria-pressed={tool === t}
+                className={`self-stretch px-4 py-1.5 border-0 border-r border-solid border-border text-sm cursor-pointer ${
+                  tool === t ? 'bg-white/15 font-bold' : ''
+                }`}
+              >
+                {t.charAt(0).toUpperCase() + t.slice(1)}
+              </button>
+            ))}
+            <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-r border-solid border-border text-sm">
+              <span className="text-muted">Stroke</span>
+              <input type="color" value={defaultColor} onChange={e => setDefaultColor(e.target.value)} className="w-7 h-7 cursor-pointer" />
+              <select value={defaultStrokeWidth} onChange={e => setDefaultStrokeWidth(Number(e.target.value))} className="px-1 py-0.5 text-sm">
+                <option value={1}>1px</option>
+                <option value={2}>2px</option>
+                <option value={3}>3px</option>
+                <option value={5}>5px</option>
+                <option value={8}>8px</option>
+              </select>
+            </div>
+          </div>
+
+          {/* ClipEditor */}
+          {videoUrl ? (
+            <ClipEditor
+              clip={clip}
+              videoUrl={videoUrl}
+              videoFps={videoFps}
+              projectDir={projectDir ?? undefined}
+              videoPath={videoPath}
+              tool={tool}
+              defaultColor={defaultColor}
+              defaultStrokeWidth={defaultStrokeWidth}
+            />
+          ) : (
+            <div className="flex-1 min-h-0 flex items-center justify-center bg-surface">
+              <div className="text-muted text-sm">Loading video...</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </SidecarProvider>
+  );
+}
