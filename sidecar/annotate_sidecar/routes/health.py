@@ -31,6 +31,7 @@ def _check_model_importable(module_name: str) -> bool:
 def _check_capabilities() -> dict:
     """Check which models/libraries are available."""
     yolo = _check_model_importable("ultralytics")
+    lap = _check_model_importable("lap") or _check_model_importable("lapx")
     mobilesam = _check_model_importable("mobile_sam") or _check_model_importable("segment_anything")
     # Narya is vendored; check its runtime dependencies instead
     narya_deps = all(
@@ -40,11 +41,11 @@ def _check_capabilities() -> dict:
     opencv = _check_model_importable("cv2")
 
     capabilities = []
-    if yolo:
+    if yolo and lap and opencv:
         capabilities.append("tracking")
-    if yolo and mobilesam:
+    if yolo and mobilesam and opencv:
         capabilities.append("segmentation")
-    if narya_deps:
+    if opencv:
         capabilities.append("homography")
     if opencv:
         capabilities.append("frame_extraction")
@@ -55,6 +56,7 @@ def _check_capabilities() -> dict:
         "capabilities": capabilities,
         "models": {
             "yolo": yolo,
+            "lap": lap,
             "mobilesam": mobilesam,
             "narya": narya_deps,
             "opencv": opencv,

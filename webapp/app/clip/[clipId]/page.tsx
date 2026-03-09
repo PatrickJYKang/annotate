@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
 import { useProject } from "../../../lib/state/ProjectContext";
-import { readManifest, validateProjectFolderStructure } from "../../../lib/fs/projectFolder";
+import { validateProjectFolderStructure } from "../../../lib/fs/projectFolder";
 import { readClip, resolveMarkPinning } from "../../../lib/fs/clipStorage";
 import type { Clip } from "../../../lib/types/clip";
 import type { ClipTool } from "../../../components/clip/ClipEditor";
 import { SidecarProvider } from "../../../lib/state/SidecarContext";
-import { setProjectRoot as sidecarSetProjectRoot } from "../../../lib/clip/sidecarClient";
+import { registerVideoFile, unregisterVideoRef } from "../../../lib/clip/sidecarClient";
 
 const ClipEditor = dynamic(() => import("../../../components/clip/ClipEditor"), { ssr: false });
 
@@ -24,30 +24,9 @@ export default function ClipPage({ params }: { params: { clipId: string } }) {
   const [tool, setTool] = useState<ClipTool>('select');
   const [defaultColor, setDefaultColor] = useState('#ff0000');
   const [defaultStrokeWidth, setDefaultStrokeWidth] = useState(3);
-
-  // --- Sidecar project root ---
-  const [projectRootInput, setProjectRootInput] = useState('');
-  const [projectRootSet, setProjectRootSet] = useState(false);
-
-  // Restore from localStorage and auto-send on mount
-  useEffect(() => {
-    const stored = localStorage.getItem('sidecar-project-root');
-    if (stored) {
-      setProjectRootInput(stored);
-      sidecarSetProjectRoot(stored).then(() => setProjectRootSet(true)).catch(() => {});
-    }
-  }, []);
-
-  const handleSetProjectRoot = useCallback(async () => {
-    if (!projectRootInput.trim()) return;
-    try {
-      await sidecarSetProjectRoot(projectRootInput.trim());
-      localStorage.setItem('sidecar-project-root', projectRootInput.trim());
-      setProjectRootSet(true);
-    } catch (e: any) {
-      alert(e?.message || 'Failed to set project root');
-    }
-  }, [projectRootInput]);
+  const [sidecarVideoRef, setSidecarVideoRef] = useState<string | null>(null);
+  const [sidecarVideoError, setSidecarVideoError] = useState<string | null>(null);
+  const activeSidecarVideoRef = useRef<string | null>(null);
 
   // --- IndexedDB handle persistence (same pattern as annotate page) ---
 
@@ -154,34 +133,42 @@ export default function ClipPage({ params }: { params: { clipId: string } }) {
   }, [projectDir, manifest, clipId]);
 
   // --- Resolve video URL ---
-  const getFileUrlForPath = useCallback(async (dir: FileSystemDirectoryHandle, path: string) => {
+  const getFileForPath = useCallback(async (dir: FileSystemDirectoryHandle, path: string) => {
     const parts = path.split('/').filter(Boolean);
     let cur: FileSystemDirectoryHandle = dir;
     for (let i = 0; i < parts.length - 1; i++) {
       cur = await cur.getDirectoryHandle(parts[i], { create: false });
     }
     const fh = await cur.getFileHandle(parts[parts.length - 1], { create: false });
-    const file = await fh.getFile();
-    return URL.createObjectURL(file);
+    return await fh.getFile();
   }, []);
+
+  const getFileUrlForPath = useCallback(async (dir: FileSystemDirectoryHandle, path: string) => {
+    const file = await getFileForPath(dir, path);
+    return URL.createObjectURL(file);
+  }, [getFileForPath]);
+
+  const clipVideoId = clip?.videoId;
 
   useEffect(() => {
     let revoked: string | null = null;
     (async () => {
-      if (!projectDir || !manifest || !clip) return;
-      const video = manifest.videos.find(v => v.id === clip.videoId);
-      if (!video) { setError(`Video not found for clip (videoId: ${clip.videoId})`); return; }
+      if (!projectDir || !manifest || !clipVideoId) return;
+      const video = manifest.videos.find(v => v.id === clipVideoId);
+      if (!video) { setError(`Video not found for clip (videoId: ${clipVideoId})`); return; }
       try {
         const url = await getFileUrlForPath(projectDir, video.file);
-        if (videoUrl) URL.revokeObjectURL(videoUrl);
         revoked = url;
-        setVideoUrl(url);
+        setVideoUrl(prev => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
       } catch (e: any) {
         setError(e?.message || String(e));
       }
     })();
     return () => { if (revoked) URL.revokeObjectURL(revoked); };
-  }, [projectDir, manifest, clip?.videoId, getFileUrlForPath]);
+  }, [projectDir, manifest, clipVideoId, getFileUrlForPath]);
 
   const videoFps = useMemo(() => {
     if (!manifest || !clip) return 30;
@@ -192,6 +179,63 @@ export default function ClipPage({ params }: { params: { clipId: string } }) {
     if (!manifest || !clip) return undefined;
     return manifest.videos.find(v => v.id === clip.videoId)?.file;
   }, [manifest, clip]);
+
+  useEffect(() => {
+    let active = true;
+
+    (async () => {
+      if (!projectDir || !videoPath) {
+        const prev = activeSidecarVideoRef.current;
+        activeSidecarVideoRef.current = null;
+        if (prev) {
+          await unregisterVideoRef(prev).catch(() => {});
+        }
+        setSidecarVideoRef(null);
+        setSidecarVideoError(null);
+        return;
+      }
+      try {
+        const file = await getFileForPath(projectDir, videoPath);
+        const reg = await registerVideoFile(file);
+
+        if (!active) {
+          await unregisterVideoRef(reg.videoRef).catch(() => {});
+          return;
+        }
+
+        const prev = activeSidecarVideoRef.current;
+        activeSidecarVideoRef.current = reg.videoRef;
+        setSidecarVideoRef(reg.videoRef);
+        setSidecarVideoError(null);
+        if (prev && prev !== reg.videoRef) {
+          await unregisterVideoRef(prev).catch(() => {});
+        }
+      } catch (e: any) {
+        if (!active) return;
+        const prev = activeSidecarVideoRef.current;
+        activeSidecarVideoRef.current = null;
+        if (prev) {
+          await unregisterVideoRef(prev).catch(() => {});
+        }
+        setSidecarVideoRef(null);
+        setSidecarVideoError(e?.message || 'Failed to register video with sidecar');
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [projectDir, videoPath, getFileForPath]);
+
+  useEffect(() => {
+    return () => {
+      const ref = activeSidecarVideoRef.current;
+      if (ref) {
+        void unregisterVideoRef(ref).catch(() => {});
+        activeSidecarVideoRef.current = null;
+      }
+    };
+  }, []);
 
   const formatTimeNoMs = useCallback((ms: number) => {
     const clamped = Math.max(0, Math.floor(ms || 0));
@@ -284,25 +328,11 @@ export default function ClipPage({ params }: { params: { clipId: string } }) {
               {clip.annotations.length > 0 && ` · ${clip.annotations.length} annotations`}
             </div>
             <span className="flex-1" />
-            <div className="self-stretch flex items-center gap-1 px-2 text-xs border-0 border-l border-solid border-border">
-              <span className="text-muted whitespace-nowrap">Root:</span>
-              <input
-                type="text"
-                value={projectRootInput}
-                onChange={e => { setProjectRootInput(e.target.value); setProjectRootSet(false); }}
-                onKeyDown={e => { if (e.key === 'Enter') handleSetProjectRoot(); }}
-                placeholder="/path/to/project.matchproj"
-                className="w-48 px-1 py-0.5 text-xs bg-transparent border border-border"
-              />
-              <button
-                onClick={handleSetProjectRoot}
-                className={`px-2 py-0.5 text-xs border-0 cursor-pointer whitespace-nowrap ${
-                  projectRootSet ? 'text-green-400' : ''
-                }`}
-              >
-                {projectRootSet ? 'Set ✓' : 'Set'}
-              </button>
-            </div>
+            {sidecarVideoError && (
+              <div className="self-stretch flex items-center px-2 text-xs text-red-400 border-0 border-l border-solid border-border max-w-[18rem] truncate" title={sidecarVideoError}>
+                {sidecarVideoError}
+              </div>
+            )}
             <div className="self-stretch flex items-center px-3 text-sm text-muted border-0 border-l border-solid border-border">
               {videoFps}fps
             </div>
@@ -342,6 +372,7 @@ export default function ClipPage({ params }: { params: { clipId: string } }) {
               videoUrl={videoUrl}
               videoFps={videoFps}
               projectDir={projectDir ?? undefined}
+              videoRef={sidecarVideoRef ?? undefined}
               videoPath={videoPath}
               tool={tool}
               defaultColor={defaultColor}

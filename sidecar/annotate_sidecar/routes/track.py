@@ -10,10 +10,10 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from ..services.tracker import Tracker, BBox
-from ..project_root import resolve_video_path
+from ..video_registry import resolve_video_ref
 
 router = APIRouter()
 logger = logging.getLogger("annotate_sidecar.routes.track")
@@ -23,7 +23,8 @@ _tracker = Tracker()
 
 
 class TrackRequest(BaseModel):
-    videoPath: str
+    videoPath: Optional[str] = None
+    videoRef: Optional[str] = None
     startMs: float
     endMs: float
     seedBbox: dict  # { x, y, w, h }
@@ -51,13 +52,29 @@ class TrackRequest(BaseModel):
             raise ValueError("seedBbox must have positive width and height")
         return v
 
+    @model_validator(mode="after")
+    def require_video_locator(self):
+        if not self.videoRef and not self.videoPath:
+            raise ValueError("Either videoRef or videoPath is required")
+        return self
+
 
 @router.post("")
 async def track(req: TrackRequest):
     """Track an object across a video range."""
-    # Resolve relative video path against project root
-    video_path = resolve_video_path(req.videoPath)
-    if not Path(video_path).exists():
+    # Resolve from uploaded ref first, then fall back to direct absolute path.
+    video_path = resolve_video_ref(req.videoRef)
+    if req.videoRef and not video_path and not req.videoPath:
+        raise HTTPException(status_code=404, detail=f"Unknown videoRef: {req.videoRef}")
+    if not video_path and req.videoPath:
+        if not Path(req.videoPath).is_absolute():
+            raise HTTPException(
+                status_code=400,
+                detail="Relative videoPath is unsupported. Register the file via /video/register or use an absolute path.",
+            )
+        video_path = req.videoPath
+
+    if not video_path or not Path(video_path).exists():
         raise HTTPException(status_code=404, detail=f"Video file not found: {video_path}")
 
     seed = BBox(
@@ -101,3 +118,12 @@ async def track(req: TrackRequest):
 
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+    except Exception as e:
+        if isinstance(e, ModuleNotFoundError) and getattr(e, "name", "") == "lap":
+            raise HTTPException(
+                status_code=501,
+                detail="Tracking dependency missing: lap. Install inside sidecar venv with `.venv/bin/pip install lap>=0.5.12` and restart the sidecar.",
+            )
+        logger.exception("Unexpected tracking failure")
+        raise HTTPException(status_code=500, detail=f"Tracking failed: {e}")

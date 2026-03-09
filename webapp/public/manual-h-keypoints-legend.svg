@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1056" viewBox="0 0 1500 1056">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<text x="40" y="36" font-size="30" font-family="Helvetica, Arial, sans-serif" fill="#f8fafc" font-weight="700" dominant-baseline="hanging">Manual Homography Keypoint Abbreviations</text>
+<text x="40" y="74" font-size="17" font-family="Helvetica, Arial, sans-serif" fill="#cbd5e1" dominant-baseline="hanging">Generated from ClipEditor MANUAL_PITCH_KEYPOINTS (31 labels) — 2026-03-02 06:33 UTC</text>
+<rect x="40" y="122" width="1420" height="902" fill="#111827" stroke="#334155" stroke-width="1.5"/>
+<line x1="320" y1="122" x2="320" y2="1024" stroke="#334155" stroke-width="1"/>
+<rect x="40" y="122" width="1420" height="34" fill="#1f2937"/>
+<text x="54" y="130" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#93c5fd" font-weight="700">Abbrev</text>
+<text x="334" y="130" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#93c5fd" font-weight="700">Meaning</text>
+<rect x="40" y="156" width="1420" height="28" fill="#0b1220"/>
+<text x="54" y="162" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">TL</text>
+<text x="334" y="162" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Top-left pitch corner</text>
+<text x="54" y="190" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">TR</text>
+<text x="334" y="190" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Top-right pitch corner</text>
+<rect x="40" y="212" width="1420" height="28" fill="#0b1220"/>
+<text x="54" y="218" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">BR</text>
+<text x="334" y="218" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Bottom-right pitch corner</text>
+<text x="54" y="246" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">BL</text>
+<text x="334" y="246" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Bottom-left pitch corner</text>
+<rect x="40" y="268" width="1420" height="28" fill="#0b1220"/>
+<text x="54" y="274" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">CL-T</text>
+<text x="334" y="274" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Center line at top touchline</text>
+<text x="54" y="302" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">CL-B</text>
+<text x="334" y="302" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Center line at bottom touchline</text>
+<rect x="40" y="324" width="1420" height="28" fill="#0b1220"/>
+<text x="54" y="330" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">C-SP</text>
+<text x="334" y="330" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Center spot</text>
+<text x="54" y="358" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">LPA-TL</text>
+<text x="334" y="358" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Left penalty area top-left corner</text>
+<rect x="40" y="380" width="1420" height="28" fill="#0b1220"/>
+<text x="54" y="386" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">LPA-TR</text>
+<text x="334" y="386" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Left penalty area top-right corner</text>
+<text x="54" y="414" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">LPA-BR</text>
+<text x="334" y="414" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Left penalty area bottom-right corner</text>
+<rect x="40" y="436" width="1420" height="28" fill="#0b1220"/>
+<text x="54" y="442" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">LPA-BL</text>
+<text x="334" y="442" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Left penalty area bottom-left corner</text>
+<text x="54" y="470" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">RPA-TL</text>
+<text x="334" y="470" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Right penalty area top-left corner</text>
+<rect x="40" y="492" width="1420" height="28" fill="#0b1220"/>
+<text x="54" y="498" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">RPA-TR</text>
+<text x="334" y="498" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Right penalty area top-right corner</text>
+<text x="54" y="526" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">RPA-BR</text>
+<text x="334" y="526" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Right penalty area bottom-right corner</text>
+<rect x="40" y="548" width="1420" height="28" fill="#0b1220"/>
+<text x="54" y="554" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">RPA-BL</text>
+<text x="334" y="554" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Right penalty area bottom-left corner</text>
+<text x="54" y="582" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">LSB-TL</text>
+<text x="334" y="582" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Left six-yard box top-left corner</text>
+<rect x="40" y="604" width="1420" height="28" fill="#0b1220"/>
+<text x="54" y="610" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">LSB-TR</text>
+<text x="334" y="610" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Left six-yard box top-right corner</text>
+<text x="54" y="638" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">LSB-BR</text>
+<text x="334" y="638" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Left six-yard box bottom-right corner</text>
+<rect x="40" y="660" width="1420" height="28" fill="#0b1220"/>
+<text x="54" y="666" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">LSB-BL</text>
+<text x="334" y="666" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Left six-yard box bottom-left corner</text>
+<text x="54" y="694" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">RSB-TL</text>
+<text x="334" y="694" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Right six-yard box top-left corner</text>
+<rect x="40" y="716" width="1420" height="28" fill="#0b1220"/>
+<text x="54" y="722" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">RSB-TR</text>
+<text x="334" y="722" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Right six-yard box top-right corner</text>
+<text x="54" y="750" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">RSB-BR</text>
+<text x="334" y="750" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Right six-yard box bottom-right corner</text>
+<rect x="40" y="772" width="1420" height="28" fill="#0b1220"/>
+<text x="54" y="778" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">RSB-BL</text>
+<text x="334" y="778" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Right six-yard box bottom-left corner</text>
+<text x="54" y="806" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">L-PS</text>
+<text x="334" y="806" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Left penalty spot</text>
+<rect x="40" y="828" width="1420" height="28" fill="#0b1220"/>
+<text x="54" y="834" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">R-PS</text>
+<text x="334" y="834" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Right penalty spot</text>
+<text x="54" y="862" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">L-ARC-T</text>
+<text x="334" y="862" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Left penalty arc top point</text>
+<rect x="40" y="884" width="1420" height="28" fill="#0b1220"/>
+<text x="54" y="890" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">L-ARC-A</text>
+<text x="334" y="890" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Left penalty arc apex (toward center)</text>
+<text x="54" y="918" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">L-ARC-B</text>
+<text x="334" y="918" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Left penalty arc bottom point</text>
+<rect x="40" y="940" width="1420" height="28" fill="#0b1220"/>
+<text x="54" y="946" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">R-ARC-T</text>
+<text x="334" y="946" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Right penalty arc top point</text>
+<text x="54" y="974" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">R-ARC-A</text>
+<text x="334" y="974" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Right penalty arc apex (toward center)</text>
+<rect x="40" y="996" width="1420" height="28" fill="#0b1220"/>
+<text x="54" y="1002" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#f59e0b" font-weight="700">R-ARC-B</text>
+<text x="334" y="1002" font-size="15" font-family="Helvetica, Arial, sans-serif" fill="#e2e8f0">Right penalty arc bottom point</text>
+</svg>

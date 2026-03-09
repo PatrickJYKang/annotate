@@ -4,7 +4,7 @@
 
 export const SIDECAR_BASE_URL =
   (typeof window !== 'undefined' && (window as any).__SIDECAR_URL) ||
-  'http://localhost:8321';
+  'http://127.0.0.1:8321';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,7 +22,8 @@ export interface HealthResponse {
 }
 
 export interface TrackingParams {
-  videoPath: string;
+  videoPath?: string;
+  videoRef?: string;
   startMs: number;
   endMs: number;
   seedBbox: { x: number; y: number; w: number; h: number };
@@ -54,7 +55,8 @@ export interface TrackingError {
 }
 
 export interface SegmentationParams {
-  videoPath: string;
+  videoPath?: string;
+  videoRef?: string;
   frameMs: number;
   confThreshold?: number;
 }
@@ -67,11 +69,29 @@ export interface SegmentationResult {
 }
 
 export interface HomographyParams {
-  videoPath: string;
+  videoPath?: string;
+  videoRef?: string;
   startMs: number;
   endMs: number;
   fps?: number;
   skipInterval?: number;
+}
+
+export interface ManualTrackHomographyParams {
+  videoPath?: string;
+  videoRef?: string;
+  startMs: number;
+  endMs: number;
+  seedMs: number;
+  seedMatrix: number[];
+  fps?: number;
+  skipInterval?: number;
+}
+
+export interface VideoRegisterResult {
+  videoRef: string;
+  filename: string;
+  sizeBytes: number;
 }
 
 export interface HomographyFrameResult {
@@ -87,6 +107,16 @@ export interface HomographyResult {
 // ---------------------------------------------------------------------------
 // API calls
 // ---------------------------------------------------------------------------
+
+export function extractErrorMessage(body: any, fallback: string): string {
+  const detail = body?.detail;
+  if (typeof detail === 'string' && detail) return detail;
+  if (detail && typeof detail === 'object' && typeof detail.message === 'string' && detail.message) {
+    return detail.message;
+  }
+  if (typeof body?.message === 'string' && body.message) return body.message;
+  return fallback;
+}
 
 export async function checkHealth(
   baseUrl: string = SIDECAR_BASE_URL,
@@ -104,36 +134,52 @@ export async function checkHealth(
 }
 
 // ---------------------------------------------------------------------------
-// Project root
+// Video registration
 // ---------------------------------------------------------------------------
 
-export async function setProjectRoot(
-  projectRoot: string,
+export async function registerVideoFile(
+  file: File,
   baseUrl: string = SIDECAR_BASE_URL,
-): Promise<{ projectRoot: string }> {
-  const res = await fetch(`${baseUrl}/project-root`, {
+): Promise<VideoRegisterResult> {
+  const form = new FormData();
+  form.append('file', file, file.name || 'video.mp4');
+
+  const res = await fetch(`${baseUrl}/video/register`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ projectRoot }),
+    body: form,
   });
+
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || `Failed to set project root (${res.status})`);
+    throw new Error(extractErrorMessage(body, `Video register failed (${res.status})`));
   }
-  return res.json();
+
+  return await res.json();
 }
 
-export async function getProjectRoot(
+export async function requestManualTrackHomography(
+  params: ManualTrackHomographyParams,
   baseUrl: string = SIDECAR_BASE_URL,
-): Promise<string | null> {
-  try {
-    const res = await fetch(`${baseUrl}/project-root`);
-    if (!res.ok) return null;
-    const body = await res.json();
-    return body.projectRoot ?? null;
-  } catch {
-    return null;
+): Promise<HomographyResult> {
+  const res = await fetch(`${baseUrl}/homography/manual-track`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(extractErrorMessage(body, `Manual homography track failed (${res.status})`));
   }
+
+  return await res.json();
+}
+
+export async function unregisterVideoRef(
+  videoRef: string,
+  baseUrl: string = SIDECAR_BASE_URL,
+): Promise<void> {
+  await fetch(`${baseUrl}/video/${videoRef}`, { method: 'DELETE' }).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -155,12 +201,12 @@ export async function requestTracking(
     const detail = body.detail;
     if (typeof detail === 'object' && detail !== null) {
       const err: TrackingError = {
-        message: detail.message || `Tracking failed (${res.status})`,
+        message: extractErrorMessage(body, `Tracking failed (${res.status})`),
         detectedBboxes: detail.detectedBboxes,
       };
       throw err;
     }
-    throw { message: typeof detail === 'string' ? detail : `Tracking failed (${res.status})` } as TrackingError;
+    throw { message: extractErrorMessage(body, `Tracking failed (${res.status})`) } as TrackingError;
   }
 
   return await res.json();
@@ -178,7 +224,7 @@ export async function requestSegmentation(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || body.message || `Segmentation failed (${res.status})`);
+    throw new Error(extractErrorMessage(body, `Segmentation failed (${res.status})`));
   }
 
   return await res.json();
@@ -215,7 +261,7 @@ export async function startExport(
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || body.message || `Export start failed (${res.status})`);
+    throw new Error(extractErrorMessage(body, `Export start failed (${res.status})`));
   }
   return await res.json();
 }
@@ -233,7 +279,7 @@ export async function sendExportFrame(
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || body.message || `Export frame failed (${res.status})`);
+    throw new Error(extractErrorMessage(body, `Export frame failed (${res.status})`));
   }
   return await res.json();
 }
@@ -251,7 +297,7 @@ export async function encodeExport(
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || body.message || `Export encode failed (${res.status})`);
+    throw new Error(extractErrorMessage(body, `Export encode failed (${res.status})`));
   }
   return await res.json();
 }
@@ -275,7 +321,7 @@ export async function requestHomography(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail?.message || body.message || `Homography failed (${res.status})`);
+    throw new Error(extractErrorMessage(body, `Homography failed (${res.status})`));
   }
 
   return await res.json();

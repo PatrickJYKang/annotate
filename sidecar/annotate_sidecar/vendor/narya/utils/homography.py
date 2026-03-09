@@ -17,7 +17,11 @@ def normalize_homo(h, **kwargs):
 
 
 def get_perspective_transform_torch(src, dst):
-    return kornia.get_perspective_transform(src, dst)
+    src = src.contiguous()
+    dst = dst.contiguous()
+    if hasattr(kornia, "get_perspective_transform"):
+        return kornia.get_perspective_transform(src, dst)
+    return kornia.geometry.transform.get_perspective_transform(src, dst)
 
 
 def get_perspective_transform_cv(src, dst):

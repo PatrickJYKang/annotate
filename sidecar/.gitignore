@@ -34,3 +34,9 @@ pip-wheel-metadata/
 # Sidecar model artifacts (keep placeholder)
 annotate_sidecar/models/*
 !annotate_sidecar/models/.gitkeep
+
+# Local homography image test workspace (keep placeholders)
+homography_test/inputs/*
+!homography_test/inputs/.gitkeep
+homography_test/outputs/*
+!homography_test/outputs/.gitkeep

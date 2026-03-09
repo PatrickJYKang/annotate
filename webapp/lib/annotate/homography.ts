@@ -21,6 +21,105 @@ export function invert3(m: number[]): number[] {
   return [A * invDet, B * invDet, C * invDet, D * invDet, E * invDet, F * invDet, G * invDet, H * invDet, I * invDet];
 }
 
+function solveLinearSystem(augmented: number[][]): number[] | null {
+  const n = augmented.length;
+  if (n <= 0) return null;
+  for (const row of augmented) {
+    if (row.length !== n + 1) return null;
+  }
+  const a = augmented.map(row => [...row]);
+
+  for (let col = 0; col < n; col++) {
+    let pivotRow = col;
+    let pivotAbs = Math.abs(a[pivotRow][col]);
+    for (let r = col + 1; r < n; r++) {
+      const absVal = Math.abs(a[r][col]);
+      if (absVal > pivotAbs) {
+        pivotAbs = absVal;
+        pivotRow = r;
+      }
+    }
+
+    if (pivotAbs < 1e-12) return null;
+
+    if (pivotRow !== col) {
+      const tmp = a[col];
+      a[col] = a[pivotRow];
+      a[pivotRow] = tmp;
+    }
+
+    const pivot = a[col][col];
+    for (let c = col; c <= n; c++) a[col][c] /= pivot;
+
+    for (let r = 0; r < n; r++) {
+      if (r === col) continue;
+      const factor = a[r][col];
+      if (Math.abs(factor) < 1e-12) continue;
+      for (let c = col; c <= n; c++) {
+        a[r][c] -= factor * a[col][c];
+      }
+    }
+  }
+
+  return a.map(row => row[n]);
+}
+
+export function computeHomographyFrom4PointCorrespondences(
+  src: { x: number; y: number }[],
+  dst: { x: number; y: number }[],
+): number[] | null {
+  if (src.length !== 4 || dst.length !== 4) return null;
+  return computeHomographyFromCorrespondences(src, dst);
+}
+
+export function computeHomographyFromCorrespondences(
+  src: { x: number; y: number }[],
+  dst: { x: number; y: number }[],
+): number[] | null {
+  if (src.length !== dst.length || src.length < 4) return null;
+
+  // Solve A * h = b in least-squares sense, where h = [h11..h32] and h33=1
+  const m = src.length * 2;
+  const n = 8;
+  const rows: number[][] = [];
+  const b: number[] = [];
+  for (let i = 0; i < src.length; i++) {
+    const u = src[i].x;
+    const v = src[i].y;
+    const x = dst[i].x;
+    const y = dst[i].y;
+    rows.push([u, v, 1, 0, 0, 0, -u * x, -v * x]);
+    b.push(x);
+    rows.push([0, 0, 0, u, v, 1, -u * y, -v * y]);
+    b.push(y);
+  }
+
+  const ata: number[][] = Array.from({ length: n }, () => Array(n).fill(0));
+  const atb: number[] = Array(n).fill(0);
+  for (let r = 0; r < m; r++) {
+    const row = rows[r];
+    const br = b[r];
+    for (let i = 0; i < n; i++) {
+      atb[i] += row[i] * br;
+      for (let j = 0; j < n; j++) {
+        ata[i][j] += row[i] * row[j];
+      }
+    }
+  }
+
+  const augmented = ata.map((row, i) => [...row, atb[i]]);
+  const solved = solveLinearSystem(augmented);
+  if (!solved) return null;
+
+  const H = [
+    solved[0], solved[1], solved[2],
+    solved[3], solved[4], solved[5],
+    solved[6], solved[7], 1,
+  ];
+  if (!H.every(Number.isFinite)) return null;
+  return H;
+}
+
 export function computeHomographyFromUnitSquareToQuad(q: { x: number; y: number }[]): { H: number[]; Hinv: number[] } {
   const x0 = q[0].x, y0 = q[0].y;
   const x1 = q[1].x, y1 = q[1].y;

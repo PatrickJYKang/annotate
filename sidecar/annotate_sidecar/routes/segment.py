@@ -9,15 +9,16 @@ mask PNG.
 import base64
 import logging
 from pathlib import Path
+from typing import Optional
 
 import cv2
 import numpy as np
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from ..services.segmenter import Segmenter
 from ..services.frame_extractor import extract_frame
-from ..project_root import resolve_video_path
+from ..video_registry import resolve_video_ref
 
 router = APIRouter()
 logger = logging.getLogger("annotate_sidecar.routes.segment")
@@ -26,7 +27,8 @@ _segmenter = Segmenter()
 
 
 class SegmentRequest(BaseModel):
-    videoPath: str
+    videoPath: Optional[str] = None
+    videoRef: Optional[str] = None
     frameMs: float
     confThreshold: float = 0.3
 
@@ -36,6 +38,12 @@ class SegmentRequest(BaseModel):
         if v < 0:
             raise ValueError("frameMs must be >= 0")
         return v
+
+    @model_validator(mode="after")
+    def require_video_locator(self):
+        if not self.videoRef and not self.videoPath:
+            raise ValueError("Either videoRef or videoPath is required")
+        return self
 
 
 @router.post("")
@@ -52,8 +60,18 @@ async def segment(req: SegmentRequest):
                    "pip install git+https://github.com/ChaoningZhang/MobileSAM.git",
         )
 
-    video_path = resolve_video_path(req.videoPath)
-    if not Path(video_path).exists():
+    video_path = resolve_video_ref(req.videoRef)
+    if req.videoRef and not video_path and not req.videoPath:
+        raise HTTPException(status_code=404, detail=f"Unknown videoRef: {req.videoRef}")
+    if not video_path and req.videoPath:
+        if not Path(req.videoPath).is_absolute():
+            raise HTTPException(
+                status_code=400,
+                detail="Relative videoPath is unsupported. Register the file via /video/register or use an absolute path.",
+            )
+        video_path = req.videoPath
+
+    if not video_path or not Path(video_path).exists():
         raise HTTPException(status_code=404, detail=f"Video not found: {video_path}")
 
     try:

@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="1220" viewBox="0 0 2000 1220">
+<rect width="100%" height="100%" fill="#0b1220"/>
+<text x="80" y="34" font-family="Helvetica, Arial, sans-serif" font-size="34" font-weight="700" fill="#f8fafc">Manual Homography Pitch Reference</text>
+<text x="80" y="68" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#cbd5e1">Orientation + abbreviation map (31 keypoints) — 2026-03-02 06:37 UTC</text>
+<text x="680.0" y="88" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#93c5fd">TOP touchline (y = min; often far-side in broadcast view)</text>
+<text x="680.0" y="1136" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#93c5fd">BOTTOM touchline (y = max; often near-side in broadcast view)</text>
+<text x="26" y="610.0" transform="rotate(-90 26 610.0)" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#93c5fd">LEFT goal side (x = min)</text>
+<text x="1332" y="610.0" transform="rotate(90 1332 610.0)" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#93c5fd">RIGHT goal side (x = max)</text>
+<rect x="80" y="120" width="1200" height="980" fill="#166534" stroke="#e2e8f0" stroke-width="4"/>
+<line x1="680.0" y1="120.0" x2="680.0" y2="1100.0" stroke="#e2e8f0" stroke-width="3"/>
+<circle cx="680.0" cy="610.0" r="104.57142857142857" fill="none" stroke="#e2e8f0" stroke-width="3"/>
+<rect x="80.0" y="319.4588235294118" width="188.57142857142856" height="581.0823529411764" fill="none" stroke="#e2e8f0" stroke-width="3"/>
+<rect x="1091.4285714285716" y="319.4588235294118" width="188.57142857142844" height="581.0823529411764" fill="none" stroke="#e2e8f0" stroke-width="3"/>
+<rect x="80.0" y="477.98823529411766" width="62.85714285714286" height="264.0235294117648" fill="none" stroke="#e2e8f0" stroke-width="3"/>
+<rect x="1217.142857142857" y="477.98823529411766" width="62.85714285714289" height="264.0235294117648" fill="none" stroke="#e2e8f0" stroke-width="3"/>
+<circle cx="680.0" cy="610.0" r="4" fill="#e2e8f0"/>
+<circle cx="205.71428571428572" cy="610.0" r="4" fill="#e2e8f0"/>
+<circle cx="1154.2857142857142" cy="610.0" r="4" fill="#e2e8f0"/>
+<polyline points="268.57142857142856,541.7500997151726 273.2998200787519,544.8333812814508 277.80193095264167,548.1348447989558 282.0626878418266,551.6434367595219 286.0678254634047,555.3474101758866 289.80393436391057,559.234363911346 293.25850581501146,563.291284199542 296.4199736935192,567.5045882153743 299.2777532055004,571.8601695511547 301.8222763248344,576.3434454457511 304.0450238275681,580.9394056085914 305.93855381481575,585.6326624750632 307.4965266287059,590.4075027250517 308.7137260779555,595.2479398921262 309.58607690200813,600.1377678872387 310.1106584152629,605.0606152577329 310.28571428571433,610.0 310.1106584152629,614.939384742267 309.58607690200813,619.8622321127613 308.71372607795547,624.7520601078738 307.4965266287059,629.5924972749483 305.93855381481575,634.3673375249368 304.0450238275681,639.0605943914087 301.8222763248344,643.6565545542488 299.2777532055004,648.1398304488453 296.4199736935192,652.4954117846257 293.25850581501146,656.708715800458 289.80393436391057,660.765636088654 286.0678254634047,664.6525898241133 282.0626878418266,668.3565632404782 277.80193095264167,671.8651552010442 273.2998200787519,675.1666187185493 268.57142857142856,678.2499002848274" fill="none" stroke="#e2e8f0" stroke-width="3"/>
+<polyline points="1091.4285714285716,541.7500997151726 1086.700179921248,544.8333812814508 1082.1980690473583,548.1348447989558 1077.9373121581734,551.6434367595219 1073.9321745365953,555.3474101758868 1070.1960656360893,559.234363911346 1066.7414941849888,563.2912841995421 1063.5800263064807,567.5045882153743 1060.7222467944998,571.8601695511547 1058.1777236751657,576.3434454457511 1055.954976172432,580.9394056085914 1054.0614461851842,585.6326624750632 1052.5034733712941,590.4075027250517 1051.2862739220445,595.2479398921262 1050.4139230979918,600.1377678872387 1049.8893415847374,605.0606152577329 1049.7142857142858,610.0 1049.8893415847374,614.939384742267 1050.4139230979918,619.8622321127613 1051.2862739220445,624.7520601078738 1052.5034733712941,629.5924972749483 1054.0614461851842,634.3673375249368 1055.954976172432,639.0605943914087 1058.1777236751657,643.6565545542488 1060.7222467944998,648.1398304488453 1063.5800263064807,652.4954117846257 1066.7414941849888,656.7087158004579 1070.1960656360893,660.7656360886539 1073.9321745365953,664.6525898241133 1077.9373121581734,668.3565632404781 1082.1980690473583,671.8651552010442 1086.700179921248,675.1666187185493 1091.4285714285716,678.2499002848273" fill="none" stroke="#e2e8f0" stroke-width="3"/>
+<rect x="98" y="980" width="220" height="98" fill="#0f172a" stroke="#334155" stroke-width="1.5"/>
+<line x1="132" y1="1050" x2="280" y2="1050" stroke="#f59e0b" stroke-width="2.5"/>
+<line x1="132" y1="1050" x2="132" y2="1006" stroke="#60a5fa" stroke-width="2.5"/>
+<text x="288" y="1054" font-family="Helvetica, Arial, sans-serif" font-size="14" fill="#f59e0b">+x (right)</text>
+<text x="106" y="1000" font-family="Helvetica, Arial, sans-serif" font-size="14" fill="#60a5fa">-y (up)</text>
+<text x="106" y="1072" font-family="Helvetica, Arial, sans-serif" font-size="14" fill="#93c5fd">y increases downward on image</text>
+<circle cx="80.0" cy="120.0" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="88.0" y="134.0" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">TL</text>
+<circle cx="1280.0" cy="120.0" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="1214.0" y="134.0" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">TR</text>
+<circle cx="1280.0" cy="1100.0" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="1214.0" y="1092.0" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">BR</text>
+<circle cx="80.0" cy="1100.0" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="88.0" y="1092.0" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">BL</text>
+<circle cx="680.0" cy="120.0" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="688.0" y="134.0" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">CL-T</text>
+<circle cx="680.0" cy="1100.0" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="688.0" y="1092.0" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">CL-B</text>
+<circle cx="680.0" cy="610.0" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="688.0" y="624.0" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">C-SP</text>
+<circle cx="80.0" cy="319.4588235294118" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="88.0" y="333.4588235294118" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">LPA-TL</text>
+<circle cx="268.57142857142856" cy="319.4588235294118" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="276.57142857142856" y="333.4588235294118" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">LPA-TR</text>
+<circle cx="268.57142857142856" cy="900.5411764705882" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="276.57142857142856" y="892.5411764705882" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">LPA-BR</text>
+<circle cx="80.0" cy="900.5411764705882" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="88.0" y="892.5411764705882" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">LPA-BL</text>
+<circle cx="1091.4285714285716" cy="319.4588235294118" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="1025.4285714285716" y="333.4588235294118" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">RPA-TL</text>
+<circle cx="1280.0" cy="319.4588235294118" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="1214.0" y="333.4588235294118" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">RPA-TR</text>
+<circle cx="1280.0" cy="900.5411764705882" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="1214.0" y="892.5411764705882" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">RPA-BR</text>
+<circle cx="1091.4285714285716" cy="900.5411764705882" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="1025.4285714285716" y="892.5411764705882" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">RPA-BL</text>
+<circle cx="80.0" cy="477.98823529411766" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="88.0" y="491.98823529411766" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">LSB-TL</text>
+<circle cx="142.85714285714286" cy="477.98823529411766" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="150.85714285714286" y="491.98823529411766" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">LSB-TR</text>
+<circle cx="142.85714285714286" cy="742.0117647058825" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="150.85714285714286" y="734.0117647058825" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">LSB-BR</text>
+<circle cx="80.0" cy="742.0117647058825" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="88.0" y="734.0117647058825" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">LSB-BL</text>
+<circle cx="1217.142857142857" cy="477.98823529411766" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="1151.142857142857" y="491.98823529411766" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">RSB-TL</text>
+<circle cx="1280.0" cy="477.98823529411766" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="1214.0" y="491.98823529411766" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">RSB-TR</text>
+<circle cx="1280.0" cy="742.0117647058825" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="1214.0" y="734.0117647058825" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">RSB-BR</text>
+<circle cx="1217.142857142857" cy="742.0117647058825" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="1151.142857142857" y="734.0117647058825" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">RSB-BL</text>
+<circle cx="205.71428571428572" cy="610.0" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="213.71428571428572" y="624.0" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">L-PS</text>
+<circle cx="1154.2857142857142" cy="610.0" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="1088.2857142857142" y="624.0" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">R-PS</text>
+<circle cx="268.57142857142856" cy="541.7500997151726" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="276.57142857142856" y="555.7500997151726" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">L-ARC-T</text>
+<circle cx="310.28571428571433" cy="610.0" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="318.28571428571433" y="624.0" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">L-ARC-A</text>
+<circle cx="268.57142857142856" cy="678.2499002848274" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="276.57142857142856" y="670.2499002848274" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">L-ARC-B</text>
+<circle cx="1091.4285714285716" cy="541.7500997151726" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="1025.4285714285716" y="555.7500997151726" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">R-ARC-T</text>
+<circle cx="1049.7142857142858" cy="610.0" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="983.7142857142858" y="624.0" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">R-ARC-A</text>
+<circle cx="1091.4285714285716" cy="678.2499002848274" r="5" fill="#f97316" stroke="#111827" stroke-width="1.3"/>
+<text x="1025.4285714285716" y="670.2499002848274" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#fbbf24">R-ARC-B</text>
+<rect x="1320" y="140" width="640" height="933" fill="#111827" stroke="#334155" stroke-width="1.5"/>
+<rect x="1320" y="140" width="640" height="34" fill="#1f2937"/>
+<line x1="1450" y1="140" x2="1450" y2="1073" stroke="#334155" stroke-width="1"/>
+<text x="1330" y="162" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#93c5fd">Abbrev</text>
+<text x="1462" y="162" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="700" fill="#93c5fd">Meaning</text>
+<rect x="1320" y="174" width="640" height="29" fill="#0b1220"/>
+<text x="1330" y="194" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">TL</text>
+<text x="1462" y="194" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Top-left pitch corner</text>
+<text x="1330" y="223" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">TR</text>
+<text x="1462" y="223" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Top-right pitch corner</text>
+<rect x="1320" y="232" width="640" height="29" fill="#0b1220"/>
+<text x="1330" y="252" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">BR</text>
+<text x="1462" y="252" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Bottom-right pitch corner</text>
+<text x="1330" y="281" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">BL</text>
+<text x="1462" y="281" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Bottom-left pitch corner</text>
+<rect x="1320" y="290" width="640" height="29" fill="#0b1220"/>
+<text x="1330" y="310" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">CL-T</text>
+<text x="1462" y="310" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Center line at top touchline</text>
+<text x="1330" y="339" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">CL-B</text>
+<text x="1462" y="339" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Center line at bottom touchline</text>
+<rect x="1320" y="348" width="640" height="29" fill="#0b1220"/>
+<text x="1330" y="368" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">C-SP</text>
+<text x="1462" y="368" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Center spot</text>
+<text x="1330" y="397" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">LPA-TL</text>
+<text x="1462" y="397" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Left penalty area top-left corner</text>
+<rect x="1320" y="406" width="640" height="29" fill="#0b1220"/>
+<text x="1330" y="426" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">LPA-TR</text>
+<text x="1462" y="426" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Left penalty area top-right corner</text>
+<text x="1330" y="455" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">LPA-BR</text>
+<text x="1462" y="455" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Left penalty area bottom-right corner</text>
+<rect x="1320" y="464" width="640" height="29" fill="#0b1220"/>
+<text x="1330" y="484" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">LPA-BL</text>
+<text x="1462" y="484" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Left penalty area bottom-left corner</text>
+<text x="1330" y="513" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">RPA-TL</text>
+<text x="1462" y="513" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Right penalty area top-left corner</text>
+<rect x="1320" y="522" width="640" height="29" fill="#0b1220"/>
+<text x="1330" y="542" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">RPA-TR</text>
+<text x="1462" y="542" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Right penalty area top-right corner</text>
+<text x="1330" y="571" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">RPA-BR</text>
+<text x="1462" y="571" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Right penalty area bottom-right corner</text>
+<rect x="1320" y="580" width="640" height="29" fill="#0b1220"/>
+<text x="1330" y="600" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">RPA-BL</text>
+<text x="1462" y="600" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Right penalty area bottom-left corner</text>
+<text x="1330" y="629" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">LSB-TL</text>
+<text x="1462" y="629" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Left six-yard box top-left corner</text>
+<rect x="1320" y="638" width="640" height="29" fill="#0b1220"/>
+<text x="1330" y="658" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">LSB-TR</text>
+<text x="1462" y="658" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Left six-yard box top-right corner</text>
+<text x="1330" y="687" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">LSB-BR</text>
+<text x="1462" y="687" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Left six-yard box bottom-right corner</text>
+<rect x="1320" y="696" width="640" height="29" fill="#0b1220"/>
+<text x="1330" y="716" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">LSB-BL</text>
+<text x="1462" y="716" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Left six-yard box bottom-left corner</text>
+<text x="1330" y="745" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">RSB-TL</text>
+<text x="1462" y="745" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Right six-yard box top-left corner</text>
+<rect x="1320" y="754" width="640" height="29" fill="#0b1220"/>
+<text x="1330" y="774" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">RSB-TR</text>
+<text x="1462" y="774" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Right six-yard box top-right corner</text>
+<text x="1330" y="803" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">RSB-BR</text>
+<text x="1462" y="803" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Right six-yard box bottom-right corner</text>
+<rect x="1320" y="812" width="640" height="29" fill="#0b1220"/>
+<text x="1330" y="832" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">RSB-BL</text>
+<text x="1462" y="832" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Right six-yard box bottom-left corner</text>
+<text x="1330" y="861" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">L-PS</text>
+<text x="1462" y="861" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Left penalty spot</text>
+<rect x="1320" y="870" width="640" height="29" fill="#0b1220"/>
+<text x="1330" y="890" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">R-PS</text>
+<text x="1462" y="890" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Right penalty spot</text>
+<text x="1330" y="919" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">L-ARC-T</text>
+<text x="1462" y="919" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Left penalty arc top point</text>
+<rect x="1320" y="928" width="640" height="29" fill="#0b1220"/>
+<text x="1330" y="948" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">L-ARC-A</text>
+<text x="1462" y="948" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Left penalty arc apex (toward center)</text>
+<text x="1330" y="977" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">L-ARC-B</text>
+<text x="1462" y="977" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Left penalty arc bottom point</text>
+<rect x="1320" y="986" width="640" height="29" fill="#0b1220"/>
+<text x="1330" y="1006" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">R-ARC-T</text>
+<text x="1462" y="1006" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Right penalty arc top point</text>
+<text x="1330" y="1035" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">R-ARC-A</text>
+<text x="1462" y="1035" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Right penalty arc apex (toward center)</text>
+<rect x="1320" y="1044" width="640" height="29" fill="#0b1220"/>
+<text x="1330" y="1064" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#f59e0b">R-ARC-B</text>
+<text x="1462" y="1064" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#e2e8f0">Right penalty arc bottom point</text>
+</svg>

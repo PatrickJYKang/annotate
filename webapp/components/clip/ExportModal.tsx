@@ -52,6 +52,7 @@ export default function ExportModal({
   const [outputPath, setOutputPath] = useState<string | null>(null);
   const abortRef = useRef(false);
   const sessionIdRef = useRef<string | null>(null);
+  const playbackSnapshotRef = useRef<{ time: number; wasPaused: boolean } | null>(null);
 
   const clipDurationMs = clip.endMs - clip.startMs;
   const width = videoEl.videoWidth || 1920;
@@ -63,6 +64,14 @@ export default function ExportModal({
     setProgress(0);
     setErrorMsg(null);
     setOutputPath(null);
+
+    playbackSnapshotRef.current = {
+      time: videoEl.currentTime,
+      wasPaused: videoEl.paused,
+    };
+    if (!videoEl.paused) {
+      videoEl.pause();
+    }
 
     const total = Math.max(1, Math.ceil((clipDurationMs / 1000) * fps));
     setTotalFrames(total);
@@ -146,8 +155,33 @@ export default function ExportModal({
         await cleanupExport(sessionId, sidecarBaseUrl).catch(() => {});
       }
       sessionIdRef.current = null;
+
+      const snap = playbackSnapshotRef.current;
+      playbackSnapshotRef.current = null;
+      if (snap) {
+        try {
+          videoEl.currentTime = snap.time;
+          await new Promise<void>((resolve) => {
+            let done = false;
+            const finish = () => {
+              if (done) return;
+              done = true;
+              videoEl.removeEventListener('seeked', onSeeked);
+              resolve();
+            };
+            const onSeeked = () => finish();
+            videoEl.addEventListener('seeked', onSeeked);
+            window.setTimeout(finish, 200);
+          });
+          if (!snap.wasPaused) {
+            await videoEl.play().catch(() => {});
+          }
+        } catch {
+          // ignore restore failures
+        }
+      }
     }
-  }, [clip, annotations, videoEl, fps, width, height, clipDurationMs, sidecarBaseUrl, renderAnnotationsToCanvas]);
+  }, [clip, videoEl, fps, width, height, clipDurationMs, sidecarBaseUrl, renderAnnotationsToCanvas]);
 
   const handleCancel = useCallback(() => {
     abortRef.current = true;

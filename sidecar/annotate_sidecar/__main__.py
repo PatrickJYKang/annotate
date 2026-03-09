@@ -31,12 +31,6 @@ def main():
         choices=["debug", "info", "warning", "error"],
         help="Log level (default: info)",
     )
-    parser.add_argument(
-        "--project-root",
-        type=str,
-        default=None,
-        help="Absolute path to the project folder. Relative video paths will be resolved against this.",
-    )
     args = parser.parse_args()
 
     # Configure logging
@@ -54,7 +48,7 @@ def main():
 
     from .server import create_app
 
-    app = create_app(project_root=args.project_root)
+    app = create_app()
 
     uvicorn.run(
         app,

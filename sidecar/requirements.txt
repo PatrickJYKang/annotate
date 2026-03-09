@@ -4,6 +4,7 @@
 # Web framework
 fastapi>=0.104.0,<1.0
 uvicorn[standard]>=0.24.0,<1.0
+python-multipart>=0.0.9,<1.0
 
 # Video / image processing
 opencv-python>=4.8.0,<5.0
@@ -11,6 +12,7 @@ numpy>=1.24.0,<2.0
 
 # Object detection & tracking (Phase 6)
 ultralytics>=8.0.0,<9.0
+lap>=0.5.12
 
 # Segmentation (Phase 9)
 # mobile-sam or segment-anything — install separately:

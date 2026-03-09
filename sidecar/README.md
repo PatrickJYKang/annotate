@@ -40,16 +40,15 @@ python -m annotate_sidecar
 # Custom port
 python -m annotate_sidecar --port 9000
 
-# Point at a project folder (resolves relative video paths)
-python -m annotate_sidecar --project-root /path/to/myproject.matchproj
-
 # Debug logging
 python -m annotate_sidecar --log-level debug
 ```
 
-The `--project-root` flag tells the sidecar where your `.matchproj` folder lives.
-All routes that accept a `videoPath` will resolve relative paths (e.g. `media/game.mp4`)
-against this root. You can also set it at runtime via `POST /project-root`.
+Routes that take a video locator (`/track`, `/segment`, `/homography`) expect either:
+- `videoRef` from `POST /video/register` (recommended)
+- absolute `videoPath` (legacy/manual)
+
+Relative `videoPath` values are rejected.
 
 ## API Endpoints
 
@@ -63,8 +62,8 @@ against this root. You can also set it at runtime via `POST /project-root`.
 | `POST`   | `/export/frame`     | Submit rendered frame (base64 JPEG)  |
 | `POST`   | `/export/encode`    | Encode frames to MP4 (ffmpeg)        |
 | `DELETE` | `/export/{id}`      | Clean up export session              |
-| `POST`   | `/project-root`     | Set project root path at runtime     |
-| `GET`    | `/project-root`     | Get current project root path        |
+| `POST`   | `/video/register`   | Upload video file and get `videoRef` |
+| `DELETE` | `/video/{videoRef}` | Unregister a temporary uploaded video |
 
 ## Architecture
 
@@ -73,13 +72,14 @@ annotate_sidecar/
   __init__.py
   __main__.py              # CLI entry point (arg parsing + uvicorn)
   server.py                # FastAPI app, CORS, lifespan events
-  project_root.py          # Project root path resolution utility
+  video_registry.py        # Temporary videoRef -> temp-file registry
   routes/
     health.py              # GET /health
     track.py               # POST /track
     segment.py             # POST /segment
     homography.py          # POST /homography
     export.py              # Export endpoints
+    video.py               # Video register/unregister endpoints
   services/
     frame_extractor.py     # cv2.VideoCapture → frames by ms
     tracker.py             # YOLO + ByteTrack wrapper

@@ -75,12 +75,12 @@ export class OcclusionCache {
  * Returns an ImageBitmap of the alpha mask (single-channel grayscale PNG).
  */
 export async function fetchOcclusionMask(
-  videoPath: string,
+  video: { videoRef?: string; videoPath?: string },
   frameMs: number,
   baseUrl?: string,
 ): Promise<{ mask: ImageBitmap; width: number; height: number; personCount: number }> {
   const result: SegmentationResult = await requestSegmentation(
-    { videoPath, frameMs },
+    { ...video, frameMs },
     baseUrl,
   );
 

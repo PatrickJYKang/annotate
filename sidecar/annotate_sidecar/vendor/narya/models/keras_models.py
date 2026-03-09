@@ -3,9 +3,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import json
 import logging
 import numpy as np
 import tensorflow as tf
+import h5py
 import segmentation_models as sm
 from .keras_layers import pyramid_layer
 from ..preprocessing.image import _build_homo_preprocessing
@@ -20,6 +22,49 @@ RESNET_ARCHI_TF_KERAS_NAME = "deep_homo_model_1.h5"
 RESNET_ARCHI_TF_KERAS_TOTAR = False
 
 
+def _onnx2keras_expand_dims(x):
+    return tf.keras.backend.expand_dims(x)
+
+
+def _onnx2keras_chw_transpose(x):
+    return tf.transpose(x, perm=[0, 3, 1, 2])
+
+
+def _load_resnet18_with_legacy_lambda_patch(model_path):
+    with h5py.File(model_path, "r") as h5_file:
+        model_config = h5_file.attrs.get("model_config")
+    if model_config is None:
+        raise RuntimeError(f"No model_config found in {model_path}")
+
+    if isinstance(model_config, bytes):
+        model_config = model_config.decode("utf-8")
+    config = json.loads(model_config)
+
+    patched = False
+    for layer in config.get("config", {}).get("layers", []):
+        if layer.get("class_name") != "Lambda":
+            continue
+        layer_config = layer.get("config", {})
+        module_name = layer_config.get("module")
+        if module_name == "onnx2keras.pooling_layers":
+            layer_config["function"] = _onnx2keras_expand_dims
+            layer_config["function_type"] = "raw"
+            layer_config["module"] = None
+            patched = True
+        elif module_name == "onnx2keras.reshape_layers":
+            layer_config["function"] = _onnx2keras_chw_transpose
+            layer_config["function_type"] = "raw"
+            layer_config["module"] = None
+            patched = True
+
+    if not patched:
+        raise RuntimeError("No known legacy Lambda layers found to patch")
+
+    model = tf.keras.Model.from_config(config["config"])
+    model.load_weights(model_path)
+    return model
+
+
 def _build_resnet18():
     resnet18_path_to_file = tf.keras.utils.get_file(
         RESNET_ARCHI_TF_KERAS_NAME,
@@ -29,17 +74,27 @@ def _build_resnet18():
 
     try:
         resnet18 = tf.keras.models.load_model(resnet18_path_to_file, compile=False)
-        resnet18.compile()
-        inputs = resnet18.input
-        outputs = resnet18.layers[-2].output
-        return tf.keras.models.Model(inputs=inputs, outputs=outputs, name="custom_resnet18")
     except Exception as e:
         logger.warning(
-            "Could not load ResNet18 .h5 model (likely Python bytecode version "
-            "mismatch with Lambda layers): %s. DeepHomoModel will be unavailable; "
-            "keypoint-based homography will still work.", e
+            "Could not load ResNet18 .h5 model directly (likely Python bytecode "
+            "version mismatch with Lambda layers): %s. Trying compatibility patch.",
+            e,
         )
-        return None
+        try:
+            resnet18 = _load_resnet18_with_legacy_lambda_patch(resnet18_path_to_file)
+            logger.info("Loaded ResNet18 with legacy Lambda compatibility patch")
+        except Exception as patch_error:
+            logger.warning(
+                "Could not load ResNet18 with compatibility patch: %s. "
+                "DeepHomoModel will be unavailable; keypoint-based homography will still work.",
+                patch_error,
+            )
+            return None
+
+    resnet18.compile()
+    inputs = resnet18.input
+    outputs = resnet18.layers[-2].output
+    return tf.keras.models.Model(inputs=inputs, outputs=outputs, name="custom_resnet18")
 
 
 class DeepHomoModel:
