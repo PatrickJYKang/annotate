@@ -193,25 +193,71 @@ export default function PresentationEditor({
   }, [slideStillIds, manifest, projectDir, getFileForPath]);
 
   useEffect(() => {
-    if (state.mode !== 'video') return;
-    if (videoUrlRegistryRef.current[state.videoId]) {
-      setVideoUrlById((prev) => prev[state.videoId] ? prev : { ...prev, [state.videoId]: videoUrlRegistryRef.current[state.videoId] });
+    const activeVideoId = state.mode === 'video'
+      ? state.videoId
+      : state.mode === 'clip'
+        ? state.clip.videoId
+        : null;
+    const warmedTransitionVideoId = currentTransition?.transition.mode === 'match_video'
+      && currentTransition.playable
+      && currentTransition.videoId
+      ? currentTransition.videoId
+      : null;
+    const requestedVideoIds = Array.from(new Set([
+      activeVideoId,
+      warmedTransitionVideoId,
+    ].filter((value): value is string => !!value)));
+    if (requestedVideoIds.length === 0) return;
+    const missingVideoIds = requestedVideoIds.filter((videoId) => !videoUrlRegistryRef.current[videoId]);
+    const cachedVideoIds = requestedVideoIds.filter((videoId) => !!videoUrlRegistryRef.current[videoId]);
+    if (cachedVideoIds.length > 0) {
+      setVideoUrlById((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const videoId of cachedVideoIds) {
+          const cachedUrl = videoUrlRegistryRef.current[videoId];
+          if (cachedUrl && !next[videoId]) {
+            next[videoId] = cachedUrl;
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }
+    if (missingVideoIds.length === 0) {
       return;
     }
     let cancelled = false;
-    const loadVideo = async () => {
-      const video = manifest.videos.find((entry) => entry.id === state.videoId);
-      if (!video) throw new Error(`Video not found: ${state.videoId}`);
-      const file = await getFileForPath(projectDir, video.file);
-      const url = URL.createObjectURL(file);
-      if (cancelled) {
-        URL.revokeObjectURL(url);
-        return;
+    const loadVideos = async () => {
+      const nextEntries: Record<string, string> = {};
+      try {
+        for (const videoId of missingVideoIds) {
+          const video = manifest.videos.find((entry) => entry.id === videoId);
+          if (!video) throw new Error(`Video not found: ${videoId}`);
+          const file = await getFileForPath(projectDir, video.file);
+          const url = URL.createObjectURL(file);
+          if (cancelled) {
+            URL.revokeObjectURL(url);
+            continue;
+          }
+          nextEntries[videoId] = url;
+        }
+        if (cancelled) {
+          Object.values(nextEntries).forEach((url) => {
+            URL.revokeObjectURL(url);
+          });
+          return;
+        }
+        videoUrlRegistryRef.current = { ...videoUrlRegistryRef.current, ...nextEntries };
+        setVideoUrlById((prev) => ({ ...prev, ...nextEntries }));
+      } catch (error) {
+        Object.values(nextEntries).forEach((url) => {
+          URL.revokeObjectURL(url);
+        });
+        throw error;
       }
-      videoUrlRegistryRef.current = { ...videoUrlRegistryRef.current, [state.videoId]: url };
-      setVideoUrlById((prev) => ({ ...prev, [state.videoId]: url }));
     };
-    loadVideo().catch((e: any) => {
+    loadVideos().catch((e: any) => {
       if (cancelled) return;
       setAssetError(e?.message || String(e));
       setToast(e?.message || String(e));
@@ -219,7 +265,7 @@ export default function PresentationEditor({
     return () => {
       cancelled = true;
     };
-  }, [state, manifest.videos, projectDir, getFileForPath]);
+  }, [state, currentTransition, manifest.videos, projectDir, getFileForPath]);
 
   useEffect(() => {
     return () => {
@@ -360,6 +406,7 @@ export default function PresentationEditor({
               annotationsByStillId={annotationsByStillId}
               annotationDocumentsByStillId={annotationDocumentsByStillId}
               videoUrlById={videoUrlById}
+              currentTransition={currentTransition}
               onVideoComplete={completeVideoPlayback}
             />
           </div>

@@ -5,7 +5,7 @@ import VideoPlayerUnit, { type VideoPlayerHandle } from '../player/VideoPlayerUn
 import type { AnnotationsV1 } from '../../lib/export/d7Render';
 import { renderAnnotatedPng } from '../../lib/export/d7Render';
 import { mergeLoadedAnnotationDocuments, type LoadedAnnotationDocument } from '../../lib/fs/annotationStorage';
-import type { PresentationPlayerState } from '../../lib/presentation/playerController';
+import type { PresentationPlayerState, PresentationTransitionPreview } from '../../lib/presentation/playerController';
 
 export interface PresentationCanvasProps {
   state: PresentationPlayerState;
@@ -14,6 +14,7 @@ export interface PresentationCanvasProps {
   annotationsByStillId: Record<string, AnnotationsV1 | null>;
   annotationDocumentsByStillId: Record<string, LoadedAnnotationDocument[]>;
   videoUrlById: Record<string, string>;
+  currentTransition?: PresentationTransitionPreview | null;
   isPresenting?: boolean;
   onVideoComplete: () => void;
 }
@@ -32,6 +33,7 @@ export default function PresentationCanvas({
   annotationsByStillId,
   annotationDocumentsByStillId,
   videoUrlById,
+  currentTransition = null,
   isPresenting = false,
   onVideoComplete,
 }: PresentationCanvasProps) {
@@ -154,6 +156,7 @@ export default function PresentationCanvas({
         autoplay: state.autoplay,
         playbackRate: state.playbackRate,
         label: state.label || (state.source === 'transition' ? 'Transition preview' : state.source === 'retrieval' ? 'Retrieved mark' : 'Clip slide'),
+        preload: state.source === 'retrieval' ? 'metadata' as const : 'auto' as const,
         showLoadingLabel: state.source !== 'clip',
         showPausedAtMarkLabel: state.source === 'retrieval',
       };
@@ -167,6 +170,7 @@ export default function PresentationCanvas({
         autoplay: isPresenting,
         playbackRate: 1,
         label: 'Clip slide',
+        preload: 'auto' as const,
         showLoadingLabel: false,
         showPausedAtMarkLabel: false,
       };
@@ -174,10 +178,34 @@ export default function PresentationCanvas({
     return null;
   }, [state, isPresenting]);
 
-  const activeVideoUrl = useMemo(() => {
-    if (!activeVideoState) return null;
-    return videoUrlById[activeVideoState.videoId] ?? null;
-  }, [activeVideoState, videoUrlById]);
+  const warmedTransitionState = useMemo(() => {
+    if (activeVideoState) return null;
+    if (!currentTransition || currentTransition.transition.mode !== 'match_video') return null;
+    if (!currentTransition.playable || !currentTransition.videoId || currentTransition.startMs == null || currentTransition.endMs == null) {
+      return null;
+    }
+    return {
+      key: `warm:${currentTransition.fromSlideIndex}:${currentTransition.videoId}:${currentTransition.startMs}:${currentTransition.endMs}`,
+      videoId: currentTransition.videoId,
+      startMs: currentTransition.startMs,
+      endMs: currentTransition.endMs,
+      autoplay: false,
+      playbackRate: currentTransition.playbackRate,
+      label: 'Transition preview',
+      preload: 'auto' as const,
+      showLoadingLabel: false,
+      showPausedAtMarkLabel: false,
+    };
+  }, [activeVideoState, currentTransition]);
+
+  const playerVideoState = activeVideoState ?? warmedTransitionState;
+
+  const playerVideoUrl = useMemo(() => {
+    if (!playerVideoState) return null;
+    return videoUrlById[playerVideoState.videoId] ?? null;
+  }, [playerVideoState, videoUrlById]);
+
+  const showVideoPlayer = state.mode === 'video' || state.mode === 'clip';
 
   useEffect(() => {
     if (state.mode !== 'still' || !isPresenting) {
@@ -265,10 +293,10 @@ export default function PresentationCanvas({
   useEffect(() => {
     setVideoReady(false);
     completionKeyRef.current = null;
-  }, [state]);
+  }, [state, playerVideoState?.key]);
 
   useEffect(() => {
-    if (!activeVideoState || !activeVideoUrl) return;
+    if (!playerVideoState || !playerVideoUrl) return;
     const element = playerRef.current?.getVideoElement() ?? null;
     if (!element) return;
 
@@ -276,16 +304,16 @@ export default function PresentationCanvas({
     const syncPlayback = async () => {
       if (cancelled) return;
       try {
-        const targetSeconds = activeVideoState.startMs / 1000;
+        const targetSeconds = playerVideoState.startMs / 1000;
         if (Number.isFinite(targetSeconds) && Math.abs(element.currentTime - targetSeconds) > 0.05) {
           element.currentTime = targetSeconds;
         }
       } catch {}
       try {
-        element.playbackRate = activeVideoState.playbackRate ?? 1;
+        element.playbackRate = playerVideoState.playbackRate ?? 1;
       } catch {}
       if (cancelled) return;
-      if (activeVideoState.autoplay) {
+      if (playerVideoState.autoplay) {
         try {
           await element.play();
         } catch {}
@@ -311,7 +339,7 @@ export default function PresentationCanvas({
     return () => {
       cancelled = true;
     };
-  }, [activeVideoState, activeVideoUrl]);
+  }, [playerVideoState, playerVideoUrl]);
 
   const handleVideoTimeUpdate = () => {
     if (!activeVideoState || activeVideoState.endMs == null) return;
@@ -346,59 +374,56 @@ export default function PresentationCanvas({
     );
   }
 
+  let slideContent: React.ReactNode = null;
+
   if (state.mode === 'title') {
     const templateClassName = state.slide.template === 'divider'
       ? 'items-center justify-center'
       : state.slide.template === 'section'
         ? 'items-start justify-center'
         : 'items-center justify-center';
-    return (
-      <div className="flex-1 min-h-0 rounded border border-subtle bg-surface overflow-hidden">
-        <div className={`w-full h-full flex ${templateClassName} p-12`}>
-          <div className="max-w-3xl w-full">
-            <div className="text-xs uppercase tracking-[0.2em] text-muted mb-4">{state.slide.template}</div>
-            <div className="text-5xl font-semibold leading-tight mb-4">{state.slide.title}</div>
-            {state.slide.body && (
-              <div className="text-xl text-muted leading-relaxed whitespace-pre-wrap">{state.slide.body}</div>
-            )}
-          </div>
+    slideContent = (
+      <div className={`relative z-10 w-full h-full flex ${templateClassName} p-12`}>
+        <div className="max-w-3xl w-full">
+          <div className="text-xs uppercase tracking-[0.2em] text-muted mb-4">{state.slide.template}</div>
+          <div className="text-5xl font-semibold leading-tight mb-4">{state.slide.title}</div>
+          {state.slide.body && (
+            <div className="text-xl text-muted leading-relaxed whitespace-pre-wrap">{state.slide.body}</div>
+          )}
         </div>
       </div>
     );
-  }
-
-  if (state.mode === 'still') {
-    return (
-      <div className="flex-1 min-h-0 rounded border border-subtle bg-surface overflow-hidden flex items-center justify-center">
-        {activeStillUrl ? (
-          <img src={activeStillUrl} alt="Presentation slide" className="max-w-full max-h-full object-contain" />
-        ) : (
-          <div className="text-sm text-muted">Still image unavailable</div>
-        )}
-      </div>
+  } else if (state.mode === 'still') {
+    slideContent = activeStillUrl ? (
+      <img src={activeStillUrl} alt="Presentation slide" className="relative z-10 max-w-full max-h-full object-contain" />
+    ) : (
+      <div className="relative z-10 text-sm text-muted">Still image unavailable</div>
     );
   }
 
   return (
     <div className="flex-1 min-h-0 rounded border border-subtle bg-surface overflow-hidden relative flex items-center justify-center">
-      {activeVideoUrl ? (
-        <VideoPlayerUnit
-          ref={playerRef}
-          src={activeVideoUrl}
-          preload={activeVideoState?.showLoadingLabel ? 'metadata' : 'auto'}
-          initialTime={activeVideoState ? activeVideoState.startMs / 1000 : undefined}
-          externalSeekMs={activeVideoState?.startMs ?? null}
-          allowFullscreen={!isPresenting}
-          showAddMarkButton={false}
-          enableMarkHotkey={false}
-          className="w-full h-full"
-          onTimeUpdate={handleVideoTimeUpdate}
-          onLoadedMetadata={() => setVideoReady(true)}
-          onLoadedData={() => setVideoReady(true)}
-        />
-      ) : (
+      {slideContent}
+      {playerVideoUrl && playerVideoState ? (
+        <div className={`absolute inset-0 ${showVideoPlayer ? 'z-20' : 'z-0 opacity-0 pointer-events-none'}`}>
+          <VideoPlayerUnit
+            ref={playerRef}
+            src={playerVideoUrl}
+            preload={playerVideoState.preload}
+            initialTime={playerVideoState.startMs / 1000}
+            externalSeekMs={playerVideoState.startMs}
+            allowFullscreen={!isPresenting}
+            showAddMarkButton={false}
+            enableMarkHotkey={false}
+            className="w-full h-full"
+            onTimeUpdate={handleVideoTimeUpdate}
+            onLoadedMetadata={() => setVideoReady(true)}
+            onLoadedData={() => setVideoReady(true)}
+          />
+        </div>
+      ) : showVideoPlayer ? (
         <div className="text-sm text-muted">Video unavailable for this preview</div>
-      )}
+      ) : null}
       {!isPresenting && activeVideoState && (
         <div className="absolute left-3 top-3 px-2 py-1 rounded bg-black/60 text-xs text-white">
           {activeVideoState.label}
