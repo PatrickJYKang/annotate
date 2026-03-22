@@ -13,6 +13,7 @@ import {
   TaggingSelection,
 } from "../../lib/tagging/schema";
 import { formatMatchTimestamp } from "../../lib/metadata/timeDisplay";
+import { findMarkAtTimestamp } from "../../lib/utils/projectIntegrity";
 
 export default function PlayerPage() {
   const router = useRouter();
@@ -170,6 +171,12 @@ export default function PlayerPage() {
   const addMarkAt = useCallback(async (t_ms: number) => {
     const vid = selectedVideoIdRef.current;
     if (!vid) return;
+    const existing = manifestRef.current ? findMarkAtTimestamp(manifestRef.current.marks, vid, t_ms) : null;
+    if (existing) {
+      setSelectedMarkIdSafe(existing.id);
+      openTagMenuForMarkById(existing.id);
+      return;
+    }
     pushUndo();
     const id = (globalThis.crypto && 'randomUUID' in globalThis.crypto) ? (globalThis.crypto as any).randomUUID() : `mark_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
     const next = await mutateManifestExclusive((mf) => {

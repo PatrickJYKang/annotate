@@ -1,13 +1,22 @@
 import type { TaggingSelection } from "../tagging/schema";
 
+export interface ProjectAnnotationIndexEntry {
+  stillId: string;
+  file: string;
+  id?: string;
+  label?: string;
+  role?: 'default' | 'alternate';
+  lastModified?: string;
+}
+
 export interface ProjectManifestV1 {
   schema: 'project.v1';
   name: string;
   created: string; // ISO date
   videos: { id: string; label: string; file: string; durationMs?: number; width?: number; height?: number; fps?: number }[];
   marks: { id: string; videoId: string; t_ms: number; tags?: TaggingSelection | string[] }[];
-  stills: { id: string; videoId: string; t_ms: number; file: string; width?: number; height?: number }[];
-  annotations: { stillId: string; file: string; lastModified?: string }[];
+  stills: { id: string; videoId: string; t_ms: number; file: string; width?: number; height?: number; sourceMarkId?: string | null }[];
+  annotations: ProjectAnnotationIndexEntry[];
   reports: string[];
   thumbnails: string[];
   matchInfo?: MatchInfo;

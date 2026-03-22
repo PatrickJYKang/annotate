@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useProject } from "../../lib/state/ProjectContext";
+import { buildDefaultAnnotationPath, listAnnotationEntriesForStill } from "../../lib/fs/annotationStorage";
 import type { ProjectManifestV1 } from "../../lib/types/project";
 import type { Clip } from "../../lib/types/clip";
 import { CLIP_SCHEMA_VERSION } from "../../lib/types/clip";
@@ -10,6 +11,8 @@ import { readManifest, reindexAnnotations, writeManifest } from "../../lib/fs/pr
 import { listClips, writeClip, deleteClip as deleteClipFile, resolveMarkPinning } from "../../lib/fs/clipStorage";
 import { exportD7All } from "../../lib/export/d7Export";
 import VideoPlayerUnit, { VideoPlayerHandle } from "../../components/player/VideoPlayerUnit";
+import { createEmptyTaggingSelection } from "../../lib/tagging/schema";
+import { findMarkAtTimestamp } from "../../lib/utils/projectIntegrity";
 
 function pad6(n: number) { return n.toString().padStart(6, "0"); }
 
@@ -248,7 +251,10 @@ export default function StillsPage() {
     if (!s) return;
     const stillPath = s.file;
     const thumbPath = `thumbnails/${baseName(stillPath)}`;
-    const annPath = `annotations/${stillId}.json`;
+    const annotationPaths = new Set([
+      buildDefaultAnnotationPath(stillId),
+      ...listAnnotationEntriesForStill(manifest, stillId).map((entry) => entry.file),
+    ]);
     const next: ProjectManifestV1 = {
       ...(manifest as ProjectManifestV1),
       stills: (manifest.stills || []).filter(x => x.id !== stillId),
@@ -259,7 +265,9 @@ export default function StillsPage() {
     setManifest(next);
     try { await deleteFileAtPath(projectDir, stillPath); } catch {}
     try { await deleteFileAtPath(projectDir, thumbPath); } catch {}
-    try { await deleteFileAtPath(projectDir, annPath); } catch {}
+    for (const annotationPath of annotationPaths) {
+      try { await deleteFileAtPath(projectDir, annotationPath); } catch {}
+    }
     setThumbs(prev => {
       const found = prev.find(t => t.id === stillId);
       if (found) URL.revokeObjectURL(found.url);
@@ -442,6 +450,23 @@ export default function StillsPage() {
       const tolMs = Math.round((1000 / (videoFps || 30)) * 2);
       const dup = base.stills.some(s => s.videoId === selectedVideoId && Math.abs(s.t_ms - t_ms) <= tolMs);
       if (dup) { setToast('A still already exists near this time (skipped).'); return; }
+      const selectedSourceMark = selectedMarkId
+        ? base.marks.find((mark) => mark.id === selectedMarkId && mark.videoId === selectedVideoId) ?? null
+        : null;
+      const exactSourceMark = findMarkAtTimestamp(base.marks, selectedVideoId, t_ms);
+      const sourceMark = selectedSourceMark ?? exactSourceMark;
+      const sourceMarkId = sourceMark?.id ?? ((globalThis.crypto && 'randomUUID' in globalThis.crypto)
+        ? (globalThis.crypto as any).randomUUID()
+        : `mark_${Date.now()}_${Math.random().toString(36).slice(2,8)}`);
+      const baseWithSourceMark: ProjectManifestV1 = sourceMark
+        ? base
+        : {
+            ...base,
+            marks: [
+              ...base.marks,
+              { id: sourceMarkId, videoId: selectedVideoId, t_ms, tags: createEmptyTaggingSelection() },
+            ],
+          };
       const { blob, w, h } = await captureToBlob(v);
       const num = nextStillNumber();
       const baseFile = `${pad6(num)}.png`;
@@ -450,18 +475,19 @@ export default function StillsPage() {
       const { thumbBlob } = await createThumbnailBlob(blob, 400);
       const thumbPath = await writeBlobToFile(projectDir, 'thumbnails', baseNameOnly, thumbBlob);
       const mf: ProjectManifestV1 = {
-        ...base,
-        stills: [...base.stills, { id: (globalThis.crypto && 'randomUUID' in globalThis.crypto) ? (globalThis.crypto as any).randomUUID() : `still_${Date.now()}_${Math.random().toString(36).slice(2,8)}`, videoId: selectedVideoId, t_ms, file: stillPath, width: w, height: h }],
-        thumbnails: base.thumbnails.includes(thumbPath) ? base.thumbnails : [...base.thumbnails, thumbPath],
+        ...baseWithSourceMark,
+        stills: [...baseWithSourceMark.stills, { id: (globalThis.crypto && 'randomUUID' in globalThis.crypto) ? (globalThis.crypto as any).randomUUID() : `still_${Date.now()}_${Math.random().toString(36).slice(2,8)}`, videoId: selectedVideoId, t_ms, file: stillPath, width: w, height: h, sourceMarkId }],
+        thumbnails: baseWithSourceMark.thumbnails.includes(thumbPath) ? baseWithSourceMark.thumbnails : [...baseWithSourceMark.thumbnails, thumbPath],
       };
       await writeManifest(projectDir, mf);
       setManifest(mf);
+      setSelectedMarkId(sourceMarkId);
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
       setBusy(false);
     }
-  }, [projectDir, manifest, selectedVideoId, playerRef, captureToBlob, createThumbnailBlob, nextStillNumber, writeBlobToFile, setManifest, videoFps]);
+  }, [projectDir, manifest, selectedVideoId, playerRef, captureToBlob, createThumbnailBlob, nextStillNumber, writeBlobToFile, setManifest, videoFps, selectedMarkId]);
 
   const exportAll = useCallback(async () => {
     if (!projectDir || !manifest) return;
@@ -568,6 +594,7 @@ export default function StillsPage() {
           <button onClick={exportAll} disabled={exportBusy || busy} title="Export annotated PNGs + reports to reports/" className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base">
             {exportBusy ? 'Exporting…' : 'Export All'}
           </button>
+          <button onClick={() => router.push('/presentations')} className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base">Presentations →</button>
         </div>
 
         {/* Status strips */}
@@ -692,7 +719,7 @@ export default function StillsPage() {
                   </div>
                 ))}
                 {clips.length === 0 && (
-                  <div className="text-xs text-muted py-2">No clips yet. Click "New Clip" to create one.</div>
+                  <div className="text-xs text-muted py-2">No clips yet. Click &quot;New Clip&quot; to create one.</div>
                 )}
               </div>
             </div>

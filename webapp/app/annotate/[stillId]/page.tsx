@@ -2,13 +2,27 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { Tool, StrokePattern } from "../../../components/annotate/Editor";
 import { useProject } from "../../../lib/state/ProjectContext";
-import { readManifest, validateProjectFolderStructure } from "../../../lib/fs/projectFolder";
+import {
+  buildAnnotationPath,
+  createEmptyAnnotations,
+  deleteAnnotationDocument,
+  listAnnotationEntriesForStillWithDefault,
+  readAnnotationDocument,
+  sortAnnotationEntries,
+  writeAnnotationDocument,
+} from "../../../lib/fs/annotationStorage";
+import type { ProjectAnnotationIndexEntry } from "../../../lib/types/project";
+import { writeManifest } from "../../../lib/fs/projectFolder";
+import { validateProjectFolderStructure } from "../../../lib/fs/projectFolder";
 
 export default function AnnotatePage({ params }: { params: { stillId: string } }) {
   const { stillId } = params;
   const { projectDir, setProjectDir, manifest, setManifest } = useProject();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
@@ -26,6 +40,10 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
   const [saveTick, setSaveTick] = useState(0);
   const [saveStatus, setSaveStatus] = useState<{ state: 'idle' | 'saving' | 'saved' | 'error'; at?: string; message?: string } | null>(null);
   const [writePermission, setWritePermission] = useState<'granted' | 'denied' | 'prompt' | null>(null);
+  const [isCreatingAnnotationSet, setIsCreatingAnnotationSet] = useState(false);
+  const [isRenamingAnnotationSet, setIsRenamingAnnotationSet] = useState(false);
+  const [newAnnotationLabel, setNewAnnotationLabel] = useState('');
+  const [renameAnnotationLabel, setRenameAnnotationLabel] = useState('');
 
   useEffect(() => {
     if (!saveStatus) return;
@@ -45,6 +63,141 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
     if (!manifest) return null;
     return (manifest.stills || []).find(s => s.id === stillId) || null;
   }, [manifest, stillId]);
+
+  const annotationEntries = useMemo(() => {
+    if (!manifest) return [];
+    return listAnnotationEntriesForStillWithDefault(manifest, stillId);
+  }, [manifest, stillId]);
+
+  const selectedAnnotationId = useMemo(() => {
+    const requested = searchParams.get('annotation');
+    if (requested && annotationEntries.some((entry) => entry.id === requested)) {
+      return requested;
+    }
+    return annotationEntries[0]?.id ?? 'default';
+  }, [annotationEntries, searchParams]);
+
+  const selectedAnnotationEntry = useMemo(() => {
+    return annotationEntries.find((entry) => entry.id === selectedAnnotationId) ?? null;
+  }, [annotationEntries, selectedAnnotationId, stillId]);
+
+  const effectiveSelectedAnnotationEntry = useMemo(() => {
+    return selectedAnnotationEntry ?? annotationEntries[0] ?? {
+      stillId,
+      id: 'default',
+      file: buildAnnotationPath(stillId, 'default'),
+      role: 'default' as const,
+      label: 'Default annotations',
+    };
+  }, [selectedAnnotationEntry, annotationEntries, stillId]);
+
+  const selectedAnnotationLabel = selectedAnnotationEntry?.label
+    || (selectedAnnotationEntry?.id === 'default'
+      ? 'Default annotations'
+      : selectedAnnotationEntry
+        ? `Annotation set ${selectedAnnotationEntry.id}`
+        : 'Default annotations');
+
+  const setSelectedAnnotation = useCallback((annotationId: string) => {
+    const nextParams = new URLSearchParams(searchParams.toString());
+    if (!annotationId || annotationId === 'default') {
+      nextParams.delete('annotation');
+    } else {
+      nextParams.set('annotation', annotationId);
+    }
+    const query = nextParams.toString();
+    router.replace(query ? `/annotate/${stillId}?${query}` : `/annotate/${stillId}`);
+  }, [router, searchParams, stillId]);
+
+  useEffect(() => {
+    if (!selectedAnnotationEntry) return;
+    setRenameAnnotationLabel(selectedAnnotationEntry.label || (selectedAnnotationEntry.id === 'default' ? 'Default annotations' : ''));
+  }, [selectedAnnotationEntry]);
+
+  const createAnnotationSet = useCallback(async () => {
+    if (!projectDir || !manifest || !still) return;
+    const label = newAnnotationLabel.trim() || `Annotation set ${annotationEntries.filter((entry) => entry.id !== 'default').length + 1}`;
+    const annotationId = (globalThis.crypto && 'randomUUID' in globalThis.crypto)
+      ? `ann_${(globalThis.crypto as any).randomUUID().slice(0, 8)}`
+      : `ann_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const file = buildAnnotationPath(stillId, annotationId);
+    const document = createEmptyAnnotations(still, annotationId);
+    document.label = label;
+    const entry: ProjectAnnotationIndexEntry = {
+      stillId,
+      id: annotationId,
+      file,
+      role: 'alternate',
+      label,
+      lastModified: new Date().toISOString(),
+    };
+    try {
+      await writeAnnotationDocument(projectDir, file, document);
+      const nextManifest = {
+        ...manifest,
+        annotations: sortAnnotationEntries([...(manifest.annotations || []), entry]),
+      };
+      await writeManifest(projectDir, nextManifest);
+      setManifest(nextManifest);
+      setNewAnnotationLabel('');
+      setIsCreatingAnnotationSet(false);
+      setSelectedAnnotation(annotationId);
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    }
+  }, [projectDir, manifest, still, newAnnotationLabel, annotationEntries, stillId, setManifest, setSelectedAnnotation]);
+
+  const renameSelectedAnnotationSet = useCallback(async () => {
+    if (!projectDir || !manifest || !selectedAnnotationEntry || !still) return;
+    const nextLabel = renameAnnotationLabel.trim() || (selectedAnnotationEntry.id === 'default' ? 'Default annotations' : `Annotation set ${selectedAnnotationEntry.id}`);
+    try {
+      const existingDocument = await readAnnotationDocument(projectDir, selectedAnnotationEntry.file);
+      if (existingDocument) {
+        await writeAnnotationDocument(projectDir, selectedAnnotationEntry.file, {
+          ...existingDocument,
+          annotationId: existingDocument.annotationId || selectedAnnotationEntry.id,
+          label: nextLabel,
+        });
+      }
+      const updatedEntry: ProjectAnnotationIndexEntry = {
+        ...selectedAnnotationEntry,
+        label: nextLabel,
+        lastModified: new Date().toISOString(),
+      };
+      const remaining = (manifest.annotations || []).filter((entry) => entry.file !== selectedAnnotationEntry.file);
+      const nextManifest = {
+        ...manifest,
+        annotations: sortAnnotationEntries([...remaining, updatedEntry]),
+      };
+      await writeManifest(projectDir, nextManifest);
+      setManifest(nextManifest);
+      setIsRenamingAnnotationSet(false);
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    }
+  }, [projectDir, manifest, selectedAnnotationEntry, still, renameAnnotationLabel, setManifest]);
+
+  const deleteSelectedAnnotationSet = useCallback(async () => {
+    if (!projectDir || !manifest || !selectedAnnotationEntry) return;
+    if (selectedAnnotationEntry.id === 'default') {
+      setError('Default annotations cannot be deleted.');
+      return;
+    }
+    try {
+      await deleteAnnotationDocument(projectDir, selectedAnnotationEntry.file).catch(() => {});
+      const nextManifest = {
+        ...manifest,
+        annotations: (manifest.annotations || []).filter((entry) => entry.file !== selectedAnnotationEntry.file),
+      };
+      await writeManifest(projectDir, nextManifest);
+      setManifest(nextManifest);
+      setIsRenamingAnnotationSet(false);
+      setRenameAnnotationLabel('');
+      setSelectedAnnotation('default');
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    }
+  }, [projectDir, manifest, selectedAnnotationEntry, setManifest, setSelectedAnnotation]);
 
   const Editor = useMemo(() => dynamic(() => import("../../../components/annotate/Editor"), { ssr: false }), []);
 
@@ -230,8 +383,9 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
         setError('Write permission not granted');
         return;
       }
-      const mf = await readManifest(projectDir);
-      if (mf) setManifest(mf);
+      const v = await validateProjectFolderStructure(projectDir);
+      if (!v.ok) throw new Error(`Not a valid project folder: ${v.reason}`);
+      setManifest(v.manifest);
       setError(null);
     } catch (e: any) {
       setError(e?.message || String(e));
@@ -349,6 +503,54 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
               ? 'Save failed'
               : ''}
       </div>
+      <div className="self-stretch flex items-center gap-2 px-3 border-0 border-r border-solid border-border text-sm">
+        <span className="text-muted">Set</span>
+        <select
+          value={selectedAnnotationId}
+          onChange={(e) => setSelectedAnnotation(e.target.value)}
+          className="min-w-[180px]"
+        >
+          {annotationEntries.map((entry) => {
+            const label = entry.label || (entry.id === 'default' ? 'Default annotations' : `Annotation set ${entry.id}`);
+            return <option key={entry.file} value={entry.id}>{label}</option>;
+          })}
+        </select>
+        {!isCreatingAnnotationSet ? (
+          <button onClick={() => setIsCreatingAnnotationSet(true)} className="px-3 py-1 border border-subtle bg-canvas text-sm">New set</button>
+        ) : (
+          <>
+            <input
+              value={newAnnotationLabel}
+              onChange={(e) => setNewAnnotationLabel(e.target.value)}
+              placeholder="New set label"
+              className="w-[180px]"
+            />
+            <button onClick={() => void createAnnotationSet()} className="px-3 py-1 border border-subtle bg-canvas text-sm">Create</button>
+            <button onClick={() => { setIsCreatingAnnotationSet(false); setNewAnnotationLabel(''); }} className="px-3 py-1 border border-subtle bg-canvas text-sm">Cancel</button>
+          </>
+        )}
+        {!isRenamingAnnotationSet ? (
+          <button onClick={() => setIsRenamingAnnotationSet(true)} className="px-3 py-1 border border-subtle bg-canvas text-sm" disabled={!selectedAnnotationEntry}>Rename</button>
+        ) : (
+          <>
+            <input
+              value={renameAnnotationLabel}
+              onChange={(e) => setRenameAnnotationLabel(e.target.value)}
+              placeholder="Rename set"
+              className="w-[180px]"
+            />
+            <button onClick={() => void renameSelectedAnnotationSet()} className="px-3 py-1 border border-subtle bg-canvas text-sm">Save name</button>
+            <button onClick={() => { setIsRenamingAnnotationSet(false); setRenameAnnotationLabel(selectedAnnotationLabel); }} className="px-3 py-1 border border-subtle bg-canvas text-sm">Cancel</button>
+          </>
+        )}
+        <button
+          onClick={() => void deleteSelectedAnnotationSet()}
+          className="px-3 py-1 border border-subtle bg-canvas text-sm"
+          disabled={!selectedAnnotationEntry || selectedAnnotationEntry.id === 'default'}
+        >
+          Delete
+        </button>
+      </div>
       <span className="flex-1" />
       <label className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
         <input
@@ -368,7 +570,7 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
         <option value="ml">ML</option>
       </select>
       <div className="self-stretch flex items-center px-3 border-0 border-l border-solid border-border text-sm text-muted">
-        Zoom: {(scale * 100).toFixed(0)}%
+        {selectedAnnotationLabel} · Zoom: {(scale * 100).toFixed(0)}%
       </div>
     </div>
   );
@@ -496,7 +698,11 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
         >
           {imgUrl && (
             <Editor
+              key={`${stillId}:${selectedAnnotationId}`}
               stillId={stillId}
+              annotationId={selectedAnnotationId}
+              annotationFilePath={effectiveSelectedAnnotationEntry.file}
+              annotationLabel={effectiveSelectedAnnotationEntry.label}
               imageInfo={imageInfo}
               imgUrl={imgUrl}
               stageScale={scale}

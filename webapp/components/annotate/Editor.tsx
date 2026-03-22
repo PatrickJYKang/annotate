@@ -3,6 +3,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Rect as KRect, Circle as KCircle, Arrow as KArrow, Text as KText, Image as KImage, Transformer, Line as KLine, Ellipse as KEllipse } from "react-konva";
 import { useProject } from "../../lib/state/ProjectContext";
+import { writeAnnotationDocument } from "../../lib/fs/annotationStorage";
+import type { AnnotationsV1 } from "../../lib/export/d7Render";
 import { computePersonForegroundCutout } from "../../lib/segmentation/personSegmentation";
 import { computeEdgeForegroundCutout } from "../../lib/segmentation/edgeSegmentation";
 import { makeId, hexToRgba, contrastStrokeForHex, dashFromStrokePattern } from "../../lib/annotate/shapeRendering";
@@ -62,10 +64,11 @@ function useImage(url: string | null) {
 
 async function openBackupDB(): Promise<IDBDatabase> {
   return await new Promise((resolve, reject) => {
-    const req = indexedDB.open('annotate-backup-db', 1);
+    const req = indexedDB.open('annotate-backup-db', 2);
     req.onupgradeneeded = () => {
       const db = req.result;
-      if (!db.objectStoreNames.contains('ann-backup')) db.createObjectStore('ann-backup', { keyPath: 'stillId' });
+      if (db.objectStoreNames.contains('ann-backup')) db.deleteObjectStore('ann-backup');
+      db.createObjectStore('ann-backup', { keyPath: 'docKey' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -78,12 +81,12 @@ function hashString(s: string): string {
   return (h >>> 0).toString(16);
 }
 
-async function readBackup(stillId: string): Promise<any | null> {
+async function readBackup(docKey: string): Promise<any | null> {
   try {
     const db = await openBackupDB();
     return await new Promise((resolve, reject) => {
       const tx = db.transaction('ann-backup', 'readonly');
-      const req = tx.objectStore('ann-backup').get(stillId);
+      const req = tx.objectStore('ann-backup').get(docKey);
       req.onsuccess = () => { const v = req.result; db.close(); resolve(v || null); };
       req.onerror = () => { const e = req.error; db.close(); reject(e); };
     });
@@ -107,6 +110,9 @@ async function writeBackup(entry: any): Promise<void> {
 
 export default function Editor({
   stillId,
+  annotationId,
+  annotationFilePath,
+  annotationLabel,
   imageInfo,
   imgUrl,
   stageScale,
@@ -126,6 +132,9 @@ export default function Editor({
   onSaveStatus,
 }: {
   stillId: string;
+  annotationId: string;
+  annotationFilePath: string;
+  annotationLabel?: string;
   imageInfo: { file: string; width: number; height: number };
   imgUrl: string | null;
   stageScale: number;
@@ -194,6 +203,7 @@ export default function Editor({
   const defFillOp = defaultFillOpacity ?? 0.3;
   const defFontSz = defaultFontSize ?? 48;
   const defTextHl = defaultTextHighlight ?? false;
+  const backupDocKey = `${stillId}::${annotationId}`;
 
   const [foregroundCutout, setForegroundCutout] = useState<HTMLCanvasElement | null>(null);
   const foregroundGenRef = useRef(0);
@@ -290,11 +300,15 @@ export default function Editor({
         const anyHandle: any = projectDir as any;
         const q = await (anyHandle?.queryPermission ? anyHandle.queryPermission({ mode: 'read' }) : 'granted');
         if (q !== 'granted') { setIoError('Folder permission not granted'); return; }
-        const dir = await projectDir.getDirectoryHandle('annotations', { create: true });
         let text = '';
         let file: File | null = null;
         try {
-          const fh = await dir.getFileHandle(`${stillId}.json`, { create: false });
+          const parts = annotationFilePath.split('/').filter(Boolean);
+          let cur: FileSystemDirectoryHandle = projectDir;
+          for (let i = 0; i < parts.length - 1; i += 1) {
+            cur = await cur.getDirectoryHandle(parts[i], { create: false });
+          }
+          const fh = await cur.getFileHandle(parts[parts.length - 1], { create: false });
           file = await fh.getFile();
           text = await file.text();
         } catch (e: any) {
@@ -338,8 +352,10 @@ export default function Editor({
         lastFinalRef.current = normalized;
 
         const quad = Array.isArray(json?.perspective?.quad) ? json.perspective.quad as { x: number; y: number }[] : null;
-        const baselineBody = {
+        const baselineBody: AnnotationsV1 = {
           schema: 'annotations.v1',
+          annotationId,
+          label: typeof json?.label === 'string' ? json.label : annotationLabel,
           stillId,
           image: { file: imageInfo.file, width: imageInfo.width, height: imageInfo.height },
           shapes: normalized,
@@ -350,7 +366,7 @@ export default function Editor({
         if (token !== loadGenRef.current) return;
 
         try {
-          const bk = await readBackup(stillId);
+          const bk = await readBackup(backupDocKey);
           if (bk && bk.contentHash && bk.data) {
             const diskHash = hashString(text);
             const fileTs = (file && typeof file.lastModified === 'number') ? file.lastModified : 0;
@@ -398,7 +414,7 @@ export default function Editor({
         setIoError((e as any)?.message || String(e));
       }
     })();
-  }, [projectDir, stillId, defaultAnnColor, imageInfo.file, imageInfo.width, imageInfo.height]);
+  }, [projectDir, stillId, annotationId, annotationFilePath, annotationLabel, backupDocKey, defaultAnnColor, imageInfo.file, imageInfo.width, imageInfo.height]);
 
   useEffect(() => {
     perspectiveRef.current = perspective;
@@ -522,8 +538,10 @@ export default function Editor({
       const livePerspective = perspectiveRef.current;
       const writePerspective = livePerspective || lastNonNullPerspectiveRef.current;
       const finalShapes = Array.isArray(liveShapes) ? liveShapes.filter((s: any) => !s?._temp && !(typeof s?.id === 'string' && s.id.startsWith('_temp_'))) : [];
-      const body = {
+      const body: AnnotationsV1 = {
         schema: 'annotations.v1',
+        annotationId,
+        label: annotationLabel,
         stillId,
         image: { file: imageInfo.file, width: imageInfo.width, height: imageInfo.height },
         shapes: finalShapes,
@@ -544,35 +562,31 @@ export default function Editor({
         if (q !== 'granted' || !hasLoadedRef.current) {
           setIoError('Write permission not granted for project folder.');
           setIsSaving(false);
-          await writeBackup({ stillId, schema: 'annotations.v1', updatedAt: new Date().toISOString(), contentHash, data: body });
+          await writeBackup({ docKey: backupDocKey, stillId, annotationId, schema: 'annotations.v1', updatedAt: new Date().toISOString(), contentHash, data: body });
           if (onSaveStatus) onSaveStatus({ state: 'error', at: new Date().toISOString(), message: 'permission' });
           return;
         }
         try {
-          const dir = await projectDir.getDirectoryHandle('annotations', { create: true });
-          const fh = await dir.getFileHandle(`${stillId}.json`, { create: true });
-          const ws = await fh.createWritable();
-          await ws.write(new Blob([text], { type: 'application/json' }));
-          await ws.close();
+          await writeAnnotationDocument(projectDir, annotationFilePath, body);
           lastSavedHashRef.current = contentHash;
           setIsSaving(false);
-          await writeBackup({ stillId, schema: 'annotations.v1', updatedAt: new Date().toISOString(), contentHash, data: body });
+          await writeBackup({ docKey: backupDocKey, stillId, annotationId, schema: 'annotations.v1', updatedAt: new Date().toISOString(), contentHash, data: body });
           try {
             const bc = new BroadcastChannel('annotate-events');
-            bc.postMessage({ type: 'annotation-saved', stillId, lastModified: new Date().toISOString() });
+            bc.postMessage({ type: 'annotation-saved', stillId, annotationId, file: annotationFilePath, lastModified: new Date().toISOString() });
             bc.close();
           } catch {}
           if (onSaveStatus) onSaveStatus({ state: 'saved', at: new Date().toISOString() });
         } catch (e: any) {
           setIsSaving(false);
           setIoError(e?.message || String(e));
-          await writeBackup({ stillId, schema: 'annotations.v1', updatedAt: new Date().toISOString(), contentHash, data: body });
+          await writeBackup({ docKey: backupDocKey, stillId, annotationId, schema: 'annotations.v1', updatedAt: new Date().toISOString(), contentHash, data: body });
           if (onSaveStatus) onSaveStatus({ state: 'error', at: new Date().toISOString(), message: e?.message || String(e) });
         }
       };
       const navAny: any = navigator as any;
       if (navAny?.locks?.request) {
-        await navAny.locks.request(`save-${stillId}`, { mode: 'exclusive' }, async () => { await doWrite(); });
+        await navAny.locks.request(`save-${backupDocKey}`, { mode: 'exclusive' }, async () => { await doWrite(); });
       } else {
         if (isSaving) return;
         await doWrite();
@@ -581,7 +595,7 @@ export default function Editor({
       setIoError(e?.message || String(e));
       if (onSaveStatus) onSaveStatus({ state: 'error', at: new Date().toISOString(), message: e?.message || String(e) });
     }
-  }, [projectDir, stillId, imageInfo, onSaveStatus, isSaving]);
+  }, [projectDir, stillId, annotationId, annotationFilePath, annotationLabel, backupDocKey, imageInfo, onSaveStatus, isSaving]);
 
   // Debounced save wrapper
   const requestSave = useCallback(() => {

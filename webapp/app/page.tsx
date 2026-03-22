@@ -343,6 +343,9 @@ export default function Page() {
               <button onClick={() => router.push('/metadata')} className="w-full text-left px-3 py-2.5 text-base">
                 {manifest.matchInfo ? 'Edit match info' : 'Set up match info →'}
               </button>
+              <button onClick={() => router.push('/presentations')} className="w-full text-left px-3 py-2.5 text-base">
+                Presentations
+              </button>
               <button onClick={handleImportClick} className="w-full text-left px-3 py-2.5 text-base">
                 Import Video…
               </button>

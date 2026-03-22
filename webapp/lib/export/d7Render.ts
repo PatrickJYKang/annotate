@@ -29,6 +29,8 @@ export type ExportShape = {
 
 export type AnnotationsV1 = {
   schema: 'annotations.v1';
+  annotationId?: string;
+  label?: string;
   stillId: string;
   image: { file: string; width: number; height: number };
   shapes: ExportShape[];

@@ -1,4 +1,5 @@
 import type { ProjectManifestV1 } from '../types/project';
+import { createEmptyAnnotations, readMergedAnnotationsForStill } from '../fs/annotationStorage';
 import { selectionToTagList } from '../tagging/schema';
 import { writeManifest } from '../fs/projectFolder';
 import type { AnnotationsV1, ExportShape } from './d7Render';
@@ -42,7 +43,8 @@ export async function exportD7All(args: {
       const stillFile = await readFileFromPath(projectDir, st.file);
       const bmp = await createImageBitmap(stillFile);
       try {
-        const ann = await readAnnotations(projectDir, st.id, st.file, bmp.width, bmp.height);
+        const ann = await readMergedAnnotationsForStill(projectDir, manifest, st)
+          ?? createEmptyAnnotations({ ...st, width: bmp.width, height: bmp.height });
         const outName = baseName(st.file);
         const annotatedPath = `reports/annotated/${outName}`;
         const blob = await renderAnnotatedPng({ bmp, ann });
@@ -141,22 +143,6 @@ async function writeTextToPath(root: FileSystemDirectoryHandle, path: string, te
   const ws = await fh.createWritable();
   await ws.write(new Blob([text], { type: mime }));
   await ws.close();
-}
-
-async function readAnnotations(root: FileSystemDirectoryHandle, stillId: string, stillFilePath: string, width: number, height: number): Promise<AnnotationsV1> {
-  const path = `annotations/${stillId}.json`;
-  try {
-    const fh = await getFileHandleFromPath(root, path, false);
-    const file = await fh.getFile();
-    const text = await file.text();
-    const json = JSON.parse(text);
-    if (json && json.schema === 'annotations.v1' && Array.isArray(json.shapes)) return json as AnnotationsV1;
-  } catch (e: any) {
-    if (e?.name !== 'NotFoundError') {
-      // ignore
-    }
-  }
-  return { schema: 'annotations.v1', stillId, image: { file: stillFilePath, width, height }, shapes: [] as ExportShape[] };
 }
 
 function countAnnotations(shapes: ExportShape[]) {

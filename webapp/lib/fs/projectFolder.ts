@@ -1,5 +1,7 @@
 import { ProjectManifestV1, defaultProjectManifest } from '../types/project';
+import { scanAnnotationEntries } from './annotationStorage';
 import { writeDefaultTaggingSchema } from '../tagging/schema';
+import { repairManifestIntegrity, summarizeManifestRepairIssues } from '../utils/projectIntegrity';
 
 async function getOrCreateDir(parent: FileSystemDirectoryHandle, name: string) {
   return await parent.getDirectoryHandle(name, { create: true });
@@ -21,6 +23,7 @@ export async function ensureProjectFolderStructure(projectDir: FileSystemDirecto
   await getOrCreateDir(projectDir, 'thumbnails');
   await getOrCreateDir(projectDir, 'reports');
   await getOrCreateDir(projectDir, 'clips');
+  await getOrCreateDir(projectDir, 'presentations');
   const manifest = await ensureManifest(projectDir, projectName);
   try {
     await writeDefaultTaggingSchema(projectDir);
@@ -56,7 +59,17 @@ export async function validateProjectFolderStructure(projectDir: FileSystemDirec
       return { ok: false, reason: `Missing required folder: ${name}/` };
     }
   }
-  return { ok: true, manifest: mf };
+
+  const reindexed = await reindexAnnotations(projectDir, mf);
+  const repaired = repairManifestIntegrity(reindexed);
+  const reindexedChanged = JSON.stringify(reindexed.annotations || []) !== JSON.stringify(mf.annotations || []);
+  if (reindexedChanged || repaired.changed) {
+    await writeManifest(projectDir, repaired.manifest);
+  }
+  if (repaired.issues.length > 0) {
+    return { ok: false, reason: summarizeManifestRepairIssues(repaired.issues) };
+  }
+  return { ok: true, manifest: repaired.manifest };
 }
 
 export async function writeManifest(projectDir: FileSystemDirectoryHandle, manifest: ProjectManifestV1) {
@@ -67,36 +80,7 @@ export async function writeManifest(projectDir: FileSystemDirectoryHandle, manif
 }
 
 export async function reindexAnnotations(projectDir: FileSystemDirectoryHandle, manifest: ProjectManifestV1): Promise<ProjectManifestV1> {
-  const stillIds = new Set((manifest.stills || []).map(s => s.id));
-  let dir: FileSystemDirectoryHandle | null = null;
-  try {
-    dir = await projectDir.getDirectoryHandle('annotations', { create: true });
-  } catch {
-    dir = null;
-  }
-  if (!dir) return manifest;
-
-  const nextAnn: ProjectManifestV1['annotations'] = [];
-  try {
-    for await (const [name, handle] of dir.entries()) {
-      if (!name.toLowerCase().endsWith('.json')) continue;
-      if ((handle as any).kind !== 'file') continue;
-      const stillId = name.slice(0, -'.json'.length);
-      if (!stillIds.has(stillId)) continue;
-      let lastModified: string | undefined = undefined;
-      try {
-        const f = await (handle as FileSystemFileHandle).getFile();
-        if (typeof f.lastModified === 'number' && Number.isFinite(f.lastModified)) {
-          lastModified = new Date(f.lastModified).toISOString();
-        }
-      } catch {}
-      nextAnn.push({ stillId, file: `annotations/${name}`, lastModified });
-    }
-  } catch {
-    return manifest;
-  }
-
-  nextAnn.sort((a, b) => a.stillId.localeCompare(b.stillId));
+  const nextAnn = await scanAnnotationEntries(projectDir, manifest);
   return { ...manifest, annotations: nextAnn };
 }
 

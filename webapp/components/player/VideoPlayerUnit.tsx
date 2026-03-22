@@ -7,6 +7,10 @@ type Mark = { id: string; t_ms: number; tags?: TaggingSelection | string[]; labe
 type Props = {
   src: string | null;
   fps?: number;
+  preload?: "none" | "metadata" | "auto";
+  onTimeUpdate?: () => void;
+  onLoadedMetadata?: () => void;
+  onLoadedData?: () => void;
   hotkeys?: boolean;
   allowFullscreen?: boolean;
   onAddMark?: (t_ms: number) => void;
@@ -57,7 +61,7 @@ function formatTimeNoMs(ms: number): string {
   return hh > 0 ? `${hh}:${pad2(mm)}:${pad2(ss)}` : `${mm}:${pad2(ss)}`;
 }
 
-function VideoPlayerUnitInner({ src, fps = 30, hotkeys = true, allowFullscreen = true, onAddMark, onToggleTag, initialTime, externalSeekMs, skipLargeSeconds = 2, className, style, marks = [], selectedMarkId, onSelectMark, showAddMarkButton = true, enableMarkHotkey = true, locked = false, videoHeight }: Props, ref: React.Ref<VideoPlayerHandle>) {
+function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, onLoadedMetadata, onLoadedData, hotkeys = true, allowFullscreen = true, onAddMark, onToggleTag, initialTime, externalSeekMs, skipLargeSeconds = 2, className, style, marks = [], selectedMarkId, onSelectMark, showAddMarkButton = true, enableMarkHotkey = true, locked = false, videoHeight }: Props, ref: React.Ref<VideoPlayerHandle>) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -377,6 +381,10 @@ function VideoPlayerUnitInner({ src, fps = 30, hotkeys = true, allowFullscreen =
       <video
         ref={videoRef}
         src={src ?? undefined}
+        preload={preload}
+        onTimeUpdate={onTimeUpdate}
+        onLoadedMetadata={onLoadedMetadata}
+        onLoadedData={onLoadedData}
         onClick={() => { wrapperRef.current?.focus(); if (!locked) togglePlay(); }}
         className="w-full block bg-black object-contain flex-1 min-h-0"
       />

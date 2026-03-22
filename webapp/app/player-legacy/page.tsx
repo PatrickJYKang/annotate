@@ -12,6 +12,7 @@ import {
   selectionToTagList,
   TaggingSelection,
 } from "../../lib/tagging/schema";
+import { findMarkAtTimestamp } from "../../lib/utils/projectIntegrity";
 
 function pad2(n: number) { return n < 10 ? `0${n}` : `${n}`; }
 function pad3(n: number) { return n.toString().padStart(3, '0'); }
@@ -147,6 +148,11 @@ export default function PlayerPage() {
   const addMarkAt = useCallback(async (t_ms: number) => {
     const vid = selectedVideoIdRef.current;
     if (!vid) return;
+    const existing = manifestRef.current ? findMarkAtTimestamp(manifestRef.current.marks, vid, t_ms) : null;
+    if (existing) {
+      setSelectedMarkIdSafe(existing.id);
+      return;
+    }
     pushUndo();
     const id = (globalThis.crypto && 'randomUUID' in globalThis.crypto) ? (globalThis.crypto as any).randomUUID() : `mark_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
     const next = await mutateManifestExclusive((mf) => {
