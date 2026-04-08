@@ -7,6 +7,33 @@ import {
   readAnnotationDocumentsForStill,
   type LoadedAnnotationDocument,
 } from '../../lib/fs/annotationStorage';
+import {
+  buildExactMotionPendingOutputPath,
+  buildPreviewProxyPendingOutputPath,
+  cleanupPendingPreviewProxyFilesForActiveJobs,
+  cleanupPendingExactMotionFilesForActiveJobs,
+  deleteFileAtRelativePath,
+  ensurePresentationDerivedMediaStorage,
+  ensurePreviewProxyStorage,
+  getExactMotionAssetIndexEntryByGenerationKey,
+  getPreviewProxyIndexEntryByGenerationKey,
+  promoteExactMotionJobIfCurrent,
+  promotePreviewProxyJobIfCurrent,
+  readPresentationDerivedMediaJobQueue,
+  readPreviewProxyDerivedMediaJobQueue,
+  reconcileExactMotionIndexWithCurrentGenerationKeys,
+  syncExactMotionIndexWithFailedJobs,
+  upsertExactMotionAssetIndexEntry,
+  upsertPreviewProxyIndexEntry,
+  validateExactMotionAssetIndex,
+  validatePreviewProxyIndex,
+  writeBlobAtRelativePath,
+  writeExactMotionAssetIndex,
+  writePresentationDerivedMediaJobQueue,
+  writePresentationPreparationStatus,
+  writePreviewProxyDerivedMediaJobQueue,
+  writePreviewProxyIndex,
+} from '../../lib/fs/derivedMediaStorage';
 import { listClips, resolveMarkPinning } from '../../lib/fs/clipStorage';
 import { writeManifest } from '../../lib/fs/projectFolder';
 import { writePresentation } from '../../lib/fs/presentationStorage';
@@ -16,6 +43,55 @@ import type { Presentation, PresentationSlide, PresentationTransition, TitleSlid
 import type { TaggingSchema } from '../../lib/tagging/schema';
 import type { AnnotationsV1 } from '../../lib/export/d7Render';
 import { renderAnnotatedPng } from '../../lib/export/d7Render';
+import type {
+  PlaybackAssetRegistry,
+  PreferredPlaybackAssetIdByVideoId,
+  PresentationPreparationStatusRecord,
+  ResolvedPlaybackAsset,
+} from '../../lib/presentation/derivedMediaTypes';
+import { createPlaybackAssetObjectUrlRegistry } from '../../lib/presentation/playbackAssetObjectUrls';
+import { recordMediaTrace } from '../../lib/presentation/mediaTrace';
+import {
+  enqueueDerivedMediaGenerationRequest,
+  isQueuedExactMotionJobCurrentForPromotion,
+  isQueuedPreviewProxyJobCurrentForPromotion,
+  isTerminalDerivedMediaJobStatus,
+  updateDerivedMediaJobSnapshot,
+} from '../../lib/presentation/derivedMediaJobs';
+import {
+  cleanupDerivedMediaJob,
+  downloadDerivedMediaJobOutput,
+  getDerivedMediaJobStatus,
+  registerVideoFile,
+  requestExactMotionEncode,
+  startPreviewProxyEncodeJob,
+  unregisterVideoRef,
+} from '../../lib/clip/sidecarClient';
+import {
+  buildPreviewProxyAssetId,
+  buildWeakSourceFingerprint,
+} from '../../lib/presentation/derivedMediaKeys';
+import {
+  buildPreparePresentationExactMotionRequest,
+  buildPresentationPreparationStatusRecord,
+  collectPresentClosureRequirements,
+  collectPresentClosureVideoIds,
+  evaluatePresentClosureRequirements,
+  type PresentClosureEvaluation,
+} from '../../lib/presentation/presentPreparation';
+import {
+  buildInteractivePreviewProxyGenerationPlan,
+  countPresentationVideoReferences,
+} from '../../lib/presentation/previewProxyPlanning';
+import {
+  buildClipPlaybackPreferenceKey,
+  buildOriginalPlaybackAssetId,
+  buildTransitionPlaybackPreferenceKey,
+  createOriginalPlaybackAsset,
+  findReadyExactClipPlaybackAsset,
+  findReadyExactTransitionPlaybackAsset,
+  findReadyPreviewProxyPlaybackAsset,
+} from '../../lib/presentation/playbackAssetResolver';
 import { usePresentationPlayerController } from '../../lib/presentation/playerController';
 import {
   buildPresentationAssetIndex,
@@ -41,6 +117,27 @@ export interface PresentationAuthoringEditorProps {
 }
 
 const SAVE_DEBOUNCE_MS = 400;
+const PREVIEW_PROXY_POLL_MS = 1500;
+
+type PreviewProxyTouchState = {
+  touchCountByVideoId: Record<string, number>;
+  lastTouchKeyByVideoId: Record<string, string>;
+};
+
+const previewProxyTouchStateByProject = new WeakMap<FileSystemDirectoryHandle, PreviewProxyTouchState>();
+
+function getPreviewProxyTouchState(projectDir: FileSystemDirectoryHandle): PreviewProxyTouchState {
+  const existing = previewProxyTouchStateByProject.get(projectDir);
+  if (existing) {
+    return existing;
+  }
+  const next: PreviewProxyTouchState = {
+    touchCountByVideoId: {},
+    lastTouchKeyByVideoId: {},
+  };
+  previewProxyTouchStateByProject.set(projectDir, next);
+  return next;
+}
 
 function baseName(path: string): string {
   return path.split('/').filter(Boolean).pop() || path;
@@ -90,6 +187,11 @@ function revokeUrls(urls: Record<string, string>) {
   });
 }
 
+function isMissingDerivedMediaJobError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('Unknown derived-media job');
+}
+
 export default function PresentationAuthoringEditor({
   projectDir,
   manifest,
@@ -113,16 +215,30 @@ export default function PresentationAuthoringEditor({
   const [annotationsByStillId, setAnnotationsByStillId] = useState<Record<string, AnnotationsV1 | null>>({});
   const [annotationDocumentsByStillId, setAnnotationDocumentsByStillId] = useState<Record<string, LoadedAnnotationDocument[]>>({});
   const [clips, setClips] = useState<Clip[]>([]);
-  const [videoUrlById, setVideoUrlById] = useState<Record<string, string>>({});
+  const [playbackAssetById, setPlaybackAssetById] = useState<PlaybackAssetRegistry>({});
+  const [preferredPlaybackAssetIdByVideoId, setPreferredPlaybackAssetIdByVideoId] = useState<PreferredPlaybackAssetIdByVideoId>({});
+  const [preferredPlaybackAssetIdsByPlaybackKey, setPreferredPlaybackAssetIdsByPlaybackKey] = useState<Record<string, string[]>>({});
   const [selectedMarkId, setSelectedMarkId] = useState<string | null>(null);
   const [captureBusyMarkId, setCaptureBusyMarkId] = useState<string | null>(null);
   const [isPresentMode, setIsPresentMode] = useState(false);
+  const [presentModePolicy, setPresentModePolicy] = useState<'exact' | 'fallback' | null>(null);
   const [isRetrievalBrowserOpen, setIsRetrievalBrowserOpen] = useState(false);
+  const [presentBusy, setPresentBusy] = useState(false);
+  const [resolvedPlaybackAsset, setResolvedPlaybackAsset] = useState<ResolvedPlaybackAsset | null>(null);
   const stillUrlRegistryRef = useRef<Record<string, string>>({});
   const annotatedUrlRegistryRef = useRef<Record<string, string>>({});
   const thumbnailUrlRegistryRef = useRef<Record<string, string>>({});
-  const videoUrlRegistryRef = useRef<Record<string, string>>({});
+  const retrievalDirectVideoUrlByVideoIdRef = useRef<Record<string, string>>({});
+  const retrievalDirectVideoPathByVideoIdRef = useRef<Record<string, string>>({});
+  const playbackAssetRegistryRef = useRef<PlaybackAssetRegistry>({});
+  const previewProxyWorkerRunningRef = useRef(false);
+  const previewProxyPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const exactMotionWorkerRunningRef = useRef(false);
+  const derivedMediaVideoRefByPathRef = useRef<Record<string, string>>({});
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const [previewProxyWorkerPass, setPreviewProxyWorkerPass] = useState(0);
+  const [exactMotionWorkerPass, setExactMotionWorkerPass] = useState(0);
+  const [derivedMediaAssetRefreshPass, setDerivedMediaAssetRefreshPass] = useState(0);
 
   useEffect(() => {
     setWorkingManifest(manifest);
@@ -140,6 +256,62 @@ export default function PresentationAuthoringEditor({
     const id = window.setTimeout(() => setToast(null), 2200);
     return () => window.clearTimeout(id);
   }, [toast]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const ensureDerivedMediaStorage = async () => {
+      await Promise.all([
+        ensurePreviewProxyStorage(projectDir),
+        ensurePresentationDerivedMediaStorage(projectDir, presentation.id),
+      ]);
+    };
+    void ensureDerivedMediaStorage().catch((e: any) => {
+      if (!cancelled) {
+        setToast(e?.message || String(e));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectDir, presentation.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const cleanupPendingExactMotion = async () => {
+      const queue = await readPresentationDerivedMediaJobQueue(projectDir, presentation.id);
+      await cleanupPendingExactMotionFilesForActiveJobs(projectDir, presentation.id, queue);
+      if (!cancelled) {
+        setExactMotionWorkerPass((value) => value + 1);
+      }
+    };
+    void cleanupPendingExactMotion().catch((error: any) => {
+      if (!cancelled) {
+        setToast(error?.message || String(error));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectDir, presentation.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const cleanupPendingPreviewProxy = async () => {
+      const queue = await readPreviewProxyDerivedMediaJobQueue(projectDir);
+      await cleanupPendingPreviewProxyFilesForActiveJobs(projectDir, queue);
+      if (!cancelled) {
+        setPreviewProxyWorkerPass((value) => value + 1);
+      }
+    };
+    void cleanupPendingPreviewProxy().catch((error: any) => {
+      if (!cancelled) {
+        setToast(error?.message || String(error));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectDir]);
 
   const persistDraft = useCallback(async () => {
     setSaveState('saving');
@@ -176,6 +348,20 @@ export default function PresentationAuthoringEditor({
     };
   }, [projectDir]);
 
+  useEffect(() => {
+    return () => {
+      const videoRefs = Object.values(derivedMediaVideoRefByPathRef.current);
+      derivedMediaVideoRefByPathRef.current = {};
+      if (previewProxyPollTimerRef.current) {
+        clearTimeout(previewProxyPollTimerRef.current);
+        previewProxyPollTimerRef.current = null;
+      }
+      videoRefs.forEach((videoRef) => {
+        void unregisterVideoRef(videoRef).catch(() => {});
+      });
+    };
+  }, [draftPresentation.id]);
+
   const clipById = useMemo(() => {
     return clips.reduce<Record<string, Clip>>((acc, clip) => {
       acc[clip.id] = clip;
@@ -205,6 +391,29 @@ export default function PresentationAuthoringEditor({
     const handle = await current.getFileHandle(parts[parts.length - 1], { create: false });
     return await handle.getFile();
   }, []);
+
+  const playbackAssetObjectUrlRegistry = useMemo(() => {
+    void draftPresentation.id;
+    return createPlaybackAssetObjectUrlRegistry({
+      projectDir,
+      getFileForPath,
+    });
+  }, [draftPresentation.id, projectDir, getFileForPath]);
+
+  useEffect(() => {
+    revokeUrls(retrievalDirectVideoUrlByVideoIdRef.current);
+    retrievalDirectVideoUrlByVideoIdRef.current = {};
+    retrievalDirectVideoPathByVideoIdRef.current = {};
+    playbackAssetRegistryRef.current = {};
+    setPlaybackAssetById({});
+    setPreferredPlaybackAssetIdByVideoId({});
+    setPreferredPlaybackAssetIdsByPlaybackKey({});
+    setResolvedPlaybackAsset(null);
+    setPresentBusy(false);
+    setIsPresentMode(false);
+    setPresentModePolicy(null);
+    setIsRetrievalBrowserOpen(false);
+  }, [draftPresentation.id]);
 
   const writeBlobToFile = useCallback(async (dir: FileSystemDirectoryHandle, subdir: string, fileName: string, blob: Blob) => {
     const targetDir = await dir.getDirectoryHandle(subdir, { create: true });
@@ -422,59 +631,259 @@ export default function PresentationAuthoringEditor({
     && currentTransition.videoId
     ? currentTransition.videoId
     : null;
+  const activePreviewProxyTouchKey = useMemo(() => {
+    if (state.mode === 'clip') {
+      return `clip:${state.slide.id}:${state.clip.id}:${state.clip.videoId}`;
+    }
+    if (state.mode !== 'video') {
+      return null;
+    }
+    if (state.source === 'retrieval') {
+      // Retrieved mark preview stays on the older direct original-video loader for now.
+      return null;
+    }
+    if (state.source === 'transition') {
+      return `transition:${selectedSlideIndex}:${state.videoId}:${state.startMs}:${state.endMs ?? 'none'}`;
+    }
+    if (state.source === 'clip') {
+      return `clip-video:${selectedSlideIndex}:${state.videoId}:${state.startMs}:${state.endMs ?? 'none'}`;
+    }
+    return null;
+  }, [state, selectedSlideIndex]);
   const requestedVideoIds = useMemo(() => Array.from(new Set([
     activeVideoId,
     warmedTransitionVideoId,
   ].filter((value): value is string => !!value))), [activeVideoId, warmedTransitionVideoId]);
 
   useEffect(() => {
-    if (requestedVideoIds.length === 0) return;
-    const missingVideoIds = requestedVideoIds.filter((videoId) => !videoUrlRegistryRef.current[videoId]);
-    const cachedVideoIds = requestedVideoIds.filter((videoId) => !!videoUrlRegistryRef.current[videoId]);
-    if (cachedVideoIds.length > 0) {
-      setVideoUrlById((prev) => {
-        let changed = false;
-        const next = { ...prev };
-        for (const videoId of cachedVideoIds) {
-          const cachedUrl = videoUrlRegistryRef.current[videoId];
-          if (cachedUrl && !next[videoId]) {
-            next[videoId] = cachedUrl;
-            changed = true;
-          }
-        }
-        return changed ? next : prev;
-      });
-    }
-    if (missingVideoIds.length === 0) {
+    if (!activeVideoId || !activePreviewProxyTouchKey) {
       return;
     }
+    const touchState = getPreviewProxyTouchState(projectDir);
+    if (touchState.lastTouchKeyByVideoId[activeVideoId] === activePreviewProxyTouchKey) {
+      return;
+    }
+    touchState.lastTouchKeyByVideoId[activeVideoId] = activePreviewProxyTouchKey;
+    touchState.touchCountByVideoId[activeVideoId] = (touchState.touchCountByVideoId[activeVideoId] ?? 0) + 1;
+  }, [projectDir, activeVideoId, activePreviewProxyTouchKey]);
+
+  useEffect(() => {
+    if (requestedVideoIds.length === 0) {
+      setPreferredPlaybackAssetIdsByPlaybackKey({});
+      return;
+    }
+    const activeTransitionPlaybackKey = state.mode === 'video' && state.source === 'transition'
+      ? buildTransitionPlaybackPreferenceKey({
+          presentationId: draftPresentation.id,
+          slotKey: state.source,
+          videoId: state.videoId,
+          startMs: state.startMs,
+          endMs: state.endMs ?? null,
+        })
+      : null;
+    const activeClipPlaybackKey = state.mode === 'clip'
+      ? buildClipPlaybackPreferenceKey({
+          presentationId: draftPresentation.id,
+          slideId: state.slide.id,
+          videoId: state.clip.videoId,
+          startMs: state.clip.startMs,
+          endMs: state.clip.endMs,
+        })
+      : null;
+    const warmedTransitionPlaybackKey = currentTransition?.transition.mode === 'match_video'
+      && currentTransition.playable
+      && currentTransition.videoId
+      && currentTransition.startMs != null
+      && currentTransition.endMs != null
+      ? buildTransitionPlaybackPreferenceKey({
+          presentationId: draftPresentation.id,
+          slotKey: `warm:${currentTransition.fromSlideIndex}`,
+          videoId: currentTransition.videoId,
+          startMs: currentTransition.startMs,
+          endMs: currentTransition.endMs,
+        })
+      : null;
     let cancelled = false;
     const loadVideos = async () => {
-      const nextEntries: Record<string, string> = {};
+      const nextAssets: PlaybackAssetRegistry = {};
+      const nextPreferred: PreferredPlaybackAssetIdByVideoId = {};
+      const nextPreferredByPlaybackKey: Record<string, string[]> = {};
+      let previewProxyIndex = await validatePreviewProxyIndex(projectDir);
+      let previewProxyJobQueue = await readPreviewProxyDerivedMediaJobQueue(projectDir);
+      const exactMotionIndex = await validateExactMotionAssetIndex(projectDir, draftPresentation.id);
+      const sourceFingerprintByVideoId: Record<string, string> = {};
+      let previewProxyQueueChanged = false;
+      let previewProxyIndexChanged = false;
+      const createdAt = new Date().toISOString();
       try {
-        for (const videoId of missingVideoIds) {
+        for (const videoId of requestedVideoIds) {
           const video = workingManifest.videos.find((entry) => entry.id === videoId);
           if (!video) throw new Error(`Video not found: ${videoId}`);
           const file = await getFileForPath(projectDir, video.file);
-          const url = URL.createObjectURL(file);
-          if (cancelled) {
-            URL.revokeObjectURL(url);
-            continue;
+          const sourceFingerprint = buildWeakSourceFingerprint({
+            projectRelativeVideoPath: video.file,
+            byteSize: file.size,
+            lastModifiedMs: file.lastModified,
+          });
+          sourceFingerprintByVideoId[videoId] = sourceFingerprint;
+
+          const previewAsset = findReadyPreviewProxyPlaybackAsset({
+            videoId,
+            sourceFingerprint,
+            previewProxyEntries: previewProxyIndex.entries,
+          });
+          const shouldQueueInteractivePreviewProxy = !(
+            state.mode === 'video'
+            && state.source === 'retrieval'
+            && state.videoId === videoId
+          );
+          if (previewAsset) {
+            nextAssets[previewAsset.assetId] = previewAsset;
+            nextPreferred[videoId] = previewAsset.assetId;
+          } else if (shouldQueueInteractivePreviewProxy) {
+            const touchState = getPreviewProxyTouchState(projectDir);
+            const presentationReferenceCount = countPresentationVideoReferences({
+              presentation: draftPresentation,
+              manifest: workingManifest,
+              clipById,
+              videoId,
+            });
+            const previewPlan = buildInteractivePreviewProxyGenerationPlan({
+              videoId,
+              sourceFingerprint,
+              sourceVideoPath: video.file,
+              previewProxyIndex,
+              previewJobQueue: previewProxyJobQueue,
+              byteSize: file.size,
+              durationMs: video.durationMs ?? null,
+              sessionTouchCount: touchState.touchCountByVideoId[videoId] ?? 0,
+              presentationReferenceCount,
+            });
+            const existingPreviewEntry = getPreviewProxyIndexEntryByGenerationKey(previewProxyIndex, previewPlan.generationKey);
+            if (previewPlan.request) {
+              const enqueueResult = enqueueDerivedMediaGenerationRequest(previewProxyJobQueue, previewPlan.request, 'interactive');
+              previewProxyJobQueue = enqueueResult.queue;
+              previewProxyQueueChanged = previewProxyQueueChanged || enqueueResult.created;
+              previewProxyIndex = upsertPreviewProxyIndexEntry(previewProxyIndex, {
+                assetId: previewPlan.assetId,
+                generationKey: previewPlan.generationKey,
+                sourceVideoId: videoId,
+                sourceFingerprint,
+                relativePath: previewPlan.relativePath,
+                status: 'queued',
+                profileVersion: previewPlan.request.profileVersion,
+                createdAt: existingPreviewEntry?.createdAt ?? createdAt,
+                lastUsedAt: existingPreviewEntry?.lastUsedAt,
+                byteSize: existingPreviewEntry?.byteSize,
+                durationMs: existingPreviewEntry?.durationMs,
+                error: undefined,
+              });
+              previewProxyIndexChanged = true;
+            }
           }
-          nextEntries[videoId] = url;
+
+          const originalAssetId = buildOriginalPlaybackAssetId(videoId);
+          let directOriginalObjectUrl: string | null = null;
+          if (state.mode === 'video' && state.source === 'retrieval' && state.videoId === videoId) {
+            const existingDirectUrl = retrievalDirectVideoUrlByVideoIdRef.current[videoId] ?? null;
+            const existingDirectPath = retrievalDirectVideoPathByVideoIdRef.current[videoId] ?? null;
+            if (existingDirectUrl && existingDirectPath === video.file) {
+              directOriginalObjectUrl = existingDirectUrl;
+            } else {
+              directOriginalObjectUrl = URL.createObjectURL(file);
+              if (existingDirectUrl && existingDirectUrl !== directOriginalObjectUrl) {
+                try {
+                  URL.revokeObjectURL(existingDirectUrl);
+                } catch {}
+              }
+              retrievalDirectVideoUrlByVideoIdRef.current[videoId] = directOriginalObjectUrl;
+              retrievalDirectVideoPathByVideoIdRef.current[videoId] = video.file;
+              console.info('[PresentationAuthoringEditor] Loaded direct retrieval video URL', {
+                videoId,
+                filePath: video.file,
+              });
+            }
+          }
+          const asset = createOriginalPlaybackAsset(videoId, video.file, directOriginalObjectUrl);
+          nextAssets[asset.assetId] = asset;
+          if (!nextPreferred[videoId]) {
+            nextPreferred[videoId] = originalAssetId;
+          }
+        }
+
+        if (currentTransition?.transition.mode === 'match_video'
+          && currentTransition.playable
+          && currentTransition.videoId
+          && currentTransition.startMs != null
+          && currentTransition.endMs != null) {
+          const fromSlide = draftPresentation.slides[currentTransition.fromSlideIndex];
+          const toSlide = draftPresentation.slides[currentTransition.toSlideIndex];
+          const sourceFingerprint = sourceFingerprintByVideoId[currentTransition.videoId];
+          if (fromSlide && toSlide && sourceFingerprint) {
+            const exactAsset = findReadyExactTransitionPlaybackAsset({
+              presentationId: draftPresentation.id,
+              transitionIndex: currentTransition.fromSlideIndex,
+              fromSlideId: fromSlide.id,
+              toSlideId: toSlide.id,
+              sourceVideoId: currentTransition.videoId,
+              sourceFingerprint,
+              startMs: currentTransition.startMs,
+              endMs: currentTransition.endMs,
+              playbackRate: currentTransition.playbackRate ?? null,
+              startOffsetMs: currentTransition.transition.startOffsetMs ?? null,
+              endOffsetMs: currentTransition.transition.endOffsetMs ?? null,
+              hideAnnotationsDuringPlayback: currentTransition.hideAnnotationsDuringPlayback ?? false,
+              exactMotionEntries: exactMotionIndex.entries,
+            });
+            if (exactAsset) {
+              nextAssets[exactAsset.assetId] = exactAsset;
+              const exactPreference = [exactAsset.assetId];
+              if (activeTransitionPlaybackKey) {
+                nextPreferredByPlaybackKey[activeTransitionPlaybackKey] = exactPreference;
+              }
+              if (warmedTransitionPlaybackKey) {
+                nextPreferredByPlaybackKey[warmedTransitionPlaybackKey] = exactPreference;
+              }
+            }
+          }
+        }
+
+        if (state.mode === 'clip') {
+          const sourceFingerprint = sourceFingerprintByVideoId[state.clip.videoId];
+          if (sourceFingerprint && activeClipPlaybackKey) {
+            const exactAsset = findReadyExactClipPlaybackAsset({
+              presentationId: draftPresentation.id,
+              clipId: state.clip.id,
+              slideId: state.slide.id,
+              sourceVideoId: state.clip.videoId,
+              sourceFingerprint,
+              startMs: state.clip.startMs,
+              endMs: state.clip.endMs,
+              exactMotionEntries: exactMotionIndex.entries,
+            });
+            if (exactAsset) {
+              nextAssets[exactAsset.assetId] = exactAsset;
+              nextPreferredByPlaybackKey[activeClipPlaybackKey] = [exactAsset.assetId];
+            }
+          }
         }
         if (cancelled) {
-          Object.values(nextEntries).forEach((url) => {
-            URL.revokeObjectURL(url);
-          });
           return;
         }
-        videoUrlRegistryRef.current = { ...videoUrlRegistryRef.current, ...nextEntries };
-        setVideoUrlById((prev) => ({ ...prev, ...nextEntries }));
+        if (previewProxyQueueChanged) {
+          await writePreviewProxyDerivedMediaJobQueue(projectDir, previewProxyJobQueue);
+        }
+        if (previewProxyIndexChanged) {
+          await writePreviewProxyIndex(projectDir, previewProxyIndex);
+        }
+        if (previewProxyQueueChanged) {
+          setPreviewProxyWorkerPass((value) => value + 1);
+        }
+        playbackAssetRegistryRef.current = { ...playbackAssetRegistryRef.current, ...nextAssets };
+        setPlaybackAssetById((prev) => ({ ...prev, ...nextAssets }));
+        setPreferredPlaybackAssetIdByVideoId((prev) => ({ ...prev, ...nextPreferred }));
+        setPreferredPlaybackAssetIdsByPlaybackKey(nextPreferredByPlaybackKey);
       } catch (error) {
-        Object.values(nextEntries).forEach((url) => {
-          URL.revokeObjectURL(url);
-        });
         throw error;
       }
     };
@@ -486,16 +895,28 @@ export default function PresentationAuthoringEditor({
     return () => {
       cancelled = true;
     };
-  }, [requestedVideoIds, workingManifest.videos, projectDir, getFileForPath]);
+  }, [
+    requestedVideoIds,
+    state,
+    currentTransition,
+    workingManifest,
+    draftPresentation,
+    clipById,
+    projectDir,
+    getFileForPath,
+    selectedSlideIndex,
+    derivedMediaAssetRefreshPass,
+  ]);
 
   useEffect(() => {
     return () => {
       revokeUrls(stillUrlRegistryRef.current);
       revokeUrls(annotatedUrlRegistryRef.current);
       revokeUrls(thumbnailUrlRegistryRef.current);
-      revokeUrls(videoUrlRegistryRef.current);
+      revokeUrls(retrievalDirectVideoUrlByVideoIdRef.current);
+      playbackAssetObjectUrlRegistry.dispose();
     };
-  }, []);
+  }, [playbackAssetObjectUrlRegistry]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -503,6 +924,7 @@ export default function PresentationAuthoringEditor({
       const isFullscreen = !!(doc.fullscreenElement || doc.webkitFullscreenElement);
       if (!isFullscreen) {
         setIsPresentMode(false);
+        setPresentModePolicy(null);
         setIsRetrievalBrowserOpen(false);
       }
     };
@@ -525,6 +947,88 @@ export default function PresentationAuthoringEditor({
     };
   }, [saveState]);
 
+  const computePresentClosureState = useCallback(async (): Promise<{
+    evaluation: PresentClosureEvaluation;
+    statusRecord: PresentationPreparationStatusRecord;
+  }> => {
+    const closureVideoIds = collectPresentClosureVideoIds(draftPresentation, workingManifest, clipById);
+    const sourceFingerprintByVideoId: Record<string, string> = {};
+    for (const videoId of closureVideoIds) {
+      const video = workingManifest.videos.find((entry) => entry.id === videoId);
+      if (!video) continue;
+      const file = await getFileForPath(projectDir, video.file);
+      sourceFingerprintByVideoId[videoId] = buildWeakSourceFingerprint({
+        projectRelativeVideoPath: video.file,
+        byteSize: file.size,
+        lastModifiedMs: file.lastModified,
+      });
+    }
+    const jobQueue = await readPresentationDerivedMediaJobQueue(projectDir, draftPresentation.id);
+    await syncExactMotionIndexWithFailedJobs(projectDir, draftPresentation.id, jobQueue);
+    let exactMotionIndex = await validateExactMotionAssetIndex(projectDir, draftPresentation.id);
+    const requirements = collectPresentClosureRequirements({
+      presentation: draftPresentation,
+      manifest: workingManifest,
+      clipById,
+      sourceFingerprintByVideoId,
+      exactMotionIndex,
+    });
+    const referencedGenerationKeys = new Set(
+      requirements
+        .map((requirement) => requirement.generationKey)
+        .filter((generationKey): generationKey is string => !!generationKey),
+    );
+    const reconciledIndexResult = await reconcileExactMotionIndexWithCurrentGenerationKeys(
+      projectDir,
+      draftPresentation.id,
+      exactMotionIndex,
+      referencedGenerationKeys,
+    );
+    if (reconciledIndexResult.changed) {
+      exactMotionIndex = reconciledIndexResult.index;
+      await writeExactMotionAssetIndex(projectDir, draftPresentation.id, exactMotionIndex);
+    }
+    const reconciledRequirements = reconciledIndexResult.changed
+      ? collectPresentClosureRequirements({
+          presentation: draftPresentation,
+          manifest: workingManifest,
+          clipById,
+          sourceFingerprintByVideoId,
+          exactMotionIndex,
+        })
+      : requirements;
+    const evaluation = evaluatePresentClosureRequirements(reconciledRequirements);
+    const queuedJobCount = jobQueue.jobs.filter((job) => (
+      job.executionMode === 'prepare_presentation'
+      && job.snapshot.presentationId === draftPresentation.id
+      && !isTerminalDerivedMediaJobStatus(job.snapshot.status)
+    )).length;
+    const statusRecord = buildPresentationPreparationStatusRecord(evaluation, queuedJobCount);
+    await writePresentationPreparationStatus(projectDir, draftPresentation.id, {
+      schema: 1,
+      preparation: statusRecord,
+    });
+    return {
+      evaluation,
+      statusRecord,
+    };
+  }, [draftPresentation, workingManifest, clipById, projectDir, getFileForPath]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadPresentClosureEvaluation = async () => {
+      await computePresentClosureState();
+    };
+    void loadPresentClosureEvaluation().catch(() => {
+      if (!cancelled) {
+        setToast('Unable to refresh presentation playback readiness');
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [computePresentClosureState]);
+
   const assetIndex = useMemo(() => buildPresentationAssetIndex(taggingSchema, workingManifest), [taggingSchema, workingManifest]);
   const selectedSlide = selectedSlideIndex >= 0 ? draftPresentation.slides[selectedSlideIndex] ?? null : null;
   const selectedStillId = selectedSlide?.kind === 'still' ? selectedSlide.stillId : null;
@@ -532,12 +1036,17 @@ export default function PresentationAuthoringEditor({
   const selectedStillSourceMarkId = state.mode === 'still' ? state.still.sourceMarkId ?? null : null;
 
   const previewMark = useCallback((mark: ProjectManifestV1['marks'][number]) => {
+    if (isPresentMode && presentModePolicy === 'exact') {
+      setIsRetrievalBrowserOpen(false);
+      setToast('Mark retrieval is unavailable during exact presentation playback');
+      return;
+    }
     setSelectedMarkId(mark.id);
     if (isPresentMode) {
       setIsRetrievalBrowserOpen(false);
     }
     retrieveMark(mark);
-  }, [isPresentMode, retrieveMark]);
+  }, [isPresentMode, presentModePolicy, retrieveMark]);
 
   const updateSelectedSlide = useCallback((updater: (slide: PresentationSlide) => PresentationSlide, immediate = false) => {
     if (selectedSlideIndex < 0) return;
@@ -684,11 +1193,11 @@ export default function PresentationAuthoringEditor({
     ? `Still slide ${selectedSlideIndex + 1}`
     : state.mode === 'clip'
       ? `Clip slide ${selectedSlideIndex + 1}`
-    : state.mode === 'title'
+      : state.mode === 'title'
       ? `Title slide ${selectedSlideIndex + 1}`
       : state.mode === 'video'
         ? state.source === 'transition'
-          ? 'Transition preview'
+          ? (isPresentMode ? 'Transition' : 'Transition preview')
           : 'Retrieved mark preview'
         : state.mode === 'missing'
           ? 'Missing asset'
@@ -696,8 +1205,656 @@ export default function PresentationAuthoringEditor({
 
   const activeBrowserMarkId = selectedMarkId ?? selectedStillSourceMarkId;
 
-  const enterPresentMode = useCallback(async () => {
+  const isRetrievalVideoState = state.mode === 'video' && state.source === 'retrieval';
+  const directRetrievalVideoUrl = isRetrievalVideoState
+    ? retrievalDirectVideoUrlByVideoIdRef.current[state.videoId] ?? null
+    : null;
+  const presentStateSource = state.mode === 'video' ? state.source : null;
+
+  const refreshPresentClosureState = useCallback(async () => {
+    await computePresentClosureState();
+  }, [computePresentClosureState]);
+
+  const requestPreviewProxyWorkerPass = useCallback(() => {
+    setPreviewProxyWorkerPass((value) => value + 1);
+  }, []);
+
+  const schedulePreviewProxyWorkerPoll = useCallback((delayMs: number = PREVIEW_PROXY_POLL_MS) => {
+    if (previewProxyPollTimerRef.current) {
+      return;
+    }
+    previewProxyPollTimerRef.current = setTimeout(() => {
+      previewProxyPollTimerRef.current = null;
+      requestPreviewProxyWorkerPass();
+    }, delayMs);
+  }, [requestPreviewProxyWorkerPass]);
+
+  const requestExactMotionWorkerPass = useCallback(() => {
+    setExactMotionWorkerPass((value) => value + 1);
+  }, []);
+
+  const requestDerivedMediaAssetRefresh = useCallback(() => {
+    setDerivedMediaAssetRefreshPass((value) => value + 1);
+  }, []);
+
+  const ensureDerivedMediaVideoRef = useCallback(async (videoPath: string) => {
+    const existing = derivedMediaVideoRefByPathRef.current[videoPath];
+    if (existing) {
+      return existing;
+    }
+    const file = await getFileForPath(projectDir, videoPath);
+    const registration = await registerVideoFile(file);
+    derivedMediaVideoRefByPathRef.current[videoPath] = registration.videoRef;
+    return registration.videoRef;
+  }, [getFileForPath, projectDir]);
+
+  const processNextPreviewProxyJob = useCallback(async () => {
+    if (previewProxyWorkerRunningRef.current) {
+      return false;
+    }
+    previewProxyWorkerRunningRef.current = true;
+    try {
+      let jobQueue = await readPreviewProxyDerivedMediaJobQueue(projectDir);
+      const nextJob = jobQueue.jobs.find((job) => (
+        job.request.kind === 'preview_proxy_generate'
+        && job.snapshot.kind === 'preview_proxy_generate'
+        && !isTerminalDerivedMediaJobStatus(job.snapshot.status)
+      ));
+      if (!nextJob || nextJob.request.kind !== 'preview_proxy_generate') {
+        return false;
+      }
+
+      const sourceVideo = workingManifest.videos.find((video) => video.id === nextJob.request.sourceVideoId);
+      if (!sourceVideo) {
+        throw new Error(`Source video not found: ${nextJob.request.sourceVideoId}`);
+      }
+      const relativePath = nextJob.request.outputPath.replace('derived-media/preview-proxies/', '');
+
+      const writePreviewProxyQueueStatus = async ({
+        status,
+        label,
+        error,
+        remoteJobId,
+      }: {
+        status: 'queued' | 'running' | 'finalizing' | 'ready' | 'failed' | 'cancelled' | 'obsolete';
+        label: string;
+        error?: string;
+        remoteJobId?: string;
+      }) => {
+        jobQueue = {
+          schema: jobQueue.schema,
+          jobs: jobQueue.jobs.map((job) => job.snapshot.jobId !== nextJob.snapshot.jobId
+            ? job
+            : {
+                ...job,
+                snapshot: updateDerivedMediaJobSnapshot(job.snapshot, {
+                  status,
+                  error,
+                  remoteJobId,
+                  progress: {
+                    ...job.snapshot.progress,
+                    status,
+                    label,
+                    durationMs: sourceVideo.durationMs ?? job.snapshot.progress?.durationMs,
+                  },
+                }),
+              }),
+        };
+        await writePreviewProxyDerivedMediaJobQueue(projectDir, jobQueue);
+      };
+
+      const writePreviewProxyIndexStatus = async ({
+        status,
+        error,
+        byteSize,
+      }: {
+        status: 'queued' | 'running' | 'ready' | 'failed' | 'stale';
+        error?: string;
+        byteSize?: number;
+      }) => {
+        const previewProxyIndex = await validatePreviewProxyIndex(projectDir);
+        const existingEntry = getPreviewProxyIndexEntryByGenerationKey(previewProxyIndex, nextJob.snapshot.generationKey);
+        await writePreviewProxyIndex(projectDir, upsertPreviewProxyIndexEntry(previewProxyIndex, {
+          assetId: existingEntry?.assetId ?? buildPreviewProxyAssetId(nextJob.request.sourceVideoId, nextJob.snapshot.generationKey),
+          generationKey: nextJob.snapshot.generationKey,
+          sourceVideoId: nextJob.request.sourceVideoId,
+          sourceFingerprint: nextJob.request.sourceFingerprint,
+          relativePath: existingEntry?.relativePath ?? relativePath,
+          status,
+          profileVersion: nextJob.request.profileVersion,
+          createdAt: existingEntry?.createdAt ?? nextJob.queuedAt,
+          lastUsedAt: existingEntry?.lastUsedAt,
+          byteSize: byteSize ?? existingEntry?.byteSize,
+          durationMs: sourceVideo.durationMs ?? existingEntry?.durationMs,
+          error,
+        }));
+      };
+
+      let activeRemoteJobId = nextJob.snapshot.remoteJobId;
+      let remoteJob: Awaited<ReturnType<typeof getDerivedMediaJobStatus>> | null = null;
+      if (!activeRemoteJobId) {
+        const videoRef = await ensureDerivedMediaVideoRef(sourceVideo.file);
+        console.info('[PresentationAuthoringEditor] Starting preview-proxy encode', {
+          sourceVideoId: nextJob.request.sourceVideoId,
+          generationKey: nextJob.snapshot.generationKey,
+          outputPath: nextJob.request.outputPath,
+          videoRef,
+        });
+        remoteJob = await startPreviewProxyEncodeJob({ videoRef });
+        activeRemoteJobId = remoteJob.jobId;
+        if (!(remoteJob.status === 'ready' && remoteJob.outputAvailable)) {
+          await writePreviewProxyQueueStatus({
+            status: remoteJob.status === 'queued' ? 'queued' : remoteJob.status === 'finalizing' ? 'finalizing' : 'running',
+            label: remoteJob.label ?? 'Encoding preview proxy',
+            error: undefined,
+            remoteJobId: remoteJob.jobId,
+          });
+          await writePreviewProxyIndexStatus({
+            status: remoteJob.status === 'queued' ? 'queued' : 'running',
+            error: undefined,
+          });
+          schedulePreviewProxyWorkerPoll();
+          return false;
+        }
+      }
+
+      if (!activeRemoteJobId) {
+        schedulePreviewProxyWorkerPoll();
+        return false;
+      }
+
+      if (!remoteJob) {
+        try {
+          remoteJob = await getDerivedMediaJobStatus(activeRemoteJobId);
+        } catch (error) {
+          if (isMissingDerivedMediaJobError(error)) {
+            await writePreviewProxyQueueStatus({
+              status: 'queued',
+              label: 'Queued for retry',
+              error: undefined,
+              remoteJobId: undefined,
+            });
+            await writePreviewProxyIndexStatus({
+              status: 'queued',
+              error: undefined,
+            });
+            console.warn('[PresentationAuthoringEditor] Preview-proxy remote job missing; re-queueing', {
+              sourceVideoId: nextJob.request.sourceVideoId,
+              generationKey: nextJob.snapshot.generationKey,
+              outputPath: nextJob.request.outputPath,
+              remoteJobId: activeRemoteJobId,
+            });
+            return true;
+          }
+          throw error;
+        }
+      }
+
+      if (remoteJob.status === 'queued' || remoteJob.status === 'running' || remoteJob.status === 'finalizing') {
+        await writePreviewProxyQueueStatus({
+          status: remoteJob.status === 'queued' ? 'queued' : remoteJob.status === 'finalizing' ? 'finalizing' : 'running',
+          label: remoteJob.label ?? (remoteJob.status === 'queued' ? 'Queued' : 'Encoding preview proxy'),
+          error: undefined,
+          remoteJobId: remoteJob.jobId,
+        });
+        await writePreviewProxyIndexStatus({
+          status: remoteJob.status === 'queued' ? 'queued' : 'running',
+          error: undefined,
+        });
+        schedulePreviewProxyWorkerPoll();
+        return false;
+      }
+
+      if (remoteJob.status === 'ready' && remoteJob.outputAvailable) {
+        await writePreviewProxyQueueStatus({
+          status: 'finalizing',
+          label: 'Downloading preview proxy',
+          error: undefined,
+          remoteJobId: remoteJob.jobId,
+        });
+        await writePreviewProxyIndexStatus({
+          status: 'running',
+          error: undefined,
+        });
+
+        const encodedBlob = await downloadDerivedMediaJobOutput(remoteJob.jobId);
+        const pendingOutputPath = buildPreviewProxyPendingOutputPath(nextJob.request.outputPath);
+        await writeBlobAtRelativePath(projectDir, pendingOutputPath, encodedBlob);
+
+        const latestQueue = await readPreviewProxyDerivedMediaJobQueue(projectDir);
+        const latestIndex = await validatePreviewProxyIndex(projectDir);
+        if (!isQueuedPreviewProxyJobCurrentForPromotion(latestQueue, nextJob.snapshot.jobId)) {
+          const obsoletePromotion = promotePreviewProxyJobIfCurrent({
+            queue: latestQueue,
+            index: latestIndex,
+            jobId: nextJob.snapshot.jobId,
+          });
+          await deleteFileAtRelativePath(projectDir, pendingOutputPath);
+          await writePreviewProxyDerivedMediaJobQueue(projectDir, obsoletePromotion.queue);
+          await writePreviewProxyIndex(projectDir, obsoletePromotion.index);
+          await cleanupDerivedMediaJob(remoteJob.jobId);
+          requestDerivedMediaAssetRefresh();
+          return true;
+        }
+
+        await writeBlobAtRelativePath(projectDir, nextJob.request.outputPath, encodedBlob);
+        await deleteFileAtRelativePath(projectDir, pendingOutputPath);
+
+        const promoted = promotePreviewProxyJobIfCurrent({
+          queue: latestQueue,
+          index: latestIndex,
+          jobId: nextJob.snapshot.jobId,
+          byteSize: encodedBlob.size,
+          durationMs: sourceVideo.durationMs,
+        });
+        await writePreviewProxyDerivedMediaJobQueue(projectDir, promoted.queue);
+        await writePreviewProxyIndex(projectDir, promoted.index);
+        await cleanupDerivedMediaJob(remoteJob.jobId);
+        console.info('[PresentationAuthoringEditor] Preview proxy ready', {
+          sourceVideoId: nextJob.request.sourceVideoId,
+          generationKey: nextJob.snapshot.generationKey,
+          outputPath: nextJob.request.outputPath,
+          byteSize: encodedBlob.size,
+        });
+        requestDerivedMediaAssetRefresh();
+        return true;
+      }
+
+      const failureMessage = remoteJob.error
+        ?? (remoteJob.status === 'cancelled'
+          ? 'Preview-proxy generation cancelled'
+          : 'Preview-proxy generation failed');
+      await writePreviewProxyQueueStatus({
+        status: remoteJob.status === 'cancelled' ? 'cancelled' : 'failed',
+        label: remoteJob.label ?? (remoteJob.status === 'cancelled' ? 'Cancelled' : 'Failed'),
+        error: failureMessage,
+        remoteJobId: undefined,
+      });
+      await writePreviewProxyIndexStatus({
+        status: 'failed',
+        error: failureMessage,
+      });
+      await cleanupDerivedMediaJob(remoteJob.jobId);
+      console.error('[PresentationAuthoringEditor] Preview-proxy job failed', {
+        sourceVideoId: nextJob.request.sourceVideoId,
+        generationKey: nextJob.snapshot.generationKey,
+        outputPath: nextJob.request.outputPath,
+        remoteJob,
+      });
+      setToast(failureMessage);
+      return true;
+    } catch (error: any) {
+      const message = error?.message || String(error);
+      const jobQueue = await readPreviewProxyDerivedMediaJobQueue(projectDir);
+      const nextJob = jobQueue.jobs.find((job) => (
+        job.request.kind === 'preview_proxy_generate'
+        && job.snapshot.kind === 'preview_proxy_generate'
+        && !isTerminalDerivedMediaJobStatus(job.snapshot.status)
+      ));
+      if (!nextJob || nextJob.request.kind !== 'preview_proxy_generate') {
+        setToast(message);
+        return false;
+      }
+      const latestIndex = await validatePreviewProxyIndex(projectDir);
+      const existingEntry = getPreviewProxyIndexEntryByGenerationKey(latestIndex, nextJob.snapshot.generationKey);
+      const relativePath = nextJob.request.outputPath.replace('derived-media/preview-proxies/', '');
+      const failedIndex = upsertPreviewProxyIndexEntry(latestIndex, {
+        assetId: existingEntry?.assetId ?? buildPreviewProxyAssetId(nextJob.request.sourceVideoId, nextJob.snapshot.generationKey),
+        generationKey: nextJob.snapshot.generationKey,
+        sourceVideoId: nextJob.request.sourceVideoId,
+        sourceFingerprint: nextJob.request.sourceFingerprint,
+        relativePath: existingEntry?.relativePath ?? relativePath,
+        status: 'failed',
+        profileVersion: nextJob.request.profileVersion,
+        createdAt: existingEntry?.createdAt ?? nextJob.queuedAt,
+        lastUsedAt: existingEntry?.lastUsedAt,
+        byteSize: existingEntry?.byteSize,
+        durationMs: workingManifest.videos.find((video) => video.id === nextJob.request.sourceVideoId)?.durationMs ?? existingEntry?.durationMs,
+        error: message,
+      });
+      const failedQueue = {
+        schema: jobQueue.schema,
+        jobs: jobQueue.jobs.map((job) => job.snapshot.jobId !== nextJob.snapshot.jobId
+          ? job
+          : {
+              ...job,
+              snapshot: updateDerivedMediaJobSnapshot(job.snapshot, {
+                status: 'failed',
+                error: message,
+                remoteJobId: undefined,
+                progress: {
+                  ...job.snapshot.progress,
+                  status: 'failed',
+                  label: 'Failed',
+                },
+              }),
+            }),
+      };
+      await writePreviewProxyDerivedMediaJobQueue(projectDir, failedQueue);
+      await writePreviewProxyIndex(projectDir, failedIndex);
+      console.error('[PresentationAuthoringEditor] Preview-proxy job failed', {
+        sourceVideoId: nextJob.request.sourceVideoId,
+        generationKey: nextJob.snapshot.generationKey,
+        outputPath: nextJob.request.outputPath,
+        error,
+      });
+      setToast(message);
+      return true;
+    } finally {
+      previewProxyWorkerRunningRef.current = false;
+    }
+  }, [
+    schedulePreviewProxyWorkerPoll,
+    ensureDerivedMediaVideoRef,
+    projectDir,
+    requestDerivedMediaAssetRefresh,
+    workingManifest.videos,
+  ]);
+
+  const processNextExactMotionJob = useCallback(async () => {
+    if (exactMotionWorkerRunningRef.current) {
+      return false;
+    }
+    exactMotionWorkerRunningRef.current = true;
+    try {
+      let jobQueue = await readPresentationDerivedMediaJobQueue(projectDir, draftPresentation.id);
+      const nextJob = jobQueue.jobs.find((job) => (
+        job.request.kind === 'exact_motion_generate'
+        && job.snapshot.kind === 'exact_motion_generate'
+        && job.snapshot.presentationId === draftPresentation.id
+        && !isTerminalDerivedMediaJobStatus(job.snapshot.status)
+      ));
+      if (!nextJob || nextJob.request.kind !== 'exact_motion_generate') {
+        return false;
+      }
+      const nextRequest = nextJob.request;
+
+      const sourceVideo = workingManifest.videos.find((video) => video.id === nextRequest.sourceVideoId);
+      if (!sourceVideo) {
+        throw new Error(`Source video not found: ${nextRequest.sourceVideoId}`);
+      }
+
+      jobQueue = {
+        schema: jobQueue.schema,
+        jobs: jobQueue.jobs.map((job) => job.snapshot.jobId !== nextJob.snapshot.jobId
+          ? job
+          : {
+              ...job,
+              snapshot: updateDerivedMediaJobSnapshot(job.snapshot, {
+                status: 'running',
+                error: undefined,
+                progress: {
+                  ...job.snapshot.progress,
+                  status: 'running',
+                  label: 'Encoding exact motion',
+                  durationMs: nextRequest.bounds.endMs - nextRequest.bounds.startMs,
+                },
+              }),
+            }),
+      };
+      await writePresentationDerivedMediaJobQueue(projectDir, draftPresentation.id, jobQueue);
+      await refreshPresentClosureState();
+
+      const videoRef = await ensureDerivedMediaVideoRef(sourceVideo.file);
+      console.info('[PresentationAuthoringEditor] Starting exact-motion encode', {
+        sourceVideoId: nextRequest.sourceVideoId,
+        generationKey: nextRequest.generationKey,
+        outputPath: nextRequest.outputPath,
+        bounds: nextRequest.bounds,
+        videoRef,
+      });
+      const encodedBlob = await requestExactMotionEncode({
+        videoRef,
+        startMs: nextRequest.bounds.startMs,
+        endMs: nextRequest.bounds.endMs,
+      });
+      const pendingOutputPath = buildExactMotionPendingOutputPath(nextRequest.outputPath);
+      await writeBlobAtRelativePath(projectDir, pendingOutputPath, encodedBlob);
+
+      const latestQueue = await readPresentationDerivedMediaJobQueue(projectDir, draftPresentation.id);
+      const latestIndex = await validateExactMotionAssetIndex(projectDir, draftPresentation.id);
+      if (!isQueuedExactMotionJobCurrentForPromotion(latestQueue, nextJob.snapshot.jobId)) {
+        const obsoletePromotion = promoteExactMotionJobIfCurrent({
+          presentationId: draftPresentation.id,
+          queue: latestQueue,
+          index: latestIndex,
+          jobId: nextJob.snapshot.jobId,
+        });
+        await deleteFileAtRelativePath(projectDir, pendingOutputPath);
+        await writePresentationDerivedMediaJobQueue(projectDir, draftPresentation.id, obsoletePromotion.queue);
+        await writeExactMotionAssetIndex(projectDir, draftPresentation.id, obsoletePromotion.index);
+        await refreshPresentClosureState();
+        return true;
+      }
+
+      await writeBlobAtRelativePath(projectDir, nextRequest.outputPath, encodedBlob);
+      await deleteFileAtRelativePath(projectDir, pendingOutputPath);
+
+      const promoted = promoteExactMotionJobIfCurrent({
+        presentationId: draftPresentation.id,
+        queue: latestQueue,
+        index: latestIndex,
+        jobId: nextJob.snapshot.jobId,
+        byteSize: encodedBlob.size,
+        durationMs: nextRequest.bounds.endMs - nextRequest.bounds.startMs,
+      });
+      await writePresentationDerivedMediaJobQueue(projectDir, draftPresentation.id, promoted.queue);
+      await writeExactMotionAssetIndex(projectDir, draftPresentation.id, promoted.index);
+      await refreshPresentClosureState();
+      console.info('[PresentationAuthoringEditor] Exact-motion asset ready', {
+        sourceVideoId: nextRequest.sourceVideoId,
+        generationKey: nextRequest.generationKey,
+        outputPath: nextRequest.outputPath,
+        byteSize: encodedBlob.size,
+      });
+      requestDerivedMediaAssetRefresh();
+      return true;
+    } catch (error: any) {
+      const message = error?.message || String(error);
+      let jobQueue = await readPresentationDerivedMediaJobQueue(projectDir, draftPresentation.id);
+      const nextJob = jobQueue.jobs.find((job) => (
+        job.request.kind === 'exact_motion_generate'
+        && job.snapshot.kind === 'exact_motion_generate'
+        && job.snapshot.presentationId === draftPresentation.id
+        && !isTerminalDerivedMediaJobStatus(job.snapshot.status)
+      ));
+      if (!nextJob || nextJob.request.kind !== 'exact_motion_generate') {
+        setToast(message);
+        return false;
+      }
+      const nextRequest = nextJob.request;
+      await deleteFileAtRelativePath(projectDir, buildExactMotionPendingOutputPath(nextRequest.outputPath));
+      const latestIndex = await validateExactMotionAssetIndex(projectDir, draftPresentation.id);
+      if (!isQueuedExactMotionJobCurrentForPromotion(jobQueue, nextJob.snapshot.jobId)) {
+        const obsoletePromotion = promoteExactMotionJobIfCurrent({
+          presentationId: draftPresentation.id,
+          queue: jobQueue,
+          index: latestIndex,
+          jobId: nextJob.snapshot.jobId,
+        });
+        await writePresentationDerivedMediaJobQueue(projectDir, draftPresentation.id, obsoletePromotion.queue);
+        await writeExactMotionAssetIndex(projectDir, draftPresentation.id, obsoletePromotion.index);
+        await refreshPresentClosureState();
+        return true;
+      }
+      jobQueue = {
+        schema: jobQueue.schema,
+        jobs: jobQueue.jobs.map((job) => job.snapshot.jobId !== nextJob.snapshot.jobId
+          ? job
+          : {
+              ...job,
+              snapshot: updateDerivedMediaJobSnapshot(job.snapshot, {
+                status: 'failed',
+                error: message,
+                progress: {
+                  ...job.snapshot.progress,
+                  status: 'failed',
+                  label: 'Failed',
+                },
+              }),
+            }),
+      };
+      await writePresentationDerivedMediaJobQueue(projectDir, draftPresentation.id, jobQueue);
+      await syncExactMotionIndexWithFailedJobs(projectDir, draftPresentation.id, jobQueue);
+      await refreshPresentClosureState();
+      console.error('[PresentationAuthoringEditor] Exact-motion job failed', {
+        presentationId: draftPresentation.id,
+        sourceVideoId: nextJob.request.sourceVideoId,
+        generationKey: nextJob.snapshot.generationKey,
+        outputPath: nextRequest.outputPath,
+        bounds: nextRequest.bounds,
+        error,
+      });
+      setToast(message);
+      return true;
+    } finally {
+      exactMotionWorkerRunningRef.current = false;
+    }
+  }, [
+    draftPresentation.id,
+    ensureDerivedMediaVideoRef,
+    projectDir,
+    refreshPresentClosureState,
+    requestDerivedMediaAssetRefresh,
+    workingManifest.videos,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      const didWork = await processNextPreviewProxyJob();
+      if (!cancelled && didWork) {
+        requestPreviewProxyWorkerPass();
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [processNextPreviewProxyJob, requestPreviewProxyWorkerPass, previewProxyWorkerPass]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      const didWork = await processNextExactMotionJob();
+      if (!cancelled && didWork) {
+        requestExactMotionWorkerPass();
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [processNextExactMotionJob, requestExactMotionWorkerPass, exactMotionWorkerPass]);
+
+  useEffect(() => {
+    if (!isPresentMode || presentModePolicy !== 'fallback') {
+      return;
+    }
+    if (state.mode === 'video' && presentStateSource === 'retrieval') {
+      return;
+    }
+    let cancelled = false;
+    const maybeUpgradePresentMode = async () => {
+      const { evaluation } = await computePresentClosureState();
+      if (cancelled || evaluation.status !== 'ready') {
+        return;
+      }
+      setPresentModePolicy('exact');
+      setToast('Exact presentation media is ready');
+    };
+    void maybeUpgradePresentMode().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isPresentMode,
+    presentModePolicy,
+    state.mode,
+    presentStateSource,
+    computePresentClosureState,
+    derivedMediaAssetRefreshPass,
+    exactMotionWorkerPass,
+  ]);
+
+  const queuePresentationExactMotionRequests = useCallback(async (): Promise<{
+    evaluation: PresentClosureEvaluation;
+    statusRecord: PresentationPreparationStatusRecord;
+    createdJobCount: number;
+    reusedJobCount: number;
+    invalidRequirementCount: number;
+  }> => {
+    const initial = await computePresentClosureState();
+    let evaluation = initial.evaluation;
+    let statusRecord = initial.statusRecord;
+    let createdJobCount = 0;
+    let reusedJobCount = 0;
+    const queueable = [...evaluation.missingRequirements, ...evaluation.failedRequirements]
+      .map((requirement) => ({
+        requirement,
+        request: buildPreparePresentationExactMotionRequest(draftPresentation.id, requirement),
+      }))
+      .filter((entry): entry is { requirement: PresentClosureEvaluation['requirements'][number]; request: NonNullable<ReturnType<typeof buildPreparePresentationExactMotionRequest>> } => !!entry.request);
+
+    if (queueable.length > 0) {
+      let jobQueue = await readPresentationDerivedMediaJobQueue(projectDir, draftPresentation.id);
+      let exactMotionIndex = await validateExactMotionAssetIndex(projectDir, draftPresentation.id);
+      const createdAt = new Date().toISOString();
+
+      for (const { requirement, request } of queueable) {
+        const enqueueResult = enqueueDerivedMediaGenerationRequest(jobQueue, request, 'prepare_presentation');
+        jobQueue = enqueueResult.queue;
+        if (enqueueResult.created) {
+          createdJobCount += 1;
+        } else {
+          reusedJobCount += 1;
+        }
+        const existingEntry = getExactMotionAssetIndexEntryByGenerationKey(exactMotionIndex, request.generationKey);
+        exactMotionIndex = upsertExactMotionAssetIndexEntry(exactMotionIndex, {
+          assetId: requirement.assetId ?? existingEntry?.assetId ?? enqueueResult.job.snapshot.generationKey,
+          generationKey: request.generationKey,
+          motionKind: request.motionKind,
+          transitionOrClipId: request.transitionOrClipId,
+          sourceVideoId: request.sourceVideoId,
+          sourceFingerprint: request.sourceFingerprint,
+          relativePath: requirement.relativePath ?? existingEntry?.relativePath ?? request.outputPath.replace(`derived-media/presentations/${draftPresentation.id}/`, ''),
+          status: 'queued',
+          profileVersion: request.profileVersion,
+          createdAt: existingEntry?.createdAt ?? createdAt,
+          lastUsedAt: existingEntry?.lastUsedAt,
+          byteSize: existingEntry?.byteSize,
+          durationMs: existingEntry?.durationMs,
+          error: undefined,
+        });
+      }
+
+      await writePresentationDerivedMediaJobQueue(projectDir, draftPresentation.id, jobQueue);
+      await writeExactMotionAssetIndex(projectDir, draftPresentation.id, exactMotionIndex);
+      requestExactMotionWorkerPass();
+
+      const refreshed = await computePresentClosureState();
+      evaluation = refreshed.evaluation;
+      statusRecord = refreshed.statusRecord;
+    } else {
+      evaluation = initial.evaluation;
+      statusRecord = initial.statusRecord;
+    }
+
+    return {
+      evaluation,
+      statusRecord,
+      createdJobCount,
+      reusedJobCount,
+      invalidRequirementCount: evaluation.invalidRequirements.length,
+    };
+  }, [computePresentClosureState, draftPresentation.id, projectDir, requestExactMotionWorkerPass]);
+
+  const openPresentMode = useCallback(async (policy: 'exact' | 'fallback') => {
+    if (isRetrievalVideoState) {
+      stopVideoPlayback();
+    }
     setIsPresentMode(true);
+    setPresentModePolicy(policy);
     setIsRetrievalBrowserOpen(false);
     const element = (rootRef.current ?? document.documentElement) as HTMLElement & {
       webkitRequestFullscreen?: () => Promise<void> | void;
@@ -709,10 +1866,33 @@ export default function PresentationAuthoringEditor({
         await element.webkitRequestFullscreen();
       }
     } catch {}
-  }, []);
+  }, [isRetrievalVideoState, stopVideoPlayback]);
+
+  const handlePresent = useCallback(async () => {
+    setPresentBusy(true);
+    try {
+      const preparation = await queuePresentationExactMotionRequests();
+      const nextPolicy = preparation.evaluation.status === 'ready' ? 'exact' : 'fallback';
+      if (nextPolicy === 'fallback') {
+        if (preparation.invalidRequirementCount > 0) {
+          setToast(`Presenting with fallback playback; ${preparation.invalidRequirementCount} segment${preparation.invalidRequirementCount === 1 ? '' : 's'} cannot use exact playback yet`);
+        } else if (preparation.createdJobCount > 0 || preparation.reusedJobCount > 0) {
+          setToast('Presenting with fallback playback while exact media prepares in the background');
+        } else {
+          setToast('Presenting with fallback playback');
+        }
+      }
+      await openPresentMode(nextPolicy);
+    } catch (error: any) {
+      setToast(error?.message || String(error));
+    } finally {
+      setPresentBusy(false);
+    }
+  }, [openPresentMode, queuePresentationExactMotionRequests]);
 
   const leavePresentMode = useCallback(async () => {
     setIsPresentMode(false);
+    setPresentModePolicy(null);
     setIsRetrievalBrowserOpen(false);
     if (state.mode === 'video') {
       stopVideoPlayback();
@@ -811,7 +1991,7 @@ export default function PresentationAuthoringEditor({
       }
       if (!isPresentMode && event.key.toLowerCase() === 'f') {
         event.preventDefault();
-        void enterPresentMode();
+        void handlePresent();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -820,7 +2000,7 @@ export default function PresentationAuthoringEditor({
     };
   }, [
     deleteSelectedSlide,
-    enterPresentMode,
+    handlePresent,
     goToNextSlide,
     goToPreviousSlide,
     handlePresentNext,
@@ -857,6 +2037,47 @@ export default function PresentationAuthoringEditor({
       ? 'Asset load error'
       : 'Assets ready';
 
+  const playbackAssetBadge = useMemo(() => {
+    if (state.mode !== 'video' && state.mode !== 'clip') {
+      return null;
+    }
+    if (!resolvedPlaybackAsset) {
+      return {
+        className: 'border-danger text-danger',
+        label: 'Playback unavailable',
+      };
+    }
+    if (resolvedPlaybackAsset.assetClass === 'exact_motion') {
+      return {
+        className: 'border-info text-info',
+        label: 'Exact preview',
+      };
+    }
+    if (resolvedPlaybackAsset.assetClass === 'preview_proxy') {
+      return {
+        className: 'border-warning text-warning',
+        label: 'Proxy preview',
+      };
+    }
+    return {
+      className: 'border-subtle text-muted',
+      label: 'Original fallback',
+    };
+  }, [state.mode, resolvedPlaybackAsset]);
+
+  useEffect(() => {
+    recordMediaTrace('authoring_resolved_asset_changed', {
+      stateMode: state.mode,
+      stateSource: state.mode === 'video' ? state.source : null,
+      selectedSlideIndex,
+      assetId: resolvedPlaybackAsset?.assetId ?? null,
+      assetClass: resolvedPlaybackAsset?.assetClass ?? null,
+      generationKey: resolvedPlaybackAsset?.generationKey ?? null,
+      filePath: resolvedPlaybackAsset?.filePath ?? null,
+      badgeLabel: playbackAssetBadge?.label ?? null,
+    });
+  }, [playbackAssetBadge?.label, resolvedPlaybackAsset, selectedSlideIndex, state]);
+
   return (
     <div ref={rootRef} className="fullbleed">
       {isPresentMode ? (
@@ -866,12 +2087,19 @@ export default function PresentationAuthoringEditor({
               <div className="text-xs uppercase tracking-wide text-muted">Present mode</div>
               <div className="text-sm font-medium mt-1">{draftPresentation.name}</div>
               <div className="text-xs text-muted mt-1">{currentCanvasLabel}</div>
+              <div className="text-xs text-muted mt-1">{presentModePolicy === 'exact' ? 'Exact playback active' : 'Fallback playback active'}</div>
             </div>
             <div className="pointer-events-auto flex items-stretch bg-surface/90 border border-subtle backdrop-blur-sm overflow-hidden">
               {state.mode === 'video' && state.source === 'retrieval' && (
                 <button onClick={returnToSelectedSlide} className="self-stretch px-4 py-2 border-0 border-r border-solid border-border text-sm">Return</button>
               )}
-              <button onClick={() => setIsRetrievalBrowserOpen((prev) => !prev)} className="self-stretch px-4 py-2 border-0 border-r border-solid border-border text-sm">Marks</button>
+              <button
+                onClick={() => setIsRetrievalBrowserOpen((prev) => !prev)}
+                disabled={presentModePolicy === 'exact'}
+                className="self-stretch px-4 py-2 border-0 border-r border-solid border-border text-sm disabled:opacity-50"
+              >
+                Marks
+              </button>
               <button onClick={handlePresentPrevious} className="self-stretch px-4 py-2 border-0 border-r border-solid border-border text-sm">Prev</button>
               <button onClick={handlePresentNext} className="self-stretch px-4 py-2 border-0 border-r border-solid border-border text-sm">Next</button>
               <button onClick={() => void leavePresentMode()} className="self-stretch px-4 py-2 border-0 text-sm">Exit</button>
@@ -900,14 +2128,21 @@ export default function PresentationAuthoringEditor({
 
           <div className="flex-1 min-h-0 p-4 bg-canvas">
             <PresentationCanvas
+              presentationId={draftPresentation.id}
               state={state}
               stillUrlById={stillUrlById}
               annotatedStillUrlById={annotatedStillUrlById}
               annotationsByStillId={annotationsByStillId}
               annotationDocumentsByStillId={annotationDocumentsByStillId}
-              videoUrlById={videoUrlById}
+              directRetrievalVideoUrl={directRetrievalVideoUrl}
+              playbackAssetById={playbackAssetById}
+              preferredPlaybackAssetIdByVideoId={preferredPlaybackAssetIdByVideoId}
+              preferredPlaybackAssetIdsByPlaybackKey={preferredPlaybackAssetIdsByPlaybackKey}
+              playbackAssetObjectUrlRegistry={playbackAssetObjectUrlRegistry}
               currentTransition={currentTransition}
               isPresenting
+              allowPlaybackFallbackToOriginal={presentModePolicy !== 'exact'}
+              onResolvedPlaybackAssetChange={setResolvedPlaybackAsset}
               onVideoComplete={completeVideoPlayback}
             />
           </div>
@@ -924,7 +2159,7 @@ export default function PresentationAuthoringEditor({
             <button onClick={goToPreviousSlide} className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base">Prev</button>
             <button onClick={goToNextSlide} className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base">Next</button>
             <button onClick={handlePreviewTransition} className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base">Preview</button>
-            <button onClick={() => void enterPresentMode()} className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base">Present</button>
+            <button onClick={() => void handlePresent()} disabled={presentBusy} className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base disabled:opacity-50">{presentBusy ? 'Starting…' : 'Present'}</button>
             <button onClick={() => void persistDraft()} className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base">Save now</button>
             <div className="self-stretch flex items-center gap-2 px-4 text-xs text-muted border-0 border-l border-solid border-border">
               <span className={`px-2 py-1 border bg-canvas ${saveStatusClassName}`}>{saveStatusLabel}</span>
@@ -973,17 +2208,28 @@ export default function PresentationAuthoringEditor({
                     {typeof state.endMs === 'number' ? ` → ${formatTimestamp(state.endMs)}` : ''}
                   </div>
                 )}
+                {playbackAssetBadge && (
+                  <div className={`text-xs border px-2 py-1 bg-canvas ${playbackAssetBadge.className}`}>
+                    {playbackAssetBadge.label}
+                  </div>
+                )}
                 {captureBusyMarkId && <div className="text-sm text-muted">Creating still from mark…</div>}
               </div>
 
               <PresentationCanvas
+                presentationId={draftPresentation.id}
                 state={state}
                 stillUrlById={stillUrlById}
                 annotatedStillUrlById={annotatedStillUrlById}
                 annotationsByStillId={annotationsByStillId}
                 annotationDocumentsByStillId={annotationDocumentsByStillId}
-                videoUrlById={videoUrlById}
+                directRetrievalVideoUrl={directRetrievalVideoUrl}
+                playbackAssetById={playbackAssetById}
+                preferredPlaybackAssetIdByVideoId={preferredPlaybackAssetIdByVideoId}
+                preferredPlaybackAssetIdsByPlaybackKey={preferredPlaybackAssetIdsByPlaybackKey}
+                playbackAssetObjectUrlRegistry={playbackAssetObjectUrlRegistry}
                 currentTransition={currentTransition}
+                onResolvedPlaybackAssetChange={setResolvedPlaybackAsset}
                 onVideoComplete={completeVideoPlayback}
               />
             </div>

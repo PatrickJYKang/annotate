@@ -9,6 +9,7 @@ import logging
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Sequence
 
 logger = logging.getLogger("annotate_sidecar.encoder")
 
@@ -16,6 +17,49 @@ logger = logging.getLogger("annotate_sidecar.encoder")
 def check_ffmpeg() -> bool:
     """Return True if ffmpeg is available on PATH."""
     return shutil.which("ffmpeg") is not None
+
+
+def _tail_text(value: str | bytes | None, limit: int = 4000) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="replace")
+    return value[-limit:] if value else None
+
+
+def _run_ffmpeg(cmd: Sequence[str], *, label: str, timeout: int) -> subprocess.CompletedProcess[str]:
+    logger.info("Running ffmpeg %s: %s", label, " ".join(cmd))
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as error:
+        stdout_tail = _tail_text(error.stdout)
+        stderr_tail = _tail_text(error.stderr)
+        logger.error("ffmpeg %s timed out after %ss", label, timeout)
+        if stdout_tail:
+            logger.error("ffmpeg %s stdout (tail):\n%s", label, stdout_tail)
+        if stderr_tail:
+            logger.error("ffmpeg %s stderr (tail):\n%s", label, stderr_tail)
+        raise RuntimeError(f"ffmpeg {label} timed out after {timeout}s") from error
+
+    if result.returncode != 0:
+        stdout_tail = _tail_text(result.stdout)
+        stderr_tail = _tail_text(result.stderr)
+        logger.error("ffmpeg %s failed with exit code %s", label, result.returncode)
+        if stdout_tail:
+            logger.error("ffmpeg %s stdout (tail):\n%s", label, stdout_tail)
+        if stderr_tail:
+            logger.error("ffmpeg %s stderr (tail):\n%s", label, stderr_tail)
+        raise RuntimeError(
+            f"ffmpeg {label} exited with code {result.returncode}: "
+            f"{stderr_tail or stdout_tail or 'no ffmpeg output captured'}"
+        )
+
+    return result
 
 
 def encode_frames(
@@ -66,20 +110,109 @@ def encode_frames(
         str(out),
     ]
 
-    logger.info("Running ffmpeg: %s", " ".join(cmd))
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=600,  # 10 minute timeout
-    )
+    _run_ffmpeg(cmd, label="frame export", timeout=600)
 
-    if result.returncode != 0:
-        logger.error("ffmpeg stderr:\n%s", result.stderr[-2000:])
-        raise RuntimeError(
-            f"ffmpeg exited with code {result.returncode}: "
-            f"{result.stderr[-500:]}"
+    logger.info(
+        "Encoded %s (%.1f fps) → %s (%s bytes)",
+        frames_dir,
+        fps,
+        out,
+        out.stat().st_size if out.exists() else "missing",
+    )
+    return str(out.resolve())
+
+
+def encode_exact_motion_segment(
+    video_path: str,
+    output_path: str,
+    start_ms: float,
+    end_ms: float,
+) -> str:
+    if not check_ffmpeg():
+        raise FileNotFoundError(
+            "ffmpeg not found on PATH. Install ffmpeg to enable derived-media encoding."
         )
 
-    logger.info("Encoded %s (%.1f fps) → %s", frames_dir, fps, out)
+    if end_ms <= start_ms:
+        raise ValueError("end_ms must be greater than start_ms")
+
+    source = Path(video_path)
+    if not source.is_file():
+        raise FileNotFoundError(f"Video not found: {video_path}")
+
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    start_seconds = max(0.0, start_ms / 1000.0)
+    duration_seconds = max(0.001, (end_ms - start_ms) / 1000.0)
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-ss", f"{start_seconds:.3f}",
+        "-i", str(source),
+        "-t", f"{duration_seconds:.3f}",
+        "-map", "0:v:0",
+        "-map", "0:a:0?",
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-movflags", "+faststart",
+        str(out),
+    ]
+
+    _run_ffmpeg(cmd, label="exact-motion encode", timeout=600)
+
+    logger.info(
+        "Encoded exact-motion segment %s [%.1fms, %.1fms] → %s (%s bytes)",
+        source,
+        start_ms,
+        end_ms,
+        out,
+        out.stat().st_size if out.exists() else "missing",
+    )
+    return str(out.resolve())
+
+
+def encode_preview_proxy(
+    video_path: str,
+    output_path: str,
+) -> str:
+    if not check_ffmpeg():
+        raise FileNotFoundError(
+            "ffmpeg not found on PATH. Install ffmpeg to enable derived-media encoding."
+        )
+
+    source = Path(video_path)
+    if not source.is_file():
+        raise FileNotFoundError(f"Video not found: {video_path}")
+
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i", str(source),
+        "-map", "0:v:0",
+        "-an",
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "23",
+        "-pix_fmt", "yuv420p",
+        "-vf", "scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2",
+        "-movflags", "+faststart",
+        "-force_key_frames", "expr:gte(t,n_forced*0.5)",
+        "-sc_threshold", "0",
+        str(out),
+    ]
+
+    _run_ffmpeg(cmd, label="preview-proxy encode", timeout=3600)
+
+    logger.info(
+        "Encoded preview proxy %s → %s (%s bytes)",
+        source,
+        out,
+        out.stat().st_size if out.exists() else "missing",
+    )
     return str(out.resolve())

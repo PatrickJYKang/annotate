@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "id": "playwright-presentation",
+  "name": "Playwright Presentation",
+  "createdAt": "2026-03-31T00:00:00.000Z",
+  "updatedAt": "2026-03-31T00:00:00.000Z",
+  "slides": [
+    {
+      "id": "slide-title-1",
+      "kind": "title",
+      "template": "title",
+      "title": "Fixture Deck",
+      "body": "Playwright retrieval flow"
+    }
+  ],
+  "transitions": []
+}

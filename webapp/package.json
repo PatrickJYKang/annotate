@@ -5,11 +5,15 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "../scripts/clean-webapp-build.sh && next build",
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:ui": "playwright test --ui",
+    "playwright:install": "playwright install chromium"
   },
   "dependencies": {
     "@tensorflow-models/body-segmentation": "1.0.2",
@@ -24,6 +28,7 @@
     "yaml": "^2.4.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4.2.1",
     "@types/node": "^20.11.30",
     "@types/react": "^18.2.64",

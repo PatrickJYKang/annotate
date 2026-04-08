@@ -4,6 +4,7 @@
 
 export const SIDECAR_BASE_URL =
   (typeof window !== 'undefined' && (window as any).__SIDECAR_URL) ||
+  process.env.NEXT_PUBLIC_SIDECAR_URL ||
   'http://127.0.0.1:8321';
 
 // ---------------------------------------------------------------------------
@@ -94,6 +95,18 @@ export interface VideoRegisterResult {
   sizeBytes: number;
 }
 
+export interface DerivedMediaJobStatusResponse {
+  jobId: string;
+  kind: 'preview_proxy';
+  status: 'queued' | 'running' | 'finalizing' | 'ready' | 'failed' | 'cancelled';
+  createdAt: string;
+  updatedAt: string;
+  label?: string;
+  sizeBytes?: number;
+  error?: string;
+  outputAvailable: boolean;
+}
+
 export interface HomographyFrameResult {
   tMs: number;
   matrix: number[];  // 9 floats, row-major 3×3
@@ -116,6 +129,17 @@ export function extractErrorMessage(body: any, fallback: string): string {
   }
   if (typeof body?.message === 'string' && body.message) return body.message;
   return fallback;
+}
+
+async function buildErrorMessageFromResponse(
+  res: Response,
+  fallback: string,
+): Promise<string> {
+  const body = await res.json().catch(async () => {
+    const text = await res.text().catch(() => '');
+    return text ? { detail: text } : {};
+  });
+  return extractErrorMessage(body, fallback);
 }
 
 export async function checkHealth(
@@ -150,8 +174,7 @@ export async function registerVideoFile(
   });
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(extractErrorMessage(body, `Video register failed (${res.status})`));
+    throw new Error(await buildErrorMessageFromResponse(res, `Video register failed (${res.status})`));
   }
 
   return await res.json();
@@ -168,8 +191,7 @@ export async function requestManualTrackHomography(
   });
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(extractErrorMessage(body, `Manual homography track failed (${res.status})`));
+    throw new Error(await buildErrorMessageFromResponse(res, `Manual homography track failed (${res.status})`));
   }
 
   return await res.json();
@@ -223,8 +245,7 @@ export async function requestSegmentation(
   });
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(extractErrorMessage(body, `Segmentation failed (${res.status})`));
+    throw new Error(await buildErrorMessageFromResponse(res, `Segmentation failed (${res.status})`));
   }
 
   return await res.json();
@@ -250,6 +271,18 @@ export interface ExportEncodeResult {
   outputPath: string;
 }
 
+export interface ExactMotionEncodeParams {
+  videoPath?: string;
+  videoRef?: string;
+  startMs: number;
+  endMs: number;
+}
+
+export interface PreviewProxyEncodeParams {
+  videoPath?: string;
+  videoRef?: string;
+}
+
 export async function startExport(
   params: ExportStartParams,
   baseUrl: string = SIDECAR_BASE_URL,
@@ -260,8 +293,7 @@ export async function startExport(
     body: JSON.stringify(params),
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(extractErrorMessage(body, `Export start failed (${res.status})`));
+    throw new Error(await buildErrorMessageFromResponse(res, `Export start failed (${res.status})`));
   }
   return await res.json();
 }
@@ -278,8 +310,7 @@ export async function sendExportFrame(
     body: JSON.stringify({ sessionId, frameIndex, image: imageBase64 }),
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(extractErrorMessage(body, `Export frame failed (${res.status})`));
+    throw new Error(await buildErrorMessageFromResponse(res, `Export frame failed (${res.status})`));
   }
   return await res.json();
 }
@@ -296,10 +327,89 @@ export async function encodeExport(
     body: JSON.stringify({ sessionId, fps, outputPath }),
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(extractErrorMessage(body, `Export encode failed (${res.status})`));
+    throw new Error(await buildErrorMessageFromResponse(res, `Export encode failed (${res.status})`));
   }
   return await res.json();
+}
+
+export async function requestExactMotionEncode(
+  params: ExactMotionEncodeParams,
+  baseUrl: string = SIDECAR_BASE_URL,
+): Promise<Blob> {
+  const res = await fetch(`${baseUrl}/derived-media/exact-motion`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    throw new Error(await buildErrorMessageFromResponse(res, `Exact-motion encode failed (${res.status})`));
+  }
+  return await res.blob();
+}
+
+export async function requestPreviewProxyEncode(
+  params: PreviewProxyEncodeParams,
+  baseUrl: string = SIDECAR_BASE_URL,
+): Promise<Blob> {
+  const res = await fetch(`${baseUrl}/derived-media/preview-proxy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    throw new Error(await buildErrorMessageFromResponse(res, `Preview proxy encode failed (${res.status})`));
+  }
+  return await res.blob();
+}
+
+export async function startPreviewProxyEncodeJob(
+  params: PreviewProxyEncodeParams,
+  baseUrl: string = SIDECAR_BASE_URL,
+): Promise<DerivedMediaJobStatusResponse> {
+  const res = await fetch(`${baseUrl}/derived-media/preview-proxy/jobs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    throw new Error(await buildErrorMessageFromResponse(res, `Preview proxy encode job failed (${res.status})`));
+  }
+  return await res.json();
+}
+
+export async function getDerivedMediaJobStatus(
+  jobId: string,
+  baseUrl: string = SIDECAR_BASE_URL,
+): Promise<DerivedMediaJobStatusResponse> {
+  const res = await fetch(`${baseUrl}/derived-media/jobs/${jobId}`, {
+    method: 'GET',
+  });
+  if (!res.ok) {
+    throw new Error(await buildErrorMessageFromResponse(res, `Derived-media job lookup failed (${res.status})`));
+  }
+  return await res.json();
+}
+
+export async function downloadDerivedMediaJobOutput(
+  jobId: string,
+  baseUrl: string = SIDECAR_BASE_URL,
+): Promise<Blob> {
+  const res = await fetch(`${baseUrl}/derived-media/jobs/${jobId}/file`, {
+    method: 'GET',
+  });
+  if (!res.ok) {
+    throw new Error(await buildErrorMessageFromResponse(res, `Derived-media job download failed (${res.status})`));
+  }
+  return await res.blob();
+}
+
+export async function cleanupDerivedMediaJob(
+  jobId: string,
+  baseUrl: string = SIDECAR_BASE_URL,
+): Promise<void> {
+  await fetch(`${baseUrl}/derived-media/jobs/${jobId}`, {
+    method: 'DELETE',
+  }).catch(() => {});
 }
 
 export async function cleanupExport(
@@ -320,8 +430,7 @@ export async function requestHomography(
   });
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(extractErrorMessage(body, `Homography failed (${res.status})`));
+    throw new Error(await buildErrorMessageFromResponse(res, `Homography failed (${res.status})`));
   }
 
   return await res.json();

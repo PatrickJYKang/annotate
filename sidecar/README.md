@@ -4,6 +4,18 @@ Python sidecar service for ML-powered annotation features. Runs alongside the
 Next.js frontend and provides object tracking, segmentation, homography
 estimation, and video export encoding.
 
+## Current scope note
+
+- The repository still contains clip-oriented CV endpoints and related tooling
+  (`/track`, `/segment`, `/homography`, clip export, occlusion support).
+- Those clip/CV-on-clips workflows are currently **on hold** as active
+  development tracks. They remain documented here because the code is still in
+  the repo.
+- Current sidecar-facing work is focused on **video loading for presentations**,
+  especially derived media such as preview proxies and exact-motion assets.
+- The derived-media surface now includes both `/derived-media/preview-proxy`
+  and `/derived-media/exact-motion`.
+
 ## Requirements
 
 - **Python 3.10–3.12** (3.12 recommended; TensorFlow does not support 3.13+)
@@ -62,6 +74,8 @@ Relative `videoPath` values are rejected.
 | `POST`   | `/export/frame`     | Submit rendered frame (base64 JPEG)  |
 | `POST`   | `/export/encode`    | Encode frames to MP4 (ffmpeg)        |
 | `DELETE` | `/export/{id}`      | Clean up export session              |
+| `POST`   | `/derived-media/preview-proxy` | Encode a seek-friendly preview proxy for editor playback |
+| `POST`   | `/derived-media/exact-motion` | Encode exact video segment for presentation playback |
 | `POST`   | `/video/register`   | Upload video file and get `videoRef` |
 | `DELETE` | `/video/{videoRef}` | Unregister a temporary uploaded video |
 
@@ -79,6 +93,7 @@ annotate_sidecar/
     segment.py             # POST /segment
     homography.py          # POST /homography
     export.py              # Export endpoints
+    derived_media.py       # POST /derived-media/preview-proxy, /derived-media/exact-motion
     video.py               # Video register/unregister endpoints
   services/
     frame_extractor.py     # cv2.VideoCapture → frames by ms
