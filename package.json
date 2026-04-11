@@ -1,6 +1,7 @@
 {
   "name": "annotate",
   "private": true,
+  "license": "GPL-3.0-only",
   "scripts": {
     "dev": "./scripts/run-dev.sh",
     "dev:webapp": "npm --prefix webapp run dev",

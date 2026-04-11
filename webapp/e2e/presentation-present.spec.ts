@@ -54,6 +54,7 @@ test('presents without separate prepare controls and upgrades to exact transitio
   await expect(page.getByText('Exact playback active')).toBeVisible({ timeout: 30000 });
   await expect(page.getByRole('button', { name: 'Marks' })).toBeDisabled();
   await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByText('Zoom')).toHaveCount(0);
 
   let transitionPlayable = false;
   try {
@@ -93,6 +94,8 @@ test('presents without separate prepare controls and upgrades to exact transitio
 
   const frontendSummary = await page.evaluate(() => {
     const video = document.querySelector('video') as HTMLVideoElement | null;
+    const rect = video?.getBoundingClientRect();
+    const parentRect = video?.parentElement?.getBoundingClientRect();
     return {
       bodyText: document.body.innerText,
       hasVideo: !!video,
@@ -101,14 +104,38 @@ test('presents without separate prepare controls and upgrades to exact transitio
       networkState: video?.networkState ?? null,
       paused: video?.paused ?? null,
       currentTime: video?.currentTime ?? null,
+      videoWidth: video?.videoWidth ?? null,
+      videoHeight: video?.videoHeight ?? null,
+      clientWidth: video?.clientWidth ?? null,
+      clientHeight: video?.clientHeight ?? null,
+      rect: rect ? {
+        width: rect.width,
+        height: rect.height,
+        top: rect.top,
+        left: rect.left,
+      } : null,
+      parentRect: parentRect ? {
+        width: parentRect.width,
+        height: parentRect.height,
+        top: parentRect.top,
+        left: parentRect.left,
+      } : null,
     };
   });
   const frontendSummaryPath = testInfo.outputPath('frontend-summary.json');
   await fs.writeFile(frontendSummaryPath, JSON.stringify(frontendSummary, null, 2), 'utf8');
   console.log(`FRONTEND_SUMMARY_FILE ${frontendSummaryPath}`);
+  expect(frontendSummary.clientHeight, JSON.stringify(frontendSummary, null, 2)).toBeGreaterThan(0);
+  expect(frontendSummary.rect?.height ?? 0, JSON.stringify(frontendSummary, null, 2)).toBeGreaterThan(0);
   const frontendScreenshotPath = testInfo.outputPath('frontend-after-next.png');
   await page.screenshot({ path: frontendScreenshotPath, fullPage: true });
   console.log(`FRONTEND_SCREENSHOT_FILE ${frontendScreenshotPath}`);
+
+  expect(frontendSummary.currentTime ?? 1, JSON.stringify(frontendSummary, null, 2)).toBeLessThan(0.35);
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect.poll(async () => {
+    return await page.evaluate(() => !document.querySelector('video'));
+  }, { timeout: 300 }).toBe(true);
 
   const mediaTrace = await page.evaluate(() => {
     return (window as Window & { __ANNOTATE_MEDIA_TRACE__?: unknown[] }).__ANNOTATE_MEDIA_TRACE__ ?? [];

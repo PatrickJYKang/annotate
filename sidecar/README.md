@@ -12,9 +12,7 @@ estimation, and video export encoding.
   development tracks. They remain documented here because the code is still in
   the repo.
 - Current sidecar-facing work is focused on **video loading for presentations**,
-  especially derived media such as preview proxies and exact-motion assets.
-- The derived-media surface now includes both `/derived-media/preview-proxy`
-  and `/derived-media/exact-motion`.
+  specifically exact-motion transition media.
 
 ## Requirements
 
@@ -74,7 +72,6 @@ Relative `videoPath` values are rejected.
 | `POST`   | `/export/frame`     | Submit rendered frame (base64 JPEG)  |
 | `POST`   | `/export/encode`    | Encode frames to MP4 (ffmpeg)        |
 | `DELETE` | `/export/{id}`      | Clean up export session              |
-| `POST`   | `/derived-media/preview-proxy` | Encode a seek-friendly preview proxy for editor playback |
 | `POST`   | `/derived-media/exact-motion` | Encode exact video segment for presentation playback |
 | `POST`   | `/video/register`   | Upload video file and get `videoRef` |
 | `DELETE` | `/video/{videoRef}` | Unregister a temporary uploaded video |
@@ -93,7 +90,7 @@ annotate_sidecar/
     segment.py             # POST /segment
     homography.py          # POST /homography
     export.py              # Export endpoints
-    derived_media.py       # POST /derived-media/preview-proxy, /derived-media/exact-motion
+    derived_media.py       # POST /derived-media/exact-motion
     video.py               # Video register/unregister endpoints
   services/
     frame_extractor.py     # cv2.VideoCapture → frames by ms

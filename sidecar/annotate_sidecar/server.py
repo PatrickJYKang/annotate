@@ -11,7 +11,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .derived_media_jobs import cleanup_derived_media_jobs
 from .routes import derived_media, health, track, segment, homography, export, video
 from .video_registry import cleanup_registered_videos
 
@@ -44,7 +43,6 @@ async def lifespan(app: FastAPI):
     from .services.frame_extractor import close_all_captures
 
     close_all_captures()
-    cleanup_derived_media_jobs()
     cleanup_registered_videos()
     logger.info("annotate_sidecar shut down")
 

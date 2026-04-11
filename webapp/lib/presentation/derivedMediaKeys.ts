@@ -1,7 +1,6 @@
 import {
   DERIVED_MEDIA_GENERATOR_VERSION,
   EXACT_MOTION_PROFILE_VERSION,
-  PREVIEW_PROXY_PROFILE_VERSION,
 } from './derivedMediaConfig';
 
 export interface WeakSourceFingerprintInput {
@@ -78,28 +77,6 @@ export function buildWeakSourceFingerprint(input: WeakSourceFingerprintInput): s
       ? normalizeString(input.lastModifiedMs)
       : normalizeNumber(input.lastModifiedMs ?? null),
   });
-}
-
-export function buildPreviewProxyGenerationKey(
-  sourceFingerprint: string,
-  profileVersion: string = PREVIEW_PROXY_PROFILE_VERSION,
-): string {
-  return buildStableHash('preview', {
-    profileVersion,
-    sourceFingerprint,
-  });
-}
-
-export function buildPreviewProxyAssetId(videoId: string, generationKey: string): string {
-  return `preview_proxy:${videoId}:${generationKey}`;
-}
-
-export function buildPreviewProxyFileName(generationKey: string): string {
-  return `proxy-${sanitizeDerivedMediaFileComponent(generationKey)}.mp4`;
-}
-
-export function buildPreviewProxyRelativePath(generationKey: string): string {
-  return buildPreviewProxyFileName(generationKey);
 }
 
 export function buildExactTransitionGenerationKey(input: ExactTransitionGenerationKeyInput): string {

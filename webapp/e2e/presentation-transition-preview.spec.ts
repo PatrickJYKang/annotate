@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { installDirectoryPickerFixture } from './support/fsAccessFixture';
 
-test('match_video transition preview becomes playable after proxy generation', async ({ page }, testInfo) => {
+test('match_video transition preview becomes playable after exact clip generation', async ({ page }, testInfo) => {
   const browserConsoleMessages: string[] = [];
   const failedBlobRequests: string[] = [];
   const previewProxyRequests: string[] = [];
@@ -56,7 +56,8 @@ test('match_video transition preview becomes playable after proxy generation', a
   await page.getByRole('button', { name: 'Preview transition' }).click();
 
   await expect(page.getByText('Transition preview').first()).toBeVisible();
-  await expect(page.getByText('Proxy preview').first()).toBeVisible({ timeout: 30000 });
+  await expect(page.getByText('Exact preview').first()).toBeVisible({ timeout: 30000 });
+  await expect(page.getByText('Zoom')).toHaveCount(0);
 
   let transitionPlayable = false;
   try {
@@ -66,7 +67,6 @@ test('match_video transition preview becomes playable after proxy generation', a
         return !!video && video.readyState > 0;
       });
     }, { timeout: 30000 }).toBe(true);
-    await page.waitForTimeout(1500);
     transitionPlayable = true;
   } catch {
     const summary = await page.evaluate(() => {
@@ -91,11 +91,40 @@ test('match_video transition preview becomes playable after proxy generation', a
   }
 
   expect(transitionPlayable, browserConsoleMessages.join('\n')).toBe(true);
+  expect(previewProxyRequests, browserConsoleMessages.join('\n')).toEqual([]);
   expect(failedBlobRequests, browserConsoleMessages.join('\n')).toEqual([]);
   expect(
     browserConsoleMessages.filter((message) => message.includes('Video autoplay was rejected')),
     browserConsoleMessages.join('\n'),
   ).toEqual([]);
+
+  const frontendSummary = await page.evaluate(() => {
+    const video = document.querySelector('video') as HTMLVideoElement | null;
+    const rect = video?.getBoundingClientRect();
+    return {
+      hasVideo: !!video,
+      currentSrc: video?.currentSrc ?? null,
+      readyState: video?.readyState ?? null,
+      paused: video?.paused ?? null,
+      currentTime: video?.currentTime ?? null,
+      clientWidth: video?.clientWidth ?? null,
+      clientHeight: video?.clientHeight ?? null,
+      rect: rect ? {
+        width: rect.width,
+        height: rect.height,
+      } : null,
+      bodyText: document.body.innerText,
+    };
+  });
+  expect(frontendSummary.clientHeight, JSON.stringify(frontendSummary, null, 2)).toBeGreaterThan(0);
+  expect(frontendSummary.rect?.height ?? 0, JSON.stringify(frontendSummary, null, 2)).toBeGreaterThan(0);
+  expect(frontendSummary.currentTime ?? 1, JSON.stringify(frontendSummary, null, 2)).toBeLessThan(0.35);
+
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(async () => {
+    return await page.evaluate(() => !document.querySelector('video'));
+  }, { timeout: 300 }).toBe(true);
+  await expect(page.getByText('Still slide 3')).toBeVisible();
 
   const mediaTrace = await page.evaluate(() => {
     return (window as Window & { __ANNOTATE_MEDIA_TRACE__?: unknown[] }).__ANNOTATE_MEDIA_TRACE__ ?? [];

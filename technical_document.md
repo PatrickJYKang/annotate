@@ -3,7 +3,7 @@
 ## Overview
 This repository contains a working **Next.js (React 18 + TypeScript)** web application under `webapp/` and a **Python sidecar service** under `sidecar/` for football match analysis.
 
-This repository is licensed under the **Apache-2.0** license.
+This repository is licensed under the **GPL-3.0-only** license.
 
 The as-built workflow is:
 
@@ -890,9 +890,9 @@ File: `webapp/lib/presentation/authoring.ts`.
 - Route: `/presentation/[presentationId]` → `PresentationAuthoringEditor` component.
 - Layout: asset browser (tag tree + mark list), canvas (still/video preview with annotation overlay), inspector (slide properties, annotation set selection, transition settings), deck strip (sortable slide thumbnails).
 - **Edit mode**: author slides, adjust transitions, configure annotation visibility and timing.
-- **Present mode**: full-screen sequential playback. Supports prepared (exact-motion assets) and degraded (original video fallback) modes.
-- **Annotation rendering**: reuses the still annotation rendering path. Still slides render merged annotations from selected annotation sets, with optional per-set enter/exit timing. `PresentationCanvas` uses the shared `VideoPlayerUnit` for video preview (imperative seek, metadata-first loading).
-- **Derived media**: maintains `playbackAssetById` for structured playback assets (original, preview proxy, exact motion). See §17 (Derived media).
+- **Present mode**: full-screen sequential playback. `match_video` transitions play pre-cut exact-motion clips and then advance directly to the next slide.
+- **Annotation rendering**: reuses the still annotation rendering path. Still slides render merged annotations from selected annotation sets, with optional per-set enter/exit timing.
+- **Derived media**: presentation playback now uses structured playback assets for original source video and exact-motion transition media. See §17 (Derived media).
 - Auto-save on slide/transition changes.
 
 ### Annotation set support on still slides
@@ -916,7 +916,7 @@ The sidecar (`sidecar/annotate_sidecar/`) is a local **FastAPI** HTTP server tha
 
 Current scope note:
 - Sidecar-backed **clip/CV workflows** (`/track`, `/segment`, `/homography`, occlusion, clip export) remain in the codebase but are currently on hold as active workstreams.
-- The **active sidecar-related work** is the **video-loading / derived-media path** for presentations, especially exact-motion assets and the broader preview-proxy / playback-serving direction.
+- The **active sidecar-related work** is the **video-loading / derived-media path** for presentations, specifically exact-motion transition media.
 
 ### Requirements
 - Python 3.10–3.12 (TensorFlow does not support 3.13+).
@@ -938,7 +938,7 @@ annotate_sidecar/
     homography.py          # POST /homography
     export.py              # Export endpoints
     video.py               # Video register/unregister
-    derived_media.py       # POST /derived-media/preview-proxy, /derived-media/exact-motion
+    derived_media.py       # POST /derived-media/exact-motion
   services/
     frame_extractor.py     # cv2.VideoCapture → frames
     tracker.py             # YOLO + ByteTrack
@@ -964,7 +964,6 @@ annotate_sidecar/
 | `POST` | `/export/frame` | Submit rendered frame (base64 JPEG) |
 | `POST` | `/export/encode` | Encode frames → MP4 (ffmpeg, libx264, CRF 18) |
 | `DELETE` | `/export/{sessionId}` | Clean up export session |
-| `POST` | `/derived-media/preview-proxy` | Encode a seek-friendly preview proxy → MP4 blob |
 | `POST` | `/derived-media/exact-motion` | Encode exact video segment → MP4 blob |
 
 ### Video registration
@@ -1041,34 +1040,30 @@ Ensures referential integrity between marks, stills, and annotations on project 
 Design doc: `plans/post-mvp/presentation-derived-media/derived-media-serving.md`.
 
 ### Overview
-Derived media are sidecar-encoded video assets used by presentations for smooth playback. This is the current active development area around video loading and presentation playback. Two types:
-- **Preview proxies**: lightweight video segments for editor/retrieval preview, stored globally per project.
-- **Exact-motion assets**: precise video segments for present mode, stored per presentation.
+Derived media are sidecar-encoded video assets used by presentations for smooth playback. The active implementation is now intentionally narrow:
+- **Exact-motion assets**: precise transition clips generated for `match_video` preview and present playback, stored per presentation.
 
 Current implementation note:
-- The exact-motion preparation path is wired through the sidecar and authoring editor.
-- Preview-proxy generation is also wired through the sidecar and authoring editor for interactive authoring playback.
+- Transition preview and present playback wait for exact-motion assets and then play those generated clips directly.
+- Retrieval stays on direct original-video loading and does not route through a proxy layer.
 
 ### Storage layout
 Under `derived-media/` in the project directory:
-- `preview-proxies/index.json` — `PreviewProxyIndexFile` tracking all proxy assets.
-- `preview-proxies/<videoId>-<hash>.mp4` — encoded proxy files.
 - `presentations/<presentationId>/index.json` — `ExactMotionAssetIndexFile` tracking motion assets.
 - `presentations/<presentationId>/jobs.json` — `DerivedMediaJobQueueFile` tracking generation jobs.
 - `presentations/<presentationId>/preparation.json` — `PresentationPreparationStatusFile`.
 - `presentations/<presentationId>/motion-assets/*.mp4` — encoded motion asset files.
 
 ### Asset lifecycle
-1. **Queueing**: interactive authoring can queue preview-proxy jobs for referenced videos, and "Prepare" queues missing/stale exact-motion closure assets.
-2. **Execution**: the authoring editor processes preview-proxy jobs by registering source videos with the sidecar, requesting `POST /derived-media/preview-proxy`, and writing the returned MP4 into `derived-media/preview-proxies/`.
-3. **Execution**: exact-motion jobs register the source video, request `POST /derived-media/exact-motion`, write the result as a `.pending` file, verify currentness, then promote via `promoteExactMotionJobIfCurrent()`.
-4. **Index management**: asset indices track status (`ready`, `stale`, `missing`, `failed`, `queued`, `running`). Reconciliation runs on load to sync index with on-disk files and job queue state.
-5. **Startup cleanup**: `cleanupPendingExactMotionFilesForActiveJobs()` removes interrupted `.pending` files on presentation load.
+1. **Queueing**: transition preview and present playback queue missing/stale exact-motion assets for playable `match_video` edges.
+2. **Execution**: exact-motion jobs register the source video, request `POST /derived-media/exact-motion`, write the result as a `.pending` file, verify currentness, then promote via `promoteExactMotionJobIfCurrent()`.
+3. **Index management**: asset indices track status (`ready`, `stale`, `missing`, `failed`, `queued`, `running`). Reconciliation runs on load to sync index with on-disk files and job queue state.
+4. **Startup cleanup**: `cleanupPendingExactMotionFilesForActiveJobs()` removes interrupted `.pending` files on presentation load.
 
 ### Playback asset resolver
 File: `webapp/lib/presentation/playbackAssetResolver.ts`.
 
-The resolver layer maps video IDs to structured `PlaybackAsset` objects with workflow metadata (original, preview proxy, or exact motion). The presentation canvas resolves the best available asset by workflow priority. In prepared present mode, fallback to original video is disabled — only exact-motion assets are used.
+The resolver layer maps video IDs to structured `PlaybackAsset` objects with workflow metadata (original or exact motion). Transition workflows resolve exact-motion assets; retrieval resolves original video.
 
 ### Preparation status
 File: `webapp/lib/presentation/presentPreparation.ts`.

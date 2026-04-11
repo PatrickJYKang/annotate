@@ -5,13 +5,11 @@ import type {
   PlaybackAssetRegistry,
   PlaybackWorkflow,
   PreferredPlaybackAssetIdByVideoId,
-  PreviewProxyIndexEntry,
   ResolvedPlaybackAsset,
 } from './derivedMediaTypes';
 import {
   buildExactClipGenerationKey,
   buildExactTransitionGenerationKey,
-  buildPreviewProxyGenerationKey,
 } from './derivedMediaKeys';
 
 export type { PlaybackWorkflow, ResolvedPlaybackAsset } from './derivedMediaTypes';
@@ -36,27 +34,6 @@ export function createOriginalPlaybackAsset(videoId: string, filePath: string, o
     filePath: isUrlLikePath(filePath) ? undefined : filePath,
     objectUrl: directObjectUrl,
     generationKey: buildOriginalPlaybackAssetId(videoId),
-  };
-}
-
-export function createPreviewProxyPlaybackAsset(
-  entry: PreviewProxyIndexEntry,
-  filePath: string,
-  objectUrl?: string | null,
-): ResolvedPlaybackAsset {
-  return {
-    assetId: entry.assetId,
-    assetClass: 'preview_proxy',
-    readiness: entry.status,
-    qualityClass: 'degraded',
-    safeForPresent: false,
-    sourceVideoId: entry.sourceVideoId,
-    filePath,
-    objectUrl,
-    durationMs: entry.durationMs,
-    sourceFingerprint: entry.sourceFingerprint,
-    generationKey: entry.generationKey,
-    failureReason: entry.error,
   };
 }
 
@@ -111,31 +88,6 @@ export function buildClipPlaybackPreferenceKey({
   endMs: number;
 }): string {
   return `clip:${presentationId}:${slideId}:${videoId}:${startMs}:${endMs}`;
-}
-
-export function findReadyPreviewProxyPlaybackAsset({
-  videoId,
-  sourceFingerprint,
-  previewProxyEntries,
-}: {
-  videoId: string;
-  sourceFingerprint: string;
-  previewProxyEntries: PreviewProxyIndexEntry[];
-}): ResolvedPlaybackAsset | null {
-  const previewGenerationKey = buildPreviewProxyGenerationKey(sourceFingerprint);
-  const previewEntry = previewProxyEntries.find((entry) => (
-    entry.sourceVideoId === videoId
-    && entry.generationKey === previewGenerationKey
-    && entry.status === 'ready'
-  )) ?? null;
-  if (!previewEntry) {
-    return null;
-  }
-  return createPreviewProxyPlaybackAsset(
-    previewEntry,
-    `derived-media/preview-proxies/${previewEntry.relativePath}`,
-    null,
-  );
 }
 
 export function findReadyExactTransitionPlaybackAsset({
@@ -251,10 +203,6 @@ export function getPlaybackWorkflowForState(state: PresentationPlayerState, isPr
   return isPresenting ? 'present_clip' : 'authoring_clip_preview';
 }
 
-export function getTransitionWarmupWorkflow(isPresenting: boolean): PlaybackWorkflow {
-  return isPresenting ? 'present_transition' : 'authoring_transition_preview';
-}
-
 function getCandidateAssetIds(
   videoId: string,
   preferredPlaybackAssetIdByVideoId: PreferredPlaybackAssetIdByVideoId,
@@ -268,10 +216,9 @@ function getCandidateAssetIds(
 }
 
 const WORKFLOW_ASSET_CLASS_PRIORITY: Record<PlaybackWorkflow, PlaybackAssetClass[]> = {
-  authoring_context: ['preview_proxy'],
   authoring_retrieval: ['original'],
-  authoring_clip_preview: ['preview_proxy'],
-  authoring_transition_preview: ['exact_motion', 'preview_proxy'],
+  authoring_clip_preview: ['exact_motion'],
+  authoring_transition_preview: ['exact_motion'],
   present_transition: ['exact_motion'],
   present_clip: ['exact_motion'],
   present_retrieval: ['original'],
@@ -303,28 +250,38 @@ export function resolvePlaybackAssetForVideoId({
   allowFallbackToOriginal?: boolean;
   preferredAssetIds?: string[];
 }): ResolvedPlaybackAsset | null {
-  const candidateAssetIds = Array.from(new Set([
+  const classPriority = getPlaybackAssetClassPriority(workflow, allowFallbackToOriginal);
+  const candidateAssetIds = [
     ...preferredAssetIds,
     ...getCandidateAssetIds(videoId, preferredPlaybackAssetIdByVideoId),
-  ]));
-  const primaryAsset = candidateAssetIds.length > 0 ? playbackAssetById[candidateAssetIds[0]] ?? null : null;
-  const classPriority = getPlaybackAssetClassPriority(workflow, allowFallbackToOriginal);
+  ];
+  const seen = new Set<string>();
+  let primaryAsset: ResolvedPlaybackAsset | null = null;
 
-  for (const assetClass of classPriority) {
-    for (const assetId of candidateAssetIds) {
-      const asset = playbackAssetById[assetId];
-      if (!asset || asset.assetClass !== assetClass) continue;
-      if ((workflow === 'present_transition' || workflow === 'present_clip' || workflow === 'present_retrieval') && !asset.safeForPresent) {
-        continue;
-      }
-      if (asset.readiness !== 'ready') {
-        continue;
-      }
+  for (const assetId of candidateAssetIds) {
+    if (seen.has(assetId)) continue;
+    seen.add(assetId);
+    const asset = playbackAssetById[assetId];
+    if (!asset) continue;
+    if (!primaryAsset) {
+      primaryAsset = asset;
+    }
+    if ((workflow === 'present_transition' || workflow === 'present_clip' || workflow === 'present_retrieval') && !asset.safeForPresent) {
+      continue;
+    }
+    if (asset.readiness !== 'ready') {
+      continue;
+    }
+    if (classPriority.includes(asset.assetClass)) {
       return asset;
     }
   }
 
-  if (primaryAsset && (classPriority.includes(primaryAsset.assetClass) || allowFallbackToOriginal)) {
+  if (
+    primaryAsset
+    && primaryAsset.readiness === 'ready'
+    && (classPriority.includes(primaryAsset.assetClass) || allowFallbackToOriginal)
+  ) {
     return primaryAsset;
   }
   return null;

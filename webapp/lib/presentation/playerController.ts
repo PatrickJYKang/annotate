@@ -71,6 +71,8 @@ export type PresentationPlayerState =
       hideAnnotationsDuringPlayback: boolean;
       playbackRate?: number;
       transitionToSlideIndex?: number;
+      backdropStillId?: string;
+      backdropShowAnnotations?: boolean;
       markId?: string;
       label?: string;
     };
@@ -342,6 +344,7 @@ export function usePresentationPlayerController(
 
   const previewTransitionFrom = useCallback((fromSlideIndex: number) => {
     const preview = resolvePresentationTransitionPreview(presentation, manifest, fromSlideIndex);
+    const fromSlide = presentation.slides[fromSlideIndex];
     if (!preview) {
       return { ok: false as const, reason: 'No following slide to preview' };
     }
@@ -359,6 +362,14 @@ export function usePresentationPlayerController(
       });
       return { ok: false as const, reason: preview.reason || 'Transition preview is unavailable' };
     }
+    if (!isStillSlide(fromSlide)) {
+      setState({
+        mode: 'missing',
+        selectedSlideIndex: fromSlideIndex,
+        message: 'Transition preview is unavailable',
+      });
+      return { ok: false as const, reason: 'Transition preview is unavailable' };
+    }
     setState({
       mode: 'video',
       selectedSlideIndex: fromSlideIndex,
@@ -370,6 +381,8 @@ export function usePresentationPlayerController(
       hideAnnotationsDuringPlayback: preview.hideAnnotationsDuringPlayback !== false,
       playbackRate: preview.playbackRate,
       transitionToSlideIndex: preview.toSlideIndex,
+      backdropStillId: fromSlide.stillId,
+      backdropShowAnnotations: fromSlide.showAnnotations,
       label: 'Transition preview',
     });
     return { ok: true as const };

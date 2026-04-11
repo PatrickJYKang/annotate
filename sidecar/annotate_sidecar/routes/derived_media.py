@@ -9,16 +9,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator, model_validator
 from starlette.background import BackgroundTask
 
-from ..derived_media_jobs import (
-    create_derived_media_job,
-    delete_derived_media_job,
-    get_derived_media_job,
-    serialize_derived_media_job,
-)
 from ..services.encoder import (
     check_ffmpeg,
     encode_exact_motion_segment,
-    encode_preview_proxy,
 )
 from ..video_registry import resolve_video_ref
 
@@ -53,10 +46,6 @@ class ExactMotionEncodeRequest(DerivedMediaVideoRequest):
         if self.endMs <= self.startMs:
             raise ValueError('endMs must be greater than startMs')
         return self
-
-
-class PreviewProxyEncodeRequest(DerivedMediaVideoRequest):
-    pass
 
 
 def _resolve_video_path(video_ref: Optional[str], video_path_arg: Optional[str]) -> str:
@@ -157,126 +146,3 @@ async def encode_exact_motion(req: ExactMotionEncodeRequest):
         filename=Path(result_path).name,
         background=BackgroundTask(_cleanup_temp_file, result_path),
     )
-
-
-@router.post('/preview-proxy')
-async def encode_preview_proxy_route(req: PreviewProxyEncodeRequest):
-    logger.info(
-        "Received preview-proxy encode request videoRef=%s videoPath=%s",
-        req.videoRef,
-        _redact_video_path_for_log(req.videoPath),
-    )
-    if not check_ffmpeg():
-        logger.error("Rejecting preview-proxy encode request because ffmpeg is unavailable")
-        raise _derived_media_ffmpeg_unavailable_error()
-
-    video_path = _resolve_video_path(req.videoRef, req.videoPath)
-    logger.info("Resolved preview-proxy source path: %s", _redact_video_path_for_log(video_path))
-
-    with tempfile.NamedTemporaryFile(prefix='annotate_preview_proxy_', suffix='.mp4', delete=False) as tmp:
-        output_path = tmp.name
-    logger.info("Allocated preview-proxy temp output: %s", output_path)
-
-    try:
-        result_path = encode_preview_proxy(
-            video_path=video_path,
-            output_path=output_path,
-        )
-    except FileNotFoundError as error:
-        _cleanup_temp_file(output_path)
-        logger.warning("Preview-proxy encode failed with missing file: %s", error)
-        raise HTTPException(status_code=404, detail=str(error))
-    except ValueError as error:
-        _cleanup_temp_file(output_path)
-        logger.warning("Preview-proxy encode rejected invalid request: %s", error)
-        raise HTTPException(status_code=400, detail=str(error))
-    except RuntimeError as error:
-        _cleanup_temp_file(output_path)
-        logger.error("Preview-proxy encode failed: %s", error)
-        raise HTTPException(status_code=500, detail=str(error))
-    except Exception as error:
-        _cleanup_temp_file(output_path)
-        logger.exception("Unexpected preview-proxy encode failure")
-        raise HTTPException(status_code=500, detail=f"Unexpected preview-proxy encode failure: {error}")
-
-    logger.info(
-        "Serving preview-proxy output %s (%s bytes)",
-        result_path,
-        Path(result_path).stat().st_size if Path(result_path).exists() else "missing",
-    )
-
-    return FileResponse(
-        result_path,
-        media_type='video/mp4',
-        filename=Path(result_path).name,
-        background=BackgroundTask(_cleanup_temp_file, result_path),
-    )
-
-
-@router.post('/preview-proxy/jobs')
-async def start_preview_proxy_job(req: PreviewProxyEncodeRequest):
-    logger.info(
-        "Received preview-proxy async job request videoRef=%s videoPath=%s",
-        req.videoRef,
-        _redact_video_path_for_log(req.videoPath),
-    )
-    if not check_ffmpeg():
-        logger.error("Rejecting preview-proxy async job because ffmpeg is unavailable")
-        raise _derived_media_ffmpeg_unavailable_error()
-
-    video_path = _resolve_video_path(req.videoRef, req.videoPath)
-    logger.info("Resolved preview-proxy async source path: %s", _redact_video_path_for_log(video_path))
-
-    def run_preview_proxy_job() -> str:
-        with tempfile.NamedTemporaryFile(prefix='annotate_preview_proxy_', suffix='.mp4', delete=False) as tmp:
-            output_path = tmp.name
-        logger.info("Allocated preview-proxy async temp output: %s", output_path)
-        try:
-            return encode_preview_proxy(
-                video_path=video_path,
-                output_path=output_path,
-            )
-        except Exception:
-            _cleanup_temp_file(output_path)
-            raise
-
-    job = create_derived_media_job(
-        kind='preview_proxy',
-        runner=run_preview_proxy_job,
-        running_label='Encoding preview proxy',
-    )
-    logger.info("Created preview-proxy async job %s", job.job_id)
-    return serialize_derived_media_job(job)
-
-
-@router.get('/jobs/{job_id}')
-async def get_derived_media_job_route(job_id: str):
-    job = get_derived_media_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f'Unknown derived-media job: {job_id}')
-    return serialize_derived_media_job(job)
-
-
-@router.get('/jobs/{job_id}/file')
-async def download_derived_media_job_output(job_id: str):
-    job = get_derived_media_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f'Unknown derived-media job: {job_id}')
-    if job.status != 'ready' or not job.output_path or not Path(job.output_path).is_file():
-        raise HTTPException(status_code=409, detail=f'Derived-media job output is not ready: {job_id}')
-
-    return FileResponse(
-        job.output_path,
-        media_type='video/mp4',
-        filename=Path(job.output_path).name,
-    )
-
-
-@router.delete('/jobs/{job_id}')
-async def delete_derived_media_job_route(job_id: str):
-    deleted, reason = delete_derived_media_job(job_id)
-    if deleted:
-        return {'deleted': True}
-    if reason == 'active':
-        raise HTTPException(status_code=409, detail=f'Derived-media job is still active: {job_id}')
-    raise HTTPException(status_code=404, detail=f'Unknown derived-media job: {job_id}')

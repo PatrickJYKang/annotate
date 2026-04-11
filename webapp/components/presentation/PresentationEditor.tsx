@@ -11,9 +11,7 @@ import {
 } from '../../lib/fs/annotationStorage';
 import {
   ensurePresentationDerivedMediaStorage,
-  ensurePreviewProxyStorage,
   validateExactMotionAssetIndex,
-  validatePreviewProxyIndex,
 } from '../../lib/fs/derivedMediaStorage';
 import { ensureTaggingSelection } from '../../lib/tagging/schema';
 import type { AnnotationsV1 } from '../../lib/export/d7Render';
@@ -27,7 +25,6 @@ import {
   buildTransitionPlaybackPreferenceKey,
   createOriginalPlaybackAsset,
   findReadyExactTransitionPlaybackAsset,
-  findReadyPreviewProxyPlaybackAsset,
 } from '../../lib/presentation/playbackAssetResolver';
 import { usePresentationPlayerController } from '../../lib/presentation/playerController';
 import PresentationCanvas from './PresentationCanvas';
@@ -113,10 +110,7 @@ export default function PresentationEditor({
   useEffect(() => {
     let cancelled = false;
     const ensureDerivedMediaStorage = async () => {
-      await Promise.all([
-        ensurePreviewProxyStorage(projectDir),
-        ensurePresentationDerivedMediaStorage(projectDir, presentation.id),
-      ]);
+      await ensurePresentationDerivedMediaStorage(projectDir, presentation.id);
     };
     void ensureDerivedMediaStorage().catch((e: any) => {
       if (!cancelled) {
@@ -250,14 +244,8 @@ export default function PresentationEditor({
       : state.mode === 'clip'
         ? state.clip.videoId
         : null;
-    const warmedTransitionVideoId = currentTransition?.transition.mode === 'match_video'
-      && currentTransition.playable
-      && currentTransition.videoId
-      ? currentTransition.videoId
-      : null;
     const requestedVideoIds = Array.from(new Set([
       activeVideoId,
-      warmedTransitionVideoId,
     ].filter((value): value is string => !!value)));
     if (requestedVideoIds.length === 0) {
       setPreferredPlaybackAssetIdsByPlaybackKey({});
@@ -281,25 +269,11 @@ export default function PresentationEditor({
           endMs: state.clip.endMs,
         })
       : null;
-    const warmedTransitionPlaybackKey = currentTransition?.transition.mode === 'match_video'
-      && currentTransition.playable
-      && currentTransition.videoId
-      && currentTransition.startMs != null
-      && currentTransition.endMs != null
-      ? buildTransitionPlaybackPreferenceKey({
-          presentationId: presentation.id,
-          slotKey: `warm:${currentTransition.fromSlideIndex}`,
-          videoId: currentTransition.videoId,
-          startMs: currentTransition.startMs,
-          endMs: currentTransition.endMs,
-        })
-      : null;
     let cancelled = false;
     const loadVideos = async () => {
       const nextAssets: PlaybackAssetRegistry = {};
       const nextPreferred: PreferredPlaybackAssetIdByVideoId = {};
       const nextPreferredByPlaybackKey: Record<string, string[]> = {};
-      const previewProxyIndex = await validatePreviewProxyIndex(projectDir);
       const exactMotionIndex = await validateExactMotionAssetIndex(projectDir, presentation.id);
       const sourceFingerprintByVideoId: Record<string, string> = {};
       try {
@@ -313,16 +287,6 @@ export default function PresentationEditor({
             lastModifiedMs: file.lastModified,
           });
           sourceFingerprintByVideoId[videoId] = sourceFingerprint;
-
-          const previewAsset = findReadyPreviewProxyPlaybackAsset({
-            videoId,
-            sourceFingerprint,
-            previewProxyEntries: previewProxyIndex.entries,
-          });
-          if (previewAsset) {
-            nextAssets[previewAsset.assetId] = previewAsset;
-            nextPreferred[videoId] = previewAsset.assetId;
-          }
 
           const originalAssetId = buildOriginalPlaybackAssetId(videoId);
           const asset = createOriginalPlaybackAsset(videoId, video.file, null);
@@ -361,9 +325,6 @@ export default function PresentationEditor({
               const exactPreference = [exactAsset.assetId];
               if (activeTransitionPlaybackKey) {
                 nextPreferredByPlaybackKey[activeTransitionPlaybackKey] = exactPreference;
-              }
-              if (warmedTransitionPlaybackKey) {
-                nextPreferredByPlaybackKey[warmedTransitionPlaybackKey] = exactPreference;
               }
             }
           }
@@ -535,7 +496,6 @@ export default function PresentationEditor({
               preferredPlaybackAssetIdByVideoId={preferredPlaybackAssetIdByVideoId}
               preferredPlaybackAssetIdsByPlaybackKey={preferredPlaybackAssetIdsByPlaybackKey}
               playbackAssetObjectUrlRegistry={playbackAssetObjectUrlRegistry}
-              currentTransition={currentTransition}
               onVideoComplete={completeVideoPlayback}
             />
           </div>

@@ -1,5 +1,4 @@
 export type PlaybackWorkflow =
-  | 'authoring_context'
   | 'authoring_retrieval'
   | 'authoring_clip_preview'
   | 'authoring_transition_preview'
@@ -7,13 +6,13 @@ export type PlaybackWorkflow =
   | 'present_clip'
   | 'present_retrieval';
 
-export type PlaybackAssetClass = 'original' | 'preview_proxy' | 'exact_motion';
+export type PlaybackAssetClass = 'original' | 'exact_motion';
 
 export type PlaybackAssetReadiness = 'ready' | 'queued' | 'running' | 'failed' | 'missing' | 'stale';
 
 export type PlaybackAssetQualityClass = 'exact' | 'degraded';
 
-export type DerivedMediaJobKind = 'preview_proxy_generate' | 'exact_motion_generate';
+export type DerivedMediaJobKind = 'exact_motion_generate';
 
 export type DerivedMediaExecutionMode = 'interactive' | 'prepare_presentation';
 
@@ -40,14 +39,6 @@ export interface DerivedMediaJobProgress {
   label?: string;
 }
 
-export interface PreviewProxyGenerationRequest extends DerivedMediaSourceReference {
-  kind: 'preview_proxy_generate';
-  generationKey: string;
-  sourceFingerprint: string;
-  outputPath: string;
-  profileVersion: string;
-}
-
 export interface ExactMotionGenerationRequest extends DerivedMediaSourceReference {
   kind: 'exact_motion_generate';
   generationKey: string;
@@ -60,7 +51,7 @@ export interface ExactMotionGenerationRequest extends DerivedMediaSourceReferenc
   bounds: DerivedMediaBounds;
 }
 
-export type DerivedMediaGenerationRequest = PreviewProxyGenerationRequest | ExactMotionGenerationRequest;
+export type DerivedMediaGenerationRequest = ExactMotionGenerationRequest;
 
 export interface DerivedMediaJobSnapshot {
   jobId: string;
@@ -124,26 +115,6 @@ export interface ResolvedPlaybackAsset {
 export type PlaybackAssetRegistry = Record<string, ResolvedPlaybackAsset>;
 
 export type PreferredPlaybackAssetIdByVideoId = Record<string, string>;
-
-export interface PreviewProxyIndexEntry {
-  assetId: string;
-  generationKey: string;
-  sourceVideoId: string;
-  sourceFingerprint: string;
-  relativePath: string;
-  status: PlaybackAssetReadiness;
-  profileVersion: string;
-  createdAt: string;
-  lastUsedAt?: string;
-  byteSize?: number;
-  durationMs?: number;
-  error?: string;
-}
-
-export interface PreviewProxyIndexFile {
-  schema: 1;
-  entries: PreviewProxyIndexEntry[];
-}
 
 export interface ExactMotionAssetIndexFile {
   schema: 1;
