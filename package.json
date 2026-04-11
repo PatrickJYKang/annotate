@@ -1,0 +1,15 @@
+{
+  "name": "annotate",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "dev": "./scripts/run-dev.sh",
+    "dev:webapp": "npm --prefix webapp run dev",
+    "dev:sidecar": "./scripts/run-sidecar.sh",
+    "build": "npm --prefix webapp run build",
+    "test": "npm --prefix webapp run test",
+    "test:e2e": "npm --prefix webapp run test:e2e",
+    "test:e2e:headed": "npm --prefix webapp run test:e2e:headed",
+    "playwright:install": "npm --prefix webapp run playwright:install"
+  }
+}

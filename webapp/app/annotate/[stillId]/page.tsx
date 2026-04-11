@@ -70,7 +70,7 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
   }, [manifest, stillId]);
 
   const selectedAnnotationId = useMemo(() => {
-    const requested = searchParams.get('annotation');
+    const requested = searchParams?.get('annotation');
     if (requested && annotationEntries.some((entry) => entry.id === requested)) {
       return requested;
     }
@@ -99,7 +99,7 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
         : 'Default annotations');
 
   const setSelectedAnnotation = useCallback((annotationId: string) => {
-    const nextParams = new URLSearchParams(searchParams.toString());
+    const nextParams = new URLSearchParams(searchParams?.toString() ?? '');
     if (!annotationId || annotationId === 'default') {
       nextParams.delete('annotation');
     } else {

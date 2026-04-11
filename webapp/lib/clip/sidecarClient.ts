@@ -4,6 +4,7 @@
 
 export const SIDECAR_BASE_URL =
   (typeof window !== 'undefined' && (window as any).__SIDECAR_URL) ||
+  process.env.NEXT_PUBLIC_SIDECAR_URL ||
   'http://127.0.0.1:8321';
 
 // ---------------------------------------------------------------------------
@@ -62,7 +63,7 @@ export interface SegmentationParams {
 }
 
 export interface SegmentationResult {
-  mask: string;  // data:image/png;base64,...
+  mask: string;
   width: number;
   height: number;
   personCount: number;
@@ -96,7 +97,7 @@ export interface VideoRegisterResult {
 
 export interface HomographyFrameResult {
   tMs: number;
-  matrix: number[];  // 9 floats, row-major 3×3
+  matrix: number[];
   method: string;
 }
 
@@ -116,6 +117,17 @@ export function extractErrorMessage(body: any, fallback: string): string {
   }
   if (typeof body?.message === 'string' && body.message) return body.message;
   return fallback;
+}
+
+async function buildErrorMessageFromResponse(
+  res: Response,
+  fallback: string,
+): Promise<string> {
+  const body = await res.json().catch(async () => {
+    const text = await res.text().catch(() => '');
+    return text ? { detail: text } : {};
+  });
+  return extractErrorMessage(body, fallback);
 }
 
 export async function checkHealth(
@@ -150,8 +162,7 @@ export async function registerVideoFile(
   });
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(extractErrorMessage(body, `Video register failed (${res.status})`));
+    throw new Error(await buildErrorMessageFromResponse(res, `Video register failed (${res.status})`));
   }
 
   return await res.json();
@@ -168,8 +179,7 @@ export async function requestManualTrackHomography(
   });
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(extractErrorMessage(body, `Manual homography track failed (${res.status})`));
+    throw new Error(await buildErrorMessageFromResponse(res, `Manual homography track failed (${res.status})`));
   }
 
   return await res.json();
@@ -198,19 +208,20 @@ export async function requestTracking(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    const detail = body.detail;
-    if (typeof detail === 'object' && detail !== null) {
-      const err: TrackingError = {
-        message: extractErrorMessage(body, `Tracking failed (${res.status})`),
-        detectedBboxes: detail.detectedBboxes,
-      };
-      throw err;
-    }
-    throw { message: extractErrorMessage(body, `Tracking failed (${res.status})`) } as TrackingError;
+    const message = extractErrorMessage(body, `Tracking failed (${res.status})`);
+    const err: TrackingError = {
+      message,
+      detectedBboxes: body.detectedBboxes,
+    };
+    throw err;
   }
 
   return await res.json();
 }
+
+// ---------------------------------------------------------------------------
+// Segmentation
+// ---------------------------------------------------------------------------
 
 export async function requestSegmentation(
   params: SegmentationParams,
@@ -223,8 +234,28 @@ export async function requestSegmentation(
   });
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(extractErrorMessage(body, `Segmentation failed (${res.status})`));
+    throw new Error(await buildErrorMessageFromResponse(res, `Segmentation failed (${res.status})`));
+  }
+
+  return await res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Homography
+// ---------------------------------------------------------------------------
+
+export async function requestHomography(
+  params: HomographyParams,
+  baseUrl: string = SIDECAR_BASE_URL,
+): Promise<HomographyResult> {
+  const res = await fetch(`${baseUrl}/homography`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+
+  if (!res.ok) {
+    throw new Error(await buildErrorMessageFromResponse(res, `Homography failed (${res.status})`));
   }
 
   return await res.json();
@@ -235,7 +266,7 @@ export async function requestSegmentation(
 // ---------------------------------------------------------------------------
 
 export interface ExportStartParams {
-  clipId: string;
+  clipId?: string;
   fps?: number;
   width?: number;
   height?: number;
@@ -250,6 +281,13 @@ export interface ExportEncodeResult {
   outputPath: string;
 }
 
+export interface ExactMotionEncodeParams {
+  videoPath?: string;
+  videoRef?: string;
+  startMs: number;
+  endMs: number;
+}
+
 export async function startExport(
   params: ExportStartParams,
   baseUrl: string = SIDECAR_BASE_URL,
@@ -260,8 +298,7 @@ export async function startExport(
     body: JSON.stringify(params),
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(extractErrorMessage(body, `Export start failed (${res.status})`));
+    throw new Error(await buildErrorMessageFromResponse(res, `Export start failed (${res.status})`));
   }
   return await res.json();
 }
@@ -278,8 +315,7 @@ export async function sendExportFrame(
     body: JSON.stringify({ sessionId, frameIndex, image: imageBase64 }),
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(extractErrorMessage(body, `Export frame failed (${res.status})`));
+    throw new Error(await buildErrorMessageFromResponse(res, `Export frame failed (${res.status})`));
   }
   return await res.json();
 }
@@ -296,10 +332,24 @@ export async function encodeExport(
     body: JSON.stringify({ sessionId, fps, outputPath }),
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(extractErrorMessage(body, `Export encode failed (${res.status})`));
+    throw new Error(await buildErrorMessageFromResponse(res, `Export encode failed (${res.status})`));
   }
   return await res.json();
+}
+
+export async function requestExactMotionEncode(
+  params: ExactMotionEncodeParams,
+  baseUrl: string = SIDECAR_BASE_URL,
+): Promise<Blob> {
+  const res = await fetch(`${baseUrl}/derived-media/exact-motion`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    throw new Error(await buildErrorMessageFromResponse(res, `Exact-motion encode failed (${res.status})`));
+  }
+  return await res.blob();
 }
 
 export async function cleanupExport(
@@ -307,22 +357,4 @@ export async function cleanupExport(
   baseUrl: string = SIDECAR_BASE_URL,
 ): Promise<void> {
   await fetch(`${baseUrl}/export/${sessionId}`, { method: 'DELETE' }).catch(() => {});
-}
-
-export async function requestHomography(
-  params: HomographyParams,
-  baseUrl: string = SIDECAR_BASE_URL,
-): Promise<HomographyResult> {
-  const res = await fetch(`${baseUrl}/homography`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(extractErrorMessage(body, `Homography failed (${res.status})`));
-  }
-
-  return await res.json();
 }

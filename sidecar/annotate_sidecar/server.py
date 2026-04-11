@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import health, track, segment, homography, export, video
+from .routes import derived_media, health, track, segment, homography, export, video
 from .video_registry import cleanup_registered_videos
 
 logger = logging.getLogger("annotate_sidecar")
@@ -77,6 +77,7 @@ def create_app() -> FastAPI:
     app.include_router(segment.router, prefix="/segment", tags=["segmentation"])
     app.include_router(homography.router, prefix="/homography", tags=["homography"])
     app.include_router(export.router, prefix="/export", tags=["export"])
+    app.include_router(derived_media.router, prefix="/derived-media", tags=["derived-media"])
     app.include_router(video.router, prefix="/video", tags=["video"])
 
     return app

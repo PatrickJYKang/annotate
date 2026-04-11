@@ -1,21 +1,46 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import VideoPlayerUnit, { type VideoPlayerHandle } from '../player/VideoPlayerUnit';
 import type { AnnotationsV1 } from '../../lib/export/d7Render';
 import { renderAnnotatedPng } from '../../lib/export/d7Render';
 import { mergeLoadedAnnotationDocuments, type LoadedAnnotationDocument } from '../../lib/fs/annotationStorage';
-import type { PresentationPlayerState, PresentationTransitionPreview } from '../../lib/presentation/playerController';
+import type { PlaybackAssetRegistry, PreferredPlaybackAssetIdByVideoId, ResolvedPlaybackAsset } from '../../lib/presentation/derivedMediaTypes';
+import {
+  buildPlaybackAssetLeaseKey,
+  detachVideoElementIfUsingUrl,
+  type PlaybackAssetObjectUrlRegistry,
+} from '../../lib/presentation/playbackAssetObjectUrls';
+import { getBlobUrlId, recordMediaTrace } from '../../lib/presentation/mediaTrace';
+import type { PresentationPlayerState } from '../../lib/presentation/playerController';
+import {
+  buildClipPlaybackPreferenceKey,
+  buildOriginalPlaybackAssetId,
+  buildTransitionPlaybackPreferenceKey,
+  getPlaybackWorkflowForState,
+  resolveAuthoringClipPreviewPlaybackAsset,
+  resolveAuthoringRetrievalPlaybackAsset,
+  resolveAuthoringTransitionPreviewPlaybackAsset,
+  resolvePresentClipPlaybackAsset,
+  resolvePresentTransitionPlaybackAsset,
+  resolvePlaybackAssetForVideoId,
+} from '../../lib/presentation/playbackAssetResolver';
 
 export interface PresentationCanvasProps {
+  presentationId?: string | null;
   state: PresentationPlayerState;
   stillUrlById: Record<string, string>;
   annotatedStillUrlById: Record<string, string>;
   annotationsByStillId: Record<string, AnnotationsV1 | null>;
   annotationDocumentsByStillId: Record<string, LoadedAnnotationDocument[]>;
-  videoUrlById: Record<string, string>;
-  currentTransition?: PresentationTransitionPreview | null;
+  directRetrievalVideoUrl?: string | null;
+  playbackAssetById: PlaybackAssetRegistry;
+  preferredPlaybackAssetIdByVideoId: PreferredPlaybackAssetIdByVideoId;
+  preferredPlaybackAssetIdsByPlaybackKey?: Record<string, string[]>;
+  playbackAssetObjectUrlRegistry?: PlaybackAssetObjectUrlRegistry | null;
   isPresenting?: boolean;
+  allowPlaybackFallbackToOriginal?: boolean;
+  onResolvedPlaybackAssetChange?: (asset: ResolvedPlaybackAsset | null) => void;
   onVideoComplete: () => void;
 }
 
@@ -27,22 +52,40 @@ function filterAnnotations(annotations: AnnotationsV1, visibleIds: Set<string>):
 }
 
 export default function PresentationCanvas({
+  presentationId = null,
   state,
   stillUrlById,
   annotatedStillUrlById,
   annotationsByStillId,
   annotationDocumentsByStillId,
-  videoUrlById,
-  currentTransition = null,
+  directRetrievalVideoUrl = null,
+  playbackAssetById,
+  preferredPlaybackAssetIdByVideoId,
+  preferredPlaybackAssetIdsByPlaybackKey = {},
+  playbackAssetObjectUrlRegistry = null,
   isPresenting = false,
+  allowPlaybackFallbackToOriginal = true,
+  onResolvedPlaybackAssetChange,
   onVideoComplete,
 }: PresentationCanvasProps) {
   const playerRef = useRef<VideoPlayerHandle | null>(null);
+  const transitionVideoRef = useRef<HTMLVideoElement | null>(null);
   const completionKeyRef = useRef<string | null>(null);
   const timedAnnotatedStillUrlRef = useRef<string | null>(null);
+  const playerVideoUrlRef = useRef<string | null>(null);
+  const playerVideoErrorCountRef = useRef<Record<string, number>>({});
   const [videoReady, setVideoReady] = useState(false);
+  const [playerVideoUrl, setPlayerVideoUrl] = useState<string | null>(null);
+  const [playerVideoReloadNonce, setPlayerVideoReloadNonce] = useState(0);
+  const [blockedPlaybackAssetIds, setBlockedPlaybackAssetIds] = useState<string[]>([]);
   const [stillPlaybackElapsedMs, setStillPlaybackElapsedMs] = useState(0);
   const [timedAnnotatedStillUrl, setTimedAnnotatedStillUrl] = useState<string | null>(null);
+  const effectivePlayerVideoUrl = directRetrievalVideoUrl ?? playerVideoUrl;
+  const isSimpleTransitionPlayback = state.mode === 'video' && state.source === 'transition';
+
+  useEffect(() => {
+    playerVideoUrlRef.current = effectivePlayerVideoUrl;
+  }, [effectivePlayerVideoUrl]);
 
   const baseStillUrl = useMemo(() => {
     if (state.mode !== 'still') return null;
@@ -144,6 +187,20 @@ export default function PresentationCanvas({
     return baseStillUrl;
   }, [state, baseStillUrl, usesAnnotationSetSelection, timedAnnotationIds, timedAnnotatedStillUrl, dynamicStillAnnotations, annotatedStillUrlById]);
 
+  const transitionBackdropUrl = useMemo(() => {
+    if (!isSimpleTransitionPlayback || !state.backdropStillId) {
+      return null;
+    }
+    const baseUrl = stillUrlById[state.backdropStillId] ?? null;
+    if (!baseUrl) {
+      return null;
+    }
+    if (!state.backdropShowAnnotations) {
+      return baseUrl;
+    }
+    return annotatedStillUrlById[state.backdropStillId] ?? baseUrl;
+  }, [annotatedStillUrlById, isSimpleTransitionPlayback, state, stillUrlById]);
+
   const activeVideoState = useMemo(() => {
     if (state.mode === 'video') {
       return {
@@ -155,7 +212,9 @@ export default function PresentationCanvas({
         endMs: state.endMs,
         autoplay: state.autoplay,
         playbackRate: state.playbackRate,
-        label: state.label || (state.source === 'transition' ? 'Transition preview' : state.source === 'retrieval' ? 'Retrieved mark' : 'Clip slide'),
+        label: state.source === 'transition' && isPresenting
+          ? 'Transition'
+          : state.label || (state.source === 'transition' ? 'Transition preview' : state.source === 'retrieval' ? 'Retrieved mark' : 'Clip slide'),
         preload: state.source === 'retrieval' ? 'metadata' as const : 'auto' as const,
         showLoadingLabel: state.source !== 'clip',
         showPausedAtMarkLabel: state.source === 'retrieval',
@@ -178,35 +237,210 @@ export default function PresentationCanvas({
     return null;
   }, [state, isPresenting]);
 
-  const warmedTransitionState = useMemo(() => {
-    if (activeVideoState) return null;
-    if (!currentTransition || currentTransition.transition.mode !== 'match_video') return null;
-    if (!currentTransition.playable || !currentTransition.videoId || currentTransition.startMs == null || currentTransition.endMs == null) {
-      return null;
+  const playerVideoState = activeVideoState;
+
+  const playerPlaybackPreferenceKey = useMemo(() => {
+    if (!presentationId) {
+      return playerVideoState?.key ?? null;
     }
-    return {
-      key: `warm:${currentTransition.fromSlideIndex}:${currentTransition.videoId}:${currentTransition.startMs}:${currentTransition.endMs}`,
-      videoId: currentTransition.videoId,
-      startMs: currentTransition.startMs,
-      endMs: currentTransition.endMs,
-      autoplay: false,
-      playbackRate: currentTransition.playbackRate,
-      label: 'Transition preview',
-      preload: 'auto' as const,
-      showLoadingLabel: false,
-      showPausedAtMarkLabel: false,
+    if (activeVideoState) {
+      if (state.mode === 'video' && state.source === 'transition') {
+        return buildTransitionPlaybackPreferenceKey({
+          presentationId,
+          slotKey: state.source,
+          videoId: state.videoId,
+          startMs: state.startMs,
+          endMs: state.endMs ?? null,
+        });
+      }
+      if (state.mode === 'clip') {
+        return buildClipPlaybackPreferenceKey({
+          presentationId,
+          slideId: state.slide.id,
+          videoId: state.clip.videoId,
+          startMs: state.clip.startMs,
+          endMs: state.clip.endMs,
+        });
+      }
+      return activeVideoState.key;
+    }
+    return null;
+  }, [presentationId, playerVideoState, activeVideoState, state]);
+
+  const playerVideoWorkflow = useMemo(() => {
+    if (activeVideoState) {
+      return getPlaybackWorkflowForState(state, isPresenting);
+    }
+    return null;
+  }, [activeVideoState, state, isPresenting]);
+
+  const blockedPlaybackAssetIdSet = useMemo(() => {
+    return new Set(blockedPlaybackAssetIds);
+  }, [blockedPlaybackAssetIds]);
+
+  const playerPlaybackAsset = useMemo(() => {
+    if (!playerVideoState || !playerVideoWorkflow) return null;
+    const preferredAssetIds = (playerPlaybackPreferenceKey
+      ? preferredPlaybackAssetIdsByPlaybackKey[playerPlaybackPreferenceKey] ?? []
+      : [])
+      .filter((assetId) => !blockedPlaybackAssetIdSet.has(assetId));
+    const effectivePreferredPlaybackAssetIdByVideoId = (() => {
+      const preferredAssetId = preferredPlaybackAssetIdByVideoId[playerVideoState.videoId];
+      if (!preferredAssetId || !blockedPlaybackAssetIdSet.has(preferredAssetId)) {
+        return preferredPlaybackAssetIdByVideoId;
+      }
+      return {
+        ...preferredPlaybackAssetIdByVideoId,
+        [playerVideoState.videoId]: buildOriginalPlaybackAssetId(playerVideoState.videoId),
+      };
+    })();
+    const resolveArgs = {
+      videoId: playerVideoState.videoId,
+      playbackAssetById,
+      preferredPlaybackAssetIdByVideoId: effectivePreferredPlaybackAssetIdByVideoId,
+      preferredAssetIds,
+      allowFallbackToOriginal: allowPlaybackFallbackToOriginal,
     };
-  }, [activeVideoState, currentTransition]);
+    if (playerVideoWorkflow === 'authoring_retrieval') {
+      return resolveAuthoringRetrievalPlaybackAsset(resolveArgs);
+    }
+    if (playerVideoWorkflow === 'authoring_clip_preview') {
+      return resolveAuthoringClipPreviewPlaybackAsset(resolveArgs);
+    }
+    if (playerVideoWorkflow === 'authoring_transition_preview') {
+      return resolveAuthoringTransitionPreviewPlaybackAsset(resolveArgs);
+    }
+    if (playerVideoWorkflow === 'present_transition') {
+      return resolvePresentTransitionPlaybackAsset(resolveArgs);
+    }
+    if (playerVideoWorkflow === 'present_clip') {
+      return resolvePresentClipPlaybackAsset(resolveArgs);
+    }
+    return resolvePlaybackAssetForVideoId({
+      ...resolveArgs,
+      workflow: playerVideoWorkflow,
+    });
+  }, [
+    playerVideoState,
+    playerVideoWorkflow,
+    playbackAssetById,
+    preferredPlaybackAssetIdByVideoId,
+    preferredPlaybackAssetIdsByPlaybackKey,
+    playerPlaybackPreferenceKey,
+    blockedPlaybackAssetIdSet,
+    allowPlaybackFallbackToOriginal,
+  ]);
 
-  const playerVideoState = activeVideoState ?? warmedTransitionState;
+  const playerPlaybackAssetLeaseKey = useMemo(() => {
+    return buildPlaybackAssetLeaseKey(playerPlaybackAsset);
+  }, [playerPlaybackAsset]);
 
-  const playerVideoUrl = useMemo(() => {
-    if (!playerVideoState) return null;
-    return videoUrlById[playerVideoState.videoId] ?? null;
-  }, [playerVideoState, videoUrlById]);
+  const playerVideoErrorKey = useMemo(() => {
+    return `${playerVideoState?.key ?? 'none'}|${playerPlaybackAssetLeaseKey ?? 'none'}`;
+  }, [playerVideoState?.key, playerPlaybackAssetLeaseKey]);
 
   const showVideoPlayer = state.mode === 'video' || state.mode === 'clip';
 
+  useEffect(() => {
+    onResolvedPlaybackAssetChange?.(playerPlaybackAsset);
+    recordMediaTrace('canvas_resolved_playback_asset_changed', {
+      stateKey: playerVideoState?.key ?? null,
+      workflow: playerVideoWorkflow,
+      assetId: playerPlaybackAsset?.assetId ?? null,
+      assetClass: playerPlaybackAsset?.assetClass ?? null,
+      generationKey: playerPlaybackAsset?.generationKey ?? null,
+      filePath: playerPlaybackAsset?.filePath ?? null,
+      leaseKey: playerPlaybackAssetLeaseKey,
+    });
+  }, [playerPlaybackAsset, onResolvedPlaybackAssetChange]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let effectResolvedUrl: string | null = null;
+    setPlayerVideoUrl(null);
+    setVideoReady(false);
+    if (directRetrievalVideoUrl) {
+      return;
+    }
+    if (!playerPlaybackAsset) {
+      return;
+    }
+    recordMediaTrace('canvas_bind_start', {
+      stateKey: playerVideoState?.key ?? null,
+      workflow: playerVideoWorkflow,
+      assetId: playerPlaybackAsset.assetId,
+      assetClass: playerPlaybackAsset.assetClass,
+      generationKey: playerPlaybackAsset.generationKey ?? null,
+      filePath: playerPlaybackAsset.filePath ?? null,
+      leaseKey: playerPlaybackAssetLeaseKey,
+    });
+    const releaseLease = playbackAssetObjectUrlRegistry?.acquireLease(playerPlaybackAsset) ?? (() => {});
+    const loadPlayerVideoUrl = async () => {
+      try {
+        const nextUrl = playbackAssetObjectUrlRegistry
+          ? await playbackAssetObjectUrlRegistry.ensureObjectUrl(playerPlaybackAsset)
+          : playerPlaybackAsset.objectUrl ?? null;
+        if (!cancelled) {
+          effectResolvedUrl = nextUrl;
+          recordMediaTrace('canvas_bind_resolved_url', {
+            stateKey: playerVideoState?.key ?? null,
+            workflow: playerVideoWorkflow,
+            assetId: playerPlaybackAsset.assetId,
+            assetClass: playerPlaybackAsset.assetClass,
+            generationKey: playerPlaybackAsset.generationKey ?? null,
+            filePath: playerPlaybackAsset.filePath ?? null,
+            blobUrl: nextUrl,
+            leaseKey: playerPlaybackAssetLeaseKey,
+          });
+          setPlayerVideoUrl(nextUrl);
+        }
+      } catch (error) {
+        recordMediaTrace('canvas_bind_failed', {
+          stateKey: playerVideoState?.key ?? null,
+          workflow: playerVideoWorkflow,
+          assetId: playerPlaybackAsset.assetId,
+          assetClass: playerPlaybackAsset.assetClass,
+          generationKey: playerPlaybackAsset.generationKey ?? null,
+          filePath: playerPlaybackAsset.filePath ?? null,
+          leaseKey: playerPlaybackAssetLeaseKey,
+          error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+        }, 'error');
+        console.error('[PresentationCanvas] Failed to resolve playback URL', {
+          assetId: playerPlaybackAsset.assetId,
+          assetClass: playerPlaybackAsset.assetClass,
+          filePath: playerPlaybackAsset.filePath ?? null,
+          generationKey: playerPlaybackAsset.generationKey ?? null,
+          workflow: playerVideoWorkflow,
+          error,
+        });
+        if (!cancelled) {
+          setPlayerVideoUrl(null);
+        }
+      }
+    };
+    void loadPlayerVideoUrl();
+    return () => {
+      cancelled = true;
+      const didDetach = detachVideoElementIfUsingUrl(
+        isSimpleTransitionPlayback
+          ? transitionVideoRef.current
+          : playerRef.current?.getVideoElement() ?? null,
+        effectResolvedUrl,
+      );
+      recordMediaTrace('canvas_bind_cleanup', {
+        stateKey: playerVideoState?.key ?? null,
+        workflow: playerVideoWorkflow,
+        assetId: playerPlaybackAsset.assetId,
+        assetClass: playerPlaybackAsset.assetClass,
+        generationKey: playerPlaybackAsset.generationKey ?? null,
+        filePath: playerPlaybackAsset.filePath ?? null,
+        blobUrl: effectResolvedUrl,
+        leaseKey: playerPlaybackAssetLeaseKey,
+        didDetachVideoElement: didDetach,
+      }, didDetach ? 'warn' : 'info');
+      releaseLease();
+    };
+  }, [directRetrievalVideoUrl, isSimpleTransitionPlayback, playerPlaybackAssetLeaseKey, playbackAssetObjectUrlRegistry, playerVideoReloadNonce, playerVideoWorkflow, playerVideoState?.key]);
   useEffect(() => {
     if (state.mode !== 'still' || !isPresenting) {
       setStillPlaybackElapsedMs(0);
@@ -293,18 +527,23 @@ export default function PresentationCanvas({
   useEffect(() => {
     setVideoReady(false);
     completionKeyRef.current = null;
+    setPlayerVideoReloadNonce(0);
+    setBlockedPlaybackAssetIds([]);
+    playerVideoErrorCountRef.current = {};
   }, [state, playerVideoState?.key]);
 
   useEffect(() => {
-    if (!playerVideoState || !playerVideoUrl) return;
-    const element = playerRef.current?.getVideoElement() ?? null;
+    if (!playerVideoState || !effectivePlayerVideoUrl) return;
+    const element = isSimpleTransitionPlayback
+      ? transitionVideoRef.current
+      : playerRef.current?.getVideoElement() ?? null;
     if (!element) return;
 
     let cancelled = false;
     const syncPlayback = async () => {
       if (cancelled) return;
       try {
-        const targetSeconds = playerVideoState.startMs / 1000;
+        const targetSeconds = isSimpleTransitionPlayback ? 0 : playerVideoState.startMs / 1000;
         if (Number.isFinite(targetSeconds) && Math.abs(element.currentTime - targetSeconds) > 0.05) {
           element.currentTime = targetSeconds;
         }
@@ -316,11 +555,24 @@ export default function PresentationCanvas({
       if (playerVideoState.autoplay) {
         try {
           await element.play();
-        } catch {}
+        } catch (error) {
+          const isAbortDuringTeardown = error instanceof DOMException && error.name === 'AbortError';
+          if (cancelled || isAbortDuringTeardown) {
+            return;
+          }
+          console.warn('[PresentationCanvas] Video autoplay was rejected', {
+            key: playerVideoState.key,
+            assetId: playerPlaybackAsset?.assetId ?? null,
+            workflow: playerVideoWorkflow,
+            error,
+          });
+        }
       } else {
         element.pause();
       }
-      if (!cancelled) setVideoReady(true);
+      if (!cancelled && !isSimpleTransitionPlayback) {
+        setVideoReady(true);
+      }
     };
 
     if (element.readyState >= 1) {
@@ -339,9 +591,133 @@ export default function PresentationCanvas({
     return () => {
       cancelled = true;
     };
-  }, [playerVideoState, playerVideoUrl]);
+  }, [effectivePlayerVideoUrl, isSimpleTransitionPlayback, playerVideoState, playerVideoWorkflow]);
+
+  useEffect(() => {
+    if (!playerVideoState || !effectivePlayerVideoUrl) {
+      return;
+    }
+    const element = isSimpleTransitionPlayback
+      ? transitionVideoRef.current
+      : playerRef.current?.getVideoElement() ?? null;
+    if (!element) {
+      return;
+    }
+    const logVideoEvent = (eventName: string, level: 'info' | 'warn' | 'error' = 'info') => {
+      recordMediaTrace(`video_${eventName}`, {
+        stateKey: playerVideoState.key,
+        workflow: playerVideoWorkflow,
+        assetId: playerPlaybackAsset?.assetId ?? null,
+        assetClass: playerPlaybackAsset?.assetClass ?? null,
+        generationKey: playerPlaybackAsset?.generationKey ?? null,
+        currentSrc: element.currentSrc ?? null,
+        currentSrcBlobUrlId: getBlobUrlId(element.currentSrc),
+        boundBlobUrlId: getBlobUrlId(effectivePlayerVideoUrl),
+        readyState: element.readyState,
+        networkState: element.networkState,
+        paused: element.paused,
+        currentTime: element.currentTime,
+      }, level);
+    };
+    const eventMap: Array<[keyof HTMLMediaElementEventMap, 'info' | 'warn' | 'error']> = [
+      ['loadstart', 'info'],
+      ['loadedmetadata', 'info'],
+      ['loadeddata', 'info'],
+      ['canplay', 'info'],
+      ['play', 'info'],
+      ['playing', 'info'],
+      ['pause', 'info'],
+      ['abort', 'warn'],
+      ['emptied', 'warn'],
+      ['error', 'error'],
+    ];
+    const listeners = eventMap.map(([eventName, level]) => {
+      const handler = () => logVideoEvent(eventName, level);
+      element.addEventListener(eventName, handler);
+      return [eventName, handler] as const;
+    });
+    return () => {
+      listeners.forEach(([eventName, handler]) => {
+        element.removeEventListener(eventName, handler);
+      });
+    };
+  }, [effectivePlayerVideoUrl, isSimpleTransitionPlayback, playerPlaybackAsset, playerVideoState, playerVideoWorkflow]);
+
+  const handlePlayerVideoError = useCallback((event: React.SyntheticEvent<HTMLVideoElement, Event>) => {
+    const mediaError = event.currentTarget.error;
+    const mediaErrorSummary = mediaError
+      ? {
+          code: mediaError.code,
+          message: 'message' in mediaError ? (mediaError as MediaError & { message?: string }).message ?? null : null,
+        }
+      : null;
+    console.error('[PresentationCanvas] Video element reported a playback error', {
+      key: playerVideoState?.key ?? null,
+      workflow: playerVideoWorkflow,
+      assetId: playerPlaybackAsset?.assetId ?? null,
+      assetClass: playerPlaybackAsset?.assetClass ?? null,
+      assetFilePath: playerPlaybackAsset?.filePath ?? null,
+      assetGenerationKey: playerPlaybackAsset?.generationKey ?? null,
+      currentUrl: playerVideoUrlRef.current,
+      mediaError: mediaErrorSummary,
+    });
+    setVideoReady(false);
+    if (!playerPlaybackAsset) {
+      return;
+    }
+    const nextErrorCount = (playerVideoErrorCountRef.current[playerVideoErrorKey] ?? 0) + 1;
+    playerVideoErrorCountRef.current[playerVideoErrorKey] = nextErrorCount;
+
+    if (nextErrorCount === 1 && playbackAssetObjectUrlRegistry) {
+      recordMediaTrace('canvas_invalidate_after_error', {
+        key: playerVideoState?.key ?? null,
+        workflow: playerVideoWorkflow,
+        assetId: playerPlaybackAsset.assetId,
+        assetClass: playerPlaybackAsset.assetClass,
+        generationKey: playerPlaybackAsset.generationKey ?? null,
+        blobUrl: playerVideoUrlRef.current,
+        mediaError: mediaErrorSummary,
+        errorCount: nextErrorCount,
+      }, 'warn');
+      const invalidated = playbackAssetObjectUrlRegistry.invalidateObjectUrl(
+        playerPlaybackAsset,
+        playerVideoUrlRef.current,
+      );
+      if (invalidated) {
+        console.warn('[PresentationCanvas] Retrying playback with a fresh blob URL', {
+          key: playerVideoState?.key ?? null,
+          assetId: playerPlaybackAsset.assetId,
+          assetClass: playerPlaybackAsset.assetClass,
+        });
+        setPlayerVideoUrl(null);
+        setPlayerVideoReloadNonce((value) => value + 1);
+        return;
+      }
+    }
+
+    const canFallbackToAuthoringOriginal = !isPresenting
+      && playerVideoWorkflow != null
+      && playerVideoWorkflow.startsWith('authoring')
+      && playerPlaybackAsset.assetClass !== 'original';
+    if (canFallbackToAuthoringOriginal) {
+      console.warn('[PresentationCanvas] Falling back from a failed derived asset to original playback', {
+        key: playerVideoState?.key ?? null,
+        failedAssetId: playerPlaybackAsset.assetId,
+        failedAssetClass: playerPlaybackAsset.assetClass,
+        fallbackAssetId: playerPlaybackAsset.sourceVideoId
+          ? buildOriginalPlaybackAssetId(playerPlaybackAsset.sourceVideoId)
+          : null,
+      });
+      setBlockedPlaybackAssetIds((current) => (
+        current.includes(playerPlaybackAsset.assetId)
+          ? current
+          : [...current, playerPlaybackAsset.assetId]
+      ));
+    }
+  }, [isPresenting, playbackAssetObjectUrlRegistry, playerPlaybackAsset, playerVideoErrorKey, playerVideoState?.key, playerVideoWorkflow]);
 
   const handleVideoTimeUpdate = () => {
+    if (isSimpleTransitionPlayback) return;
     if (!activeVideoState || activeVideoState.endMs == null) return;
     const element = playerRef.current?.getVideoElement() ?? null;
     if (!element) return;
@@ -357,6 +733,18 @@ export default function PresentationCanvas({
       onVideoComplete();
     }
   };
+
+  const handleTransitionVideoEnded = useCallback(() => {
+    if (!isSimpleTransitionPlayback || !activeVideoState || state.mode !== 'video') {
+      return;
+    }
+    const key = `${activeVideoState.videoId}:${activeVideoState.startMs}:${activeVideoState.endMs ?? 'end'}:${state.transitionToSlideIndex ?? ''}:transition-ended`;
+    if (completionKeyRef.current === key) {
+      return;
+    }
+    completionKeyRef.current = key;
+    onVideoComplete();
+  }, [activeVideoState, isSimpleTransitionPlayback, onVideoComplete, state]);
 
   if (state.mode === 'empty') {
     return (
@@ -399,31 +787,61 @@ export default function PresentationCanvas({
     ) : (
       <div className="relative z-10 text-sm text-muted">Still image unavailable</div>
     );
+  } else if (isSimpleTransitionPlayback) {
+    slideContent = transitionBackdropUrl ? (
+      <img src={transitionBackdropUrl} alt="Transition backdrop" className="relative z-10 max-w-full max-h-full object-contain" />
+    ) : (
+      <div className="relative z-10 text-sm text-muted">Transition backdrop unavailable</div>
+    );
   }
+
+  const showTransitionLoadingSpinner = isSimpleTransitionPlayback && !!playerPlaybackAsset && !videoReady;
 
   return (
     <div className="flex-1 min-h-0 rounded border border-subtle bg-surface overflow-hidden relative flex items-center justify-center">
       {slideContent}
-      {playerVideoUrl && playerVideoState ? (
+      {effectivePlayerVideoUrl && playerVideoState ? (
         <div className={`absolute inset-0 ${showVideoPlayer ? 'z-20' : 'z-0 opacity-0 pointer-events-none'}`}>
-          <VideoPlayerUnit
-            ref={playerRef}
-            src={playerVideoUrl}
-            preload={playerVideoState.preload}
-            initialTime={playerVideoState.startMs / 1000}
-            externalSeekMs={playerVideoState.startMs}
-            allowFullscreen={!isPresenting}
-            showAddMarkButton={false}
-            enableMarkHotkey={false}
-            className="w-full h-full"
-            onTimeUpdate={handleVideoTimeUpdate}
-            onLoadedMetadata={() => setVideoReady(true)}
-            onLoadedData={() => setVideoReady(true)}
-          />
+          {isSimpleTransitionPlayback ? (
+            <video
+              ref={transitionVideoRef}
+              src={effectivePlayerVideoUrl}
+              preload={playerVideoState.preload}
+              playsInline
+              className={`w-full h-full block bg-black object-contain ${videoReady ? 'opacity-100' : 'opacity-0'}`}
+              onLoadedData={() => setVideoReady(true)}
+              onEnded={handleTransitionVideoEnded}
+              onError={handlePlayerVideoError}
+            />
+          ) : (
+            <VideoPlayerUnit
+              ref={playerRef}
+              src={effectivePlayerVideoUrl}
+              preload={playerVideoState.preload}
+              initialTime={playerVideoState.startMs / 1000}
+              externalSeekMs={playerVideoState.startMs}
+              allowFullscreen={!isPresenting}
+              showAddMarkButton={false}
+              enableMarkHotkey={false}
+              className="w-full h-full"
+              onTimeUpdate={handleVideoTimeUpdate}
+              onLoadedMetadata={() => setVideoReady(true)}
+              onLoadedData={() => setVideoReady(true)}
+              onError={handlePlayerVideoError}
+            />
+          )}
         </div>
       ) : showVideoPlayer ? (
         <div className="text-sm text-muted">Video unavailable for this preview</div>
       ) : null}
+      {showTransitionLoadingSpinner && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
+          <div className="rounded bg-black/60 px-4 py-3 text-sm text-white flex items-center gap-3">
+            <div className="spinner" />
+            <span>Loading transition…</span>
+          </div>
+        </div>
+      )}
       {!isPresenting && activeVideoState && (
         <div className="absolute left-3 top-3 px-2 py-1 rounded bg-black/60 text-xs text-white">
           {activeVideoState.label}

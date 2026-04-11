@@ -9,9 +9,23 @@ import {
   readAnnotationDocumentsForStill,
   type LoadedAnnotationDocument,
 } from '../../lib/fs/annotationStorage';
+import {
+  ensurePresentationDerivedMediaStorage,
+  validateExactMotionAssetIndex,
+} from '../../lib/fs/derivedMediaStorage';
 import { ensureTaggingSelection } from '../../lib/tagging/schema';
 import type { AnnotationsV1 } from '../../lib/export/d7Render';
 import { renderAnnotatedPng } from '../../lib/export/d7Render';
+import type { PlaybackAssetRegistry, PreferredPlaybackAssetIdByVideoId } from '../../lib/presentation/derivedMediaTypes';
+import { createPlaybackAssetObjectUrlRegistry } from '../../lib/presentation/playbackAssetObjectUrls';
+import { buildWeakSourceFingerprint } from '../../lib/presentation/derivedMediaKeys';
+import {
+  buildClipPlaybackPreferenceKey,
+  buildOriginalPlaybackAssetId,
+  buildTransitionPlaybackPreferenceKey,
+  createOriginalPlaybackAsset,
+  findReadyExactTransitionPlaybackAsset,
+} from '../../lib/presentation/playbackAssetResolver';
 import { usePresentationPlayerController } from '../../lib/presentation/playerController';
 import PresentationCanvas from './PresentationCanvas';
 import PresentationDeckStrip from './PresentationDeckStrip';
@@ -67,11 +81,13 @@ export default function PresentationEditor({
   const [thumbnailUrlByStillId, setThumbnailUrlByStillId] = useState<Record<string, string>>({});
   const [annotationsByStillId, setAnnotationsByStillId] = useState<Record<string, AnnotationsV1 | null>>({});
   const [annotationDocumentsByStillId, setAnnotationDocumentsByStillId] = useState<Record<string, LoadedAnnotationDocument[]>>({});
-  const [videoUrlById, setVideoUrlById] = useState<Record<string, string>>({});
+  const [playbackAssetById, setPlaybackAssetById] = useState<PlaybackAssetRegistry>({});
+  const [preferredPlaybackAssetIdByVideoId, setPreferredPlaybackAssetIdByVideoId] = useState<PreferredPlaybackAssetIdByVideoId>({});
+  const [preferredPlaybackAssetIdsByPlaybackKey, setPreferredPlaybackAssetIdsByPlaybackKey] = useState<Record<string, string[]>>({});
   const stillUrlRegistryRef = useRef<Record<string, string>>({});
   const annotatedUrlRegistryRef = useRef<Record<string, string>>({});
   const thumbnailUrlRegistryRef = useRef<Record<string, string>>({});
-  const videoUrlRegistryRef = useRef<Record<string, string>>({});
+  const playbackAssetRegistryRef = useRef<PlaybackAssetRegistry>({});
 
   const {
     selectedSlideIndex,
@@ -91,6 +107,21 @@ export default function PresentationEditor({
     return () => window.clearTimeout(id);
   }, [toast]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const ensureDerivedMediaStorage = async () => {
+      await ensurePresentationDerivedMediaStorage(projectDir, presentation.id);
+    };
+    void ensureDerivedMediaStorage().catch((e: any) => {
+      if (!cancelled) {
+        setToast(e?.message || String(e));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectDir, presentation.id]);
+
   const getFileForPath = useCallback(async (dir: FileSystemDirectoryHandle, path: string) => {
     const parts = path.split('/').filter(Boolean);
     let current: FileSystemDirectoryHandle = dir;
@@ -100,6 +131,21 @@ export default function PresentationEditor({
     const handle = await current.getFileHandle(parts[parts.length - 1], { create: false });
     return await handle.getFile();
   }, []);
+
+  const playbackAssetObjectUrlRegistry = useMemo(() => {
+    void presentation.id;
+    return createPlaybackAssetObjectUrlRegistry({
+      projectDir,
+      getFileForPath,
+    });
+  }, [presentation.id, projectDir, getFileForPath]);
+
+  useEffect(() => {
+    playbackAssetRegistryRef.current = {};
+    setPlaybackAssetById({});
+    setPreferredPlaybackAssetIdByVideoId({});
+    setPreferredPlaybackAssetIdsByPlaybackKey({});
+  }, [presentation.id]);
 
   const slideStillIds = useMemo(() => {
     const ids = new Set<string>();
@@ -198,62 +244,102 @@ export default function PresentationEditor({
       : state.mode === 'clip'
         ? state.clip.videoId
         : null;
-    const warmedTransitionVideoId = currentTransition?.transition.mode === 'match_video'
-      && currentTransition.playable
-      && currentTransition.videoId
-      ? currentTransition.videoId
-      : null;
     const requestedVideoIds = Array.from(new Set([
       activeVideoId,
-      warmedTransitionVideoId,
     ].filter((value): value is string => !!value)));
-    if (requestedVideoIds.length === 0) return;
-    const missingVideoIds = requestedVideoIds.filter((videoId) => !videoUrlRegistryRef.current[videoId]);
-    const cachedVideoIds = requestedVideoIds.filter((videoId) => !!videoUrlRegistryRef.current[videoId]);
-    if (cachedVideoIds.length > 0) {
-      setVideoUrlById((prev) => {
-        let changed = false;
-        const next = { ...prev };
-        for (const videoId of cachedVideoIds) {
-          const cachedUrl = videoUrlRegistryRef.current[videoId];
-          if (cachedUrl && !next[videoId]) {
-            next[videoId] = cachedUrl;
-            changed = true;
-          }
-        }
-        return changed ? next : prev;
-      });
-    }
-    if (missingVideoIds.length === 0) {
+    if (requestedVideoIds.length === 0) {
+      setPreferredPlaybackAssetIdsByPlaybackKey({});
       return;
     }
+    const activeTransitionPlaybackKey = state.mode === 'video' && state.source === 'transition'
+      ? buildTransitionPlaybackPreferenceKey({
+          presentationId: presentation.id,
+          slotKey: state.source,
+          videoId: state.videoId,
+          startMs: state.startMs,
+          endMs: state.endMs ?? null,
+        })
+      : null;
+    const activeClipPlaybackKey = state.mode === 'clip'
+      ? buildClipPlaybackPreferenceKey({
+          presentationId: presentation.id,
+          slideId: state.slide.id,
+          videoId: state.clip.videoId,
+          startMs: state.clip.startMs,
+          endMs: state.clip.endMs,
+        })
+      : null;
     let cancelled = false;
     const loadVideos = async () => {
-      const nextEntries: Record<string, string> = {};
+      const nextAssets: PlaybackAssetRegistry = {};
+      const nextPreferred: PreferredPlaybackAssetIdByVideoId = {};
+      const nextPreferredByPlaybackKey: Record<string, string[]> = {};
+      const exactMotionIndex = await validateExactMotionAssetIndex(projectDir, presentation.id);
+      const sourceFingerprintByVideoId: Record<string, string> = {};
       try {
-        for (const videoId of missingVideoIds) {
+        for (const videoId of requestedVideoIds) {
           const video = manifest.videos.find((entry) => entry.id === videoId);
           if (!video) throw new Error(`Video not found: ${videoId}`);
           const file = await getFileForPath(projectDir, video.file);
-          const url = URL.createObjectURL(file);
-          if (cancelled) {
-            URL.revokeObjectURL(url);
-            continue;
+          const sourceFingerprint = buildWeakSourceFingerprint({
+            projectRelativeVideoPath: video.file,
+            byteSize: file.size,
+            lastModifiedMs: file.lastModified,
+          });
+          sourceFingerprintByVideoId[videoId] = sourceFingerprint;
+
+          const originalAssetId = buildOriginalPlaybackAssetId(videoId);
+          const asset = createOriginalPlaybackAsset(videoId, video.file, null);
+          nextAssets[asset.assetId] = asset;
+          if (!nextPreferred[videoId]) {
+            nextPreferred[videoId] = originalAssetId;
           }
-          nextEntries[videoId] = url;
+        }
+
+        if (currentTransition?.transition.mode === 'match_video'
+          && currentTransition.playable
+          && currentTransition.videoId
+          && currentTransition.startMs != null
+          && currentTransition.endMs != null) {
+          const fromSlide = presentation.slides[currentTransition.fromSlideIndex];
+          const toSlide = presentation.slides[currentTransition.toSlideIndex];
+          const sourceFingerprint = sourceFingerprintByVideoId[currentTransition.videoId];
+          if (fromSlide && toSlide && sourceFingerprint) {
+            const exactAsset = findReadyExactTransitionPlaybackAsset({
+              presentationId: presentation.id,
+              transitionIndex: currentTransition.fromSlideIndex,
+              fromSlideId: fromSlide.id,
+              toSlideId: toSlide.id,
+              sourceVideoId: currentTransition.videoId,
+              sourceFingerprint,
+              startMs: currentTransition.startMs,
+              endMs: currentTransition.endMs,
+              playbackRate: currentTransition.playbackRate ?? null,
+              startOffsetMs: currentTransition.transition.startOffsetMs ?? null,
+              endOffsetMs: currentTransition.transition.endOffsetMs ?? null,
+              hideAnnotationsDuringPlayback: currentTransition.hideAnnotationsDuringPlayback ?? false,
+              exactMotionEntries: exactMotionIndex.entries,
+            });
+            if (exactAsset) {
+              nextAssets[exactAsset.assetId] = exactAsset;
+              const exactPreference = [exactAsset.assetId];
+              if (activeTransitionPlaybackKey) {
+                nextPreferredByPlaybackKey[activeTransitionPlaybackKey] = exactPreference;
+              }
+            }
+          }
+        }
+        if (state.mode === 'clip' && activeClipPlaybackKey) {
+          nextPreferredByPlaybackKey[activeClipPlaybackKey] = [nextPreferred[state.clip.videoId] ?? buildOriginalPlaybackAssetId(state.clip.videoId)];
         }
         if (cancelled) {
-          Object.values(nextEntries).forEach((url) => {
-            URL.revokeObjectURL(url);
-          });
           return;
         }
-        videoUrlRegistryRef.current = { ...videoUrlRegistryRef.current, ...nextEntries };
-        setVideoUrlById((prev) => ({ ...prev, ...nextEntries }));
+        playbackAssetRegistryRef.current = { ...playbackAssetRegistryRef.current, ...nextAssets };
+        setPlaybackAssetById((prev) => ({ ...prev, ...nextAssets }));
+        setPreferredPlaybackAssetIdByVideoId((prev) => ({ ...prev, ...nextPreferred }));
+        setPreferredPlaybackAssetIdsByPlaybackKey(nextPreferredByPlaybackKey);
       } catch (error) {
-        Object.values(nextEntries).forEach((url) => {
-          URL.revokeObjectURL(url);
-        });
         throw error;
       }
     };
@@ -265,16 +351,16 @@ export default function PresentationEditor({
     return () => {
       cancelled = true;
     };
-  }, [state, currentTransition, manifest.videos, projectDir, getFileForPath]);
+  }, [state, currentTransition, manifest.videos, presentation, projectDir, getFileForPath]);
 
   useEffect(() => {
     return () => {
       revokeUrls(stillUrlRegistryRef.current);
       revokeUrls(annotatedUrlRegistryRef.current);
       revokeUrls(thumbnailUrlRegistryRef.current);
-      revokeUrls(videoUrlRegistryRef.current);
+      playbackAssetObjectUrlRegistry.dispose();
     };
-  }, []);
+  }, [playbackAssetObjectUrlRegistry]);
 
   const marksByVideo = useMemo(() => {
     return manifest.videos
@@ -400,13 +486,16 @@ export default function PresentationEditor({
             </div>
 
             <PresentationCanvas
+              presentationId={presentation.id}
               state={state}
               stillUrlById={stillUrlById}
               annotatedStillUrlById={annotatedStillUrlById}
               annotationsByStillId={annotationsByStillId}
               annotationDocumentsByStillId={annotationDocumentsByStillId}
-              videoUrlById={videoUrlById}
-              currentTransition={currentTransition}
+              playbackAssetById={playbackAssetById}
+              preferredPlaybackAssetIdByVideoId={preferredPlaybackAssetIdByVideoId}
+              preferredPlaybackAssetIdsByPlaybackKey={preferredPlaybackAssetIdsByPlaybackKey}
+              playbackAssetObjectUrlRegistry={playbackAssetObjectUrlRegistry}
               onVideoComplete={completeVideoPlayback}
             />
           </div>

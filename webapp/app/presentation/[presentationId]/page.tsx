@@ -105,10 +105,14 @@ export default function PresentationPage({ params }: { params: { presentationId:
   }, [saveProjectHandle, setProjectDir, setManifest, setTaggingSchema]);
 
   useEffect(() => {
+    let cancelled = false;
+    setPresentation(null);
+    setError(null);
     (async () => {
       if (!projectDir) return;
       try {
         const loaded = await readPresentation(projectDir, presentationId);
+        if (cancelled) return;
         if (!loaded) {
           setError(`Presentation not found: ${presentationId}`);
           setPresentation(null);
@@ -117,13 +121,18 @@ export default function PresentationPage({ params }: { params: { presentationId:
         setPresentation(loaded);
         if (!taggingSchema) {
           const schema = await readTaggingSchema(projectDir);
+          if (cancelled) return;
           setTaggingSchema(schema);
         }
         setError(null);
       } catch (e: any) {
+        if (cancelled) return;
         setError(e?.message || String(e));
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [projectDir, presentationId, taggingSchema, setTaggingSchema]);
 
   const openProject = useCallback(async () => {
@@ -198,6 +207,7 @@ export default function PresentationPage({ params }: { params: { presentationId:
 
   return (
     <PresentationAuthoringEditor
+      key={presentation.id}
       projectDir={projectDir}
       manifest={manifest}
       presentation={presentation}

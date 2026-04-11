@@ -1,9 +1,9 @@
 # Football Analysis Annotator – Technical Specification (As-Built)
 
 ## Overview
-This repository contains a working **Next.js (React 18 + TypeScript)** web application under `webapp/` for stills-first football match analysis.
+This repository contains a working **Next.js (React 18 + TypeScript)** web application under `webapp/` and a **Python sidecar service** under `sidecar/` for football match analysis.
 
-This repository is licensed under the **Apache-2.0** license.
+This repository is licensed under the **GPL-3.0-only** license.
 
 The as-built workflow is:
 
@@ -12,8 +12,17 @@ The as-built workflow is:
 3. Enter match metadata (teams, teamsheets, period boundaries).
 4. Tag moments ("marks") while watching video.
 5. Generate still PNGs + thumbnails.
-6. Annotate stills with a Konva-based editor.
-7. Export annotated PNGs and reports into the project folder.
+6. Annotate stills with a Konva-based editor (supports multiple annotation documents per still).
+7. Create clips (time-range segments with keyframed, trackable annotations).
+8. Build presentations (deck-like sequences of analysis slides from stills and clips).
+9. Export annotated PNGs, reports, and clip MP4s into the project folder.
+
+The optional Python sidecar provides ML-powered features: object tracking (YOLO + ByteTrack), person segmentation (YOLO + MobileSAM), pitch homography estimation (vendored Narya), and video encoding (ffmpeg). The webapp gracefully degrades when the sidecar is unavailable.
+
+### Current scope note
+- The repository still contains a substantial **clip system** and several **CV-on-clips / sidecar-assisted workflows** (tracking, homography, segmentation, occlusion, clip export).
+- Those clip/CV workflows are **currently on hold as active development tracks**. They remain documented here because they exist in the codebase, but they should be treated as paused work until revisited.
+- The **current active area of work** is **video loading for presentations**, especially original-video serving, preview proxies, exact-motion assets, and the resolver / preparation plumbing around derived media.
 
 This document describes the **current implementation** (routes, on-disk formats, runtime behavior). If something here disagrees with the code, the code is authoritative.
 
@@ -32,8 +41,13 @@ This document describes the **current implementation** (routes, on-disk formats,
 10. Tagging schema system
 11. Match metadata system
 12. Styling system (Tailwind CSS v4)
-13. Testing
-14. Segmentation test page (experimental)
+13. Clips system
+14. Presentations system
+15. Python sidecar service
+16. Project integrity
+17. Derived media
+18. Testing
+19. Segmentation test page (experimental)
 
 ---
 
@@ -55,6 +69,7 @@ This document describes the **current implementation** (routes, on-disk formats,
 - Project context: `webapp/lib/state/ProjectContext.tsx`
 - Project folder utilities: `webapp/lib/fs/projectFolder.ts`
 - Manifest schema: `webapp/lib/types/project.ts`
+- Project integrity: `webapp/lib/utils/projectIntegrity.ts`
 - Tagging schema & helpers: `webapp/lib/tagging/schema.ts`
 - Tagging UI — menu: `webapp/components/tagging/TaggingMenu.tsx`
 - Tagging UI — folder tree: `webapp/components/tagging/TagFolderTree.tsx`
@@ -62,11 +77,27 @@ This document describes the **current implementation** (routes, on-disk formats,
 - Video player: `webapp/components/player/VideoPlayerUnit.tsx`
 - Stills export: `webapp/lib/export/d7Export.ts`, `webapp/lib/export/d7Render.ts`
 - Annotation editor: `webapp/components/annotate/Editor.tsx`
+- Annotation storage: `webapp/lib/fs/annotationStorage.ts`
 - Metadata page: `webapp/app/metadata/page.tsx`
 - Metadata components: `webapp/components/metadata/` (MatchDetailsForm, TeamPanel, TeamsheetImporter, PeriodEditor, FootballDataImporter)
 - Metadata utilities: `webapp/lib/metadata/` (teamsheetParser, timeDisplay, footballDataApi)
 - API proxy: `webapp/app/api/football-data/route.ts`
+- Clip types: `webapp/lib/types/clip.ts`
+- Clip storage: `webapp/lib/fs/clipStorage.ts`
+- Clip interpolation: `webapp/lib/clip/interpolation.ts`
+- Clip bbox conversion: `webapp/lib/clip/bboxConvert.ts`
+- Clip editor: `webapp/components/clip/ClipEditor.tsx`
+- Sidecar client: `webapp/lib/clip/sidecarClient.ts`
+- Sidecar context: `webapp/lib/state/SidecarContext.tsx`
+- Presentation types: `webapp/lib/types/presentation.ts`
+- Presentation storage: `webapp/lib/fs/presentationStorage.ts`
+- Presentation authoring: `webapp/lib/presentation/authoring.ts`
+- Presentation editor: `webapp/components/presentation/PresentationAuthoringEditor.tsx`
+- Presentation canvas: `webapp/components/presentation/PresentationCanvas.tsx`
+- Derived media storage: `webapp/lib/fs/derivedMediaStorage.ts`
+- Derived media types: `webapp/lib/presentation/derivedMediaTypes.ts`
 - Styling: `webapp/app/globals.css` (Tailwind v4 `@theme` + component classes), `webapp/tailwind.config.ts`, `webapp/postcss.config.mjs`
+- Python sidecar: `sidecar/annotate_sidecar/` (FastAPI server, ML routes, services)
 
 ---
 
@@ -115,21 +146,54 @@ This document describes the **current implementation** (routes, on-disk formats,
 - File: `webapp/app/player-legacy/page.tsx`
 - The original `/player` page, preserved as-is for reference/fallback. Not reachable from normal navigation.
 
-### `/stills` – Still capture + thumbnail grid + export
+### `/stills` – Still capture + thumbnail grid + clips + export
 - File: `webapp/app/stills/page.tsx`
 - Responsibilities:
-  - Generate a still at the current playhead time.
+  - Generate a still at the current playhead time (writes `sourceMarkId` linking the still to its source mark).
   - Write still PNG to `stills/` and thumbnail PNG to `thumbnails/`.
   - Display a grid of thumbnails for the selected video.
   - Open the annotation editor in a new tab (`/annotate/[stillId]`).
+  - **Clip management**: list clips for the selected video, create new clips (via a modal specifying start/end marks or timestamps), delete clips, open clips in a new tab (`/clip/[clipId]`). Clip thumbnails are generated from the video at the clip's start time.
   - Export annotated PNGs and reports into `reports/`.
+  - Navigate to presentations (`/presentations`).
 
 ### `/annotate/[stillId]` – Annotation editor
 - File: `webapp/app/annotate/[stillId]/page.tsx`
 - Responsibilities:
   - Connect to the project directory handle (via `postMessage` from `/stills` or restore from IndexedDB).
   - Load the still image from `stills/...`.
-  - Provide editing tools and autosave to `annotations/<stillId>.json`.
+  - Supports **multiple annotation documents** per still. The URL query parameter selects which annotation document to edit (defaults to `annotations/<stillId>.json`). New annotation sets can be created inline, and the editor remounts per selected document.
+  - Provide editing tools and autosave to the selected annotation document path.
+  - Supports renaming and deleting non-default annotation sets.
+
+### `/clip/[clipId]` – Clip editor
+- File: `webapp/app/clip/[clipId]/page.tsx`
+- Scope note: this route and its supporting code remain in the repository, but clip authoring and CV-on-clips work are currently on hold.
+- Layout: full-bleed, navbar + toolbar + ClipEditor. Navbar shows "Close" button, clip time range, annotation count, sidecar video error (if any), and FPS. Toolbar provides annotation tools (select, box, circle, arrow, text, highlight) and stroke settings (color picker, width selector).
+- Responsibilities:
+  - Auto-restore project handle from IndexedDB or receive via `postMessage`.
+  - Load clip JSON from `clips/clip-<clipId>.json`, resolve mark pinning against current marks.
+  - Resolve the video file URL from the manifest using the clip's `videoId`.
+  - Register the video file with the sidecar (`POST /video/register`) to obtain a `videoRef` for ML operations. Unregister on unmount.
+  - Wrap the editor in `SidecarProvider` so ML features (Track, Homography, Occlusion, Export) are conditionally available.
+  - Render the `ClipEditor` component with playback, keyframe interpolation, annotation rendering, and editing.
+
+### `/presentations` – Presentation list
+- File: `webapp/app/presentations/page.tsx`
+- Layout: full-bleed with navbar ("← Stills", "Presentations" heading, "Refresh"). Summary cards (presentation count, slide count, project name). Create form. Scrollable list of presentations with rename, duplicate, delete, and "Open" actions.
+- Responsibilities:
+  - List all presentations from `presentations/*.json` (sorted by most recently updated).
+  - Create new presentations (writes a default presentation JSON).
+  - Rename, duplicate, and delete presentations.
+  - Navigate to the presentation editor (`/presentation/[presentationId]`).
+
+### `/presentation/[presentationId]` – Presentation editor
+- File: `webapp/app/presentation/[presentationId]/page.tsx`
+- Responsibilities:
+  - Auto-restore project handle from IndexedDB or receive via `postMessage`.
+  - Load presentation JSON from `presentations/presentation-<presentationId>.json`.
+  - Load tagging schema for the asset browser tree.
+  - Render `PresentationAuthoringEditor` — a full-screen editor with asset browser, canvas, inspector, and deck strip.
 
 ### `/api/football-data` – API proxy (server-side)
 - File: `webapp/app/api/football-data/route.ts`
@@ -170,15 +234,37 @@ MyMatch.matchproj/
   stills/
   thumbnails/
   annotations/
+    <stillId>.json                      # default annotation document
+    <stillId>/                          # per-still subdirectory for alternate sets
+      <annotationId>.json
   reports/
     annotated/
   clips/
+    clip-<clipId>.json
+  presentations/
+    presentation-<presentationId>.json
+  homography-cache/
+    range-<startMs>-<endMs>.json
+  derived-media/
+    preview-proxies/
+      index.json
+      proxy-<generationKey>.mp4
+    presentations/
+      <presentationId>/
+        index.json
+        jobs.json
+        preparation.json
+        motion-assets/
+          motion-<generationKey>.mp4
 ```
 
 Notes:
 - `tagging-schema.yaml` is written from the default template on project creation. For existing projects opened without one, the user is prompted to add it.
 - `reports/annotated/` is created during export.
-- `clips/` exists but is not used by the current app.
+- `clips/` stores clip JSON files; clips are discovered by directory listing (no manifest entry).
+- `presentations/` stores presentation JSON files; discovered by directory listing.
+- `homography-cache/` stores per-range homography matrices computed by the sidecar.
+- `derived-media/` stores sidecar-encoded video assets for presentations (preview proxies and exact-motion segments).
 
 ---
 
@@ -195,14 +281,23 @@ Defined in `webapp/lib/types/project.ts`.
 ```ts
 import type { TaggingSelection } from "../tagging/schema";
 
+export interface ProjectAnnotationIndexEntry {
+  stillId: string;
+  file: string;
+  id?: string;           // annotation document ID (derived from path if absent)
+  label?: string;        // human-readable label
+  role?: 'default' | 'alternate';
+  lastModified?: string;
+}
+
 export interface ProjectManifestV1 {
   schema: 'project.v1';
   name: string;
   created: string;
   videos: { id: string; label: string; file: string; durationMs?: number; width?: number; height?: number; fps?: number }[];
   marks: { id: string; videoId: string; t_ms: number; tags?: TaggingSelection | string[] }[];
-  stills: { id: string; videoId: string; t_ms: number; file: string; width?: number; height?: number }[];
-  annotations: { stillId: string; file: string; lastModified?: string }[];
+  stills: { id: string; videoId: string; t_ms: number; file: string; width?: number; height?: number; sourceMarkId?: string | null }[];
+  annotations: ProjectAnnotationIndexEntry[];
   reports: string[];
   thumbnails: string[];
   matchInfo?: MatchInfo;
@@ -226,15 +321,26 @@ Key invariants:
 - `schema` must equal `"project.v1"`.
 - `videos[].file`, `stills[].file`, and the strings in `thumbnails[]` / `reports[]` are **relative paths** within the project directory.
 - `marks[].tags` may be a `TaggingSelection` object (`{ primary, facets }`) or a legacy `string[]`. Readers must handle both via `ensureTaggingSelection()` from `webapp/lib/tagging/schema.ts`.
-- A still is linked to marks by **time tolerance**, not by mark ID. Export uses a ±2 frame tolerance based on FPS.
+- `stills[].sourceMarkId` links each still to a specific mark by ID. This is required for the presentations asset browser. On project open, `projectIntegrity.ts` repairs missing `sourceMarkId` fields by matching `(videoId, t_ms)` to existing marks or creating backfilled marks. See §16 (Project integrity).
+- `annotations[]` entries are document-aware: each entry has a `file` path, a derived or explicit `id`, optional `label`, and `role` (`'default'` or `'alternate'`). The annotation index is rebuilt by scanning the `annotations/` directory recursively on project open. See §5 for the multi-document annotation model.
+- Export still uses ±2 frame tolerance for legacy linking but prefers `sourceMarkId` when available.
 
 ---
 
 ## 5) Annotation format (`annotations.v1`)
 
-### Location
-- Main save location: `annotations/<stillId>.json`.
+### Location and multi-document model
+- **Default document**: `annotations/<stillId>.json` — backward-compatible path, always editable by the annotation editor.
+- **Alternate documents**: `annotations/<stillId>/<annotationId>.json` — additional named annotation sets per still (e.g. different analysis perspectives).
 - If write permission is not available, the editor also writes a backup record to IndexedDB (see Persistence).
+
+The annotation storage layer (`webapp/lib/fs/annotationStorage.ts`) owns all annotation I/O:
+- `buildDefaultAnnotationPath(stillId)` / `buildAnnotationPath(stillId, annotationId)` — path resolution.
+- `listAnnotationEntriesForStillWithDefault(manifest, stillId)` — returns resolved entries for a still, always including the default document even if not indexed.
+- `readAnnotationDocument(projectDir, filePath)` / `writeAnnotationDocument(...)` / `deleteAnnotationDocument(...)` — CRUD for individual documents.
+- `readAnnotationDocumentsForStill(projectDir, manifest, still)` — loads all annotation documents for a still.
+- `mergeAnnotationDocuments(documents)` — merges shapes from multiple documents into a single `AnnotationsV1` (deduplicates by shape ID, takes the first perspective quad found). Used by export and presentation rendering.
+- `scanAnnotationEntries(projectDir, manifest)` — recursively walks `annotations/` and rebuilds the manifest index.
 
 ### Schema
 Export expects this schema (`webapp/lib/export/d7Export.ts`), and the editor writes it (`webapp/components/annotate/Editor.tsx`).
@@ -644,19 +750,358 @@ Previously, components used duplicated inline style constant objects (`INPUT_STY
 
 ---
 
-## 13) Testing
+## 13) Clips system
+
+Design doc: `plans/post-mvp/clips/clips-feature.md`.
+
+Scope note: the clip system below is still implemented in the repository, but clip authoring and clip-oriented CV work are currently on hold. It remains documented here as as-built code, not as the current active delivery focus.
+
+### Core concept
+A **clip** is a reference to a time range within a project video (not a copy of the video data). Clips carry their own keyframed, trackable annotations that animate over the clip's duration. Clips are independent from stills — stills capture a single frame; clips capture a segment with temporal annotation behavior.
+
+### Data model
+Defined in `webapp/lib/types/clip.ts`. Schema version: `CLIP_SCHEMA_VERSION = 1`.
+
+```ts
+interface Clip {
+  schema: number;
+  id: ClipId;             // UUID string
+  videoId: string;        // which project video this clip references
+  startMs: number;        // absolute video time
+  endMs: number;
+  startMarkId?: string | null;  // optional mark pinning
+  endMarkId?: string | null;
+  annotations: ClipAnnotation[];
+}
+```
+
+**Annotations** (`ClipAnnotation`):
+- `id`, `type` (`'box' | 'circle' | 'arrow' | 'text' | 'poly' | 'highlight'`), `keyframes` (sorted by `tMs`), `style` (`ClipAnnotationStyle`), `source` (`'manual' | 'auto' | 'corrected'`), `coordMode` (`'image' | 'pitch'`), optional `text`.
+
+**Keyframes** — per-type interfaces (`BoxKeyframe`, `CircleKeyframe`, `ArrowKeyframe`, `TextKeyframe`, `PolyKeyframe`, `HighlightKeyframe`), all sharing a base `{ tMs: number; visible?: boolean }`. Keyframe timestamps are **clip-relative** (0 = clip start).
+
+**Style** (`ClipAnnotationStyle`): `stroke`, `fill`, `fillOpacity`, `strokeWidth`, `strokePattern` (`'solid' | 'dashed' | 'dotted' | 'dashdot'`), `fontSize`, `fontFamily`, `textHighlight`.
+
+### Mark pinning
+Clips can optionally pin their start/end to marks via `startMarkId`/`endMarkId`. On load, `resolveMarkPinning(clip, marks)` updates `startMs`/`endMs` from the current mark positions (lazy resolution — stale ms values cached on disk).
+
+### Interpolation engine
+File: `webapp/lib/clip/interpolation.ts`.
+
+`interpolateKeyframes(keyframes, tMs, type, fps)` returns the interpolated geometry at a given clip-relative time:
+- **Single keyframe**: clamp (return static properties).
+- **Before first / after last**: clamp to boundary keyframe.
+- **Between two keyframes**: compute `t ∈ [0,1]` within the bracket.
+  - **Linear** (`lerp`): used when bracket gap ≤ 2 frames, and always for poly/point-array types.
+  - **Cubic** (Catmull-Rom spline): used for simple numeric properties when bracket gap > 2 frames and adjacent control points exist.
+- If either bracket keyframe has `visible: false` → returns `null` (hidden).
+- Binary search (`findBracketIndex`) for efficient lookup in sorted keyframes.
+
+### Bbox conversion
+File: `webapp/lib/clip/bboxConvert.ts`.
+
+Converts sidecar tracking bboxes `{ x, y, w, h }` to typed `ClipKeyframe[]`:
+- `bboxToBox`, `bboxToCircle`, `bboxToHighlight`, `bboxToArrow` — per-type geometry converters.
+- `convertTrackingKeyframes(rawKeyframes, annotationType, clipStartMs)` — batch converts sidecar results (absolute ms) to clip-relative keyframes.
+
+### Storage
+File: `webapp/lib/fs/clipStorage.ts`.
+
+- Clips stored as `clips/clip-<clipId>.json`. Discovered via directory listing (no manifest entry).
+- `migrateClipSchema(raw)` — validates and migrates clip JSON (currently v1 only).
+- CRUD: `readClip`, `writeClip`, `deleteClip`, `listClips` (sorted by `startMs`).
+
+### Clip editor
+- Route: `/clip/[clipId]` → `ClipEditor` component (dynamically imported, SSR disabled).
+- Wrapped in `SidecarProvider` for ML feature discovery.
+- Video file registered with sidecar via `POST /video/register` for tracking/segmentation/homography.
+- Features: video playback synced to clip range, annotation rendering via Konva, keyframe editing, timeline strip, auto-save.
+- ML features (conditional on sidecar): Track (YOLO + ByteTrack), Re-track (user correction loop), Compute Homography, Occlusion toggle, Export to MP4.
+
+### Coordinate modes
+- `image` (default): pixel coordinates relative to the video frame.
+- `pitch`: coordinates on a normalized pitch plane, projected to image space via homography. Requires a computed homography matrix for the clip's time range.
+
+### Export
+Frontend-driven pipeline:
+1. `POST /export/start` → session ID.
+2. For each frame: seek video → capture canvas → render annotations via Konva → optionally composite occlusion mask → encode as JPEG → `POST /export/frame`.
+3. `POST /export/encode` → ffmpeg encodes to MP4 (libx264, CRF 18, faststart).
+4. `DELETE /export/{sessionId}` → cleanup.
+
+Files:
+- Types & storage: `webapp/lib/types/clip.ts`, `webapp/lib/fs/clipStorage.ts`
+- Interpolation: `webapp/lib/clip/interpolation.ts`
+- Bbox conversion: `webapp/lib/clip/bboxConvert.ts`
+- Sidecar client: `webapp/lib/clip/sidecarClient.ts`
+- Clip page: `webapp/app/clip/[clipId]/page.tsx`
+- Clip editor component: `webapp/components/clip/ClipEditor.tsx`
+
+---
+
+## 14) Presentations system
+
+Design doc: `plans/post-mvp/presentations/presentations-feature.md`.
+
+### Core concept
+A **presentation** is a deck-like sequence of analysis slides assembled from existing project assets (stills, clips, title cards). Presentations are a narrative composition tool — separate from asset creation. The asset browser is **mark-first and tag-tree driven**: marks are organized by the tagging schema tree, and each mark links to its canonical still via `sourceMarkId`.
+
+### Data model
+Defined in `webapp/lib/types/presentation.ts`. Schema version: `PRESENTATION_SCHEMA_VERSION = 1`.
+
+```ts
+interface Presentation {
+  schema: number;
+  id: string;
+  name: string;
+  createdAt: string;   // ISO date
+  updatedAt: string;
+  slides: PresentationSlide[];
+  transitions: PresentationTransition[];
+  theme?: PresentationTheme;
+}
+```
+
+**Slide types** (`PresentationSlide` = `StillSlide | ClipSlide | TitleSlide`):
+- **`StillSlide`**: `{ kind: 'still', id, stillId, showAnnotations, notes?, holdMs?, annotationSetIds?, annotationSetCues?, annotationCues? }`. Supports set-based annotation selection with per-set enter/exit timing cues.
+- **`ClipSlide`**: `{ kind: 'clip', id, clipId, notes?, holdMs? }`.
+- **`TitleSlide`**: `{ kind: 'title', id, template ('title' | 'section' | 'divider'), title, body?, notes?, holdMs? }`.
+
+**Transitions** (`PresentationTransition`):
+- `{ mode: 'cut' }` — instant switch.
+- `{ mode: 'match_video', hideAnnotationsDuringPlayback?, playbackRate?, startOffsetMs?, endOffsetMs? }` — plays the source video between two consecutive still slides that share the same `videoId` and have chronologically ordered timestamps.
+
+### Storage
+File: `webapp/lib/fs/presentationStorage.ts`.
+
+- Presentations stored as `presentations/presentation-<presentationId>.json`. Discovered via directory listing.
+- `migratePresentationSchema(raw)` — validates and migrates (currently v1). Normalizes transition array length to `slides.length - 1`.
+- CRUD: `readPresentation`, `writePresentation`, `deletePresentation`, `listPresentations` (sorted by most recently updated), `renamePresentation`, `duplicatePresentation`.
+
+### Authoring
+File: `webapp/lib/presentation/authoring.ts`.
+
+- **Asset index** (`buildPresentationAssetIndex`): builds a tag-tree-driven index of marks with their linked stills. Groups marks by `tags.primary` into schema tree nodes; untagged and unknown-tag marks collected separately. Also identifies stills with missing `sourceMarkId`.
+- **Slide creation**: `createStillSlide(stillId)`, `createClipSlide(clipId)`, `createTitleSlide(template)`.
+- **Transition sync** (`synchronizeTransitions`): when slides are reordered/inserted/removed, preserves existing transitions by edge identity (`fromSlide.id::toSlide.id`); fills gaps with auto-detected defaults (cut, or match_video if same video within 5s).
+- **Deck operations**: `insertSlideAfterSelection`, `removeSlideAtIndex`, `moveSlide`.
+
+### Presentation editor
+- Route: `/presentation/[presentationId]` → `PresentationAuthoringEditor` component.
+- Layout: asset browser (tag tree + mark list), canvas (still/video preview with annotation overlay), inspector (slide properties, annotation set selection, transition settings), deck strip (sortable slide thumbnails).
+- **Edit mode**: author slides, adjust transitions, configure annotation visibility and timing.
+- **Present mode**: full-screen sequential playback. `match_video` transitions play pre-cut exact-motion clips and then advance directly to the next slide.
+- **Annotation rendering**: reuses the still annotation rendering path. Still slides render merged annotations from selected annotation sets, with optional per-set enter/exit timing.
+- **Derived media**: presentation playback now uses structured playback assets for original source video and exact-motion transition media. See §17 (Derived media).
+- Auto-save on slide/transition changes.
+
+### Annotation set support on still slides
+Still slides can specify which annotation documents to render via `annotationSetIds` and per-set timing via `annotationSetCues` (each with `annotationSetId`, `enterAtMs`, `exitAtMs`). The inspector exposes controls for set selection and timing. `PresentationCanvas` honors these cues during playback, showing/hiding annotation sets at the specified times within the slide's hold duration.
+
+Files:
+- Types: `webapp/lib/types/presentation.ts`
+- Storage: `webapp/lib/fs/presentationStorage.ts`
+- Authoring logic: `webapp/lib/presentation/authoring.ts`
+- Presentation list page: `webapp/app/presentations/page.tsx`
+- Presentation editor page: `webapp/app/presentation/[presentationId]/page.tsx`
+- Authoring editor: `webapp/components/presentation/PresentationAuthoringEditor.tsx`
+- Canvas: `webapp/components/presentation/PresentationCanvas.tsx`
+
+---
+
+## 15) Python sidecar service
+
+### Overview
+The sidecar (`sidecar/annotate_sidecar/`) is a local **FastAPI** HTTP server that provides ML-powered features. It runs alongside the Next.js frontend on `http://127.0.0.1:8321` (configurable via `--port`). The webapp discovers sidecar capabilities at runtime and adjusts the UI accordingly — all sidecar features are optional.
+
+Current scope note:
+- Sidecar-backed **clip/CV workflows** (`/track`, `/segment`, `/homography`, occlusion, clip export) remain in the codebase but are currently on hold as active workstreams.
+- The **active sidecar-related work** is the **video-loading / derived-media path** for presentations, specifically exact-motion transition media.
+
+### Requirements
+- Python 3.10–3.12 (TensorFlow does not support 3.13+).
+- ffmpeg (for export encoding).
+- Dependencies installed via `sidecar/requirements.txt`.
+- MobileSAM installed separately (`pip install git+https://github.com/ChaoningZhang/MobileSAM.git`).
+- Narya vendored at `annotate_sidecar/vendor/narya/` (MIT license).
+
+### Architecture
+```text
+annotate_sidecar/
+  __main__.py              # CLI entry point (uvicorn)
+  server.py                # FastAPI app, CORS, lifespan
+  video_registry.py        # videoRef → temp-file registry
+  routes/
+    health.py              # GET /health
+    track.py               # POST /track
+    segment.py             # POST /segment
+    homography.py          # POST /homography
+    export.py              # Export endpoints
+    video.py               # Video register/unregister
+    derived_media.py       # POST /derived-media/exact-motion
+  services/
+    frame_extractor.py     # cv2.VideoCapture → frames
+    tracker.py             # YOLO + ByteTrack
+    segmenter.py           # YOLO + MobileSAM
+    homography_estimator.py  # Narya wrapper
+    encoder.py             # ffmpeg MP4 encoding
+  vendor/narya/            # Vendored Narya (MIT)
+  models/                  # Downloaded weights (gitignored)
+```
+
+### API endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Status + model availability + capabilities list |
+| `POST` | `/video/register` | Upload video file → `videoRef` (temp registry) |
+| `DELETE` | `/video/{videoRef}` | Unregister temp video |
+| `POST` | `/track` | Object tracking (YOLO + ByteTrack): `videoRef`, time range, seed bbox → keyframes |
+| `POST` | `/segment` | Person segmentation (YOLO + MobileSAM): `videoRef`, frame ms → base64 PNG alpha mask |
+| `POST` | `/homography` | Pitch homography (Narya): `videoRef`, time range → per-frame 3×3 matrices |
+| `POST` | `/homography/manual-track` | Homography tracking from seed matrix |
+| `POST` | `/export/start` | Begin export session → `sessionId` |
+| `POST` | `/export/frame` | Submit rendered frame (base64 JPEG) |
+| `POST` | `/export/encode` | Encode frames → MP4 (ffmpeg, libx264, CRF 18) |
+| `DELETE` | `/export/{sessionId}` | Clean up export session |
+| `POST` | `/derived-media/exact-motion` | Encode exact video segment → MP4 blob |
+
+### Video registration
+Routes that require video access (`/track`, `/segment`, `/homography`) accept either:
+- `videoRef` from `POST /video/register` (recommended — webapp uploads the file from the File System Access API).
+- Absolute `videoPath` (legacy). Relative paths are rejected.
+
+### Frontend integration
+- **Sidecar client** (`webapp/lib/clip/sidecarClient.ts`): typed API functions for all endpoints (`checkHealth`, `registerVideoFile`, `requestTracking`, `requestSegmentation`, `requestHomography`, `startExport`, `sendExportFrame`, `encodeExport`, `cleanupExport`, `requestExactMotionEncode`, etc.).
+- **SidecarContext** (`webapp/lib/state/SidecarContext.tsx`): React context providing `{ connected, capabilities, models, baseUrl, retry }`. Polls `/health` on mount, every 30s, and on tab focus (`visibilitychange`). Components use `useSidecar()` to conditionally show/hide ML features.
+
+### Graceful degradation
+When the sidecar is unavailable:
+- Track, Re-track, Compute Homography, Occlusion, and Export buttons are hidden via capability flags (`canTrack`, `canComputeHomography`, `canSegment`, `canExport`).
+- Manual-only clip editing remains fully functional.
+
+### Hardware support
+- **CPU-only**: all features work (slower tracking/segmentation).
+- **CUDA GPU**: accelerates YOLO, MobileSAM, and Narya.
+- **Apple Silicon**: supported via MPS (Metal Performance Shaders) for PyTorch.
+
+### Homography cache
+File: `webapp/lib/fs/homographyCache.ts`.
+
+Computed homography matrices are cached on disk at `homography-cache/range-<startMs>-<endMs>.json`:
+- `writeHomographyCache(projectDir, startMs, endMs, frames)`.
+- `readHomographyCache(projectDir, startMs, endMs)` — exact range match.
+- `findOverlappingCache(projectDir, startMs, endMs)` — finds any cached range that fully contains the requested range.
+
+Files:
+- Sidecar: `sidecar/annotate_sidecar/` (all routes and services)
+- Sidecar README: `sidecar/README.md`
+- Client: `webapp/lib/clip/sidecarClient.ts`
+- Context: `webapp/lib/state/SidecarContext.tsx`
+- Homography cache: `webapp/lib/fs/homographyCache.ts`
+
+---
+
+## 16) Project integrity
+
+File: `webapp/lib/utils/projectIntegrity.ts`.
+
+### Purpose
+Ensures referential integrity between marks, stills, and annotations on project open. Runs automatically during `validateProjectFolderStructure()`.
+
+### Repairs performed
+1. **Duplicate mark timestamps**: detects multiple marks at the same `(videoId, t_ms)`. Reports as `duplicate_mark_timestamp` issues but does not auto-merge (user intervention required).
+2. **Still–mark linking** (`sourceMarkId`):
+   - For each still, validates that `sourceMarkId` points to an existing mark with the same `videoId`.
+   - If missing or broken: attempts to find a unique mark at the exact `(videoId, t_ms)`.
+   - If no mark exists at that timestamp: creates a **backfilled mark** (`mark_backfill_<stillId>`) and sets `sourceMarkId`.
+   - Reports unresolvable cases as `unresolved_still_source_mark` issues.
+3. **Annotation reindexing**: `scanAnnotationEntries` recursively walks `annotations/` and rebuilds `manifest.annotations` with document-aware entries.
+
+### Key functions
+- `repairManifestIntegrity(manifest)` → `{ manifest, changed, issues }`.
+- `findMarkAtTimestamp(marks, videoId, t_ms)` — exact lookup.
+- `hasDuplicateMarkTimestamp(marks, videoId, t_ms)` — duplicate check.
+- `findLinkedStillsForMark(stills, markId)` — reverse lookup.
+- `findCanonicalStillForMark(manifest, markId)` — selects the best still for a mark (exact timestamp match preferred, then closest, then alphabetical).
+- `summarizeManifestRepairIssues(issues)` — human-readable issue summary.
+
+### Integration
+- `validateProjectFolderStructure()` in `projectFolder.ts` runs `reindexAnnotations` + `repairManifestIntegrity` on every project open.
+- If repairs are needed, the updated manifest is persisted automatically.
+- If unresolvable issues remain (e.g. duplicate mark timestamps), the project is reported as invalid with a descriptive reason.
+- Player page prevents creating duplicate marks at the same `(videoId, t_ms)`.
+- Stills page always writes `sourceMarkId` when capturing, reusing the selected/exact mark or creating a new one.
+
+---
+
+## 17) Derived media
+
+Design doc: `plans/post-mvp/presentation-derived-media/derived-media-serving.md`.
+
+### Overview
+Derived media are sidecar-encoded video assets used by presentations for smooth playback. The active implementation is now intentionally narrow:
+- **Exact-motion assets**: precise transition clips generated for `match_video` preview and present playback, stored per presentation.
+
+Current implementation note:
+- Transition preview and present playback wait for exact-motion assets and then play those generated clips directly.
+- Retrieval stays on direct original-video loading and does not route through a proxy layer.
+
+### Storage layout
+Under `derived-media/` in the project directory:
+- `presentations/<presentationId>/index.json` — `ExactMotionAssetIndexFile` tracking motion assets.
+- `presentations/<presentationId>/jobs.json` — `DerivedMediaJobQueueFile` tracking generation jobs.
+- `presentations/<presentationId>/preparation.json` — `PresentationPreparationStatusFile`.
+- `presentations/<presentationId>/motion-assets/*.mp4` — encoded motion asset files.
+
+### Asset lifecycle
+1. **Queueing**: transition preview and present playback queue missing/stale exact-motion assets for playable `match_video` edges.
+2. **Execution**: exact-motion jobs register the source video, request `POST /derived-media/exact-motion`, write the result as a `.pending` file, verify currentness, then promote via `promoteExactMotionJobIfCurrent()`.
+3. **Index management**: asset indices track status (`ready`, `stale`, `missing`, `failed`, `queued`, `running`). Reconciliation runs on load to sync index with on-disk files and job queue state.
+4. **Startup cleanup**: `cleanupPendingExactMotionFilesForActiveJobs()` removes interrupted `.pending` files on presentation load.
+
+### Playback asset resolver
+File: `webapp/lib/presentation/playbackAssetResolver.ts`.
+
+The resolver layer maps video IDs to structured `PlaybackAsset` objects with workflow metadata (original or exact motion). Transition workflows resolve exact-motion assets; retrieval resolves original video.
+
+### Preparation status
+File: `webapp/lib/presentation/presentPreparation.ts`.
+
+Evaluates presentation closure requirements (all playable `match_video` transitions and clip slides need exact-motion assets). Status: `ready` (all assets present), `degraded` (some missing, fallback available), or `failed` (critical assets unavailable).
+
+Files:
+- Types: `webapp/lib/presentation/derivedMediaTypes.ts`
+- Storage: `webapp/lib/fs/derivedMediaStorage.ts`
+- Jobs: `webapp/lib/presentation/derivedMediaJobs.ts`
+- Keys: `webapp/lib/presentation/derivedMediaKeys.ts`
+- Resolver: `webapp/lib/presentation/playbackAssetResolver.ts`
+- Preparation: `webapp/lib/presentation/presentPreparation.ts`
+
+---
+
+## 18) Testing
 
 The project uses **Vitest** for unit tests (`vitest: ^4.0.18` dev dependency). Scripts:
 - `npm run test` — single run.
 - `npm run test:watch` — watch mode.
 
 Existing test files:
-- `webapp/lib/metadata/teamsheetParser.test.ts` — 26 tests covering CSV (standard headers, aliases, TSV, semicolons, fallback, empty, unicode, Windows line endings) and plain-text (number formats, no-number, captain marker, position hints, blank lines, whitespace, unique IDs).
-- `webapp/lib/metadata/timeDisplay.test.ts` — 16 tests covering `formatRawTime` (zero, sub-minute, minutes, hours, negative clamp) and `formatMatchTimestamp` (complete boundaries, missing boundaries, between/before/after periods, different videoId, custom labels like "Extra Time 1" and unknown labels).
+- `webapp/lib/metadata/teamsheetParser.test.ts` — CSV and plain-text teamsheet parsing (headers, aliases, delimiters, captain markers, position hints, fallback).
+- `webapp/lib/metadata/timeDisplay.test.ts` — `formatRawTime` and `formatMatchTimestamp` (period boundaries, fallback, custom labels).
+- `webapp/lib/fs/clipStorage.test.ts` — clip schema migration, mark pinning resolution, CRUD operations.
+- `webapp/lib/clip/interpolation.test.ts` — linear/cubic interpolation, clamping, visibility, bracket search, per-type interpolators.
+- `webapp/lib/clip/bboxConvert.test.ts` — bbox-to-geometry conversion and batch tracking keyframe conversion.
+- `webapp/lib/clip/sidecarClient.test.ts` — sidecar API client tests.
+- `webapp/lib/clip/videoLocator.test.ts` — video locator utility tests.
+- `webapp/lib/fs/presentationStorage.test.ts` — presentation schema migration, CRUD, transition normalization, rename, duplicate.
+- `webapp/lib/fs/derivedMediaStorage.test.ts` — derived media queue reads vs startup cleanup behavior for pending files.
+- `webapp/lib/presentation/derivedMediaServing.test.ts` — derived media serving/resolver tests.
+- `webapp/lib/utils/projectIntegrity.test.ts` — manifest repair, duplicate mark detection, sourceMarkId backfill, canonical still selection.
 
 ---
 
-## 14) Segmentation test page (experimental)
+## 19) Segmentation test page (experimental)
 
 The `segmentation-test` route is a sandbox for foreground extraction from a still image.
 

@@ -11,6 +11,7 @@ type Props = {
   onTimeUpdate?: () => void;
   onLoadedMetadata?: () => void;
   onLoadedData?: () => void;
+  onError?: (event: React.SyntheticEvent<HTMLVideoElement, Event>) => void;
   hotkeys?: boolean;
   allowFullscreen?: boolean;
   onAddMark?: (t_ms: number) => void;
@@ -61,7 +62,7 @@ function formatTimeNoMs(ms: number): string {
   return hh > 0 ? `${hh}:${pad2(mm)}:${pad2(ss)}` : `${mm}:${pad2(ss)}`;
 }
 
-function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, onLoadedMetadata, onLoadedData, hotkeys = true, allowFullscreen = true, onAddMark, onToggleTag, initialTime, externalSeekMs, skipLargeSeconds = 2, className, style, marks = [], selectedMarkId, onSelectMark, showAddMarkButton = true, enableMarkHotkey = true, locked = false, videoHeight }: Props, ref: React.Ref<VideoPlayerHandle>) {
+function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, onLoadedMetadata, onLoadedData, onError, hotkeys = true, allowFullscreen = true, onAddMark, onToggleTag, initialTime, externalSeekMs, skipLargeSeconds = 2, className, style, marks = [], selectedMarkId, onSelectMark, showAddMarkButton = true, enableMarkHotkey = true, locked = false, videoHeight }: Props, ref: React.Ref<VideoPlayerHandle>) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -196,6 +197,12 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
       else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
     }
   }, [allowFullscreen]);
+
+  const handleMediaError = useCallback((event: React.SyntheticEvent<HTMLVideoElement, Event>) => {
+    setReady(false);
+    setPlaying(false);
+    onError?.(event);
+  }, [onError]);
 
   // Imperative API for parent
   useImperativeHandle(ref, () => ({
@@ -385,6 +392,7 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
         onTimeUpdate={onTimeUpdate}
         onLoadedMetadata={onLoadedMetadata}
         onLoadedData={onLoadedData}
+        onError={handleMediaError}
         onClick={() => { wrapperRef.current?.focus(); if (!locked) togglePlay(); }}
         className="w-full block bg-black object-contain flex-1 min-h-0"
       />
