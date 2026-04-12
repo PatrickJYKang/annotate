@@ -192,7 +192,7 @@ export default function PresentationAssetBrowser({
   }, [assetIndex.unknown]);
 
   return (
-    <div className={`${compact ? 'w-[320px]' : 'w-[360px] shrink-0 border-r'} border-subtle bg-surface p-4 overflow-y-auto flex flex-col gap-4`}>
+    <div className={`${compact ? 'w-[320px]' : 'w-[360px] shrink-0 border-r'} min-h-0 border-subtle bg-surface p-4 overflow-y-auto flex flex-col gap-4`}>
       <div>
         <div className="text-xs uppercase tracking-wide text-muted">{mode === 'retrieval' ? 'Mark retrieval' : 'Asset browser'}</div>
         <div className="text-sm text-muted mt-2">

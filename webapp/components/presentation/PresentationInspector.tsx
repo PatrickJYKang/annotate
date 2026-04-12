@@ -185,7 +185,7 @@ export default function PresentationInspector({
   const allAnnotationSetIds = selectedAnnotationDocuments.map((entry) => entry.entry.id);
 
   return (
-    <div className="w-[320px] shrink-0 border-l border-subtle bg-surface p-4 overflow-y-auto flex flex-col gap-4">
+    <div className="w-[320px] shrink-0 min-h-0 border-l border-subtle bg-surface p-4 overflow-y-auto flex flex-col gap-4">
       <div>
         <div className="text-xs uppercase tracking-wide text-muted">Presentation</div>
         <div className="text-lg font-semibold mt-1">{presentation.name}</div>

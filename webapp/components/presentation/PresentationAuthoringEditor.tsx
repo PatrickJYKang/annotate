@@ -186,8 +186,6 @@ export default function PresentationAuthoringEditor({
   const stillUrlRegistryRef = useRef<Record<string, string>>({});
   const annotatedUrlRegistryRef = useRef<Record<string, string>>({});
   const thumbnailUrlRegistryRef = useRef<Record<string, string>>({});
-  const retrievalDirectVideoUrlByVideoIdRef = useRef<Record<string, string>>({});
-  const retrievalDirectVideoPathByVideoIdRef = useRef<Record<string, string>>({});
   const playbackAssetRegistryRef = useRef<PlaybackAssetRegistry>({});
   const exactMotionWorkerRunningRef = useRef(false);
   const derivedMediaVideoRefByPathRef = useRef<Record<string, string>>({});
@@ -330,9 +328,6 @@ export default function PresentationAuthoringEditor({
   }, [draftPresentation.id, projectDir, getFileForPath]);
 
   useEffect(() => {
-    revokeUrls(retrievalDirectVideoUrlByVideoIdRef.current);
-    retrievalDirectVideoUrlByVideoIdRef.current = {};
-    retrievalDirectVideoPathByVideoIdRef.current = {};
     playbackAssetRegistryRef.current = {};
     setPlaybackAssetById({});
     setPreferredPlaybackAssetIdByVideoId({});
@@ -602,28 +597,7 @@ export default function PresentationAuthoringEditor({
           sourceFingerprintByVideoId[videoId] = sourceFingerprint;
 
           const originalAssetId = buildOriginalPlaybackAssetId(videoId);
-          let directOriginalObjectUrl: string | null = null;
-          if (state.mode === 'video' && state.source === 'retrieval' && state.videoId === videoId) {
-            const existingDirectUrl = retrievalDirectVideoUrlByVideoIdRef.current[videoId] ?? null;
-            const existingDirectPath = retrievalDirectVideoPathByVideoIdRef.current[videoId] ?? null;
-            if (existingDirectUrl && existingDirectPath === video.file) {
-              directOriginalObjectUrl = existingDirectUrl;
-            } else {
-              directOriginalObjectUrl = URL.createObjectURL(file);
-              if (existingDirectUrl && existingDirectUrl !== directOriginalObjectUrl) {
-                try {
-                  URL.revokeObjectURL(existingDirectUrl);
-                } catch {}
-              }
-              retrievalDirectVideoUrlByVideoIdRef.current[videoId] = directOriginalObjectUrl;
-              retrievalDirectVideoPathByVideoIdRef.current[videoId] = video.file;
-              console.info('[PresentationAuthoringEditor] Loaded direct retrieval video URL', {
-                videoId,
-                filePath: video.file,
-              });
-            }
-          }
-          const asset = createOriginalPlaybackAsset(videoId, video.file, directOriginalObjectUrl);
+          const asset = createOriginalPlaybackAsset(videoId, video.file);
           nextAssets[asset.assetId] = asset;
           if (!nextPreferred[videoId]) {
             nextPreferred[videoId] = originalAssetId;
@@ -720,7 +694,6 @@ export default function PresentationAuthoringEditor({
       revokeUrls(stillUrlRegistryRef.current);
       revokeUrls(annotatedUrlRegistryRef.current);
       revokeUrls(thumbnailUrlRegistryRef.current);
-      revokeUrls(retrievalDirectVideoUrlByVideoIdRef.current);
       playbackAssetObjectUrlRegistry.dispose();
     };
   }, [playbackAssetObjectUrlRegistry]);
@@ -1003,11 +976,7 @@ export default function PresentationAuthoringEditor({
           : 'Empty presentation';
 
   const activeBrowserMarkId = selectedMarkId ?? selectedStillSourceMarkId;
-
   const isRetrievalVideoState = state.mode === 'video' && state.source === 'retrieval';
-  const directRetrievalVideoUrl = isRetrievalVideoState
-    ? retrievalDirectVideoUrlByVideoIdRef.current[state.videoId] ?? null
-    : null;
 
   const refreshPresentClosureState = useCallback(async () => {
     await computePresentClosureState();
@@ -1744,9 +1713,9 @@ export default function PresentationAuthoringEditor({
   }, [playbackAssetBadge?.label, resolvedPlaybackAsset, selectedSlideIndex, state]);
 
   return (
-    <div ref={rootRef} className="fullbleed">
+    <div ref={rootRef} className="fullbleed flex h-full min-h-0 flex-col">
       {isPresentMode ? (
-        <div className="relative flex flex-col bg-canvas" style={{ height: '100vh' }}>
+        <div className="relative flex min-h-0 flex-1 flex-col bg-canvas overflow-hidden">
           <div className="absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 p-4 pointer-events-none">
             <div className="pointer-events-auto rounded border border-subtle bg-surface/90 px-3 py-2 backdrop-blur-sm">
               <div className="text-xs uppercase tracking-wide text-muted">Present mode</div>
@@ -1799,7 +1768,6 @@ export default function PresentationAuthoringEditor({
               annotatedStillUrlById={annotatedStillUrlById}
               annotationsByStillId={annotationsByStillId}
               annotationDocumentsByStillId={annotationDocumentsByStillId}
-              directRetrievalVideoUrl={directRetrievalVideoUrl}
               playbackAssetById={playbackAssetById}
               preferredPlaybackAssetIdByVideoId={preferredPlaybackAssetIdByVideoId}
               preferredPlaybackAssetIdsByPlaybackKey={preferredPlaybackAssetIdsByPlaybackKey}
@@ -1812,7 +1780,7 @@ export default function PresentationAuthoringEditor({
           </div>
         </div>
       ) : (
-        <div className="flex flex-col" style={{ height: '100vh' }}>
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="flex items-stretch bg-surface border-b border-border shrink-0">
             <button onClick={onBack} className="self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base">← Presentations</button>
             <div className="self-stretch flex items-center px-4 text-base font-medium truncate">{draftPresentation.name}</div>
@@ -1835,7 +1803,7 @@ export default function PresentationAuthoringEditor({
           {toast && <div className="shrink-0 px-3 py-1 text-xs text-warning border-b border-subtle">{toast}</div>}
           {assetError && <div className="shrink-0 px-3 py-1 text-xs text-danger border-b border-subtle">{assetError}</div>}
 
-          <div className="flex-1 min-h-0 flex">
+          <div className="flex-1 min-h-0 flex overflow-hidden">
             <PresentationAssetBrowser
               schema={taggingSchema}
               manifest={workingManifest}
@@ -1850,7 +1818,7 @@ export default function PresentationAuthoringEditor({
               onCreateStillForMark={createStillForMark}
             />
 
-            <div className="flex-1 min-w-0 flex flex-col p-4 gap-4 bg-canvas">
+            <div className="flex-1 min-w-0 min-h-0 flex flex-col p-4 gap-4 bg-canvas overflow-hidden">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <div className="text-xs uppercase tracking-wide text-muted">Current canvas</div>
@@ -1887,7 +1855,6 @@ export default function PresentationAuthoringEditor({
                 annotatedStillUrlById={annotatedStillUrlById}
                 annotationsByStillId={annotationsByStillId}
                 annotationDocumentsByStillId={annotationDocumentsByStillId}
-                directRetrievalVideoUrl={directRetrievalVideoUrl}
                 playbackAssetById={playbackAssetById}
                 preferredPlaybackAssetIdByVideoId={preferredPlaybackAssetIdByVideoId}
                 preferredPlaybackAssetIdsByPlaybackKey={preferredPlaybackAssetIdsByPlaybackKey}

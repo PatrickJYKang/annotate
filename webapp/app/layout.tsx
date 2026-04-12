@@ -11,15 +11,15 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>
+      <body className="min-h-dvh flex flex-col">
         <ProjectProvider>
-          <header className="header">
+          <header className="header shrink-0">
             <h1>Football Analysis Annotator</h1>
             <div className="flex items-stretch">
               <HeaderControls />
             </div>
           </header>
-          <div className="container">
+          <div className="container flex-1 min-h-0 flex flex-col">
             {children}
           </div>
         </ProjectProvider>

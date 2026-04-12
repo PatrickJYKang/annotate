@@ -2,6 +2,10 @@
 
 Drop test frames into `inputs/` and run the sidecar's current homography model on them.
 
+Current scope note:
+- The homography toolchain remains in the repo, but the broader clip/CV workflow is currently on hold as an active product area.
+- This folder is a debug workspace for that retained sidecar functionality, not part of the current presentation exact-motion work.
+
 ## Run
 
 From the repo root:
