@@ -9,6 +9,7 @@ import { computePersonForegroundCutout } from "../../lib/segmentation/personSegm
 import { computeEdgeForegroundCutout } from "../../lib/segmentation/edgeSegmentation";
 import { makeId, hexToRgba, contrastStrokeForHex, dashFromStrokePattern } from "../../lib/annotate/shapeRendering";
 import type { StrokePattern } from "../../lib/annotate/shapeRendering";
+import { consumeManualSaveTick } from "./saveTick";
 import {
   invert3, computeHomographyFromUnitSquareToQuad, applyHomography, applyHomographyInv,
   rectPlaneToImagePoints, ellipsePlaneToImagePoints, circlePlaneToImagePoints,
@@ -606,10 +607,9 @@ export default function Editor({
 
   // Manual Save: when parent bumps saveTick, run an immediate save
   useEffect(() => {
-    if (typeof saveTick === 'number' && saveTick !== lastManualTickRef.current) {
-      lastManualTickRef.current = saveTick;
-      void performSave();
-    }
+    const { nextSeenTick, shouldSave } = consumeManualSaveTick(lastManualTickRef.current, saveTick);
+    lastManualTickRef.current = nextSeenTick;
+    if (shouldSave) void performSave();
   }, [saveTick, performSave]);
 
   useEffect(() => {
