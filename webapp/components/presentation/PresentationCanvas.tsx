@@ -33,7 +33,6 @@ export interface PresentationCanvasProps {
   annotatedStillUrlById: Record<string, string>;
   annotationsByStillId: Record<string, AnnotationsV1 | null>;
   annotationDocumentsByStillId: Record<string, LoadedAnnotationDocument[]>;
-  directRetrievalVideoUrl?: string | null;
   playbackAssetById: PlaybackAssetRegistry;
   preferredPlaybackAssetIdByVideoId: PreferredPlaybackAssetIdByVideoId;
   preferredPlaybackAssetIdsByPlaybackKey?: Record<string, string[]>;
@@ -58,7 +57,6 @@ export default function PresentationCanvas({
   annotatedStillUrlById,
   annotationsByStillId,
   annotationDocumentsByStillId,
-  directRetrievalVideoUrl = null,
   playbackAssetById,
   preferredPlaybackAssetIdByVideoId,
   preferredPlaybackAssetIdsByPlaybackKey = {},
@@ -80,7 +78,7 @@ export default function PresentationCanvas({
   const [blockedPlaybackAssetIds, setBlockedPlaybackAssetIds] = useState<string[]>([]);
   const [stillPlaybackElapsedMs, setStillPlaybackElapsedMs] = useState(0);
   const [timedAnnotatedStillUrl, setTimedAnnotatedStillUrl] = useState<string | null>(null);
-  const effectivePlayerVideoUrl = directRetrievalVideoUrl ?? playerVideoUrl;
+  const effectivePlayerVideoUrl = playerVideoUrl;
   const isSimpleTransitionPlayback = state.mode === 'video' && state.source === 'transition';
 
   useEffect(() => {
@@ -359,9 +357,6 @@ export default function PresentationCanvas({
     let effectResolvedUrl: string | null = null;
     setPlayerVideoUrl(null);
     setVideoReady(false);
-    if (directRetrievalVideoUrl) {
-      return;
-    }
     if (!playerPlaybackAsset) {
       return;
     }
@@ -440,7 +435,7 @@ export default function PresentationCanvas({
       }, didDetach ? 'warn' : 'info');
       releaseLease();
     };
-  }, [directRetrievalVideoUrl, isSimpleTransitionPlayback, playerPlaybackAssetLeaseKey, playbackAssetObjectUrlRegistry, playerVideoReloadNonce, playerVideoWorkflow, playerVideoState?.key]);
+  }, [isSimpleTransitionPlayback, playerPlaybackAssetLeaseKey, playbackAssetObjectUrlRegistry, playerVideoReloadNonce, playerVideoWorkflow, playerVideoState?.key]);
   useEffect(() => {
     if (state.mode !== 'still' || !isPresenting) {
       setStillPlaybackElapsedMs(0);

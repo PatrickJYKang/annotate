@@ -22,7 +22,7 @@ The optional Python sidecar provides ML-powered features: object tracking (YOLO 
 ### Current scope note
 - The repository still contains a substantial **clip system** and several **CV-on-clips / sidecar-assisted workflows** (tracking, homography, segmentation, occlusion, clip export).
 - Those clip/CV workflows are **currently on hold as active development tracks**. They remain documented here because they exist in the codebase, but they should be treated as paused work until revisited.
-- The **current active area of work** is **video loading for presentations**, especially original-video serving, preview proxies, exact-motion assets, and the resolver / preparation plumbing around derived media.
+- The **current active area of work** is **video loading for presentations**, especially original-video serving, exact-motion transition media, and the supporting resolver / preparation plumbing around derived media.
 
 This document describes the **current implementation** (routes, on-disk formats, runtime behavior). If something here disagrees with the code, the code is authoritative.
 
@@ -246,9 +246,6 @@ MyMatch.matchproj/
   homography-cache/
     range-<startMs>-<endMs>.json
   derived-media/
-    preview-proxies/
-      index.json
-      proxy-<generationKey>.mp4
     presentations/
       <presentationId>/
         index.json
@@ -264,7 +261,7 @@ Notes:
 - `clips/` stores clip JSON files; clips are discovered by directory listing (no manifest entry).
 - `presentations/` stores presentation JSON files; discovered by directory listing.
 - `homography-cache/` stores per-range homography matrices computed by the sidecar.
-- `derived-media/` stores sidecar-encoded video assets for presentations (preview proxies and exact-motion segments).
+- `derived-media/` stores sidecar-encoded exact-motion assets for presentations.
 
 ---
 
@@ -1068,7 +1065,7 @@ The resolver layer maps video IDs to structured `PlaybackAsset` objects with wor
 ### Preparation status
 File: `webapp/lib/presentation/presentPreparation.ts`.
 
-Evaluates presentation closure requirements (all playable `match_video` transitions and clip slides need exact-motion assets). Status: `ready` (all assets present), `degraded` (some missing, fallback available), or `failed` (critical assets unavailable).
+Evaluates presentation closure requirements for exact-motion assets. In the current code this helper still uses internal `ready`, `degraded`, and `failed` status values while tracking transition and clip-slide exact-motion requirements, even though the presentation UI has been simplified around direct preview / present flows.
 
 Files:
 - Types: `webapp/lib/presentation/derivedMediaTypes.ts`

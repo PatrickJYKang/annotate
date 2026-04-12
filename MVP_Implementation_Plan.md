@@ -2,6 +2,10 @@
 
 Date: 2025-10-08
 
+Historical note:
+- This file is an original planning document, not the source of truth for the current implementation.
+- For current runtime behavior, use `README.md` and `technical_document.md`.
+
 ## 0) Targets and Browser Support
 
 - **Platforms**: Chromium-based desktop browsers (Chrome, Edge, Opera).

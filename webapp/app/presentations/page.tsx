@@ -174,8 +174,8 @@ export default function PresentationsPage() {
   }
 
   return (
-    <div className="fullbleed">
-      <div className="flex flex-col min-h-screen">
+    <div className="fullbleed flex h-full min-h-0 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="flex items-stretch bg-surface border-b border-border shrink-0">
           <button onClick={() => router.push('/stills')} className="self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base">← Stills</button>
           <div className="self-stretch flex items-center px-4 text-base font-medium">Presentations</div>

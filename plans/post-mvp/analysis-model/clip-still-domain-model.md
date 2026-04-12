@@ -1,0 +1,350 @@
+# Clip / Still Domain Model
+
+## Goal
+
+Capture the working product model for clips, stills, clip editing, and presentations.
+
+This is not a full implementation spec. It is a domain note intended to guide future work and keep the product model coherent as clip support expands.
+
+This note refines parts of the earlier clip and presentation planning docs. In particular, it moves away from treating stills and clips as purely parallel assets in the user workflow.
+
+---
+
+## Core definitions
+
+### Marks
+
+A mark is a timestamp in a source video that is worth bookmarking semantically.
+
+- Marks are lightweight.
+- Marks are the place where tagging naturally belongs.
+- Marks are not themselves presentation assets.
+
+### Stills
+
+A still is a specific moment in time that is worth freezing and drawing special attention to.
+
+- A still is anchored to one source video and one timestamp.
+- A still is the natural unit for static tactical analysis.
+- A still can exist on its own even if it is not part of any clip.
+
+### Clips
+
+A clip is a bounded passage of play that is worth analyzing over time.
+
+- A clip is defined by two points in time in a single source video.
+- A clip is not a rendered video file. It is a time range plus analysis data.
+- A clip is the natural unit for sequence analysis.
+
+### Presentations
+
+A presentation is a curated playlist of stills and clips arranged to prove a point.
+
+- Presentation is a composition layer, not an analysis-authoring layer.
+- `match_video` remains a rhetorical visual effect used inside presentations.
+- `match_video` is not the foundational model for clips or stills.
+
+---
+
+## Product stance
+
+The working stance is:
+
+- Stills and clips are both first-class assets.
+- In real analysis workflow, stills often feel like they belong within clips.
+- That belonging should be soft and contextual in the model, not hard ownership.
+
+In other words:
+
+- In the UX, clips can become the natural home for sequence-related stills.
+- In the data model, stills should still remain independently usable.
+
+This matters because:
+
+- analysts will often want to use a still inside a clip workflow
+- some stills will remain standalone
+- a still may reasonably relate to more than one clip
+- overlapping clips should remain possible
+
+So the model should support clip-centric workflow without making clips exclusive containers.
+
+---
+
+## Recommended relationship model
+
+### Stills do not become children of clips
+
+Avoid making a still be owned by exactly one clip.
+
+That would be too rigid for:
+
+- overlapping clips
+- standalone still analysis
+- reusing the same moment in multiple analytical contexts
+
+### Stills can be related to clips
+
+A still can be related to a clip when:
+
+- the still timestamp falls within the clip bounds
+- the user explicitly pins the still to the clip
+- the still is used to seed clip annotations
+
+This should behave more like membership or association than folder ownership.
+
+Useful relationship categories:
+
+- `within_bounds`
+- `pinned`
+- `seed_frame`
+
+This can be derived, stored explicitly, or both. The exact implementation can be decided later.
+
+### Tags remain parallel
+
+Tagging should continue to run in parallel to clip membership.
+
+- tags describe meaning
+- clip relationships describe temporal context
+
+Clips should not replace tagging, and tagging should not be forced to carry clip structure.
+
+---
+
+## Editor responsibilities
+
+### Still editor
+
+The still editor is for precise static analysis.
+
+- freeze a moment
+- annotate shapes
+- label players and tactical ideas
+- create a canonical visual frame for reference and presentation
+
+### Clip editor
+
+The clip editor is the temporal analysis workspace.
+
+The closest useful mental model is:
+
+- After Effects lite for tactical analysis
+
+That means:
+
+- the same annotation language as the still editor
+- shapes animate over time
+- keyframes are aligned to the underlying match video frames
+- every frame in the clip editor corresponds to a real frame in the source video
+
+The clip editor is not intended to become a full nonlinear video editor.
+
+Its job is to let the analyst explain movement over time using:
+
+- keyframed shapes
+- temporal annotation cues
+- CV-assisted interpolation and proposal generation
+
+Possible later enhancement:
+
+- hold on a specific frame for a configured dwell time
+
+That is useful, but not part of the core model.
+
+### Presentation editor
+
+The presentation editor is not where analysis is authored.
+
+Its job is to:
+
+- choose stills and clips
+- order them
+- configure lightweight rhetorical behavior
+- present the final argument clearly
+
+`match_video` should remain a transition effect that helps prove a point, not the core analysis abstraction.
+
+---
+
+## Shared annotation language
+
+Stills and clips should share the same annotation primitives as much as possible.
+
+Examples:
+
+- highlights
+- arrows
+- boxes
+- circles
+- polygons
+- text
+- any future tactical presets such as defensive cover shadow or lobbed pass
+
+The difference is not the tool vocabulary. The difference is time.
+
+- stills use static annotations
+- clips use the same kinds of shapes, but keyframed over time
+
+This keeps the product legible and makes still-to-clip workflows much more natural.
+
+---
+
+## Still-to-clip bridge
+
+One of the most important bridges to build is:
+
+- import shapes from a still into a clip
+
+Conceptually:
+
+- find the clip-relative frame corresponding to the still timestamp
+- copy the still's annotations onto that frame
+- turn them into initial clip keyframes
+
+This should be a first-class workflow.
+
+Why this matters:
+
+- it preserves the value of still analysis
+- it gives the clip editor a fast starting point
+- it avoids making tracking mandatory
+- it makes stills and clips feel like one coherent analysis system
+
+Recommended stance:
+
+- stills seed clip work
+- clips extend still analysis through time
+
+---
+
+## Role of CV and tracking
+
+CV is assistive, not foundational.
+
+The authoring model remains human-authored tactical analysis.
+
+CV should help with:
+
+- populating frames between keyframes
+- following highlighted players or objects between corrections
+- proposing likely positions
+- assisting with player highlighting and connection logic
+
+CV should not replace the core editing model.
+
+The desired behavior is:
+
+- user places or imports keyframes
+- tracking/CV fills in the gaps
+- output lands as normal editable shapes/keyframes
+
+That means CV outputs should be:
+
+- inspectable
+- editable
+- correctable
+- non-magical
+
+Avoid treating tracking results as a separate opaque object type that sits outside the normal annotation system.
+
+---
+
+## What clips are not
+
+Clips are not:
+
+- a separate video export format
+- a generic video editing timeline
+- a place where CV becomes the main product concept
+
+Clips are analytical time windows.
+
+The clip editor should be designed around tactical explanation, not around general media production.
+
+---
+
+## Presentation implications
+
+This model implies a future presentation browser that can eventually support multiple ways of finding source material:
+
+- standalone stills
+- clips
+- stills in clip context
+- tagging-based browsing
+- chronological browsing
+
+This is compatible with the idea that:
+
+- presentations are playlists of stills and clips arranged to prove a point
+- stills remain valuable on their own
+- clips become the natural home for many multi-still sequences
+
+`match_video` remains useful and should be left alone conceptually.
+
+It is a supporting visual effect, not the thing that defines clip structure.
+
+---
+
+## Non-goals
+
+This note does not propose:
+
+- forcing every still to belong to a clip
+- removing standalone still workflows
+- making tracking-between-stills the core abstraction
+- turning the clip editor into Premiere or Resolve
+- moving presentation logic into clip authoring
+
+---
+
+## Open questions
+
+The main unresolved questions are implementation questions, not product-identity questions.
+
+### Clip relationship mechanics
+
+How should clip/still relationships be represented?
+
+Options include:
+
+- fully derived from time bounds
+- explicit user-managed links
+- hybrid model with derived membership plus user pinning
+
+The hybrid model currently seems the most promising.
+
+### Canonical still vs multiple stills at same moment
+
+If multiple stills exist at the same timestamp with different annotation sets, how should clip import behave?
+
+Possible answers:
+
+- import from the chosen still only
+- support multiple named annotation sets
+- treat one still as canonical and others as variants
+
+### Presentation browsing
+
+How should the presentation editor browse material once clips become more important?
+
+Likely options:
+
+- tag view
+- chronological view
+- clip-centered view
+
+### Frame holds / dwell behavior in clips
+
+This seems useful, but should be treated as a later playback behavior rather than a prerequisite for the domain model.
+
+---
+
+## Working summary
+
+- Clips are bounded passages of play worth analyzing over time.
+- Stills are moments worth freezing and emphasizing.
+- Stills often belong within clip workflow, but should not be hard-owned by clips.
+- The clip editor is a temporal annotation workspace using the same annotation language as stills.
+- Still annotations should be importable onto the corresponding frame in a clip.
+- CV and tracking assist with interpolation and proposal generation, but do not define the authoring model.
+- Presentations remain curated playlists of stills and clips, with `match_video` as a supporting effect.
