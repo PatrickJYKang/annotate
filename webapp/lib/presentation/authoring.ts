@@ -32,6 +32,19 @@ export type PresentationAssetIndex = {
   missingSourceMark: ProjectManifestV1['stills'];
 };
 
+export type ChronologicalStillAsset = {
+  still: ProjectManifestV1['stills'][number];
+  sourceMark: ProjectManifestV1['marks'][number] | null;
+  canonicalForSourceMark: boolean;
+  primaryTag: string | null;
+};
+
+export type ChronologicalStillGroup = {
+  videoId: string;
+  videoLabel: string;
+  stills: ChronologicalStillAsset[];
+};
+
 function randomId(prefix: string): string {
   return (globalThis.crypto && 'randomUUID' in globalThis.crypto)
     ? (globalThis.crypto as any).randomUUID()
@@ -209,6 +222,45 @@ export function buildPresentationAssetIndex(
     unknown,
     missingSourceMark,
   };
+}
+
+export function buildChronologicalStillGroups(
+  manifest: ProjectManifestV1,
+): ChronologicalStillGroup[] {
+  const markById = new Map(manifest.marks.map((mark) => [mark.id, mark] as const));
+  const videoLabelById = new Map(manifest.videos.map((video) => [video.id, video.label] as const));
+  const videoOrderById = new Map(manifest.videos.map((video, index) => [video.id, index] as const));
+  const grouped = new Map<string, ChronologicalStillAsset[]>();
+
+  for (const still of manifest.stills) {
+    const sourceMark = still.sourceMarkId ? markById.get(still.sourceMarkId) ?? null : null;
+    const selection = ensureTaggingSelection(sourceMark?.tags);
+    const entry: ChronologicalStillAsset = {
+      still,
+      sourceMark,
+      canonicalForSourceMark: sourceMark ? findCanonicalStillForMark(manifest, sourceMark.id)?.id === still.id : false,
+      primaryTag: selection.primary || null,
+    };
+    const bucket = grouped.get(still.videoId);
+    if (bucket) bucket.push(entry);
+    else grouped.set(still.videoId, [entry]);
+  }
+
+  return Array.from(grouped.entries())
+    .sort(([videoIdA], [videoIdB]) => {
+      const orderA = videoOrderById.get(videoIdA) ?? Number.MAX_SAFE_INTEGER;
+      const orderB = videoOrderById.get(videoIdB) ?? Number.MAX_SAFE_INTEGER;
+      if (orderA !== orderB) return orderA - orderB;
+      return videoIdA.localeCompare(videoIdB);
+    })
+    .map(([videoId, stills]) => ({
+      videoId,
+      videoLabel: videoLabelById.get(videoId) || videoId,
+      stills: stills.slice().sort((a, b) => {
+        if (a.still.t_ms !== b.still.t_ms) return a.still.t_ms - b.still.t_ms;
+        return a.still.id.localeCompare(b.still.id);
+      }),
+    }));
 }
 
 export function insertSlideAfterSelection(
