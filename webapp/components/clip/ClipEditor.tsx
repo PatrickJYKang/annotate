@@ -16,12 +16,13 @@ import {
 } from "../../lib/clip/interpolation";
 import { hexToRgba, contrastStrokeForHex, dashFromStrokePattern, makeId } from "../../lib/annotate/shapeRendering";
 import type { StrokePattern } from "../../lib/annotate/shapeRendering";
-import { readAnnotationDocumentsForStill } from "../../lib/fs/annotationStorage";
+import { readPrimaryAnnotationDocumentForStill } from "../../lib/fs/annotationStorage";
 import { writeClip } from "../../lib/fs/clipStorage";
 import { findOverlappingCache, writeHomographyCache, type HomographyFrame } from "../../lib/fs/homographyCache";
 import { useSidecar } from "../../lib/state/SidecarContext";
 import { requestTracking, requestHomography, requestManualTrackHomography, type TrackingError } from "../../lib/clip/sidecarClient";
 import { convertTrackingKeyframes } from "../../lib/clip/bboxConvert";
+import { getClipRelativeMsForStill, listStillsWithinClipBounds } from "../../lib/clip/stillRelationship";
 import { applyHomography, applyHomographyInv, computeHomographyFromCorrespondences, invert3, rectPlaneToImagePoints, ellipsePlaneToImagePoints } from "../../lib/annotate/homography";
 import { OcclusionCache, fetchOcclusionMask, compositeForeground, roundToFrame } from "../../lib/clip/occlusionCompositor";
 import { importStillDocumentToClip } from "../../lib/clip/stillImport";
@@ -255,18 +256,8 @@ export default function ClipEditor({
   const clipDurationMs = clip.endMs - clip.startMs;
   const inBoundsStills = useMemo(() => {
     if (!manifest) return [] as ProjectManifestV1['stills'];
-    return (manifest.stills || [])
-      .filter((still) => (
-        still.videoId === clip.videoId
-        && still.t_ms >= clip.startMs
-        && still.t_ms <= clip.endMs
-      ))
-      .slice()
-      .sort((a, b) => {
-        if (a.t_ms !== b.t_ms) return a.t_ms - b.t_ms;
-        return a.id.localeCompare(b.id);
-      });
-  }, [manifest, clip.videoId, clip.startMs, clip.endMs]);
+    return listStillsWithinClipBounds(manifest.stills || [], clip);
+  }, [manifest, clip]);
 
   // --- Build current clip object ---
   const currentClip = useMemo((): Clip => ({
@@ -1223,14 +1214,14 @@ export default function ClipEditor({
     setIsImportingStillId(stillId);
     setStillImportMessage(null);
     try {
-      const documents = await readAnnotationDocumentsForStill(projectDir, manifest, still);
-      const primary = documents[0]?.document ?? null;
+      const loaded = await readPrimaryAnnotationDocumentForStill(projectDir, manifest, still);
+      const primary = loaded?.document ?? null;
       if (!primary || (primary.shapes?.length ?? 0) === 0) {
         setStillImportMessage('This still has no saved annotations to import');
         return;
       }
 
-      const clipFrameMs = roundToFrame(still.t_ms - clip.startMs, videoFps);
+      const clipFrameMs = roundToFrame(getClipRelativeMsForStill(clip, still), videoFps);
       const result = importStillDocumentToClip(primary, clipFrameMs);
       if (result.annotations.length === 0) {
         setStillImportMessage('No supported annotation shapes were found to import');
@@ -1240,10 +1231,12 @@ export default function ClipEditor({
       setAnnotations((prev) => [...prev, ...result.annotations]);
       setSelectedAnnotationId(result.annotations[0]?.id ?? null);
       seekToMs(clipFrameMs);
+      const annotationSetLabel = loaded?.entry.label || loaded?.entry.id || 'default';
+      const annotationSetSuffix = annotationSetLabel ? ` from "${annotationSetLabel}"` : '';
       setStillImportMessage(
         result.skipped > 0
-          ? `Imported ${result.annotations.length} annotations from ${still.id}; skipped ${result.skipped} unsupported shape${result.skipped === 1 ? '' : 's'}`
-          : `Imported ${result.annotations.length} annotations from ${still.id}`,
+          ? `Imported ${result.annotations.length} annotations from ${still.id}${annotationSetSuffix}; skipped ${result.skipped} unsupported shape${result.skipped === 1 ? '' : 's'}`
+          : `Imported ${result.annotations.length} annotations from ${still.id}${annotationSetSuffix}`,
       );
     } catch (error: any) {
       setStillImportMessage(error?.message || 'Failed to import still annotations');
@@ -2045,7 +2038,7 @@ export default function ClipEditor({
               {inBoundsStills.length} in-range still{inBoundsStills.length === 1 ? '' : 's'}
             </div>
             <div className="flex-1" />
-            <div className="text-xs text-muted">Import uses the still&apos;s primary saved annotation set</div>
+            <div className="text-xs text-muted">Import uses the still&apos;s default annotation set when available, otherwise the first available saved set</div>
           </div>
           <div className="px-3 pb-3 overflow-x-auto">
             {inBoundsStills.length === 0 ? (
@@ -2053,7 +2046,7 @@ export default function ClipEditor({
             ) : (
               <div className="flex items-stretch gap-2 min-w-max">
                 {inBoundsStills.map((still) => {
-                  const clipStillTMs = roundToFrame(still.t_ms - clip.startMs, videoFps);
+                  const clipStillTMs = roundToFrame(getClipRelativeMsForStill(clip, still), videoFps);
                   const isCurrent = Math.abs(currentTMs - clipStillTMs) <= (1000 / Math.max(1, videoFps));
                   const hasIndexedAnnotations = !!manifest.annotations?.some((entry) => entry.stillId === still.id);
                   return (

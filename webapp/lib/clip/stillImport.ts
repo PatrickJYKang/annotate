@@ -212,6 +212,8 @@ export function importStillDocumentToClip(
       id: makeId(),
       type: built.type,
       coordMode: built.coordMode,
+      // Imported still annotations are user-authored starting points, so they
+      // remain manual until tracking/correction workflows take over later.
       source: 'manual',
       text: built.text,
       closed: built.closed,

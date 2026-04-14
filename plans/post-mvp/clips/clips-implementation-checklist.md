@@ -38,18 +38,20 @@ Current behavior: legacy duplicate-still timestamps are treated as compatibility
 
 ### 1.2 Clip/still relationship
 
-- [ ] Treat clip/still relationship as fully derived from time bounds everywhere in UI logic.
-- [ ] Remove or avoid any new explicit clip-to-still link fields.
-- [ ] Audit clip-related UI code so it does not assume stored membership.
-- [ ] Document the boundary rule in code comments or helper docs where useful:
+- [x] Treat clip/still relationship as fully derived from time bounds everywhere in UI logic.
+- [x] Remove or avoid any new explicit clip-to-still link fields.
+- [x] Audit clip-related UI code so it does not assume stored membership.
+- [x] Document the boundary rule in code comments or helper docs where useful:
   - `clip.startMs <= still.t_ms <= clip.endMs`
+Current implementation: shared helpers in [stillRelationship.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/stillRelationship.ts) define and document the rule, and current clip-facing UI uses those helpers instead of hand-rolled membership logic.
 
 ### 1.3 Still import semantics
 
-- [ ] Define and implement one clear import action:
+- [x] Define and implement one clear import action:
   - import one annotation set from one still onto the corresponding clip frame
-- [ ] Ensure the import flow does not assume multiple still variants at the same timestamp.
-- [ ] Decide how imported annotations are marked in clip provenance, if at all.
+- [x] Ensure the import flow does not assume multiple still variants at the same timestamp.
+- [x] Decide how imported annotations are marked in clip provenance, if at all.
+Current behavior: clip import reads exactly one annotation document at a time for one still. It prefers the still's default annotation set when available and otherwise falls back to the first available saved set. Imported annotations remain `source: 'manual'` because they are user-authored starting points rather than auto-tracked output.
 
 ---
 

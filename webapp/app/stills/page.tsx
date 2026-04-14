@@ -10,6 +10,7 @@ import { CLIP_SCHEMA_VERSION } from "../../lib/types/clip";
 import { readManifest, reindexAnnotations, writeManifest } from "../../lib/fs/projectFolder";
 import { listClips, writeClip, deleteClip as deleteClipFile, resolveMarkPinning } from "../../lib/fs/clipStorage";
 import { exportD7All } from "../../lib/export/d7Export";
+import { listStillsWithinClipBounds } from "../../lib/clip/stillRelationship";
 import VideoPlayerUnit, { VideoPlayerHandle } from "../../components/player/VideoPlayerUnit";
 import { createEmptyTaggingSelection } from "../../lib/tagging/schema";
 import { findMarkAtTimestamp, findStillAtTimestamp } from "../../lib/utils/projectIntegrity";
@@ -60,6 +61,13 @@ export default function StillsPage() {
     if (!manifest || !selectedVideoId) return [] as ProjectManifestV1["marks"];
     return manifest.marks.filter(m => m.videoId === selectedVideoId).sort((a, b) => a.t_ms - b.t_ms);
   }, [manifest, selectedVideoId]);
+
+  const derivedStillCountByClipId = useMemo(() => {
+    if (!manifest) return new Map<string, number>();
+    return new Map(
+      clips.map((clip) => [clip.id, listStillsWithinClipBounds(manifest.stills || [], clip).length] as const),
+    );
+  }, [manifest, clips]);
 
   const videoFps = useMemo(() => (manifest?.videos.find(v => v.id === selectedVideoId)?.fps) || 30, [manifest, selectedVideoId]);
 
@@ -700,6 +708,9 @@ export default function StillsPage() {
                     <div className="px-1.5 py-1 text-xs text-muted flex justify-between">
                       <span>{formatTimeNoMs(c.startMs)} – {formatTimeNoMs(c.endMs)}</span>
                       <span>{c.annotations.length} ann.</span>
+                    </div>
+                    <div className="px-1.5 pb-1 text-[11px] text-muted">
+                      {derivedStillCountByClipId.get(c.id) ?? 0} derived still{(derivedStillCountByClipId.get(c.id) ?? 0) === 1 ? '' : 's'} in bounds
                     </div>
                     <div className={`absolute top-0 bottom-0 right-0 flex flex-col border-l border-border transition-[transform,opacity] duration-[120ms] ease w-9 ${hoveredClipId === c.id ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'}`}>
                       <button

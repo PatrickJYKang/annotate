@@ -27,6 +27,7 @@ describe('importStillDocumentToClip', () => {
     expect(result.annotations[0]).toMatchObject({
       type: 'box',
       coordMode: 'image',
+      source: 'manual',
       style: { stroke: '#f00', fill: '#0f0', fillOpacity: 0.2 },
       keyframes: [{ tMs: 250, x: 10, y: 20, w: 30, h: 40 }],
     });
@@ -84,6 +85,7 @@ describe('importStillDocumentToClip', () => {
     expect(result.skipped).toBe(0);
     expect(result.annotations).toHaveLength(1);
     expect(result.annotations[0]?.type).toBe('poly');
+    expect(result.annotations[0]?.source).toBe('manual');
     expect(result.annotations[0]?.closed).toBe(true);
     expect(result.annotations[0]?.keyframes[0]).toMatchObject({
       tMs: 0,

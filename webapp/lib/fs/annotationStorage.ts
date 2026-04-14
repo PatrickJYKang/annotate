@@ -241,6 +241,27 @@ export async function readAnnotationDocumentsForStill(
   return documents;
 }
 
+export async function readPrimaryAnnotationDocumentForStill(
+  projectDir: FileSystemDirectoryHandle,
+  manifest: ProjectManifestV1,
+  still: ProjectManifestV1['stills'][number],
+): Promise<LoadedAnnotationDocument | null> {
+  const entries = listAnnotationEntriesForStillWithDefault(manifest, still.id);
+  for (const entry of entries) {
+    const document = await readAnnotationDocument(projectDir, entry.file);
+    if (!document) continue;
+    return {
+      entry,
+      document: {
+        ...document,
+        annotationId: document.annotationId || entry.id,
+        label: document.label || entry.label,
+      },
+    };
+  }
+  return null;
+}
+
 export async function readMergedAnnotationsForStill(
   projectDir: FileSystemDirectoryHandle,
   manifest: ProjectManifestV1,
