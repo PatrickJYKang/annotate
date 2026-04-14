@@ -4,7 +4,10 @@ import {
   findCanonicalStillForMark,
   findLinkedStillsForMark,
   findMarkAtTimestamp,
+  findStillAtTimestamp,
   hasDuplicateMarkTimestamp,
+  hasDuplicateStillTimestamp,
+  isBlockingManifestIssue,
   repairManifestIntegrity,
   summarizeManifestRepairIssues,
 } from "./projectIntegrity";
@@ -43,6 +46,28 @@ describe("findMarkAtTimestamp / hasDuplicateMarkTimestamp", () => {
   it("reports duplicate presence through the same exact-match rule", () => {
     expect(hasDuplicateMarkTimestamp(marks, "vid-1", 1000)).toBe(true);
     expect(hasDuplicateMarkTimestamp(marks, "vid-1", 1500)).toBe(false);
+  });
+});
+
+describe("findStillAtTimestamp / hasDuplicateStillTimestamp", () => {
+  const stills: ProjectManifestV1["stills"] = [
+    { id: "still-a", videoId: "vid-1", t_ms: 1000, file: "stills/1.png" },
+    { id: "still-b", videoId: "vid-1", t_ms: 2000, file: "stills/2.png" },
+    { id: "still-c", videoId: "vid-2", t_ms: 1000, file: "stills/3.png" },
+  ];
+
+  it("finds an exact still timestamp match within the same video", () => {
+    expect(findStillAtTimestamp(stills, "vid-1", 1000)?.id).toBe("still-a");
+    expect(findStillAtTimestamp(stills, "vid-2", 1000)?.id).toBe("still-c");
+  });
+
+  it("respects the excluded still id", () => {
+    expect(findStillAtTimestamp(stills, "vid-1", 1000, "still-a")).toBeNull();
+  });
+
+  it("reports duplicate presence through the same exact-match rule", () => {
+    expect(hasDuplicateStillTimestamp(stills, "vid-1", 1000)).toBe(true);
+    expect(hasDuplicateStillTimestamp(stills, "vid-1", 1500)).toBe(false);
   });
 });
 
@@ -120,6 +145,25 @@ describe("repairManifestIntegrity", () => {
     expect(repaired.manifest.stills[0].sourceMarkId).toBeNull();
   });
 
+  it("flags duplicate stills at the same timestamp", () => {
+    const manifest = makeManifest({
+      marks: [{ id: "mark-a", videoId: "vid-1", t_ms: 1000 }],
+      stills: [
+        { id: "still-a", videoId: "vid-1", t_ms: 1000, file: "stills/000001.png", sourceMarkId: "mark-a" },
+        { id: "still-b", videoId: "vid-1", t_ms: 1000, file: "stills/000002.png", sourceMarkId: "mark-a" },
+      ],
+    });
+
+    const repaired = repairManifestIntegrity(manifest);
+
+    expect(repaired.issues).toContainEqual({
+      kind: "duplicate_still_timestamp",
+      videoId: "vid-1",
+      t_ms: 1000,
+      stillIds: ["still-a", "still-b"],
+    });
+  });
+
   it("replaces an invalid cross-video sourceMarkId with a canonical backfilled mark when needed", () => {
     const manifest = makeManifest({
       videos: [
@@ -166,10 +210,33 @@ describe("summarizeManifestRepairIssues", () => {
   it("summarizes the first few issues", () => {
     const summary = summarizeManifestRepairIssues([
       { kind: "duplicate_mark_timestamp", videoId: "vid-1", t_ms: 1000, markIds: ["mark-a", "mark-b"] },
+      { kind: "duplicate_still_timestamp", videoId: "vid-1", t_ms: 1000, stillIds: ["still-a", "still-b"] },
       { kind: "unresolved_still_source_mark", stillId: "still-a", videoId: "vid-1", t_ms: 2000, sourceMarkId: null },
     ]);
 
     expect(summary).toContain("Duplicate marks at vid-1 1000ms");
+    expect(summary).toContain("Duplicate stills at vid-1 1000ms");
     expect(summary).toContain("Still still-a at vid-1 2000ms could not be linked to a mark");
+  });
+});
+
+describe("isBlockingManifestIssue", () => {
+  it("treats duplicate still timestamps as compatibility warnings rather than blocking errors", () => {
+    expect(isBlockingManifestIssue({
+      kind: "duplicate_still_timestamp",
+      videoId: "vid-1",
+      t_ms: 1000,
+      stillIds: ["still-a", "still-b"],
+    })).toBe(false);
+  });
+
+  it("keeps unresolved source-mark problems blocking", () => {
+    expect(isBlockingManifestIssue({
+      kind: "unresolved_still_source_mark",
+      stillId: "still-a",
+      videoId: "vid-1",
+      t_ms: 2000,
+      sourceMarkId: null,
+    })).toBe(true);
   });
 });

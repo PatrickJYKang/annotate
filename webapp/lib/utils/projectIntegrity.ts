@@ -11,6 +11,12 @@ export type ManifestRepairIssue =
       markIds: string[];
     }
   | {
+      kind: "duplicate_still_timestamp";
+      videoId: string;
+      t_ms: number;
+      stillIds: string[];
+    }
+  | {
       kind: "unresolved_still_source_mark";
       stillId: string;
       videoId: string;
@@ -23,6 +29,10 @@ export type ManifestRepairResult = {
   changed: boolean;
   issues: ManifestRepairIssue[];
 };
+
+export function isBlockingManifestIssue(issue: ManifestRepairIssue): boolean {
+  return issue.kind !== "duplicate_still_timestamp";
+}
 
 function keyFor(videoId: string, t_ms: number) {
   return `${videoId}::${t_ms}`;
@@ -70,6 +80,30 @@ export function hasDuplicateMarkTimestamp(
   return findMarkAtTimestamp(marks, videoId, t_ms, excludeMarkId) !== null;
 }
 
+export function findStillAtTimestamp(
+  stills: ProjectManifestV1["stills"],
+  videoId: string,
+  t_ms: number,
+  excludeStillId?: string | null,
+): ProjectStill | null {
+  for (const still of stills) {
+    if (still.videoId !== videoId) continue;
+    if (still.t_ms !== t_ms) continue;
+    if (excludeStillId && still.id === excludeStillId) continue;
+    return still;
+  }
+  return null;
+}
+
+export function hasDuplicateStillTimestamp(
+  stills: ProjectManifestV1["stills"],
+  videoId: string,
+  t_ms: number,
+  excludeStillId?: string | null,
+): boolean {
+  return findStillAtTimestamp(stills, videoId, t_ms, excludeStillId) !== null;
+}
+
 export function findLinkedStillsForMark(
   stills: ProjectManifestV1["stills"],
   markId: string,
@@ -100,6 +134,7 @@ export function findCanonicalStillForMark(
 export function repairManifestIntegrity(manifest: ProjectManifestV1): ManifestRepairResult {
   const issues: ManifestRepairIssue[] = [];
   const markIdsByTimestamp = new Map<string, string[]>();
+  const stillIdsByTimestamp = new Map<string, string[]>();
   const markById = new Map<string, ProjectMark>();
   const nextMarks = [...manifest.marks];
 
@@ -131,6 +166,27 @@ export function repairManifestIntegrity(manifest: ProjectManifestV1): ManifestRe
       videoId,
       t_ms: Number(tMsRaw),
       markIds: [...markIds],
+    });
+  }
+
+  for (const still of manifest.stills) {
+    const key = keyFor(still.videoId, still.t_ms);
+    const ids = stillIdsByTimestamp.get(key);
+    if (ids) {
+      ids.push(still.id);
+    } else {
+      stillIdsByTimestamp.set(key, [still.id]);
+    }
+  }
+
+  for (const [key, stillIds] of stillIdsByTimestamp.entries()) {
+    if (stillIds.length < 2) continue;
+    const [videoId, tMsRaw] = key.split("::");
+    issues.push({
+      kind: "duplicate_still_timestamp",
+      videoId,
+      t_ms: Number(tMsRaw),
+      stillIds: [...stillIds],
     });
   }
 
@@ -208,6 +264,9 @@ export function summarizeManifestRepairIssues(issues: ManifestRepairIssue[], max
   const lines = issues.slice(0, Math.max(1, maxItems)).map((issue) => {
     if (issue.kind === "duplicate_mark_timestamp") {
       return `Duplicate marks at ${issue.videoId} ${issue.t_ms}ms: ${issue.markIds.join(", ")}`;
+    }
+    if (issue.kind === "duplicate_still_timestamp") {
+      return `Duplicate stills at ${issue.videoId} ${issue.t_ms}ms: ${issue.stillIds.join(", ")}`;
     }
     return `Still ${issue.stillId} at ${issue.videoId} ${issue.t_ms}ms could not be linked to a mark`;
   });

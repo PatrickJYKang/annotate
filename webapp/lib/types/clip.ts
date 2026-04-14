@@ -102,6 +102,7 @@ export interface ClipAnnotation {
   coordMode: CoordMode;
   source: AnnotationSource;
   text?: string;                   // for type: 'text' — content doesn't vary over time
+  closed?: boolean;                // for type: 'poly' — defaults to true when omitted
   style: ClipAnnotationStyle;
   keyframes: ClipKeyframe[];       // sorted by tMs ascending
 }

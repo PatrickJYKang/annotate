@@ -12,7 +12,7 @@ import { listClips, writeClip, deleteClip as deleteClipFile, resolveMarkPinning 
 import { exportD7All } from "../../lib/export/d7Export";
 import VideoPlayerUnit, { VideoPlayerHandle } from "../../components/player/VideoPlayerUnit";
 import { createEmptyTaggingSelection } from "../../lib/tagging/schema";
-import { findMarkAtTimestamp } from "../../lib/utils/projectIntegrity";
+import { findMarkAtTimestamp, findStillAtTimestamp } from "../../lib/utils/projectIntegrity";
 
 function pad6(n: number) { return n.toString().padStart(6, "0"); }
 
@@ -446,10 +446,11 @@ export default function StillsPage() {
       }
       const t_ms = Math.round(api.getCurrentTimeMs());
       const base: ProjectManifestV1 = manifest as ProjectManifestV1;
-      // dedup within ±2 frames
-      const tolMs = Math.round((1000 / (videoFps || 30)) * 2);
-      const dup = base.stills.some(s => s.videoId === selectedVideoId && Math.abs(s.t_ms - t_ms) <= tolMs);
-      if (dup) { setToast('A still already exists near this time (skipped).'); return; }
+      const existingStill = findStillAtTimestamp(base.stills, selectedVideoId, t_ms);
+      if (existingStill) {
+        setToast('A still already exists at this exact timestamp.');
+        return;
+      }
       const selectedSourceMark = selectedMarkId
         ? base.marks.find((mark) => mark.id === selectedMarkId && mark.videoId === selectedVideoId) ?? null
         : null;
@@ -487,7 +488,7 @@ export default function StillsPage() {
     } finally {
       setBusy(false);
     }
-  }, [projectDir, manifest, selectedVideoId, playerRef, captureToBlob, createThumbnailBlob, nextStillNumber, writeBlobToFile, setManifest, videoFps, selectedMarkId]);
+  }, [projectDir, manifest, selectedVideoId, playerRef, captureToBlob, createThumbnailBlob, nextStillNumber, writeBlobToFile, setManifest, selectedMarkId]);
 
   const exportAll = useCallback(async () => {
     if (!projectDir || !manifest) return;

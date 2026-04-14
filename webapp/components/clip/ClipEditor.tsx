@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Rect as KRect, Ellipse as KEllipse, Arrow as KArrow, Text as KText, Line as KLine, Circle as KCircle, Image as KImage } from "react-konva";
 import type { Clip, ClipAnnotation, ClipAnnotationType, ClipKeyframe, BoxKeyframe, CircleKeyframe, ArrowKeyframe, TextKeyframe, HighlightKeyframe } from "../../lib/types/clip";
+import type { ProjectManifestV1 } from "../../lib/types/project";
 import {
   interpolateKeyframes,
   type InterpolatedKeyframe,
@@ -15,6 +16,7 @@ import {
 } from "../../lib/clip/interpolation";
 import { hexToRgba, contrastStrokeForHex, dashFromStrokePattern, makeId } from "../../lib/annotate/shapeRendering";
 import type { StrokePattern } from "../../lib/annotate/shapeRendering";
+import { readAnnotationDocumentsForStill } from "../../lib/fs/annotationStorage";
 import { writeClip } from "../../lib/fs/clipStorage";
 import { findOverlappingCache, writeHomographyCache, type HomographyFrame } from "../../lib/fs/homographyCache";
 import { useSidecar } from "../../lib/state/SidecarContext";
@@ -22,6 +24,7 @@ import { requestTracking, requestHomography, requestManualTrackHomography, type 
 import { convertTrackingKeyframes } from "../../lib/clip/bboxConvert";
 import { applyHomography, applyHomographyInv, computeHomographyFromCorrespondences, invert3, rectPlaneToImagePoints, ellipsePlaneToImagePoints } from "../../lib/annotate/homography";
 import { OcclusionCache, fetchOcclusionMask, compositeForeground, roundToFrame } from "../../lib/clip/occlusionCompositor";
+import { importStillDocumentToClip } from "../../lib/clip/stillImport";
 import {
   getSidecarVideoLocator,
   hasSidecarVideoSource,
@@ -43,6 +46,7 @@ export interface ClipEditorProps {
   videoUrl: string;
   videoFps: number;
   projectDir?: FileSystemDirectoryHandle;
+  manifest?: ProjectManifestV1 | null;
   videoRef?: string;
   videoPath?: string;
   tool?: ClipTool;
@@ -171,6 +175,7 @@ export default function ClipEditor({
   videoUrl,
   videoFps,
   projectDir,
+  manifest = null,
   videoRef: sidecarVideoRef,
   videoPath,
   tool: toolProp,
@@ -232,6 +237,8 @@ export default function ClipEditor({
 
   // --- Export state ---
   const [showExportModal, setShowExportModal] = useState(false);
+  const [isImportingStillId, setIsImportingStillId] = useState<string | null>(null);
+  const [stillImportMessage, setStillImportMessage] = useState<string | null>(null);
 
   // Sync annotations from clip prop if it changes externally
   useEffect(() => { setAnnotations(clip.annotations); }, [clip.annotations]);
@@ -246,6 +253,20 @@ export default function ClipEditor({
   }, [projectDir, clip.startMs, clip.endMs]);
 
   const clipDurationMs = clip.endMs - clip.startMs;
+  const inBoundsStills = useMemo(() => {
+    if (!manifest) return [] as ProjectManifestV1['stills'];
+    return (manifest.stills || [])
+      .filter((still) => (
+        still.videoId === clip.videoId
+        && still.t_ms >= clip.startMs
+        && still.t_ms <= clip.endMs
+      ))
+      .slice()
+      .sort((a, b) => {
+        if (a.t_ms !== b.t_ms) return a.t_ms - b.t_ms;
+        return a.id.localeCompare(b.id);
+      });
+  }, [manifest, clip.videoId, clip.startMs, clip.endMs]);
 
   // --- Build current clip object ---
   const currentClip = useMemo((): Clip => ({
@@ -1187,6 +1208,50 @@ export default function ClipEditor({
     return `${m}:${String(s).padStart(2, '0')}:${String(f).padStart(2, '0')}`;
   }, [videoFps]);
 
+  const handleImportStill = useCallback(async (stillId: string) => {
+    if (!projectDir || !manifest) {
+      setStillImportMessage('Still import is unavailable without the project context');
+      return;
+    }
+
+    const still = inBoundsStills.find((entry) => entry.id === stillId);
+    if (!still) {
+      setStillImportMessage('That still is no longer inside this clip range');
+      return;
+    }
+
+    setIsImportingStillId(stillId);
+    setStillImportMessage(null);
+    try {
+      const documents = await readAnnotationDocumentsForStill(projectDir, manifest, still);
+      const primary = documents[0]?.document ?? null;
+      if (!primary || (primary.shapes?.length ?? 0) === 0) {
+        setStillImportMessage('This still has no saved annotations to import');
+        return;
+      }
+
+      const clipFrameMs = roundToFrame(still.t_ms - clip.startMs, videoFps);
+      const result = importStillDocumentToClip(primary, clipFrameMs);
+      if (result.annotations.length === 0) {
+        setStillImportMessage('No supported annotation shapes were found to import');
+        return;
+      }
+
+      setAnnotations((prev) => [...prev, ...result.annotations]);
+      setSelectedAnnotationId(result.annotations[0]?.id ?? null);
+      seekToMs(clipFrameMs);
+      setStillImportMessage(
+        result.skipped > 0
+          ? `Imported ${result.annotations.length} annotations from ${still.id}; skipped ${result.skipped} unsupported shape${result.skipped === 1 ? '' : 's'}`
+          : `Imported ${result.annotations.length} annotations from ${still.id}`,
+      );
+    } catch (error: any) {
+      setStillImportMessage(error?.message || 'Failed to import still annotations');
+    } finally {
+      setIsImportingStillId(null);
+    }
+  }, [projectDir, manifest, inBoundsStills, clip.startMs, videoFps, seekToMs]);
+
   // --- Pointer position in image coords ---
   const getPointerImagePos = useCallback((e: any): { x: number; y: number } | null => {
     const stage = e?.target?.getStage?.() || stageRef.current;
@@ -1553,7 +1618,7 @@ export default function ClipEditor({
             x={0} y={0}
             points={scaled}
             stroke={stroke} strokeWidth={strokeWidth} fill={fillColor}
-            closed={true} dash={dash} lineCap="round" lineJoin="round"
+            closed={ann.closed !== false} dash={dash} lineCap="round" lineJoin="round"
             listening={canInteract} draggable={false}
             onClick={(e: any) => onShapeClick(ann.id, e)}
             shadowColor={selStroke} shadowBlur={isSelected ? 6 : 0} shadowEnabled={isSelected}
@@ -1683,7 +1748,7 @@ export default function ClipEditor({
             stroke={stroke}
             strokeWidth={strokeWidth}
             fill={fillColor}
-            closed={true}
+            closed={ann.closed !== false}
             dash={dash}
             lineCap="round"
             lineJoin="round"
@@ -1812,8 +1877,10 @@ export default function ClipEditor({
           for (let j = 1; j < p.points.length; j++) {
             ctx.lineTo(p.points[j][0], p.points[j][1]);
           }
-          ctx.closePath();
-          if (fillColor !== 'transparent') ctx.fill();
+          if (ann.closed !== false) {
+            ctx.closePath();
+            if (fillColor !== 'transparent') ctx.fill();
+          }
           ctx.stroke();
           break;
         }
@@ -1969,6 +2036,64 @@ export default function ClipEditor({
         }}
         onShiftClick={setRetrackRangeEndMs}
       />
+
+      {manifest && (
+        <div className="shrink-0 bg-surface border-t border-border">
+          <div className="px-3 py-2 flex items-center gap-2">
+            <div className="text-xs uppercase tracking-wide text-muted">Stills In Clip</div>
+            <div className="text-xs text-muted">
+              {inBoundsStills.length} in-range still{inBoundsStills.length === 1 ? '' : 's'}
+            </div>
+            <div className="flex-1" />
+            <div className="text-xs text-muted">Import uses the still&apos;s primary saved annotation set</div>
+          </div>
+          <div className="px-3 pb-3 overflow-x-auto">
+            {inBoundsStills.length === 0 ? (
+              <div className="text-xs text-muted py-1">No stills fall inside this clip&apos;s time bounds yet.</div>
+            ) : (
+              <div className="flex items-stretch gap-2 min-w-max">
+                {inBoundsStills.map((still) => {
+                  const clipStillTMs = roundToFrame(still.t_ms - clip.startMs, videoFps);
+                  const isCurrent = Math.abs(currentTMs - clipStillTMs) <= (1000 / Math.max(1, videoFps));
+                  const hasIndexedAnnotations = !!manifest.annotations?.some((entry) => entry.stillId === still.id);
+                  return (
+                    <div
+                      key={still.id}
+                      className={`rounded border px-3 py-2 min-w-[220px] ${isCurrent ? 'border-accent bg-selected' : 'border-subtle bg-canvas'}`}
+                    >
+                      <div className="text-xs font-medium">{formatTime(clipStillTMs)}</div>
+                      <div className="text-[11px] text-muted mt-1 truncate" title={still.id}>{still.id}</div>
+                      <div className="text-[11px] text-muted mt-1">
+                        {hasIndexedAnnotations ? 'Saved annotations available' : 'No indexed annotation sets'}
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <button
+                          onClick={() => seekToMs(clipStillTMs)}
+                          className="px-2 py-1 text-xs border-0 cursor-pointer"
+                          title="Jump to the still's matching frame in this clip"
+                        >
+                          Jump
+                        </button>
+                        <button
+                          onClick={() => handleImportStill(still.id)}
+                          disabled={isImportingStillId === still.id}
+                          className="px-2 py-1 text-xs border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                          title="Import this still's primary annotation set onto the matching clip frame"
+                        >
+                          {isImportingStillId === still.id ? 'Importing...' : 'Import'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {stillImportMessage && (
+              <div className="text-xs text-muted mt-2">{stillImportMessage}</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Transport bar */}
       <div className="shrink-0 bg-surface border-t border-border">

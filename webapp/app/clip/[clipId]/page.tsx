@@ -372,6 +372,7 @@ export default function ClipPage({ params }: { params: { clipId: string } }) {
               videoUrl={videoUrl}
               videoFps={videoFps}
               projectDir={projectDir ?? undefined}
+              manifest={manifest}
               videoRef={sidecarVideoRef ?? undefined}
               videoPath={videoPath}
               tool={tool}
