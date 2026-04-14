@@ -484,10 +484,10 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
     : saveStatus?.state === 'saved' ? 'text-[#34d399]'
     : '';
 
-  const hasStroke = ['box', 'circle', 'highlight', 'arrow', 'poly', 'text'].includes(tool);
-  const hasWidth = ['box', 'circle', 'highlight', 'arrow', 'poly'].includes(tool);
-  const hasPattern = ['box', 'circle', 'highlight', 'arrow', 'poly'].includes(tool);
-  const hasFill = ['box', 'circle', 'highlight', 'poly'].includes(tool);
+  const hasStroke = ['box', 'circle', 'highlight', 'shadow', 'arrow', 'lob', 'poly', 'text'].includes(tool);
+  const hasWidth = ['box', 'circle', 'highlight', 'shadow', 'arrow', 'lob', 'poly'].includes(tool);
+  const hasPattern = ['box', 'circle', 'highlight', 'shadow', 'arrow', 'lob', 'poly'].includes(tool);
+  const hasFill = ['box', 'circle', 'highlight', 'shadow', 'poly'].includes(tool);
   const hasFont = tool === 'text';
 
   const navbar = (
@@ -581,7 +581,9 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
       <button onClick={() => setTool('box')} aria-pressed={tool === 'box'} className={toolBtnCls('box')}>Box</button>
       <button onClick={() => setTool('circle')} aria-pressed={tool === 'circle'} className={toolBtnCls('circle')}>Circle</button>
       <button onClick={() => setTool('highlight')} aria-pressed={tool === 'highlight'} className={toolBtnCls('highlight')}>Highlight</button>
+      <button onClick={() => setTool('shadow')} aria-pressed={tool === 'shadow'} className={toolBtnCls('shadow')}>Shadow</button>
       <button onClick={() => setTool('arrow')} aria-pressed={tool === 'arrow'} className={toolBtnCls('arrow')}>Arrow</button>
+      <button onClick={() => setTool('lob')} aria-pressed={tool === 'lob'} className={toolBtnCls('lob')}>Lob</button>
       <button onClick={() => setTool('poly')} aria-pressed={tool === 'poly'} className={toolBtnCls('poly')}>Poly</button>
       <button onClick={() => setTool('text')} aria-pressed={tool === 'text'} className={toolBtnCls('text')}>Text</button>
       <button onClick={() => setTool('calibrate')} aria-pressed={tool === 'calibrate'} className={toolBtnCls('calibrate')}>Calibrate</button>
