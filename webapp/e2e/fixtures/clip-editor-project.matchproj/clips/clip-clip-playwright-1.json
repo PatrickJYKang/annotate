@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "id": "clip-playwright-1",
+  "videoId": "video-playwright-1",
+  "startMs": 200,
+  "endMs": 1400,
+  "startMarkId": null,
+  "endMarkId": null,
+  "annotations": []
+}

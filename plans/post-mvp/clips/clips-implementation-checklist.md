@@ -81,7 +81,7 @@ Current implementation: the stills page and new-clip modal now make the current-
   - side rail
   - filmstrip
   - inspector/browser section
-Current implementation uses a dedicated in-editor still browser strip for the clip's source video, with explicit `Before clip` / `In clip` / `After clip` status and `Jump` / `Import` actions only for in-clip stills.
+Current implementation uses a dedicated in-editor still browser strip for in-bounds stills only, ordered chronologically, with click-to-jump and explicit import actions.
 - [x] Make it obvious which stills are within bounds vs outside the clip.
 - [x] Ensure surfaced stills update automatically when clip bounds change.
 
@@ -137,17 +137,20 @@ Current implementation: the clip editor now supports `shadow` and `lob` as first
 ### 4.3 Playback context
 
 - [x] Basic playback, pause, and frame step exist.
-- [ ] Improve local shuttle/scrub ergonomics for analysis.
-- [ ] Consider short-loop playback around the current frame.
-- [ ] Keep the clip editor out of full NLE territory.
-- [ ] Treat frame holds / dwell behavior as later work, not a prerequisite.
+- [x] Improve local shuttle/scrub ergonomics for analysis.
+- [x] Consider short-loop playback around the current frame.
+- [x] Keep the clip editor out of full NLE territory.
+Current implementation: the clip transport now adds short analysis-oriented shuttle jumps (`250 ms` and `1 s`) plus a simple local loop around the current frame with timeline feedback, while still avoiding broader NLE-style timeline editing.
+- [x] Treat frame holds / dwell behavior as later work, not a prerequisite.
+Current stance: dwell / hold behavior remains deferred and is not required for the current clip-analysis editing model.
 
 ### 4.4 Save / undo / safety
 
 - [x] Auto-save exists.
-- [ ] Verify save behavior is robust during rapid keyframe edits.
-- [ ] Verify undo/redo coverage for all major clip-editing actions.
-- [ ] Add tests for import, retrack, range replace, and delete flows.
+- [x] Verify save behavior is robust during rapid keyframe edits.
+- [x] Verify undo/redo coverage for all major clip-editing actions.
+- [x] Add tests for import, retrack, range replace, and delete flows.
+Current implementation: clip editor save/history/tracking merge logic now runs through shared helpers in [editorState.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/editorState.ts), with targeted tests in [editorState.test.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/editorState.test.ts). Import coverage continues to live in [stillImport.test.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/stillImport.test.ts), the re-track range merge now correctly normalizes bounded replacement behavior, and major clip-editor flows now also have end-to-end coverage in [clip-editor.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/clip-editor.spec.ts).
 
 ---
 

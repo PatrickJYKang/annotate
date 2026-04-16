@@ -13,6 +13,7 @@ export interface TimelineStripProps {
   currentFrameToleranceMs?: number;
   annotations: ClipAnnotation[];
   selectedAnnotationId: string | null;
+  analysisLoopRange?: { startMs: number; endMs: number } | null;
   retrackRangeEndMs?: number | null;
   onSeek: (tMs: number) => void;
   onSelectAnnotation: (id: string | null) => void;
@@ -41,6 +42,7 @@ export default function TimelineStrip({
   currentFrameToleranceMs = 0,
   annotations,
   selectedAnnotationId,
+  analysisLoopRange = null,
   retrackRangeEndMs,
   onSeek,
   onSelectAnnotation,
@@ -168,6 +170,7 @@ export default function TimelineStrip({
   return (
     <div
       ref={containerRef}
+      data-testid="clip-timeline"
       className="shrink-0 bg-surface border-t border-border select-none cursor-crosshair relative overflow-hidden"
       style={{ height: visibleHeight }}
       onMouseDown={onMouseDown}
@@ -204,6 +207,25 @@ export default function TimelineStrip({
         onScroll={(e) => syncScrollTop((e.target as HTMLDivElement).scrollTop)}
       >
         <div className="relative" style={{ height: lanesHeight }}>
+          {analysisLoopRange && durationMs > 0 && (() => {
+            const left = (Math.max(0, Math.min(durationMs, analysisLoopRange.startMs)) / durationMs) * 100;
+            const width = (Math.max(0, Math.min(durationMs, analysisLoopRange.endMs)) - Math.max(0, Math.min(durationMs, analysisLoopRange.startMs))) / durationMs * 100;
+            return (
+              <div
+                className="absolute top-0 pointer-events-none"
+                style={{
+                  left: `${left}%`,
+                  width: `${width}%`,
+                  height: lanesHeight,
+                  backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                  borderLeft: '1px solid rgba(245, 158, 11, 0.45)',
+                  borderRight: '1px solid rgba(245, 158, 11, 0.45)',
+                  zIndex: 4,
+                }}
+              />
+            );
+          })()}
+
           {/* Annotation lanes */}
           {annotations.map((ann, idx) => {
             const laneTop = idx * LANE_H;

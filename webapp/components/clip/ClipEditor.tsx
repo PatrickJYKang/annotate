@@ -33,13 +33,19 @@ import { requestTracking, requestHomography, requestManualTrackHomography, type 
 import { convertTrackingKeyframes } from "../../lib/clip/bboxConvert";
 import {
   getClipRelativeMsForStill,
-  getStillClipPosition,
-  listStillsForClipVideo,
   listStillsWithinClipBounds,
 } from "../../lib/clip/stillRelationship";
 import { applyHomography, applyHomographyInv, computeHomographyFromCorrespondences, invert3, rectPlaneToImagePoints, ellipsePlaneToImagePoints } from "../../lib/annotate/homography";
 import { OcclusionCache, fetchOcclusionMask, compositeForeground, roundToFrame } from "../../lib/clip/occlusionCompositor";
 import { applyStillImportToClip, importStillDocumentToClip } from "../../lib/clip/stillImport";
+import {
+  createDebouncedAsyncScheduler,
+  deleteSelectedClipAnnotation,
+  mergeTrackedKeyframesIntoAnnotation,
+  recordClipAnnotationHistoryChange,
+  redoClipAnnotationHistory,
+  undoClipAnnotationHistory,
+} from "../../lib/clip/editorState";
 import {
   getSidecarVideoLocator,
   hasSidecarVideoSource,
@@ -74,6 +80,9 @@ export interface ClipEditorProps {
 const PITCH_MIN = 3;
 const PITCH_MAX = 317;
 const PITCH_CENTER = (PITCH_MIN + PITCH_MAX) / 2;
+const ANALYSIS_LOOP_OPTIONS_MS = [1000, 2000, 4000] as const;
+const SHORT_SHUTTLE_MS = 250;
+const LONG_SHUTTLE_MS = 1000;
 
 type ManualPitchKeypoint = {
   id: string;
@@ -224,13 +233,6 @@ function getDefaultStrokeWidthForAnnotation(type: ClipAnnotationType): number {
   return 6;
 }
 
-function cloneClipAnnotations(annotations: ClipAnnotation[]): ClipAnnotation[] {
-  if (typeof structuredClone === 'function') {
-    return structuredClone(annotations);
-  }
-  return JSON.parse(JSON.stringify(annotations)) as ClipAnnotation[];
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -254,7 +256,6 @@ export default function ClipEditor({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const currentTMsRef = useRef<number>(0);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const drawStartRef = useRef<{ x: number; y: number } | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const arrowStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -286,10 +287,17 @@ export default function ClipEditor({
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTMs, setCurrentTMs] = useState(0);
   const [videoReady, setVideoReady] = useState(false);
+  const [analysisLoopDurationMs, setAnalysisLoopDurationMs] = useState<number>(2000);
+  const [analysisLoopRange, setAnalysisLoopRange] = useState<{ startMs: number; endMs: number } | null>(null);
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 800, h: 450 });
   const [videoSize, setVideoSize] = useState<{ w: number; h: number }>({ w: 1920, h: 1080 });
   const [annotations, setAnnotations] = useState<ClipAnnotation[]>(clip.annotations);
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
+  const [selectedAnnotationIds, setSelectedAnnotationIds] = useState<string[]>([]);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const selStartRef = useRef<{ x: number; y: number } | null>(null);
+  const selCandidateRef = useRef<{ x: number; y: number } | null>(null);
+  const [selRect, setSelRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
 
   // --- Homography state ---
@@ -315,7 +323,6 @@ export default function ClipEditor({
   const [stillImportMessage, setStillImportMessage] = useState<string | null>(null);
   const annotationHistoryPastRef = useRef<ClipAnnotation[][]>([]);
   const annotationHistoryFutureRef = useRef<ClipAnnotation[][]>([]);
-  const annotationHistoryActionRef = useRef<null | 'undo' | 'redo' | 'sync'>(null);
   const lastAnnotationHistoryStateRef = useRef<ClipAnnotation[]>(clip.annotations);
   const activeClipIdRef = useRef(clip.id);
 
@@ -323,10 +330,17 @@ export default function ClipEditor({
   useEffect(() => {
     if (clip.id !== activeClipIdRef.current) {
       activeClipIdRef.current = clip.id;
+      saveSchedulerRef.current?.cancel();
       annotationHistoryPastRef.current = [];
       annotationHistoryFutureRef.current = [];
+      setAnalysisLoopRange(null);
+      setSelectedAnnotationId(null);
+      setSelectedAnnotationIds([]);
+      setIsSelecting(false);
+      selStartRef.current = null;
+      selCandidateRef.current = null;
+      setSelRect(null);
     }
-    annotationHistoryActionRef.current = 'sync';
     lastAnnotationHistoryStateRef.current = clip.annotations;
     setAnnotations(clip.annotations);
   }, [clip.id, clip.annotations]);
@@ -341,26 +355,10 @@ export default function ClipEditor({
   }, [projectDir, clip.startMs, clip.endMs]);
 
   const clipDurationMs = clip.endMs - clip.startMs;
-  const videoStills = useMemo(() => {
-    if (!manifest) return [] as ProjectManifestV1['stills'];
-    return listStillsForClipVideo(manifest.stills || [], clip);
-  }, [manifest, clip]);
   const inBoundsStills = useMemo(() => {
     if (!manifest) return [] as ProjectManifestV1['stills'];
     return listStillsWithinClipBounds(manifest.stills || [], clip);
   }, [manifest, clip]);
-  const stillPositionCounts = useMemo(() => {
-    let before = 0;
-    let inside = 0;
-    let after = 0;
-    for (const still of videoStills) {
-      const position = getStillClipPosition(clip, still);
-      if (position === 'before') before += 1;
-      else if (position === 'inside') inside += 1;
-      else if (position === 'after') after += 1;
-    }
-    return { before, inside, after };
-  }, [videoStills, clip]);
 
   // --- Build current clip object ---
   const currentClip = useMemo((): Clip => ({
@@ -401,12 +399,40 @@ export default function ClipEditor({
     const v = videoRef.current;
     if (!v) return;
     setVideoSize({ w: v.videoWidth, h: v.videoHeight });
+    setVideoReady(v.readyState >= 1);
     v.currentTime = clip.startMs / 1000;
   }, [clip.startMs]);
 
   const onSeeked = useCallback(() => {
     setVideoReady(true);
   }, []);
+
+  const onVideoCanRender = useCallback(() => {
+    setVideoReady(true);
+  }, []);
+
+  useEffect(() => {
+    setVideoReady(false);
+  }, [clip.id, videoUrl]);
+
+  const buildAnalysisLoopRange = useCallback((centerMs: number, durationMs: number) => {
+    if (clipDurationMs <= 0) return { startMs: 0, endMs: 0 };
+    const loopDuration = Math.max(250, Math.min(durationMs, clipDurationMs));
+    const halfDuration = loopDuration / 2;
+    let startMs = Math.max(0, centerMs - halfDuration);
+    let endMs = Math.min(clipDurationMs, centerMs + halfDuration);
+    const actualDuration = endMs - startMs;
+
+    if (actualDuration < loopDuration) {
+      if (startMs <= 0) {
+        endMs = Math.min(clipDurationMs, loopDuration);
+      } else if (endMs >= clipDurationMs) {
+        startMs = Math.max(0, clipDurationMs - loopDuration);
+      }
+    }
+
+    return { startMs, endMs };
+  }, [clipDurationMs]);
 
   // --- Playback sync loop ---
   useEffect(() => {
@@ -421,8 +447,15 @@ export default function ClipEditor({
       currentTMsRef.current = clamped;
       setCurrentTMs(clamped);
 
-      // Auto-pause at end
-      if (clamped >= clipDurationMs && !v.paused) {
+      if (analysisLoopRange && !v.paused) {
+        if (clamped >= analysisLoopRange.endMs - 1) {
+          const loopTarget = Math.max(0, Math.min(analysisLoopRange.startMs, clipDurationMs));
+          v.currentTime = (clip.startMs + loopTarget) / 1000;
+          currentTMsRef.current = loopTarget;
+          setCurrentTMs(loopTarget);
+        }
+      } else if (clamped >= clipDurationMs && !v.paused) {
+        // Auto-pause at end
         v.pause();
         setIsPlaying(false);
       }
@@ -431,16 +464,21 @@ export default function ClipEditor({
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => { if (rafRef.current != null) cancelAnimationFrame(rafRef.current); };
-  }, [clip.startMs, clipDurationMs]);
+  }, [analysisLoopRange, clip.startMs, clipDurationMs]);
 
   // --- Play / Pause ---
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
     if (v.paused) {
-      // If at end, reset to start
-      const tMs = v.currentTime * 1000 - clip.startMs;
-      if (tMs >= clipDurationMs - 1) {
+      const tMs = Math.max(0, Math.min(v.currentTime * 1000 - clip.startMs, clipDurationMs));
+      if (analysisLoopRange) {
+        const outsideLoop = tMs < analysisLoopRange.startMs || tMs >= analysisLoopRange.endMs - 1;
+        if (outsideLoop) {
+          v.currentTime = (clip.startMs + analysisLoopRange.startMs) / 1000;
+        }
+      } else if (tMs >= clipDurationMs - 1) {
+        // If at end, reset to start
         v.currentTime = clip.startMs / 1000;
       }
       v.play();
@@ -449,7 +487,7 @@ export default function ClipEditor({
       v.pause();
       setIsPlaying(false);
     }
-  }, [clip.startMs, clipDurationMs]);
+  }, [analysisLoopRange, clip.startMs, clipDurationMs]);
 
   // --- Frame step ---
   const stepFrame = useCallback((direction: 1 | -1) => {
@@ -461,6 +499,14 @@ export default function ClipEditor({
     const maxTime = clip.endMs / 1000;
     v.currentTime = Math.max(minTime, Math.min(newTime, maxTime));
   }, [videoFps, clip.startMs, clip.endMs]);
+
+  const shuttleByMs = useCallback((deltaMs: number) => {
+    const v = videoRef.current;
+    if (!v) return;
+    const nextTMs = currentTMsRef.current + deltaMs;
+    const clamped = Math.max(0, Math.min(nextTMs, clipDurationMs));
+    v.currentTime = (clip.startMs + clamped) / 1000;
+  }, [clip.startMs, clipDurationMs]);
 
   // --- Seek to clip-relative ms ---
   const seekToMs = useCallback((tMs: number) => {
@@ -474,11 +520,16 @@ export default function ClipEditor({
   const annotationsRef = useRef(annotations);
   annotationsRef.current = annotations;
 
-  const scheduleSave = useCallback(() => {
-    if (!projectDir) return;
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
-      const toSave: Clip = { ...clip, annotations: annotationsRef.current };
+  const saveSchedulerRef = useRef<ReturnType<typeof createDebouncedAsyncScheduler<Clip>> | null>(null);
+
+  useEffect(() => {
+    if (!projectDir) {
+      saveSchedulerRef.current?.cancel();
+      saveSchedulerRef.current = null;
+      return;
+    }
+
+    const scheduler = createDebouncedAsyncScheduler<Clip>(800, async (toSave) => {
       setSaveStatus('saving');
       onSaveStatus?.('saving');
       try {
@@ -490,8 +541,17 @@ export default function ClipEditor({
         setSaveStatus('error');
         onSaveStatus?.('error');
       }
-    }, 800);
-  }, [projectDir, clip, onClipUpdate, onSaveStatus]);
+    });
+
+    saveSchedulerRef.current?.cancel();
+    saveSchedulerRef.current = scheduler;
+    return () => scheduler.cancel();
+  }, [projectDir, onClipUpdate, onSaveStatus]);
+
+  const scheduleSave = useCallback(() => {
+    if (!projectDir || !saveSchedulerRef.current) return;
+    saveSchedulerRef.current.schedule({ ...clip, annotations: annotationsRef.current });
+  }, [projectDir, clip]);
 
   // Trigger save on annotation changes
   const prevAnnotationsRef = useRef(annotations);
@@ -505,24 +565,21 @@ export default function ClipEditor({
   useEffect(() => {
     const previous = lastAnnotationHistoryStateRef.current;
     if (annotations === previous) return;
-
-    const action = annotationHistoryActionRef.current;
-    if (action === 'undo') {
-      annotationHistoryFutureRef.current.push(cloneClipAnnotations(previous));
-    } else if (action === 'redo') {
-      annotationHistoryPastRef.current.push(cloneClipAnnotations(previous));
-    } else if (action !== 'sync') {
-      annotationHistoryPastRef.current.push(cloneClipAnnotations(previous));
-      annotationHistoryFutureRef.current = [];
-    }
-
+    const history = recordClipAnnotationHistoryChange(
+      previous,
+      annotations,
+      annotationHistoryPastRef.current,
+    );
+    annotationHistoryPastRef.current = history.past;
+    annotationHistoryFutureRef.current = history.future;
     lastAnnotationHistoryStateRef.current = annotations;
-    annotationHistoryActionRef.current = null;
   }, [annotations]);
 
   // Cleanup save timer
   useEffect(() => {
-    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+    return () => {
+      saveSchedulerRef.current?.cancel();
+    };
   }, []);
 
   // --- Annotation mutation helpers ---
@@ -674,16 +731,25 @@ export default function ClipEditor({
       keyframes: [{ tMs: currentTMsRef.current, ...keyframeGeometry } as ClipKeyframe],
     };
     setAnnotations(prev => [...prev, ann]);
+    setSelectedAnnotationIds([]);
     setSelectedAnnotationId(ann.id);
     return ann.id;
   }, [defaultColor, defaultStrokeWidth, defaultFill, defaultFillOpacity, defaultFontSize, defaultTextHighlight, drawCoordMode]);
 
   // Delete selected annotation
   const deleteSelectedAnnotation = useCallback(() => {
-    if (!selectedAnnotationId) return;
-    setAnnotations(prev => prev.filter(a => a.id !== selectedAnnotationId));
-    setSelectedAnnotationId(null);
-  }, [selectedAnnotationId]);
+    if (selectedAnnotationIds.length > 0) {
+      const idsToDelete = new Set(selectedAnnotationIds);
+      setAnnotations(annotationsRef.current.filter((annotation) => !idsToDelete.has(annotation.id)));
+      setSelectedAnnotationIds([]);
+      setSelectedAnnotationId(null);
+      return;
+    }
+    const result = deleteSelectedClipAnnotation(annotationsRef.current, selectedAnnotationId);
+    setAnnotations(result.annotations);
+    setSelectedAnnotationId(result.selectedAnnotationId);
+    setSelectedAnnotationIds([]);
+  }, [selectedAnnotationId, selectedAnnotationIds]);
 
   // --- Sidecar (tracking) ---
   const sidecar = useSidecar();
@@ -766,19 +832,23 @@ export default function ClipEditor({
   }, []);
 
   // Clear range when annotation deselection changes
-  const prevSelectedRef = useRef(selectedAnnotationId);
+  const selectionSignature = selectedAnnotationIds.length > 0
+    ? selectedAnnotationIds.join(',')
+    : (selectedAnnotationId || '');
+  const prevSelectedRef = useRef(selectionSignature);
   useEffect(() => {
-    if (selectedAnnotationId !== prevSelectedRef.current) {
-      prevSelectedRef.current = selectedAnnotationId;
+    if (selectionSignature !== prevSelectedRef.current) {
+      prevSelectedRef.current = selectionSignature;
       setRetrackRangeEndMs(null);
     }
-  }, [selectedAnnotationId]);
+  }, [selectionSignature]);
 
   // Helper: determine if selected annotation is a corrected/auto tracked annotation
   const selectedAnn = useMemo(() => {
+    if (selectedAnnotationIds.length > 0) return null;
     if (!selectedAnnotationId) return null;
     return annotations.find(a => a.id === selectedAnnotationId) || null;
-  }, [selectedAnnotationId, annotations]);
+  }, [selectedAnnotationId, selectedAnnotationIds, annotations]);
   const currentFrameToleranceMs = 1000 / Math.max(1, videoFps);
   const selectedAnnInterpolated = useMemo(() => {
     if (!selectedAnn) return null;
@@ -978,6 +1048,7 @@ export default function ClipEditor({
   }, [resolveAnnotationDisplayStyle]);
 
   const selectedAnnCanUseTransformer = useMemo(() => {
+    if (selectedAnnotationIds.length > 0) return false;
     if (!selectedAnn || !selectedAnnInterpolated) return false;
     if (selectedAnn.coordMode === 'pitch') return false;
     return (
@@ -986,7 +1057,7 @@ export default function ClipEditor({
       || selectedAnnInterpolated.type === 'highlight'
       || selectedAnnInterpolated.type === 'text'
     );
-  }, [selectedAnn, selectedAnnInterpolated]);
+  }, [selectedAnn, selectedAnnInterpolated, selectedAnnotationIds]);
 
   // Shared tracking helper: call /track, convert keyframes, update annotation
   const doTrack = useCallback(async (
@@ -1029,28 +1100,12 @@ export default function ClipEditor({
 
       setAnnotations(prev => prev.map(a => {
         if (a.id !== ann.id) return a;
-
-        let merged: ClipKeyframe[];
-        if (mergeMode === 'replace') {
-          merged = newKeyframes;
-        } else if (mergeMode === 'forward') {
-          // Keep keyframes <= currentTMs, replace those after
-          const tMs = currentTMsRef.current;
-          const kept = a.keyframes.filter(k => k.tMs <= tMs);
-          merged = [...kept, ...newKeyframes.filter(k => k.tMs > tMs)];
-        } else {
-          // range: keep before rangeStart and after rangeEnd, replace middle
-          const rangeStart = currentTMsRef.current;
-          const rangeEnd = rangeEndMs ?? clipDurationMs;
-          const before = a.keyframes.filter(k => k.tMs < rangeStart);
-          const after = a.keyframes.filter(k => k.tMs > rangeEnd);
-          const middle = newKeyframes.filter(k => k.tMs >= rangeStart && k.tMs <= rangeEnd);
-          merged = [...before, ...middle, ...after];
-        }
-
-        merged.sort((x, y) => x.tMs - y.tMs);
-        const source = mergeMode === 'replace' ? 'auto' as const : 'corrected' as const;
-        return { ...a, keyframes: merged, source };
+        return mergeTrackedKeyframesIntoAnnotation(a, newKeyframes, {
+          mergeMode,
+          currentTMs: currentTMsRef.current,
+          rangeEndMs,
+          clipDurationMs,
+        });
       }));
       setRetrackRangeEndMs(null);
     } catch (e: any) {
@@ -1117,24 +1172,36 @@ export default function ClipEditor({
   }, [hasVideoSource, selectedAnn, retrackRangeEndMs, videoFps, clip.startMs, extractSeedBbox, doTrack]);
 
   const handleUndoAnnotations = useCallback(() => {
-    const previous = annotationHistoryPastRef.current.pop();
-    if (!previous) return false;
-    annotationHistoryActionRef.current = 'undo';
-    setAnnotations(cloneClipAnnotations(previous));
-    if (selectedAnnotationId && !previous.some((annotation) => annotation.id === selectedAnnotationId)) {
-      setSelectedAnnotationId(previous[0]?.id ?? null);
-    }
+    const result = undoClipAnnotationHistory({
+      past: annotationHistoryPastRef.current,
+      future: annotationHistoryFutureRef.current,
+      currentAnnotations: annotationsRef.current,
+      selectedAnnotationId,
+    });
+    if (!result.didUndo) return false;
+    annotationHistoryPastRef.current = result.past;
+    annotationHistoryFutureRef.current = result.future;
+    lastAnnotationHistoryStateRef.current = result.annotations;
+    setAnnotations(result.annotations);
+    setSelectedAnnotationIds([]);
+    setSelectedAnnotationId(result.selectedAnnotationId);
     return true;
   }, [selectedAnnotationId]);
 
   const handleRedoAnnotations = useCallback(() => {
-    const next = annotationHistoryFutureRef.current.pop();
-    if (!next) return false;
-    annotationHistoryActionRef.current = 'redo';
-    setAnnotations(cloneClipAnnotations(next));
-    if (selectedAnnotationId && !next.some((annotation) => annotation.id === selectedAnnotationId)) {
-      setSelectedAnnotationId(next[0]?.id ?? null);
-    }
+    const result = redoClipAnnotationHistory({
+      past: annotationHistoryPastRef.current,
+      future: annotationHistoryFutureRef.current,
+      currentAnnotations: annotationsRef.current,
+      selectedAnnotationId,
+    });
+    if (!result.didRedo) return false;
+    annotationHistoryPastRef.current = result.past;
+    annotationHistoryFutureRef.current = result.future;
+    lastAnnotationHistoryStateRef.current = result.annotations;
+    setAnnotations(result.annotations);
+    setSelectedAnnotationIds([]);
+    setSelectedAnnotationId(result.selectedAnnotationId);
     return true;
   }, [selectedAnnotationId]);
 
@@ -1172,6 +1239,7 @@ export default function ClipEditor({
     drawStartRef.current = null;
     arrowStartRef.current = null;
     setTempShape(null);
+    setSelectedAnnotationIds([]);
     setSelectedAnnotationId(null);
     setTrackError(null);
     setIsManualHomographyMode(true);
@@ -1374,6 +1442,20 @@ export default function ClipEditor({
     return getInterpolatedBounds(selectedAnn, selectedAnnInterpolated, currentHomography);
   }, [selectedAnn, selectedAnnInterpolated, currentHomography, getInterpolatedBounds]);
 
+  const multiSelectedAnnotationBounds = useMemo(() => {
+    if (selectedAnnotationIds.length === 0) return [] as Array<{ id: string; bounds: { x: number; y: number; w: number; h: number } }>;
+    const selectedSet = new Set(selectedAnnotationIds);
+    return annotations.flatMap((annotation) => {
+      if (!selectedSet.has(annotation.id)) return [];
+      const interpolatedKeyframe = interpolateKeyframes(annotation.keyframes, currentTMs, annotation.type, videoFps);
+      if (!interpolatedKeyframe) return [];
+      return [{
+        id: annotation.id,
+        bounds: getInterpolatedBounds(annotation, interpolatedKeyframe, currentHomography),
+      }];
+    });
+  }, [annotations, currentHomography, currentTMs, getInterpolatedBounds, selectedAnnotationIds, videoFps]);
+
   const handleTrackHomographyFromSeed = useCallback(async () => {
     if (!hasVideoSource) {
       setTrackError('Tracking unavailable: no registered video source');
@@ -1506,13 +1588,26 @@ export default function ClipEditor({
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
       if (e.key === ' ') { e.preventDefault(); togglePlay(); }
-      if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(1); }
-      if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-1); }
+      if (e.key.toLowerCase() === 'l') {
+        e.preventDefault();
+        setAnalysisLoopRange((previous) => (
+          previous ? null : buildAnalysisLoopRange(currentTMsRef.current, analysisLoopDurationMs)
+        ));
+      }
+      if (e.shiftKey && e.key === 'ArrowRight') { e.preventDefault(); shuttleByMs(LONG_SHUTTLE_MS); }
+      if (e.shiftKey && e.key === 'ArrowLeft') { e.preventDefault(); shuttleByMs(-LONG_SHUTTLE_MS); }
+      if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); shuttleByMs(SHORT_SHUTTLE_MS); }
+      if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); shuttleByMs(-SHORT_SHUTTLE_MS); }
+      if (!e.shiftKey && !e.altKey && e.key === 'ArrowRight') { e.preventDefault(); stepFrame(1); }
+      if (!e.shiftKey && !e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-1); }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         deleteSelectedAnnotation();
       }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && e.shiftKey) {
+      if (
+        ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && e.shiftKey)
+        || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y')
+      ) {
         e.preventDefault();
         handleRedoAnnotations();
       }
@@ -1524,7 +1619,12 @@ export default function ClipEditor({
       }
       if (e.key === 'Escape') {
         setRetrackRangeEndMs(null);
+        setSelectedAnnotationIds([]);
         setSelectedAnnotationId(null);
+        setIsSelecting(false);
+        selStartRef.current = null;
+        selCandidateRef.current = null;
+        setSelRect(null);
         setIsManualHomographyMode(false);
         setManualKeypointImageById({});
         setManualKeypointOrder([]);
@@ -1532,7 +1632,7 @@ export default function ClipEditor({
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
         // Force immediate save
-        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveSchedulerRef.current?.cancel();
         if (projectDir) {
           const toSave: Clip = { ...clip, annotations: annotationsRef.current };
           setSaveStatus('saving');
@@ -1550,7 +1650,7 @@ export default function ClipEditor({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [togglePlay, stepFrame, deleteSelectedAnnotation, handleRedoAnnotations, handleUndoAnnotations, handleUndoTracking, projectDir, clip, onClipUpdate, onSaveStatus]);
+  }, [analysisLoopDurationMs, buildAnalysisLoopRange, togglePlay, shuttleByMs, stepFrame, deleteSelectedAnnotation, handleRedoAnnotations, handleUndoAnnotations, handleUndoTracking, projectDir, clip, onClipUpdate, onSaveStatus]);
 
   // --- Interpolate annotations ---
   const interpolated = useMemo(() => {
@@ -1606,16 +1706,6 @@ export default function ClipEditor({
     return `${m}:${String(s).padStart(2, '0')}:${String(f).padStart(2, '0')}`;
   }, [videoFps]);
 
-  const formatAbsoluteTimeNoFrames = useCallback((ms: number) => {
-    const total = Math.max(0, Math.floor(ms));
-    const h = Math.floor(total / 3600000);
-    const m = Math.floor((total % 3600000) / 60000);
-    const s = Math.floor((total % 60000) / 1000);
-    return h > 0
-      ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-      : `${m}:${String(s).padStart(2, '0')}`;
-  }, []);
-
   const handleImportStill = useCallback(async (stillId: string) => {
     if (!projectDir || !manifest) {
       setStillImportMessage('Still import is unavailable without the project context');
@@ -1647,6 +1737,7 @@ export default function ClipEditor({
 
       const applyResult = applyStillImportToClip(annotations, result.annotations, clipFrameMs);
       setAnnotations(applyResult.annotations);
+      setSelectedAnnotationIds([]);
       setSelectedAnnotationId(result.annotations[0]?.id ?? null);
       seekToMs(clipFrameMs);
       const annotationSetLabel = loaded?.entry.label || loaded?.entry.id || 'default';
@@ -1682,14 +1773,58 @@ export default function ClipEditor({
   // Clear temp state when tool changes
   useEffect(() => {
     cancelDrawing();
+    if (tool !== 'select') {
+      setIsSelecting(false);
+      selStartRef.current = null;
+      selCandidateRef.current = null;
+      setSelRect(null);
+    }
   }, [tool, cancelDrawing]);
 
-  // --- Shape click → select ---
-  const onShapeClick = useCallback((annId: string, e: any) => {
+  // --- Shape mouse down → select ---
+  const onShapeMouseDown = useCallback((annId: string, e: any) => {
     if (tool !== 'select') return;
     e.cancelBubble = true;
-    setSelectedAnnotationId(annId === selectedAnnotationId ? null : annId);
-  }, [tool, selectedAnnotationId]);
+    const evt = e?.evt as MouseEvent | undefined;
+    const addKey = !!evt?.shiftKey;
+    const subKey = !!(evt?.metaKey || evt?.ctrlKey);
+    const base = selectedAnnotationIds.length > 0
+      ? selectedAnnotationIds
+      : (selectedAnnotationId ? [selectedAnnotationId] : []);
+
+    if (!addKey && !subKey) {
+      if (selectedAnnotationId === annId && selectedAnnotationIds.length === 0) return;
+      setSelectedAnnotationIds([]);
+      setSelectedAnnotationId(annId);
+      return;
+    }
+
+    const set = new Set(base);
+    if (addKey) set.add(annId);
+    if (subKey) set.delete(annId);
+
+    const nextOrdered = base.filter((id) => set.has(id));
+    if (addKey && !base.includes(annId) && set.has(annId)) nextOrdered.push(annId);
+
+    if (nextOrdered.length === 0) {
+      setSelectedAnnotationIds([]);
+      setSelectedAnnotationId(null);
+      return;
+    }
+    if (nextOrdered.length === 1) {
+      setSelectedAnnotationIds([]);
+      setSelectedAnnotationId(nextOrdered[0]);
+      return;
+    }
+    setSelectedAnnotationIds(nextOrdered);
+    if (!subKey && set.has(annId)) {
+      setSelectedAnnotationId(annId);
+    } else if (selectedAnnotationId && set.has(selectedAnnotationId)) {
+      setSelectedAnnotationId(selectedAnnotationId);
+    } else {
+      setSelectedAnnotationId(nextOrdered[nextOrdered.length - 1]);
+    }
+  }, [tool, selectedAnnotationId, selectedAnnotationIds]);
 
   // --- Shape drag end → upsert keyframe ---
   const onShapeDragEnd = useCallback((ann: ClipAnnotation, props: InterpolatedKeyframe, e: any) => {
@@ -1886,6 +2021,7 @@ export default function ClipEditor({
       if (isDrawing || arrowStartRef.current || lobStartRef.current) {
         cancelDrawing();
       } else {
+        setSelectedAnnotationIds([]);
         setSelectedAnnotationId(null);
       }
       return;
@@ -1898,7 +2034,9 @@ export default function ClipEditor({
     if (isManualHomographyMode) return;
 
     if (tool === 'select') {
-      if (isStage) setSelectedAnnotationId(null);
+      if (isStage) {
+        selCandidateRef.current = p;
+      }
       return;
     }
     // Box/Circle/Shadow: start drag-draw
@@ -1911,6 +2049,25 @@ export default function ClipEditor({
 
   const onStageMouseMove = useCallback((e: any) => {
     if (isManualHomographyMode) return;
+    if (tool === 'select' && (selStartRef.current || selCandidateRef.current)) {
+      const p = getPointerImagePos(e);
+      if (!p) return;
+      const candidate = selStartRef.current || selCandidateRef.current;
+      if (!candidate) return;
+      const x = Math.min(candidate.x, p.x);
+      const y = Math.min(candidate.y, p.y);
+      const w = Math.abs(p.x - candidate.x);
+      const h = Math.abs(p.y - candidate.y);
+      if (Math.max(w, h) > 3) {
+        if (!selStartRef.current) {
+          selStartRef.current = candidate;
+          selCandidateRef.current = null;
+        }
+        setIsSelecting(true);
+        setSelRect({ x, y, w, h });
+      }
+      return;
+    }
     if (!isDrawing || !drawStartRef.current) {
       // Arrow/lob temp preview: if the first point is set, show temp line/curve to cursor
       if (tool === 'arrow' && arrowStartRef.current) {
@@ -1961,6 +2118,77 @@ export default function ClipEditor({
 
   const onStageMouseUp = useCallback((e: any) => {
     if (isManualHomographyMode) return;
+    if (tool === 'select' && (selStartRef.current || selCandidateRef.current)) {
+      const p = getPointerImagePos(e);
+      const evt = e?.evt as MouseEvent | undefined;
+      const start = selStartRef.current || selCandidateRef.current;
+      if (!start) return;
+      const end = p || start;
+      const x = Math.min(start.x, end.x);
+      const y = Math.min(start.y, end.y);
+      const w = Math.abs(end.x - start.x);
+      const h = Math.abs(end.y - start.y);
+      const dragged = Math.max(w, h) > 3;
+
+      if (dragged) {
+        const rect = { x, y, w, h };
+        const intersects = (
+          left: { x: number; y: number; w: number; h: number },
+          right: { x: number; y: number; w: number; h: number },
+        ) => (
+          left.x < right.x + right.w
+          && left.x + left.w > right.x
+          && left.y < right.y + right.h
+          && left.y + left.h > right.y
+        );
+        const hits = annotations.filter((annotation) => {
+          const interpolatedKeyframe = interpolateKeyframes(annotation.keyframes, currentTMsRef.current, annotation.type, videoFps);
+          if (!interpolatedKeyframe) return false;
+          return intersects(getInterpolatedBounds(annotation, interpolatedKeyframe, currentHomography), rect);
+        }).map((annotation) => annotation.id);
+        const addKey = !!evt?.shiftKey;
+        const subKey = !!(evt?.metaKey || evt?.ctrlKey);
+        const base = selectedAnnotationIds.length > 0
+          ? selectedAnnotationIds
+          : (selectedAnnotationId ? [selectedAnnotationId] : []);
+        let nextIds: string[];
+        if (!addKey && !subKey) {
+          nextIds = hits;
+        } else if (addKey) {
+          const set = new Set(base);
+          nextIds = [...base];
+          for (const id of hits) {
+            if (!set.has(id)) {
+              set.add(id);
+              nextIds.push(id);
+            }
+          }
+        } else {
+          const subtract = new Set(hits);
+          nextIds = base.filter((id) => !subtract.has(id));
+        }
+
+        if (nextIds.length === 0) {
+          setSelectedAnnotationIds([]);
+          setSelectedAnnotationId(null);
+        } else if (nextIds.length === 1) {
+          setSelectedAnnotationIds([]);
+          setSelectedAnnotationId(nextIds[0]);
+        } else {
+          setSelectedAnnotationIds(nextIds);
+          setSelectedAnnotationId(nextIds[nextIds.length - 1]);
+        }
+      } else if (!evt?.shiftKey && !(evt?.metaKey || evt?.ctrlKey)) {
+        setSelectedAnnotationIds([]);
+        setSelectedAnnotationId(null);
+      }
+
+      setIsSelecting(false);
+      selStartRef.current = null;
+      selCandidateRef.current = null;
+      setSelRect(null);
+      return;
+    }
     const p = getPointerImagePos(e);
     // Box/Circle: finalize
     if (isDrawing && drawStartRef.current && p) {
@@ -1998,7 +2226,7 @@ export default function ClipEditor({
     setIsDrawing(false);
     drawStartRef.current = null;
     setTempShape(null);
-  }, [isDrawing, tool, getPointerImagePos, createAnnotation, isManualHomographyMode]);
+  }, [annotations, currentHomography, createAnnotation, getInterpolatedBounds, getPointerImagePos, isDrawing, isManualHomographyMode, selectedAnnotationId, selectedAnnotationIds, tool, videoFps]);
 
   const onStageClick = useCallback((e: any) => {
     const p = getPointerImagePos(e);
@@ -2081,6 +2309,7 @@ export default function ClipEditor({
         keyframes: [{ tMs: currentTMsRef.current, x: tp.u, y: tp.v } as ClipKeyframe],
       };
       setAnnotations(prev => [...prev, ann]);
+      setSelectedAnnotationIds([]);
       setSelectedAnnotationId(ann.id);
       return;
     }
@@ -2184,7 +2413,7 @@ export default function ClipEditor({
             stroke={stroke} strokeWidth={scaledStrokeWidth} fill={fillColor}
             closed={ann.closed !== false} dash={scaledDash} lineCap="round" lineJoin="round"
             listening={canInteract} draggable={false}
-            onClick={(e: any) => onShapeClick(ann.id, e)}
+            onMouseDown={(e: any) => onShapeMouseDown(ann.id, e)}
             hitStrokeWidth={16}
           />
         );
@@ -2209,7 +2438,7 @@ export default function ClipEditor({
             dash={scaledDash}
             listening={canInteract}
             draggable={canInteract}
-            onClick={(e: any) => onShapeClick(ann.id, e)}
+            onMouseDown={(e: any) => onShapeMouseDown(ann.id, e)}
             onDragEnd={(e: any) => onShapeDragEnd(ann, props, e)}
             onTransformEnd={(e: any) => onShapeTransformEnd(ann, props, e)}
             hitStrokeWidth={12}
@@ -2232,7 +2461,7 @@ export default function ClipEditor({
             dash={scaledDash}
             listening={canInteract}
             draggable={canInteract}
-            onClick={(e: any) => onShapeClick(ann.id, e)}
+            onMouseDown={(e: any) => onShapeMouseDown(ann.id, e)}
             onDragEnd={(e: any) => onShapeDragEnd(ann, props, e)}
             onTransformEnd={(e: any) => onShapeTransformEnd(ann, props, e)}
             hitStrokeWidth={12}
@@ -2258,7 +2487,7 @@ export default function ClipEditor({
             lineJoin="round"
             listening={canInteract}
             draggable={canInteract}
-            onClick={(e: any) => onShapeClick(ann.id, e)}
+            onMouseDown={(e: any) => onShapeMouseDown(ann.id, e)}
             onDragEnd={(e: any) => onShapeDragEnd(ann, props, e)}
             hitStrokeWidth={16}
           />
@@ -2282,7 +2511,7 @@ export default function ClipEditor({
             lineJoin="round"
             listening={canInteract}
             draggable={canInteract}
-            onClick={(e: any) => onShapeClick(ann.id, e)}
+            onMouseDown={(e: any) => onShapeMouseDown(ann.id, e)}
             onDragEnd={(e: any) => onShapeDragEnd(ann, props, e)}
             hitStrokeWidth={16}
           />
@@ -2303,7 +2532,7 @@ export default function ClipEditor({
             lineJoin="round"
             listening={canInteract}
             draggable={canInteract}
-            onClick={(e: any) => onShapeClick(ann.id, e)}
+            onMouseDown={(e: any) => onShapeMouseDown(ann.id, e)}
             onDragEnd={(e: any) => onShapeDragEnd(ann, props, e)}
             hitStrokeWidth={16}
             sceneFunc={(ctx, shape) => {
@@ -2340,7 +2569,7 @@ export default function ClipEditor({
             strokeWidth={highlight ? outlineWidth : 0}
             listening={canInteract}
             draggable={canInteract}
-            onClick={(e: any) => onShapeClick(ann.id, e)}
+            onMouseDown={(e: any) => onShapeMouseDown(ann.id, e)}
             onDragEnd={(e: any) => onShapeDragEnd(ann, props, e)}
             shadowEnabled={highlight}
             shadowColor={highlight ? outlineColor : undefined}
@@ -2373,7 +2602,7 @@ export default function ClipEditor({
             lineJoin="round"
             listening={canInteract}
             draggable={canInteract}
-            onClick={(e: any) => onShapeClick(ann.id, e)}
+            onMouseDown={(e: any) => onShapeMouseDown(ann.id, e)}
             onDragEnd={(e: any) => onShapeDragEnd(ann, props, e)}
             hitStrokeWidth={16}
           />
@@ -2394,7 +2623,7 @@ export default function ClipEditor({
             dash={scaledDash}
             listening={canInteract}
             draggable={canInteract}
-            onClick={(e: any) => onShapeClick(ann.id, e)}
+            onMouseDown={(e: any) => onShapeMouseDown(ann.id, e)}
             onDragEnd={(e: any) => onShapeDragEnd(ann, props, e)}
             onTransformEnd={(e: any) => onShapeTransformEnd(ann, props, e)}
             hitStrokeWidth={12}
@@ -2405,7 +2634,7 @@ export default function ClipEditor({
       default:
         return null;
     }
-  }, [scale, canInteract, currentHomography, onShapeClick, onShapeDragEnd, onShapeTransformEnd, resolveAnnotationDisplayStyle, selectedAnnotationId, selectedAnnCanUseTransformer]);
+  }, [scale, canInteract, currentHomography, onShapeDragEnd, onShapeMouseDown, onShapeTransformEnd, resolveAnnotationDisplayStyle, selectedAnnotationId, selectedAnnCanUseTransformer]);
 
   // --- Export: Canvas 2D annotation renderer ---
   const canExport = sidecar.connected && sidecar.capabilities.includes('export');
@@ -2561,14 +2790,17 @@ export default function ClipEditor({
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Video + Konva overlay */}
-      <div ref={hostRef} className="flex-1 min-h-0 relative bg-black">
+      <div ref={hostRef} data-testid="clip-canvas-host" className="flex-1 min-h-0 relative bg-black">
         <video
           ref={videoRef}
+          data-testid="clip-video"
           src={videoUrl}
           muted
           playsInline
           preload="auto"
           onLoadedMetadata={onLoadedMetadata}
+          onLoadedData={onVideoCanRender}
+          onCanPlay={onVideoCanRender}
           onSeeked={onSeeked}
           style={{
             position: 'absolute',
@@ -2579,23 +2811,28 @@ export default function ClipEditor({
             objectFit: 'fill',
           }}
         />
-        {videoReady && (
-          <Stage
-            ref={stageRef}
-            width={stageW}
-            height={stageH}
+        {stageW > 0 && stageH > 0 && (
+          <div
+            data-testid="clip-stage"
             style={{
               position: 'absolute',
               left: offsetX,
               top: offsetY,
-              pointerEvents: 'auto',
+              width: stageW,
+              height: stageH,
             }}
-            onMouseDown={onStageMouseDown}
-            onMouseMove={onStageMouseMove}
-            onMouseUp={onStageMouseUp}
-            onClick={onStageClick}
-            onContextMenu={(e: any) => e.evt?.preventDefault()}
           >
+            <Stage
+              ref={stageRef}
+              width={stageW}
+              height={stageH}
+              style={{ pointerEvents: 'auto' }}
+              onMouseDown={onStageMouseDown}
+              onMouseMove={onStageMouseMove}
+              onMouseUp={onStageMouseUp}
+              onClick={onStageClick}
+              onContextMenu={(e: any) => e.evt?.preventDefault()}
+            >
             <Layer>
               {isManualHomographyMode && MANUAL_PITCH_KEYPOINTS.filter(k => !!manualKeypointImageById[k.id]).map((k) => {
                 const pt = manualKeypointImageById[k.id]!;
@@ -2738,58 +2975,88 @@ export default function ClipEditor({
                 />
               )}
             </Layer>
-            <Layer>
-              {selectedAnnBounds && (
-                <KRect
-                  x={selectedAnnBounds.x * scale}
-                  y={selectedAnnBounds.y * scale}
-                  width={Math.max(0, selectedAnnBounds.w * scale)}
-                  height={Math.max(0, selectedAnnBounds.h * scale)}
-                  stroke="#60a5fa"
-                  dash={[4 * scale, 4 * scale]}
-                  strokeWidth={1.5 * scale}
-                  listening={false}
+              <Layer>
+                {multiSelectedAnnotationBounds.map(({ id, bounds }) => (
+                  <KRect
+                    key={`clip-multi-select-${id}`}
+                    x={bounds.x * scale}
+                    y={bounds.y * scale}
+                    width={Math.max(0, bounds.w * scale)}
+                    height={Math.max(0, bounds.h * scale)}
+                    stroke="#60a5fa"
+                    dash={[4 * scale, 4 * scale]}
+                    strokeWidth={1.5 * scale}
+                    listening={false}
+                  />
+                ))}
+                {!selectedAnnotationIds.length && selectedAnnBounds && (
+                  <KRect
+                    x={selectedAnnBounds.x * scale}
+                    y={selectedAnnBounds.y * scale}
+                    width={Math.max(0, selectedAnnBounds.w * scale)}
+                    height={Math.max(0, selectedAnnBounds.h * scale)}
+                    stroke="#60a5fa"
+                    dash={[4 * scale, 4 * scale]}
+                    strokeWidth={1.5 * scale}
+                    listening={false}
+                  />
+                )}
+                {selectedAnn && selectedAnnInterpolated?.type === 'lob' && (() => {
+                  const lob = selectedAnnInterpolated as InterpolatedLob;
+                  return (
+                    <>
+                      <KLine
+                        points={[
+                          lob.x1 * scale,
+                          lob.y1 * scale,
+                          lob.cx * scale,
+                          lob.cy * scale,
+                          lob.x2 * scale,
+                          lob.y2 * scale,
+                        ]}
+                        stroke="#60a5fa"
+                        dash={[4 * scale, 4 * scale]}
+                        strokeWidth={1.5 * scale}
+                        listening={false}
+                      />
+                      <KCircle
+                        x={lob.cx * scale}
+                        y={lob.cy * scale}
+                        radius={7 * scale}
+                        fill="#60a5fa"
+                        stroke="#ffffff"
+                        strokeWidth={1.5 * scale}
+                        draggable={canInteract}
+                        onDragMove={(e: any) => handleSelectedLobControlDrag(e.target.position())}
+                      />
+                    </>
+                  );
+                })()}
+                <Transformer
+                  ref={transformerRef}
+                  rotateEnabled={false}
+                  anchorSize={10 * scale}
+                  enabledAnchors={selectedAnnCanUseTransformer ? undefined : []}
                 />
-              )}
-              {selectedAnn && selectedAnnInterpolated?.type === 'lob' && (() => {
-                const lob = selectedAnnInterpolated as InterpolatedLob;
-                return (
-                  <>
-                    <KLine
-                      points={[
-                        lob.x1 * scale,
-                        lob.y1 * scale,
-                        lob.cx * scale,
-                        lob.cy * scale,
-                        lob.x2 * scale,
-                        lob.y2 * scale,
-                      ]}
-                      stroke="#60a5fa"
-                      dash={[4 * scale, 4 * scale]}
-                      strokeWidth={1.5 * scale}
-                      listening={false}
-                    />
-                    <KCircle
-                      x={lob.cx * scale}
-                      y={lob.cy * scale}
-                      radius={7 * scale}
-                      fill="#60a5fa"
-                      stroke="#ffffff"
-                      strokeWidth={1.5 * scale}
-                      draggable={canInteract}
-                      onDragMove={(e: any) => handleSelectedLobControlDrag(e.target.position())}
-                    />
-                  </>
-                );
-              })()}
-              <Transformer
-                ref={transformerRef}
-                rotateEnabled={false}
-                anchorSize={10 * scale}
-                enabledAnchors={selectedAnnCanUseTransformer ? undefined : []}
+              </Layer>
+            </Stage>
+            {videoReady && <div data-testid="clip-video-ready" className="sr-only">ready</div>}
+          </div>
+        )}
+        {isSelecting && selRect && (
+          <div className="absolute inset-0 pointer-events-none">
+            <svg width="100%" height="100%" className="absolute inset-0">
+              <rect
+                x={selRect.x * scale + offsetX}
+                y={selRect.y * scale + offsetY}
+                width={selRect.w * scale}
+                height={selRect.h * scale}
+                fill="rgba(59,130,246,0.15)"
+                stroke="#60a5fa"
+                strokeDasharray="4,4"
               />
-            </Layer>
-          </Stage>
+            </svg>
+          </div>
         )}
       </div>
 
@@ -2800,10 +3067,15 @@ export default function ClipEditor({
         currentFrameToleranceMs={currentFrameToleranceMs}
         annotations={annotations}
         selectedAnnotationId={selectedAnnotationId}
+        analysisLoopRange={analysisLoopRange}
         retrackRangeEndMs={retrackRangeEndMs}
         onSeek={seekToMs}
-        onSelectAnnotation={setSelectedAnnotationId}
+        onSelectAnnotation={(annId) => {
+          setSelectedAnnotationIds([]);
+          setSelectedAnnotationId(annId);
+        }}
         onSeekToKeyframe={(annId, tMs) => {
+          setSelectedAnnotationIds([]);
           setSelectedAnnotationId(annId);
           seekToMs(tMs);
         }}
@@ -2813,7 +3085,12 @@ export default function ClipEditor({
       <div className="shrink-0 bg-surface border-t border-border">
         <div className="px-3 py-2 flex items-center gap-2 flex-wrap">
           <div className="text-xs uppercase tracking-wide text-muted">Selection</div>
-          {selectedAnn ? (
+          {selectedAnnotationIds.length > 0 ? (
+            <>
+              <div className="text-xs font-medium">{selectedAnnotationIds.length} annotations selected</div>
+              <div className="text-xs text-muted">Marquee selection matches the still editor: Shift adds, Cmd/Ctrl subtracts.</div>
+            </>
+          ) : selectedAnn ? (
             <>
               <div className="text-xs font-medium">{selectedAnn.type}</div>
               <div className="text-xs text-muted">source: {selectedAnn.source}</div>
@@ -2852,76 +3129,57 @@ export default function ClipEditor({
           <div className="px-3 py-2 flex items-center gap-2">
             <div className="text-xs uppercase tracking-wide text-muted">Stills In Clip</div>
             <div className="text-xs text-muted">
-              {stillPositionCounts.inside} in clip • {stillPositionCounts.before} before • {stillPositionCounts.after} after
+              {inBoundsStills.length} available for import
             </div>
           </div>
           <div className="px-3 pb-3 overflow-x-auto">
-            {videoStills.length === 0 ? (
+            {inBoundsStills.length === 0 ? (
               <div className="text-xs text-muted py-1">No stills exist yet for this clip&apos;s source video.</div>
             ) : (
               <div className="flex items-stretch gap-2 min-w-max">
-                {videoStills.map((still) => {
+                {inBoundsStills.map((still) => {
                   const clipStillTMs = roundToFrame(getClipRelativeMsForStill(clip, still), videoFps);
-                  const position = getStillClipPosition(clip, still);
-                  const isInside = position === 'inside';
-                  const isCurrent = isInside && Math.abs(currentTMs - clipStillTMs) <= (1000 / Math.max(1, videoFps));
-                  const statusLabel = position === 'inside'
-                    ? 'In clip'
-                    : position === 'before'
-                      ? 'Before clip'
-                      : 'After clip';
-                  const timingLabel = isInside
-                    ? formatTime(clipStillTMs)
-                    : `${formatAbsoluteTimeNoFrames(still.t_ms)} source`;
+                  const isCurrent = Math.abs(currentTMs - clipStillTMs) <= (1000 / Math.max(1, videoFps));
+                  const timingLabel = formatTime(clipStillTMs);
                   return (
                     <div
                       key={still.id}
-                      className={`rounded border px-2 py-1.5 min-w-[172px] ${
+                      className={`rounded border px-2 py-1.5 min-w-[172px] cursor-pointer ${
                         isCurrent
                           ? 'border-accent bg-selected'
-                          : isInside
-                            ? 'border-subtle bg-canvas'
-                            : 'border-subtle bg-raised opacity-70'
-                      } ${isInside ? 'cursor-pointer' : ''}`}
-                      onClick={isInside ? () => seekToMs(clipStillTMs) : undefined}
-                      onKeyDown={isInside ? (event) => {
+                          : 'border-subtle bg-canvas'
+                      }`}
+                      onClick={() => seekToMs(clipStillTMs)}
+                      onKeyDown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
                           seekToMs(clipStillTMs);
                         }
-                      } : undefined}
-                      role={isInside ? 'button' : undefined}
-                      tabIndex={isInside ? 0 : undefined}
-                      title={isInside ? `Jump to ${timingLabel}` : undefined}
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      title={`Jump to ${timingLabel}`}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="text-xs font-medium whitespace-nowrap">{timingLabel}</div>
-                        <div
-                          className={`text-[10px] uppercase tracking-wide whitespace-nowrap ${
-                            isInside ? 'text-accent' : 'text-muted'
-                          }`}
-                        >
-                          {statusLabel}
+                        <div className="text-[10px] uppercase tracking-wide whitespace-nowrap text-accent">
+                          In clip
                         </div>
-                        {isInside ? (
-                          <div className="ml-auto flex items-center gap-1">
-                            <button
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleImportStill(still.id);
-                              }}
-                              onKeyDown={(event) => event.stopPropagation()}
-                              disabled={isImportingStillId === still.id}
-                              className="px-2 py-0.5 text-xs border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                              title="Import this still onto the matching clip frame"
-                              aria-label={`Import ${timingLabel}`}
-                            >
-                              {isImportingStillId === still.id ? '…' : '↓'}
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="ml-auto text-[10px] text-muted whitespace-nowrap">Outside</div>
-                        )}
+                        <div className="ml-auto flex items-center gap-1">
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleImportStill(still.id);
+                            }}
+                            onKeyDown={(event) => event.stopPropagation()}
+                            disabled={isImportingStillId === still.id}
+                            className="px-2 py-0.5 text-xs border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                            title="Import this still onto the matching clip frame"
+                            aria-label={`Import ${timingLabel}`}
+                          >
+                            {isImportingStillId === still.id ? '…' : '↓'}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -2939,6 +3197,20 @@ export default function ClipEditor({
       <div className="shrink-0 bg-surface border-t border-border">
         {/* Controls */}
         <div className="flex items-center gap-2 px-3 py-1.5">
+          <button
+            onClick={() => shuttleByMs(-LONG_SHUTTLE_MS)}
+            className="px-2 py-0.5 text-sm border-0 cursor-pointer"
+            title="Jump back 1 second (Shift+←)"
+          >
+            -1s
+          </button>
+          <button
+            onClick={() => shuttleByMs(-SHORT_SHUTTLE_MS)}
+            className="px-2 py-0.5 text-sm border-0 cursor-pointer"
+            title="Jump back 250 ms (Alt+←)"
+          >
+            -250
+          </button>
           <button
             onClick={() => stepFrame(-1)}
             className="px-2 py-0.5 text-sm border-0 cursor-pointer"
@@ -2960,6 +3232,60 @@ export default function ClipEditor({
           >
             ⏭
           </button>
+          <button
+            onClick={() => shuttleByMs(SHORT_SHUTTLE_MS)}
+            className="px-2 py-0.5 text-sm border-0 cursor-pointer"
+            title="Jump forward 250 ms (Alt+→)"
+          >
+            +250
+          </button>
+          <button
+            onClick={() => shuttleByMs(LONG_SHUTTLE_MS)}
+            className="px-2 py-0.5 text-sm border-0 cursor-pointer"
+            title="Jump forward 1 second (Shift+→)"
+          >
+            +1s
+          </button>
+
+          <div className="h-4 w-px bg-border mx-1" />
+
+          <label className="text-xs text-muted flex items-center gap-1">
+            Loop
+            <select
+              value={analysisLoopDurationMs}
+              onChange={(event) => {
+                const nextDuration = Number(event.target.value);
+                setAnalysisLoopDurationMs(nextDuration);
+                setAnalysisLoopRange((previous) => (
+                  previous ? buildAnalysisLoopRange(currentTMsRef.current, nextDuration) : previous
+                ));
+              }}
+              className="bg-transparent text-xs border border-border rounded px-1 py-0.5"
+              title="Short local playback loop duration"
+            >
+              {ANALYSIS_LOOP_OPTIONS_MS.map((durationMs) => (
+                <option key={durationMs} value={durationMs}>
+                  {durationMs / 1000}s
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            onClick={() => setAnalysisLoopRange(buildAnalysisLoopRange(currentTMsRef.current, analysisLoopDurationMs))}
+            className="px-3 py-0.5 text-sm border-0 cursor-pointer"
+            title="Loop around the current frame (L toggles on/off)"
+          >
+            {analysisLoopRange ? 'Update Loop' : 'Set Loop'}
+          </button>
+          {analysisLoopRange && (
+            <button
+              onClick={() => setAnalysisLoopRange(null)}
+              className="px-3 py-0.5 text-sm border-0 cursor-pointer"
+              title="Clear the local analysis loop"
+            >
+              Clear Loop
+            </button>
+          )}
 
           {/* Track button */}
           {hasTrackingCapability && (
@@ -3135,6 +3461,12 @@ export default function ClipEditor({
           {trackError && (
             <span className="text-xs text-red-400 mr-2 max-w-[200px] truncate" title={trackError}>
               {trackError}
+            </span>
+          )}
+
+          {analysisLoopRange && (
+            <span className="text-xs text-amber-300 mr-2 font-mono tabular-nums" title="Active local analysis loop">
+              Loop {formatTime(analysisLoopRange.startMs)}-{formatTime(analysisLoopRange.endMs)}
             </span>
           )}
 
