@@ -1,14 +1,21 @@
 type StrokePattern = 'solid' | 'dashed' | 'dotted' | 'dashdot';
 
+import {
+  buildShadowSectorPoints,
+  DEFAULT_SHADOW_RADIUS,
+  DEFAULT_SHADOW_SPREAD_DEG,
+} from "../annotate/tacticalGeometry";
+
 export type ExportShape = {
   id: string;
-  type: 'box' | 'circle' | 'arrow' | 'text' | 'poly' | 'highlight';
+  type: 'box' | 'circle' | 'shadow' | 'arrow' | 'lob' | 'text' | 'poly' | 'highlight';
   x: number;
   y: number;
   rotation?: number;
   w?: number;
   h?: number;
   r?: number;
+  spreadDeg?: number;
   rx?: number;
   ry?: number;
   points?: number[];
@@ -61,11 +68,11 @@ export async function renderAnnotatedPng(args: {
     ? computeHomographyFromUnitSquareToQuad(ann.perspective.quad)
     : null;
 
-  const other = shapes.filter(s => s.type !== 'highlight' && s.type !== 'arrow' && s.type !== 'poly');
-  const lines = shapes.filter(s => s.type === 'arrow' || s.type === 'poly');
+  const other = shapes.filter(s => s.type !== 'highlight' && s.type !== 'arrow' && s.type !== 'lob' && s.type !== 'poly');
+  const lines = shapes.filter(s => s.type === 'arrow' || s.type === 'lob' || s.type === 'poly');
   const highlights = shapes.filter(s => s.type === 'highlight');
 
-  for (const s of other) drawOther(ctx, s, homography);
+  for (const s of other) drawOther(ctx, s, homography, byId);
 
   const lineCanvas = document.createElement('canvas');
   lineCanvas.width = w;
@@ -77,6 +84,9 @@ export async function renderAnnotatedPng(args: {
     if (s.type === 'poly') {
       const pts = resolvePolyPoints(s, byId, homography);
       drawPoly(lineCtx, s, pts);
+    } else if (s.type === 'lob') {
+      const p = resolveLobPoints(s, byId, homography);
+      drawLob(lineCtx, s, p.start, p.control, p.end);
     } else {
       const p = resolveArrowPoints(s, byId, homography);
       drawArrow(lineCtx, s, p.x1, p.y1, p.x2, p.y2);
@@ -220,12 +230,23 @@ function getHighlightCenter(s: ExportShape, homography: null | { H: number[] }) 
   return { x: s.x || 0, y: s.y || 0 };
 }
 
+function resolveShadowCenter(s: ExportShape, byId: Map<string, ExportShape>, homography: null | { H: number[]; Hinv: number[] }) {
+  const refId = Array.isArray(s.vertexRefs) ? s.vertexRefs[0] : null;
+  if (refId) {
+    const h = byId.get(refId);
+    if (h && h.type === 'highlight') {
+      return getHighlightCenter(h, homography ? { H: homography.H } : null);
+    }
+  }
+  return { x: s.x || 0, y: s.y || 0 };
+}
+
 function strokeAndFillFromStyle(s: ExportShape) {
   const stroke = s.style?.stroke || '#ef4444';
   const strokeWidth = s.style?.strokeWidth ?? (s.type === 'text' ? 1 : 6);
   const fillOpacity = s.style?.fillOpacity ?? 0.3;
   const fillRaw = s.style?.fill;
-  const needFill = s.type === 'box' || s.type === 'circle';
+  const needFill = s.type === 'box' || s.type === 'circle' || s.type === 'shadow';
   const fill = needFill
     ? (fillRaw && fillRaw !== 'transparent' ? hexToRgba(fillRaw, fillOpacity) : hexToRgba(stroke, fillOpacity))
     : (fillRaw && fillRaw !== 'transparent' ? hexToRgba(fillRaw, fillOpacity) : 'transparent');
@@ -240,7 +261,7 @@ function drawClosedPath(ctx: CanvasRenderingContext2D, pts: number[]) {
   ctx.closePath();
 }
 
-function drawOther(ctx: CanvasRenderingContext2D, s: ExportShape, homography: null | { H: number[]; Hinv: number[] }) {
+function drawOther(ctx: CanvasRenderingContext2D, s: ExportShape, homography: null | { H: number[]; Hinv: number[] }, byId: Map<string, ExportShape>) {
   if (s.type === 'box') {
     const { stroke, strokeWidth, fill } = strokeAndFillFromStyle(s);
     ctx.save();
@@ -287,6 +308,27 @@ function drawOther(ctx: CanvasRenderingContext2D, s: ExportShape, homography: nu
       ctx.fill();
       ctx.stroke();
     }
+    ctx.restore();
+    return;
+  }
+
+  if (s.type === 'shadow') {
+    const { stroke, strokeWidth, fill } = strokeAndFillFromStyle(s);
+    const radius = Math.max(1, s.r || DEFAULT_SHADOW_RADIUS);
+    const spreadDeg = Math.max(1, Math.min(359, s.spreadDeg || DEFAULT_SHADOW_SPREAD_DEG));
+    const rotationDeg = s.rotation || 0;
+    const center = resolveShadowCenter(s, byId, homography);
+    ctx.save();
+    ctx.lineWidth = strokeWidth;
+    ctx.strokeStyle = stroke;
+    ctx.fillStyle = fill;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.setLineDash(dashFromStrokePattern(s.style?.strokePattern, strokeWidth));
+    const pts = buildShadowSectorPoints(center.x, center.y, radius, rotationDeg, spreadDeg);
+    drawClosedPath(ctx, pts);
+    ctx.fill();
+    ctx.stroke();
     ctx.restore();
     return;
   }
@@ -410,6 +452,31 @@ function resolveArrowPoints(s: ExportShape, byId: Map<string, ExportShape>, homo
   return { x1: gx1, y1: gy1, x2: gx2, y2: gy2 };
 }
 
+function resolveLobPoints(s: ExportShape, byId: Map<string, ExportShape>, homography: null | { H: number[]; Hinv: number[] }) {
+  const pts = s.points || [];
+  const ox = s.x || 0;
+  const oy = s.y || 0;
+  let start = { x: (pts[0] ?? 0) + ox, y: (pts[1] ?? 0) + oy };
+  const control = { x: (pts[2] ?? 0) + ox, y: (pts[3] ?? 0) + oy };
+  let end = { x: (pts[4] ?? 0) + ox, y: (pts[5] ?? 0) + oy };
+  const refs = Array.isArray(s.vertexRefs) ? s.vertexRefs : [];
+
+  if (refs[0]) {
+    const h = byId.get(refs[0]);
+    if (h && h.type === 'highlight') {
+      start = getHighlightCenter(h, homography ? { H: homography.H } : null);
+    }
+  }
+  if (refs[1]) {
+    const h = byId.get(refs[1]);
+    if (h && h.type === 'highlight') {
+      end = getHighlightCenter(h, homography ? { H: homography.H } : null);
+    }
+  }
+
+  return { start, control, end };
+}
+
 function drawPoly(ctx: CanvasRenderingContext2D, s: ExportShape, relPts: number[]) {
   if (!relPts || relPts.length < 4) return;
   const stroke = s.style?.stroke || '#ef4444';
@@ -465,6 +532,48 @@ function drawArrow(ctx: CanvasRenderingContext2D, s: ExportShape, x1: number, y1
 
   ctx.beginPath();
   ctx.moveTo(x2, y2);
+  ctx.lineTo(bx + px, by + py);
+  ctx.lineTo(bx - px, by - py);
+  ctx.closePath();
+  ctx.fill();
+  ctx.setLineDash([]);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawLob(
+  ctx: CanvasRenderingContext2D,
+  s: ExportShape,
+  start: { x: number; y: number },
+  control: { x: number; y: number },
+  end: { x: number; y: number },
+) {
+  const stroke = s.style?.stroke || '#ef4444';
+  const strokeWidth = s.style?.strokeWidth || 6;
+  const headLen = 10;
+  const headW = 10;
+  ctx.save();
+  ctx.strokeStyle = stroke;
+  ctx.fillStyle = stroke;
+  ctx.lineWidth = strokeWidth;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.setLineDash(dashFromStrokePattern(s.style?.strokePattern, strokeWidth));
+  ctx.beginPath();
+  ctx.moveTo(start.x, start.y);
+  ctx.quadraticCurveTo(control.x, control.y, end.x, end.y);
+  ctx.stroke();
+
+  const tangentX = end.x - control.x;
+  const tangentY = end.y - control.y;
+  const ang = Math.atan2(tangentY, tangentX);
+  const bx = end.x - headLen * Math.cos(ang);
+  const by = end.y - headLen * Math.sin(ang);
+  const px = (headW / 2) * Math.cos(ang + Math.PI / 2);
+  const py = (headW / 2) * Math.sin(ang + Math.PI / 2);
+
+  ctx.beginPath();
+  ctx.moveTo(end.x, end.y);
   ctx.lineTo(bx + px, by + py);
   ctx.lineTo(bx - px, by - py);
   ctx.closePath();

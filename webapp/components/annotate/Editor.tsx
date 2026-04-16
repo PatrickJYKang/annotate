@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Stage, Layer, Rect as KRect, Circle as KCircle, Arrow as KArrow, Text as KText, Image as KImage, Transformer, Line as KLine, Ellipse as KEllipse } from "react-konva";
+import { Stage, Layer, Rect as KRect, Circle as KCircle, Arrow as KArrow, Text as KText, Image as KImage, Transformer, Line as KLine, Ellipse as KEllipse, Shape as KShape } from "react-konva";
 import { useProject } from "../../lib/state/ProjectContext";
 import { writeAnnotationDocument } from "../../lib/fs/annotationStorage";
 import type { AnnotationsV1 } from "../../lib/export/d7Render";
@@ -11,6 +11,14 @@ import { makeId, hexToRgba, contrastStrokeForHex, dashFromStrokePattern } from "
 import type { StrokePattern } from "../../lib/annotate/shapeRendering";
 import { consumeManualSaveTick } from "./saveTick";
 import {
+  buildDefaultLobControlPoint,
+  buildShadowSectorPoints,
+  DEFAULT_SHADOW_RADIUS,
+  DEFAULT_SHADOW_SPREAD_DEG,
+  getBoundsForFlatPoints,
+  radiansToDegrees,
+} from "../../lib/annotate/tacticalGeometry";
+import {
   invert3, computeHomographyFromUnitSquareToQuad, applyHomography, applyHomographyInv,
   rectPlaneToImagePoints, ellipsePlaneToImagePoints, circlePlaneToImagePoints,
   ellipsePlaneToImagePointsRot, normalizeHalfPi, principalAxisAngle,
@@ -18,19 +26,20 @@ import {
   thetaForHorizontalUsingJacobian, thetaForHorizontal,
 } from "../../lib/annotate/homography";
 
-export type Tool = 'select' | 'box' | 'circle' | 'arrow' | 'text' | 'poly' | 'highlight' | 'calibrate';
+export type Tool = 'select' | 'box' | 'circle' | 'shadow' | 'arrow' | 'lob' | 'text' | 'poly' | 'highlight' | 'calibrate';
 
 export type { StrokePattern } from "../../lib/annotate/shapeRendering";
 
 export type Shape = {
   id: string;
-  type: 'box' | 'circle' | 'arrow' | 'text' | 'poly' | 'highlight';
+  type: 'box' | 'circle' | 'shadow' | 'arrow' | 'lob' | 'text' | 'poly' | 'highlight';
   x: number;
   y: number;
   rotation?: number;
   w?: number;
   h?: number;
   r?: number;
+  spreadDeg?: number;
   rx?: number;
   ry?: number;
   points?: number[]; // [x1,y1,x2,y2,...]
@@ -159,7 +168,9 @@ export default function Editor({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const startRef = useRef<{ x: number; y: number } | null>(null);
+  const shadowAnchorRef = useRef<string | null>(null);
   const arrowTempRef = useRef<{ start: { x: number; y: number; refId?: string | null } | null } | null>(null);
+  const lobTempRef = useRef<{ start: { x: number; y: number; refId?: string | null } | null } | null>(null);
   const clickHistoryRef = useRef<{ t: number; x: number; y: number }[]>([]);
   const suppressNextClickRef = useRef(false);
   const saveTimer = useRef<number | null>(null);
@@ -343,7 +354,7 @@ export default function Editor({
         const normalized: Shape[] = loaded.map((s) => {
           const stroke = s.style?.stroke || defaultAnnColor;
           const strokeWidth = s.style?.strokeWidth ?? (s.type === 'text' ? 1 : 6);
-          const needFill = (s.type === 'box') || (s.type === 'circle') || (s.type === 'highlight') || (s.type === 'poly' && s.closed);
+          const needFill = (s.type === 'box') || (s.type === 'circle') || (s.type === 'highlight') || (s.type === 'shadow') || (s.type === 'poly' && s.closed);
           const fill = needFill ? (s.style?.fill && s.style.fill !== 'transparent' ? s.style.fill : stroke) : s.style?.fill;
           const fillOpacity = needFill ? (s.style?.fillOpacity ?? 0.3) : s.style?.fillOpacity;
           return { ...s, style: { ...s.style, stroke, strokeWidth, fill, fillOpacity } } as Shape;
@@ -454,6 +465,34 @@ export default function Editor({
     return { x: s.x || 0, y: s.y || 0 };
   }, [homography]);
 
+  const resolveLobPoints = useCallback((s: Shape) => {
+    const base = s.points || [];
+    const ox = s.x || 0;
+    const oy = s.y || 0;
+    let start = { x: (base[0] ?? 0) + ox, y: (base[1] ?? 0) + oy };
+    const control = { x: (base[2] ?? 0) + ox, y: (base[3] ?? 0) + oy };
+    let end = { x: (base[4] ?? 0) + ox, y: (base[5] ?? 0) + oy };
+    const refs = Array.isArray(s.vertexRefs) ? s.vertexRefs : [];
+    if (refs[0]) {
+      const h = shapesById.get(refs[0]);
+      if (h && h.type === 'highlight') start = getHighlightCenter(h);
+    }
+    if (refs[1]) {
+      const h = shapesById.get(refs[1]);
+      if (h && h.type === 'highlight') end = getHighlightCenter(h);
+    }
+    return { start, control, end };
+  }, [getHighlightCenter, shapesById]);
+
+  const resolveShadowCenter = useCallback((s: Shape) => {
+    const refId = Array.isArray(s.vertexRefs) ? s.vertexRefs[0] : null;
+    if (refId) {
+      const h = shapesById.get(refId);
+      if (h && h.type === 'highlight') return getHighlightCenter(h);
+    }
+    return { x: s.x || 0, y: s.y || 0 };
+  }, [getHighlightCenter, shapesById]);
+
   const findHighlightHit = useCallback((p: { x: number; y: number }): { id: string; x: number; y: number } | null => {
     for (let i = shapes.length - 1; i >= 0; i--) {
       const s = shapes[i] as any;
@@ -469,6 +508,50 @@ export default function Editor({
     }
     return null;
   }, [shapes, getHighlightCenter]);
+
+  const getShapeBounds = useCallback((s: Shape): { x: number; y: number; w: number; h: number } => {
+    if (homography && s.plane) {
+      if (s.type === 'box') {
+        const pts = rectPlaneToImagePoints(homography.H, s.plane.cx, s.plane.cy, s.plane.w || 0, s.plane.h || 0);
+        return getBoundsForFlatPoints(pts);
+      }
+      if (s.type === 'circle') {
+        const rx = s.plane.rx ?? s.plane.r ?? 0;
+        const ry = s.plane.ry ?? s.plane.r ?? 0;
+        const pts = ellipsePlaneToImagePoints(homography.H, s.plane.cx, s.plane.cy, rx, ry);
+        return getBoundsForFlatPoints(pts);
+      }
+      if (s.type === 'highlight') {
+        const cen = applyHomography(homography.H, s.plane.cx, s.plane.cy);
+        const rx = s.rx ?? 40;
+        const ry = s.ry ?? 10;
+        return { x: cen.x - rx, y: cen.y - ry, w: rx * 2, h: ry * 2 };
+      }
+    }
+    if (s.type === 'box') return { x: s.x, y: s.y, w: s.w || 0, h: s.h || 0 };
+    if (s.type === 'circle') {
+      const rx = s.rx ?? s.r ?? 0;
+      const ry = s.ry ?? s.r ?? 0;
+      return { x: s.x - rx, y: s.y - ry, w: rx * 2, h: ry * 2 };
+    }
+    if (s.type === 'highlight') return { x: s.x - (s.rx || 0), y: s.y - (s.ry || 0), w: (s.rx || 0) * 2, h: (s.ry || 0) * 2 };
+    if (s.type === 'shadow') {
+      const center = resolveShadowCenter(s);
+      const pts = buildShadowSectorPoints(center.x, center.y, s.r || DEFAULT_SHADOW_RADIUS, s.rotation || 0, s.spreadDeg || DEFAULT_SHADOW_SPREAD_DEG);
+      return getBoundsForFlatPoints(pts);
+    }
+    if (s.type === 'lob') {
+      const { start, control, end } = resolveLobPoints(s);
+      return getBoundsForFlatPoints([start.x, start.y, control.x, control.y, end.x, end.y]);
+    }
+    if (s.type === 'arrow' || s.type === 'poly') {
+      const pts = s.points || [];
+      const absolute = pts.map((v, i) => v + (i % 2 === 0 ? (s.x || 0) : (s.y || 0)));
+      return getBoundsForFlatPoints(absolute);
+    }
+    const fs = s.style?.fontSize || 48;
+    return { x: s.x, y: s.y, w: 100, h: fs };
+  }, [getHighlightCenter, homography, resolveLobPoints, resolveShadowCenter]);
 
   const isTightDblClick = useCallback(() => {
     const h = clickHistoryRef.current;
@@ -735,7 +818,9 @@ export default function Editor({
   const cancelDrawing = useCallback(() => {
     setIsDrawing(false);
     startRef.current = null;
+    shadowAnchorRef.current = null;
     if (arrowTempRef.current) arrowTempRef.current.start = null;
+    if (lobTempRef.current) lobTempRef.current.start = null;
     polyTempRef.current = null;
     polyNearIndexRef.current = -1;
     setShapes(prev => prev.filter((s: any) => !s?._temp && !(typeof s?.id === 'string' && s.id.startsWith('_temp_'))));
@@ -805,6 +890,15 @@ export default function Editor({
       if (!clickedOnEmpty) return;
       setIsDrawing(true);
       startRef.current = p;
+      shadowAnchorRef.current = null;
+      return;
+    }
+    if (tool === 'shadow') {
+      const hit = findHighlightHit(p);
+      if (!clickedOnEmpty && !hit) return;
+      setIsDrawing(true);
+      startRef.current = hit ? { x: hit.x, y: hit.y } : p;
+      shadowAnchorRef.current = hit?.id || null;
     }
   }, [tool, getPointerPos, isDrawing, cancelDrawing]);
 
@@ -853,6 +947,35 @@ export default function Editor({
           return [...next, { id, type: 'arrow', points: [s.x, s.y, end.x, end.y], vertexRefs: refs.some(r => !!r) ? refs : undefined, x: 0, y: 0, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid') } }];
         });
         arrowTempRef.current.start = null;
+      }
+      return;
+    }
+    if (tool === 'lob') {
+      const hit = findHighlightHit(p);
+      if (!clickedOnEmpty && !hit) return;
+      if (!lobTempRef.current) lobTempRef.current = { start: null };
+      if (!lobTempRef.current.start) {
+        lobTempRef.current.start = hit ? { x: hit.x, y: hit.y, refId: hit.id } : { x: p.x, y: p.y };
+      } else {
+        const s = lobTempRef.current.start;
+        const hit2 = findHighlightHit(p);
+        const end = hit2 ? { x: hit2.x, y: hit2.y, refId: hit2.id } : { x: p.x, y: p.y };
+        const control = buildDefaultLobControlPoint({ x: s.x, y: s.y }, { x: end.x, y: end.y });
+        const id = makeId();
+        setShapes(prev => {
+          const next = prev.filter(x => !(x as any)._temp || x.id !== '_temp_lob');
+          const refs = [s.refId || null, end.refId || null];
+          return [...next, {
+            id,
+            type: 'lob',
+            x: 0,
+            y: 0,
+            points: [s.x, s.y, control.x, control.y, end.x, end.y],
+            vertexRefs: refs.some(r => !!r) ? refs : undefined,
+            style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid') },
+          }];
+        });
+        lobTempRef.current.start = null;
       }
       return;
     }
@@ -1057,6 +1180,34 @@ export default function Editor({
           return next;
         });
       }
+    } else if (tool === 'shadow') {
+      const dx = p.x - s.x;
+      const dy = p.y - s.y;
+      const dist = Math.hypot(dx, dy);
+      const radius = dist <= 3 ? DEFAULT_SHADOW_RADIUS : dist;
+      const rotation = dist <= 3 ? 0 : radiansToDegrees(Math.atan2(dy, dx));
+      setShapes(prev => {
+        const next = [...prev];
+        if (next.length > 0 && (next[next.length - 1] as any)._temp) next.pop();
+        next.push({
+          id: '_temp_shadow',
+          type: 'shadow',
+          x: s.x,
+          y: s.y,
+          r: radius,
+          rotation,
+          spreadDeg: DEFAULT_SHADOW_SPREAD_DEG,
+          style: {
+            stroke: defaultAnnColor,
+            strokeWidth: Math.max(2, Math.min(defStrokeW, 4)),
+            strokePattern: (defaultStrokePattern || 'solid'),
+            fill: defFill,
+            fillOpacity: Math.max(defFillOp, 0.22),
+          },
+        } as any);
+        (next[next.length - 1] as any)._temp = true;
+        return next;
+      });
     }
   }, [isDrawing, isSelecting, tool, getPointerPos, homography, getLocalScales, getMidlineDims, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp]);
 
@@ -1078,25 +1229,7 @@ export default function Editor({
         const intersects = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) => (
           a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
         );
-        const getBounds = (s: Shape): { x: number; y: number; w: number; h: number } => {
-          if (s.type === 'box') return { x: s.x, y: s.y, w: s.w || 0, h: s.h || 0 };
-          if (s.type === 'circle') return { x: (s.x - (s.r || 0)), y: (s.y - (s.r || 0)), w: (s.r || 0) * 2, h: (s.r || 0) * 2 };
-          if (s.type === 'highlight') return { x: (s.x - (s.rx || 0)), y: (s.y - (s.ry || 0)), w: (s.rx || 0) * 2, h: (s.ry || 0) * 2 };
-          if (s.type === 'arrow' || s.type === 'poly') {
-            const pts = s.points || [];
-            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-            for (let i = 0; i < pts.length; i += 2) {
-              const px = (pts[i] + (s.x || 0));
-              const py = (pts[i + 1] + (s.y || 0));
-              minX = Math.min(minX, px); minY = Math.min(minY, py); maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
-            }
-            return { x: minX, y: minY, w: Math.max(0, maxX - minX), h: Math.max(0, maxY - minY) };
-          }
-          // text approx
-          const fs = s.style?.fontSize || 48;
-          return { x: s.x, y: s.y, w: 100, h: fs };
-        };
-        const hits = shapes.filter(sh => !(sh as any)._temp && intersects(getBounds(sh), rect)).map(sh => sh.id);
+        const hits = shapes.filter(sh => !(sh as any)._temp && intersects(getShapeBounds(sh), rect)).map(sh => sh.id);
         const addKey = !!evt?.shiftKey;
         const subKey = !!(evt?.metaKey || evt?.ctrlKey);
         const base = (selectedIds && selectedIds.length > 0)
@@ -1272,10 +1405,35 @@ export default function Editor({
         }
         setShapes(prev => [...prev.filter(x => !(x as any)._temp), { id, type: 'circle', x: s.x, y: s.y, rx, ry, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: defFill, fillOpacity: defFillOp } }]);
       }
+    } else if (tool === 'shadow') {
+      const id = makeId();
+      const dx = p.x - s.x;
+      const dy = p.y - s.y;
+      const dist = Math.hypot(dx, dy);
+      const radius = dist <= 3 ? DEFAULT_SHADOW_RADIUS : dist;
+      const rotation = dist <= 3 ? 0 : radiansToDegrees(Math.atan2(dy, dx));
+      setShapes(prev => [...prev.filter(x => !(x as any)._temp), {
+        id,
+        type: 'shadow',
+        x: s.x,
+        y: s.y,
+        r: radius,
+        rotation,
+        spreadDeg: DEFAULT_SHADOW_SPREAD_DEG,
+        vertexRefs: shadowAnchorRef.current ? [shadowAnchorRef.current] : undefined,
+        style: {
+          stroke: defaultAnnColor,
+          strokeWidth: Math.max(2, Math.min(defStrokeW, 4)),
+          strokePattern: (defaultStrokePattern || 'solid'),
+          fill: defFill,
+          fillOpacity: Math.max(defFillOp, 0.22),
+        },
+      }]);
     }
     setIsDrawing(false);
     startRef.current = null;
-  }, [isDrawing, isSelecting, tool, getPointerPos, selRect, shapes, homography, boxFrac, circFrac, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp, selectedId, selectedIds]);
+    shadowAnchorRef.current = null;
+  }, [isDrawing, isSelecting, tool, getPointerPos, selRect, shapes, homography, boxFrac, circFrac, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp, selectedId, selectedIds, getShapeBounds]);
 
   // Arrow & Poly preview while placing
   useEffect(() => {
@@ -1291,6 +1449,27 @@ export default function Editor({
           const idx = next.findIndex(x => (x as any)._temp && x.id === '_temp_arrow');
           if (idx >= 0) next.splice(idx, 1);
           next.push({ id: '_temp_arrow', type: 'arrow', x: 0, y: 0, points: [st.x, st.y, end.x, end.y], style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid') } } as any);
+          (next[next.length - 1] as any)._temp = true;
+          return next;
+        });
+      } else if (tool === 'lob') {
+        const st = lobTempRef.current?.start;
+        if (!st) return;
+        const hit = findHighlightHit(p);
+        const end = hit ? { x: hit.x, y: hit.y } : p;
+        const control = buildDefaultLobControlPoint({ x: st.x, y: st.y }, end);
+        setShapes(prev => {
+          const next = [...prev];
+          const idx = next.findIndex(x => (x as any)._temp && x.id === '_temp_lob');
+          if (idx >= 0) next.splice(idx, 1);
+          next.push({
+            id: '_temp_lob',
+            type: 'lob',
+            x: 0,
+            y: 0,
+            points: [st.x, st.y, control.x, control.y, end.x, end.y],
+            style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid') },
+          } as any);
           (next[next.length - 1] as any)._temp = true;
           return next;
         });
@@ -1332,7 +1511,9 @@ export default function Editor({
   // Clear temp shapes when tool changes
   useEffect(() => {
     setShapes(prev => prev.filter(s => !(s as any)._temp));
+    if (tool !== 'shadow') shadowAnchorRef.current = null;
     if (tool !== 'arrow' && arrowTempRef.current) arrowTempRef.current.start = null;
+    if (tool !== 'lob' && lobTempRef.current) lobTempRef.current.start = null;
     if (tool !== 'poly') { polyTempRef.current = null; polyNearIndexRef.current = -1; }
     if (tool !== 'select') { setIsSelecting(false); selStartRef.current = null; setSelRect(null); }
   }, [tool]);
@@ -1447,7 +1628,7 @@ export default function Editor({
         return;
       }
       if (e.key === 'Escape') {
-        if (isDrawing || arrowTempRef.current?.start || polyTempRef.current) {
+        if (isDrawing || arrowTempRef.current?.start || lobTempRef.current?.start || polyTempRef.current) {
           e.preventDefault();
           cancelDrawing();
           return;
@@ -1559,8 +1740,62 @@ export default function Editor({
   });
 
   // Render shapes
-  const disableNonHighlightHit = tool === 'arrow' || tool === 'poly';
-  const otherNodes = shapes.filter(s => s.type !== 'highlight' && s.type !== 'arrow' && s.type !== 'poly' && s.type !== 'text').map(s => {
+  const disableNonHighlightHit = tool === 'arrow' || tool === 'lob' || tool === 'poly';
+
+  const shadowNodes = shapes.filter(s => s.type === 'shadow').map(s => {
+    const isTemp = (s as any)._temp;
+    const center = resolveShadowCenter(s);
+    const linkedHighlightId = Array.isArray(s.vertexRefs) ? s.vertexRefs[0] : null;
+    const strokeWidth = s.style?.strokeWidth || 3;
+    const dash = dashFromStrokePattern(s.style?.strokePattern, strokeWidth);
+    const fill = s.style?.fill && s.style.fill !== 'transparent' ? hexToRgba(s.style.fill, s.style?.fillOpacity ?? 0.22) : 'transparent';
+    const radius = Math.max(1, s.r || DEFAULT_SHADOW_RADIUS);
+    const spreadDeg = Math.max(1, Math.min(359, s.spreadDeg || DEFAULT_SHADOW_SPREAD_DEG));
+    return (
+      <KShape
+        key={s.id}
+        x={center.x}
+        y={center.y}
+        draggable={tool !== 'calibrate' && !isTemp && !isSelecting}
+        onMouseDown={(e: any) => onShapeMouseDown(s.id, e)}
+        onDragMove={(e: any) => {
+          if (!linkedHighlightId) onDragMove(s.id, e);
+        }}
+        onDragEnd={(e: any) => {
+          if (!linkedHighlightId) return;
+          const node = e.target;
+          const pos = node.position();
+          node.position({ x: center.x, y: center.y });
+          const dx = pos.x - center.x;
+          const dy = pos.y - center.y;
+          setShapes(prev => prev.map((sp) => {
+            if (sp.id === linkedHighlightId && sp.type === 'highlight') {
+              return { ...sp, x: (sp.x || 0) + dx, y: (sp.y || 0) + dy, plane: undefined as any };
+            }
+            return sp;
+          }));
+        }}
+        stroke={s.style?.stroke || defaultAnnColor}
+        strokeWidth={strokeWidth}
+        dash={dash}
+        fill={fill}
+        listening={!isTemp && !disableNonHighlightHit}
+        hitStrokeWidth={16}
+        ref={s.id === selectedId ? (node: any) => { selectedNodeRef.current = node; } : undefined}
+        sceneFunc={(ctx, shape) => {
+          const halfSpread = (spreadDeg * Math.PI) / 360;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.arc(0, 0, radius, -halfSpread, halfSpread, false);
+          ctx.closePath();
+          ctx.fillStrokeShape(shape);
+        }}
+        rotation={s.rotation || 0}
+      />
+    );
+  });
+
+  const otherNodes = shapes.filter(s => s.type !== 'highlight' && s.type !== 'arrow' && s.type !== 'lob' && s.type !== 'poly' && s.type !== 'text' && s.type !== 'shadow').map(s => {
     const isTemp = (s as any)._temp;
     const strokeWidth = s.style?.strokeWidth || (s.type === 'text' ? 1 : 6);
     const dash = dashFromStrokePattern(s.style?.strokePattern, strokeWidth);
@@ -1837,7 +2072,7 @@ export default function Editor({
     );
   });
 
-  const lineNodes = shapes.filter(s => s.type === 'arrow' || s.type === 'poly').map(s => {
+  const lineNodes = shapes.filter(s => s.type === 'arrow' || s.type === 'lob' || s.type === 'poly').map(s => {
     const isTemp = (s as any)._temp;
     const strokeWidth = s.style?.strokeWidth || 6;
     const dash = dashFromStrokePattern(s.style?.strokePattern, strokeWidth);
@@ -1930,6 +2165,73 @@ export default function Editor({
           lineJoin="round"
           hitStrokeWidth={16}
           ref={s.id === selectedId ? (node: any) => { selectedNodeRef.current = node; } : undefined}
+        />
+      );
+    }
+    if (s.type === 'lob') {
+      const { start, control, end } = resolveLobPoints(s);
+      const ox = s.x || 0;
+      const oy = s.y || 0;
+      const localStart = { x: start.x - ox, y: start.y - oy };
+      const localControl = { x: control.x - ox, y: control.y - oy };
+      const localEnd = { x: end.x - ox, y: end.y - oy };
+      return (
+        <KShape
+          key={s.id}
+          x={ox}
+          y={oy}
+          draggable={tool !== 'calibrate' && !isTemp && !isSelecting}
+          onMouseDown={(e: any) => onShapeMouseDown(s.id, e)}
+          stroke={s.style?.stroke || defaultAnnColor}
+          strokeWidth={strokeWidth}
+          dash={dash}
+          fill={s.style?.stroke || defaultAnnColor}
+          listening={!isTemp && !disableNonHighlightHit}
+          hitStrokeWidth={16}
+          ref={s.id === selectedId ? (node: any) => { selectedNodeRef.current = node; } : undefined}
+          onDragEnd={(e: any) => {
+            const node = e.target;
+            const pos = node.position();
+            node.position({ x: 0, y: 0 });
+            const dx = pos.x;
+            const dy = pos.y;
+            const refSet = new Set(((s.vertexRefs || []) as any[]).filter(Boolean) as string[]);
+            setShapes(prev => prev.map(sp => {
+              if (sp.id === s.id) {
+                const pts0 = sp.points || [];
+                const moved = pts0.map((v: number, i: number) => (i % 2 === 0 ? v + dx : v + dy));
+                return { ...sp, x: 0, y: 0, points: moved };
+              }
+              if (refSet.has(sp.id) && sp.type === 'highlight') {
+                return { ...sp, x: (sp.x || 0) + dx, y: (sp.y || 0) + dy, plane: undefined as any };
+              }
+              return sp;
+            }));
+          }}
+          sceneFunc={(ctx, shape) => {
+            ctx.beginPath();
+            ctx.moveTo(localStart.x, localStart.y);
+            ctx.quadraticCurveTo(localControl.x, localControl.y, localEnd.x, localEnd.y);
+            ctx.strokeShape(shape);
+
+            const tx = localEnd.x - localControl.x;
+            const ty = localEnd.y - localControl.y;
+            const len = Math.hypot(tx, ty) || 1;
+            const ux = tx / len;
+            const uy = ty / len;
+            const px = -uy;
+            const py = ux;
+            const headLength = Math.max(10, strokeWidth * 2.2);
+            const headWidth = Math.max(8, strokeWidth * 1.6);
+            const baseX = localEnd.x - ux * headLength;
+            const baseY = localEnd.y - uy * headLength;
+            ctx.beginPath();
+            ctx.moveTo(localEnd.x, localEnd.y);
+            ctx.lineTo(baseX + px * headWidth * 0.5, baseY + py * headWidth * 0.5);
+            ctx.lineTo(baseX - px * headWidth * 0.5, baseY - py * headWidth * 0.5);
+            ctx.closePath();
+            ctx.fillStrokeShape(shape);
+          }}
         />
       );
     }
@@ -2053,7 +2355,7 @@ export default function Editor({
         onContextMenu={(e: any) => {
           const evt = (e && (e.evt || e)) as any;
           if (evt?.preventDefault) evt.preventDefault();
-          if (isDrawing || arrowTempRef.current?.start || polyTempRef.current) cancelDrawing();
+          if (isDrawing || arrowTempRef.current?.start || lobTempRef.current?.start || polyTempRef.current) cancelDrawing();
         }}
       >
         <Layer listening={false}>
@@ -2081,6 +2383,9 @@ export default function Editor({
           </Layer>
         )}
         <Layer>
+          {shadowNodes}
+        </Layer>
+        <Layer>
           {otherNodes}
         </Layer>
         <Layer>
@@ -2102,52 +2407,7 @@ export default function Editor({
           {selectedIds.length > 0 && selectedIds.map(id => {
             const s = shapes.find(sh => sh.id === id);
             if (!s) return null;
-            const getBounds = (s: Shape): { x: number; y: number; w: number; h: number } => {
-              if (homography && s.plane) {
-                if (s.type === 'box') {
-                  const pts = rectPlaneToImagePoints(homography.H, s.plane.cx, s.plane.cy, s.plane.w || 0, s.plane.h || 0);
-                  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-                  for (let i = 0; i < pts.length; i += 2) { minX = Math.min(minX, pts[i]); minY = Math.min(minY, pts[i+1]); maxX = Math.max(maxX, pts[i]); maxY = Math.max(maxY, pts[i+1]); }
-                  return { x: minX, y: minY, w: Math.max(0, maxX - minX), h: Math.max(0, maxY - minY) };
-                }
-                if (s.type === 'circle') {
-                  const rx = s.plane.rx ?? s.plane.r ?? 0;
-                  const ry = s.plane.ry ?? s.plane.r ?? 0;
-                  const pts = ellipsePlaneToImagePoints(homography.H, s.plane.cx, s.plane.cy, rx, ry);
-                  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-                  for (let i = 0; i < pts.length; i += 2) { minX = Math.min(minX, pts[i]); minY = Math.min(minY, pts[i+1]); maxX = Math.max(maxX, pts[i]); maxY = Math.max(maxY, pts[i+1]); }
-                  return { x: minX, y: minY, w: Math.max(0, maxX - minX), h: Math.max(0, maxY - minY) };
-                }
-                if (s.type === 'highlight') {
-                  // Flat bounds centered at projected plane center
-                  const cen = applyHomography(homography.H, s.plane.cx, s.plane.cy);
-                  const rx = (s as any).rx ?? 40;
-                  const ry = (s as any).ry ?? 10;
-                  return { x: cen.x - rx, y: cen.y - ry, w: rx * 2, h: ry * 2 };
-                }
-              }
-              if (s.type === 'box') return { x: s.x, y: s.y, w: s.w || 0, h: s.h || 0 };
-              if (s.type === 'circle') {
-                const rx = (s as any).rx ?? (s as any).r ?? 0;
-                const ry = (s as any).ry ?? (s as any).r ?? 0;
-                return { x: (s.x - rx), y: (s.y - ry), w: rx * 2, h: ry * 2 };
-              }
-              if (s.type === 'highlight') return { x: (s.x - (s.rx || 0)), y: (s.y - (s.ry || 0)), w: (s.rx || 0) * 2, h: (s.ry || 0) * 2 };
-              if (s.type === 'arrow' || s.type === 'poly') {
-                const pts = s.points || [];
-                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-                for (let i = 0; i < pts.length; i += 2) {
-                  const x = (pts[i] + (s.x || 0));
-                  const y = (pts[i + 1] + (s.y || 0));
-                  minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
-                }
-                return { x: minX, y: minY, w: Math.max(0, maxX - minX), h: Math.max(0, maxY - minY) };
-              }
-              // text approx
-              const fs = s.style?.fontSize || 48;
-              return { x: s.x, y: s.y, w: 100, h: fs };
-            };
-            const b = getBounds(s);
+            const b = getShapeBounds(s);
             return (
               <KRect
                 key={`selbox_${id}`}
@@ -2162,6 +2422,41 @@ export default function Editor({
               />
             );
           })}
+          {selectedId && (() => {
+            const selectedShape = shapes.find((s) => s.id === selectedId);
+            if (!selectedShape || selectedShape.type !== 'lob') return null;
+            const { start, control, end } = resolveLobPoints(selectedShape);
+            return (
+              <>
+                <KLine
+                  points={[start.x, start.y, control.x, control.y, end.x, end.y]}
+                  stroke="#60a5fa"
+                  dash={[4, 4]}
+                  strokeWidth={1.5}
+                  listening={false}
+                />
+                <KCircle
+                  x={control.x}
+                  y={control.y}
+                  radius={7}
+                  fill="#60a5fa"
+                  stroke="#ffffff"
+                  strokeWidth={1.5}
+                  draggable={tool !== 'calibrate' && !isSelecting}
+                  onDragMove={(e: any) => {
+                    const pos = e.target.position();
+                    setShapes(prev => prev.map((s) => {
+                      if (s.id !== selectedShape.id) return s;
+                      const pts = s.points ? s.points.slice() : [0, 0, 0, 0, 0, 0];
+                      pts[2] = pos.x;
+                      pts[3] = pos.y;
+                      return { ...s, points: pts, x: 0, y: 0 };
+                    }));
+                  }}
+                />
+              </>
+            );
+          })()}
           {selectedId && (selectedIds.length <= 1) && (
             <Transformer
               ref={transformerRef}
@@ -2170,7 +2465,7 @@ export default function Editor({
               enabledAnchors={((): any => {
                 const sh = shapes.find(s => s.id === selectedId);
                 if (!sh) return [];
-                if (sh.type === 'arrow' || sh.type === 'poly') return [];
+                if (sh.type === 'arrow' || sh.type === 'lob' || sh.type === 'poly' || sh.type === 'shadow') return [];
                 if (homography && sh.plane && (sh.type === 'box' || sh.type === 'circle' || sh.type === 'highlight')) return [];
                 return undefined;
               })()}
@@ -2213,7 +2508,7 @@ export default function Editor({
             const first = selShapes[0];
 
             const isFillCapable = (s: Shape) => (
-              s.type === 'box' || s.type === 'circle' || s.type === 'highlight' || (s.type === 'poly' && !!(s as any).closed)
+              s.type === 'box' || s.type === 'circle' || s.type === 'highlight' || s.type === 'shadow' || (s.type === 'poly' && !!(s as any).closed)
             );
 
             const fillSample = selShapes.find(isFillCapable);
@@ -2301,6 +2596,22 @@ export default function Editor({
                       const vals = new Set(selShapes.filter(s => s.type === 'text').map(s => !!s.style?.textHighlight));
                       return vals.size === 1 ? vals.has(true) : false;
                     })()} />
+                  </>
+                )}
+
+                {selShapes.length === 1 && first?.type === 'shadow' && (
+                  <>
+                    <label className="status">Radius</label>
+                    <input type="number" min={1} max={2000} step={1} onChange={(e) => {
+                      const v = Math.max(1, Number(e.target.value) || DEFAULT_SHADOW_RADIUS);
+                      setShapes(prev => prev.map(s => s.id === first.id ? { ...s, r: v } : s));
+                    }} value={Math.round(first.r || DEFAULT_SHADOW_RADIUS)} />
+
+                    <label className="status">Spread</label>
+                    <input type="range" min={5} max={180} step={1} onChange={(e) => {
+                      const v = Math.max(5, Math.min(180, Number(e.target.value) || DEFAULT_SHADOW_SPREAD_DEG));
+                      setShapes(prev => prev.map(s => s.id === first.id ? { ...s, spreadDeg: v } : s));
+                    }} value={Math.round(first.spreadDeg || DEFAULT_SHADOW_SPREAD_DEG)} />
                   </>
                 )}
               </div>
