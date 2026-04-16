@@ -12,6 +12,17 @@ import { registerVideoFile, unregisterVideoRef } from "../../../lib/clip/sidecar
 
 const ClipEditor = dynamic(() => import("../../../components/clip/ClipEditor"), { ssr: false });
 
+const TOOL_OPTIONS: Array<{ id: ClipTool; label: string; hint: string }> = [
+  { id: 'select', label: 'Select', hint: 'Pause to select and drag existing annotations.' },
+  { id: 'box', label: 'Box', hint: 'Drag out a box or click for a default-sized one.' },
+  { id: 'circle', label: 'Circle', hint: 'Drag to size a circle or click for a default-sized one.' },
+  { id: 'shadow', label: 'Shadow', hint: 'Drag out a cover shadow wedge from the player or area of interest.' },
+  { id: 'arrow', label: 'Arrow', hint: 'Click once for the start point and again for the end point.' },
+  { id: 'lob', label: 'Lob', hint: 'Click once for the start point and again for the end point to place a curved pass.' },
+  { id: 'text', label: 'Text', hint: 'Click to drop a text label at the current frame.' },
+  { id: 'highlight', label: 'Highlight', hint: 'Click to add a player highlight at the current frame.' },
+];
+
 export default function ClipPage({ params }: { params: { clipId: string } }) {
   const { clipId } = params;
   const { projectDir, setProjectDir, manifest, setManifest } = useProject();
@@ -22,8 +33,8 @@ export default function ClipPage({ params }: { params: { clipId: string } }) {
 
   // --- Tool & style state ---
   const [tool, setTool] = useState<ClipTool>('select');
-  const [defaultColor, setDefaultColor] = useState('#ff0000');
-  const [defaultStrokeWidth, setDefaultStrokeWidth] = useState(3);
+  const [defaultColor, setDefaultColor] = useState('#000000');
+  const [defaultStrokeWidth, setDefaultStrokeWidth] = useState(6);
   const [sidecarVideoRef, setSidecarVideoRef] = useState<string | null>(null);
   const [sidecarVideoError, setSidecarVideoError] = useState<string | null>(null);
   const activeSidecarVideoRef = useRef<string | null>(null);
@@ -245,6 +256,7 @@ export default function ClipPage({ params }: { params: { clipId: string } }) {
     const ss = Math.floor(r / 1000);
     return hh > 0 ? `${hh}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}` : `${mm}:${String(ss).padStart(2,'0')}`;
   }, []);
+  const activeToolMeta = TOOL_OPTIONS.find((entry) => entry.id === tool) || TOOL_OPTIONS[0];
 
   // --- Open project folder (fallback) ---
   const openProject = useCallback(async () => {
@@ -313,8 +325,8 @@ export default function ClipPage({ params }: { params: { clipId: string } }) {
 
   return (
     <SidecarProvider>
-      <div className="fullbleed">
-        <div className="flex flex-col" style={{ height: '100vh' }}>
+      <div className="fullbleed flex flex-1 min-h-0 flex-col">
+        <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
           {/* Navbar */}
           <div className="flex items-stretch bg-surface border-b border-border shrink-0">
             <button
@@ -340,28 +352,38 @@ export default function ClipPage({ params }: { params: { clipId: string } }) {
 
           {/* Toolbar */}
           <div className="flex items-stretch justify-center bg-surface border-b border-border shrink-0">
-            {(['select', 'box', 'circle', 'arrow', 'text', 'highlight'] as ClipTool[]).map(t => (
+            {TOOL_OPTIONS.map((entry) => (
               <button
-                key={t}
-                onClick={() => setTool(t)}
-                aria-pressed={tool === t}
-                className={`self-stretch px-4 py-1.5 border-0 border-r border-solid border-border text-sm cursor-pointer ${
-                  tool === t ? 'bg-white/15 font-bold' : ''
+                key={entry.id}
+                onClick={() => setTool(entry.id)}
+                aria-pressed={tool === entry.id}
+                title={entry.hint}
+                className={`self-stretch min-w-[5.5rem] px-3 py-1.5 border-0 border-r border-solid border-border text-sm cursor-pointer ${
+                  tool === entry.id ? 'bg-white/15 font-bold' : ''
                 }`}
               >
-                {t.charAt(0).toUpperCase() + t.slice(1)}
+                {entry.label}
               </button>
             ))}
             <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-r border-solid border-border text-sm">
               <span className="text-muted">Stroke</span>
-              <input type="color" value={defaultColor} onChange={e => setDefaultColor(e.target.value)} className="w-7 h-7 cursor-pointer" />
-              <select value={defaultStrokeWidth} onChange={e => setDefaultStrokeWidth(Number(e.target.value))} className="px-1 py-0.5 text-sm">
-                <option value={1}>1px</option>
-                <option value={2}>2px</option>
-                <option value={3}>3px</option>
-                <option value={5}>5px</option>
-                <option value={8}>8px</option>
-              </select>
+              <input type="color" value={defaultColor} onChange={e => setDefaultColor(e.target.value || '#000000')} className="w-7 h-7 cursor-pointer" />
+            </div>
+            <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-r border-solid border-border text-sm">
+              <span className="text-muted">Width</span>
+              <input
+                type="number"
+                min={1}
+                max={16}
+                step={1}
+                value={defaultStrokeWidth}
+                onChange={e => setDefaultStrokeWidth(Math.max(1, Math.min(16, Number(e.target.value) || 1)))}
+                className="w-12"
+              />
+            </div>
+            <div className="self-stretch flex items-center px-3 text-xs text-muted max-w-[20rem]">
+              <span className="font-medium mr-1">{activeToolMeta.label}:</span>
+              <span>{activeToolMeta.hint}</span>
             </div>
           </div>
 

@@ -8,7 +8,9 @@ import {
 import type {
   BoxKeyframe,
   CircleKeyframe,
+  ShadowKeyframe,
   ArrowKeyframe,
+  LobKeyframe,
   TextKeyframe,
   PolyKeyframe,
   HighlightKeyframe,
@@ -27,8 +29,16 @@ function circleKf(tMs: number, cx: number, cy: number, rx: number, ry: number): 
   return { tMs, cx, cy, rx, ry };
 }
 
+function shadowKf(tMs: number, x: number, y: number, r: number, rotation: number, spreadDeg: number): ShadowKeyframe {
+  return { tMs, x, y, r, rotation, spreadDeg };
+}
+
 function arrowKf(tMs: number, x1: number, y1: number, x2: number, y2: number): ArrowKeyframe {
   return { tMs, x1, y1, x2, y2 };
+}
+
+function lobKf(tMs: number, x1: number, y1: number, cx: number, cy: number, x2: number, y2: number): LobKeyframe {
+  return { tMs, x1, y1, cx, cy, x2, y2 };
 }
 
 function textKf(tMs: number, x: number, y: number): TextKeyframe {
@@ -172,6 +182,19 @@ describe('interpolateKeyframes', () => {
     expect(c.ry).toBeCloseTo(13, 1);
   });
 
+  it('interpolates shadow keyframes', () => {
+    const kfs = [shadowKf(0, 10, 20, 40, 15, 30), shadowKf(100, 30, 40, 80, 45, 60)];
+    const r = interpolateKeyframes(kfs, 50, 'shadow', 30);
+    expect(r).not.toBeNull();
+    expect(r!.type).toBe('shadow');
+    const s = r as { type: 'shadow'; x: number; y: number; r: number; rotation: number; spreadDeg: number };
+    expect(s.x).toBeCloseTo(20, 1);
+    expect(s.y).toBeCloseTo(30, 1);
+    expect(s.r).toBeCloseTo(60, 1);
+    expect(s.rotation).toBeCloseTo(30, 1);
+    expect(s.spreadDeg).toBeCloseTo(45, 1);
+  });
+
   // --- Arrow ---
 
   it('interpolates arrow keyframes', () => {
@@ -183,6 +206,20 @@ describe('interpolateKeyframes', () => {
     expect(a.y1).toBeCloseTo(25, 0);
     expect(a.x2).toBeCloseTo(125, 0);
     expect(a.y2).toBeCloseTo(125, 0);
+  });
+
+  it('interpolates lob keyframes', () => {
+    const kfs = [lobKf(0, 0, 0, 20, -10, 40, 0), lobKf(200, 20, 10, 40, 20, 80, 30)];
+    const r = interpolateKeyframes(kfs, 100, 'lob', 30);
+    expect(r).not.toBeNull();
+    expect(r!.type).toBe('lob');
+    const l = r as { type: 'lob'; x1: number; y1: number; cx: number; cy: number; x2: number; y2: number };
+    expect(l.x1).toBeCloseTo(10, 0);
+    expect(l.y1).toBeCloseTo(5, 0);
+    expect(l.cx).toBeCloseTo(30, 0);
+    expect(l.cy).toBeCloseTo(5, 0);
+    expect(l.x2).toBeCloseTo(60, 0);
+    expect(l.y2).toBeCloseTo(15, 0);
   });
 
   // --- Text ---

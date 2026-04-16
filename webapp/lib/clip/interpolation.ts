@@ -8,7 +8,9 @@ import type {
   ClipKeyframe,
   BoxKeyframe,
   CircleKeyframe,
+  ShadowKeyframe,
   ArrowKeyframe,
+  LobKeyframe,
   TextKeyframe,
   PolyKeyframe,
   HighlightKeyframe,
@@ -28,9 +30,19 @@ export interface InterpolatedCircle {
   cx: number; cy: number; rx: number; ry: number;
 }
 
+export interface InterpolatedShadow {
+  type: 'shadow';
+  x: number; y: number; r: number; rotation: number; spreadDeg: number;
+}
+
 export interface InterpolatedArrow {
   type: 'arrow';
   x1: number; y1: number; x2: number; y2: number;
+}
+
+export interface InterpolatedLob {
+  type: 'lob';
+  x1: number; y1: number; cx: number; cy: number; x2: number; y2: number;
 }
 
 export interface InterpolatedText {
@@ -51,7 +63,9 @@ export interface InterpolatedHighlight {
 export type InterpolatedKeyframe =
   | InterpolatedBox
   | InterpolatedCircle
+  | InterpolatedShadow
   | InterpolatedArrow
+  | InterpolatedLob
   | InterpolatedText
   | InterpolatedPoly
   | InterpolatedHighlight;
@@ -132,6 +146,27 @@ function interpolateCircle(a: CircleKeyframe, b: CircleKeyframe, t: number, useC
   };
 }
 
+function interpolateShadow(a: ShadowKeyframe, b: ShadowKeyframe, t: number, useCubic: boolean, prev: ShadowKeyframe | null, next: ShadowKeyframe | null): InterpolatedShadow {
+  if (useCubic && prev && next) {
+    return {
+      type: 'shadow',
+      x: catmullRom(prev.x, a.x, b.x, next.x, t),
+      y: catmullRom(prev.y, a.y, b.y, next.y, t),
+      r: catmullRom(prev.r, a.r, b.r, next.r, t),
+      rotation: catmullRom(prev.rotation, a.rotation, b.rotation, next.rotation, t),
+      spreadDeg: catmullRom(prev.spreadDeg, a.spreadDeg, b.spreadDeg, next.spreadDeg, t),
+    };
+  }
+  return {
+    type: 'shadow',
+    x: lerp(a.x, b.x, t),
+    y: lerp(a.y, b.y, t),
+    r: lerp(a.r, b.r, t),
+    rotation: lerp(a.rotation, b.rotation, t),
+    spreadDeg: lerp(a.spreadDeg, b.spreadDeg, t),
+  };
+}
+
 function interpolateArrow(a: ArrowKeyframe, b: ArrowKeyframe, t: number, useCubic: boolean, prev: ArrowKeyframe | null, next: ArrowKeyframe | null): InterpolatedArrow {
   if (useCubic && prev && next) {
     return {
@@ -146,6 +181,29 @@ function interpolateArrow(a: ArrowKeyframe, b: ArrowKeyframe, t: number, useCubi
     type: 'arrow',
     x1: lerp(a.x1, b.x1, t),
     y1: lerp(a.y1, b.y1, t),
+    x2: lerp(a.x2, b.x2, t),
+    y2: lerp(a.y2, b.y2, t),
+  };
+}
+
+function interpolateLob(a: LobKeyframe, b: LobKeyframe, t: number, useCubic: boolean, prev: LobKeyframe | null, next: LobKeyframe | null): InterpolatedLob {
+  if (useCubic && prev && next) {
+    return {
+      type: 'lob',
+      x1: catmullRom(prev.x1, a.x1, b.x1, next.x1, t),
+      y1: catmullRom(prev.y1, a.y1, b.y1, next.y1, t),
+      cx: catmullRom(prev.cx, a.cx, b.cx, next.cx, t),
+      cy: catmullRom(prev.cy, a.cy, b.cy, next.cy, t),
+      x2: catmullRom(prev.x2, a.x2, b.x2, next.x2, t),
+      y2: catmullRom(prev.y2, a.y2, b.y2, next.y2, t),
+    };
+  }
+  return {
+    type: 'lob',
+    x1: lerp(a.x1, b.x1, t),
+    y1: lerp(a.y1, b.y1, t),
+    cx: lerp(a.cx, b.cx, t),
+    cy: lerp(a.cy, b.cy, t),
     x2: lerp(a.x2, b.x2, t),
     y2: lerp(a.y2, b.y2, t),
   };
@@ -270,10 +328,20 @@ export function interpolateKeyframes(
         a as CircleKeyframe, b as CircleKeyframe, t, useCubic,
         prev as CircleKeyframe | null, next as CircleKeyframe | null,
       );
+    case 'shadow':
+      return interpolateShadow(
+        a as ShadowKeyframe, b as ShadowKeyframe, t, useCubic,
+        prev as ShadowKeyframe | null, next as ShadowKeyframe | null,
+      );
     case 'arrow':
       return interpolateArrow(
         a as ArrowKeyframe, b as ArrowKeyframe, t, useCubic,
         prev as ArrowKeyframe | null, next as ArrowKeyframe | null,
+      );
+    case 'lob':
+      return interpolateLob(
+        a as LobKeyframe, b as LobKeyframe, t, useCubic,
+        prev as LobKeyframe | null, next as LobKeyframe | null,
       );
     case 'text':
       return interpolateText(
@@ -305,8 +373,27 @@ function clampToKeyframe(kf: ClipKeyframe, type: ClipAnnotationType): Interpolat
       return { type: 'box', x: (kf as BoxKeyframe).x, y: (kf as BoxKeyframe).y, w: (kf as BoxKeyframe).w, h: (kf as BoxKeyframe).h };
     case 'circle':
       return { type: 'circle', cx: (kf as CircleKeyframe).cx, cy: (kf as CircleKeyframe).cy, rx: (kf as CircleKeyframe).rx, ry: (kf as CircleKeyframe).ry };
+    case 'shadow':
+      return {
+        type: 'shadow',
+        x: (kf as ShadowKeyframe).x,
+        y: (kf as ShadowKeyframe).y,
+        r: (kf as ShadowKeyframe).r,
+        rotation: (kf as ShadowKeyframe).rotation,
+        spreadDeg: (kf as ShadowKeyframe).spreadDeg,
+      };
     case 'arrow':
       return { type: 'arrow', x1: (kf as ArrowKeyframe).x1, y1: (kf as ArrowKeyframe).y1, x2: (kf as ArrowKeyframe).x2, y2: (kf as ArrowKeyframe).y2 };
+    case 'lob':
+      return {
+        type: 'lob',
+        x1: (kf as LobKeyframe).x1,
+        y1: (kf as LobKeyframe).y1,
+        cx: (kf as LobKeyframe).cx,
+        cy: (kf as LobKeyframe).cy,
+        x2: (kf as LobKeyframe).x2,
+        y2: (kf as LobKeyframe).y2,
+      };
     case 'text':
       return { type: 'text', x: (kf as TextKeyframe).x, y: (kf as TextKeyframe).y };
     case 'poly':

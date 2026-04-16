@@ -1,31 +1,45 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Stage, Layer, Rect as KRect, Ellipse as KEllipse, Arrow as KArrow, Text as KText, Line as KLine, Circle as KCircle, Image as KImage } from "react-konva";
-import type { Clip, ClipAnnotation, ClipAnnotationType, ClipKeyframe, BoxKeyframe, CircleKeyframe, ArrowKeyframe, TextKeyframe, HighlightKeyframe } from "../../lib/types/clip";
+import { Stage, Layer, Rect as KRect, Ellipse as KEllipse, Arrow as KArrow, Text as KText, Line as KLine, Circle as KCircle, Image as KImage, Shape as KShape, Transformer } from "react-konva";
+import type { Clip, ClipAnnotation, ClipAnnotationType, ClipKeyframe, BoxKeyframe, CircleKeyframe, ShadowKeyframe, ArrowKeyframe, LobKeyframe, TextKeyframe, HighlightKeyframe } from "../../lib/types/clip";
 import type { ProjectManifestV1 } from "../../lib/types/project";
 import {
   interpolateKeyframes,
   type InterpolatedKeyframe,
   type InterpolatedBox,
   type InterpolatedCircle,
+  type InterpolatedShadow,
   type InterpolatedArrow,
+  type InterpolatedLob,
   type InterpolatedText,
   type InterpolatedPoly,
   type InterpolatedHighlight,
 } from "../../lib/clip/interpolation";
 import { hexToRgba, contrastStrokeForHex, dashFromStrokePattern, makeId } from "../../lib/annotate/shapeRendering";
 import type { StrokePattern } from "../../lib/annotate/shapeRendering";
+import {
+  buildDefaultLobControlPoint,
+  buildShadowSectorPoints,
+  DEFAULT_SHADOW_RADIUS,
+  DEFAULT_SHADOW_SPREAD_DEG,
+  getBoundsForFlatPoints,
+} from "../../lib/annotate/tacticalGeometry";
 import { readPrimaryAnnotationDocumentForStill } from "../../lib/fs/annotationStorage";
 import { writeClip } from "../../lib/fs/clipStorage";
 import { findOverlappingCache, writeHomographyCache, type HomographyFrame } from "../../lib/fs/homographyCache";
 import { useSidecar } from "../../lib/state/SidecarContext";
 import { requestTracking, requestHomography, requestManualTrackHomography, type TrackingError } from "../../lib/clip/sidecarClient";
 import { convertTrackingKeyframes } from "../../lib/clip/bboxConvert";
-import { getClipRelativeMsForStill, listStillsWithinClipBounds } from "../../lib/clip/stillRelationship";
+import {
+  getClipRelativeMsForStill,
+  getStillClipPosition,
+  listStillsForClipVideo,
+  listStillsWithinClipBounds,
+} from "../../lib/clip/stillRelationship";
 import { applyHomography, applyHomographyInv, computeHomographyFromCorrespondences, invert3, rectPlaneToImagePoints, ellipsePlaneToImagePoints } from "../../lib/annotate/homography";
 import { OcclusionCache, fetchOcclusionMask, compositeForeground, roundToFrame } from "../../lib/clip/occlusionCompositor";
-import { importStillDocumentToClip } from "../../lib/clip/stillImport";
+import { applyStillImportToClip, importStillDocumentToClip } from "../../lib/clip/stillImport";
 import {
   getSidecarVideoLocator,
   hasSidecarVideoSource,
@@ -38,7 +52,7 @@ import TimelineStrip from "./TimelineStrip";
 // Props
 // ---------------------------------------------------------------------------
 
-export type ClipTool = 'select' | 'box' | 'circle' | 'arrow' | 'text' | 'highlight';
+export type ClipTool = 'select' | 'box' | 'circle' | 'shadow' | 'arrow' | 'lob' | 'text' | 'highlight';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -167,6 +181,56 @@ function normalizeHomography(m: number[]): number[] | null {
   return out;
 }
 
+function drawLobPathWithArrowhead(
+  ctx: CanvasRenderingContext2D | any,
+  shape: any,
+  start: { x: number; y: number },
+  control: { x: number; y: number },
+  end: { x: number; y: number },
+  strokeWidth: number,
+) {
+  ctx.beginPath();
+  ctx.moveTo(start.x, start.y);
+  ctx.quadraticCurveTo(control.x, control.y, end.x, end.y);
+  ctx.strokeShape(shape);
+
+  const tx = end.x - control.x;
+  const ty = end.y - control.y;
+  const len = Math.hypot(tx, ty) || 1;
+  const ux = tx / len;
+  const uy = ty / len;
+  const px = -uy;
+  const py = ux;
+  const headLength = Math.max(10, strokeWidth * 2.2);
+  const headWidth = Math.max(8, strokeWidth * 1.6);
+  const baseX = end.x - ux * headLength;
+  const baseY = end.y - uy * headLength;
+
+  ctx.beginPath();
+  ctx.moveTo(end.x, end.y);
+  ctx.lineTo(baseX + px * headWidth * 0.5, baseY + py * headWidth * 0.5);
+  ctx.lineTo(baseX - px * headWidth * 0.5, baseY - py * headWidth * 0.5);
+  ctx.closePath();
+  ctx.fillStrokeShape(shape);
+}
+
+function isFillCapableAnnotation(type: ClipAnnotationType, closed?: boolean): boolean {
+  return type === 'box' || type === 'circle' || type === 'highlight' || type === 'shadow' || (type === 'poly' && closed !== false);
+}
+
+function getDefaultStrokeWidthForAnnotation(type: ClipAnnotationType): number {
+  if (type === 'text') return 1;
+  if (type === 'shadow') return 3;
+  return 6;
+}
+
+function cloneClipAnnotations(annotations: ClipAnnotation[]): ClipAnnotation[] {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(annotations);
+  }
+  return JSON.parse(JSON.stringify(annotations)) as ClipAnnotation[];
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -194,20 +258,29 @@ export default function ClipEditor({
   const drawStartRef = useRef<{ x: number; y: number } | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const arrowStartRef = useRef<{ x: number; y: number } | null>(null);
+  const lobStartRef = useRef<{ x: number; y: number } | null>(null);
   const stageRef = useRef<any>(null);
+  const transformerRef = useRef<any>(null);
+  const selectedNodeRef = useRef<any>(null);
 
   // Temp shape for preview during drawing (not a real annotation yet)
   type TempShape =
     | { type: 'box'; x: number; y: number; w: number; h: number }
     | { type: 'circle'; cx: number; cy: number; rx: number; ry: number }
+    | { type: 'shadow'; x: number; y: number; r: number; rotation: number; spreadDeg: number }
     | { type: 'arrow'; x1: number; y1: number; x2: number; y2: number }
+    | { type: 'lob'; x1: number; y1: number; cx: number; cy: number; x2: number; y2: number }
     | null;
   const [tempShape, setTempShape] = useState<TempShape>(null);
 
   // --- Defaults ---
   const tool = toolProp || 'select';
-  const defaultColor = defaultColorProp || '#ff0000';
-  const defaultStrokeWidth = defaultStrokeWidthProp || 3;
+  const defaultColor = defaultColorProp || '#000000';
+  const defaultStrokeWidth = defaultStrokeWidthProp || 6;
+  const defaultFill = defaultColor;
+  const defaultFillOpacity = 0.3;
+  const defaultFontSize = 48;
+  const defaultTextHighlight = false;
 
   // --- State ---
   const [isPlaying, setIsPlaying] = useState(false);
@@ -240,9 +313,23 @@ export default function ClipEditor({
   const [showExportModal, setShowExportModal] = useState(false);
   const [isImportingStillId, setIsImportingStillId] = useState<string | null>(null);
   const [stillImportMessage, setStillImportMessage] = useState<string | null>(null);
+  const annotationHistoryPastRef = useRef<ClipAnnotation[][]>([]);
+  const annotationHistoryFutureRef = useRef<ClipAnnotation[][]>([]);
+  const annotationHistoryActionRef = useRef<null | 'undo' | 'redo' | 'sync'>(null);
+  const lastAnnotationHistoryStateRef = useRef<ClipAnnotation[]>(clip.annotations);
+  const activeClipIdRef = useRef(clip.id);
 
   // Sync annotations from clip prop if it changes externally
-  useEffect(() => { setAnnotations(clip.annotations); }, [clip.annotations]);
+  useEffect(() => {
+    if (clip.id !== activeClipIdRef.current) {
+      activeClipIdRef.current = clip.id;
+      annotationHistoryPastRef.current = [];
+      annotationHistoryFutureRef.current = [];
+    }
+    annotationHistoryActionRef.current = 'sync';
+    lastAnnotationHistoryStateRef.current = clip.annotations;
+    setAnnotations(clip.annotations);
+  }, [clip.id, clip.annotations]);
 
   // Load homography cache on mount
   useEffect(() => {
@@ -254,10 +341,26 @@ export default function ClipEditor({
   }, [projectDir, clip.startMs, clip.endMs]);
 
   const clipDurationMs = clip.endMs - clip.startMs;
+  const videoStills = useMemo(() => {
+    if (!manifest) return [] as ProjectManifestV1['stills'];
+    return listStillsForClipVideo(manifest.stills || [], clip);
+  }, [manifest, clip]);
   const inBoundsStills = useMemo(() => {
     if (!manifest) return [] as ProjectManifestV1['stills'];
     return listStillsWithinClipBounds(manifest.stills || [], clip);
   }, [manifest, clip]);
+  const stillPositionCounts = useMemo(() => {
+    let before = 0;
+    let inside = 0;
+    let after = 0;
+    for (const still of videoStills) {
+      const position = getStillClipPosition(clip, still);
+      if (position === 'before') before += 1;
+      else if (position === 'inside') inside += 1;
+      else if (position === 'after') after += 1;
+    }
+    return { before, inside, after };
+  }, [videoStills, clip]);
 
   // --- Build current clip object ---
   const currentClip = useMemo((): Clip => ({
@@ -399,6 +502,24 @@ export default function ClipEditor({
     }
   }, [annotations, scheduleSave]);
 
+  useEffect(() => {
+    const previous = lastAnnotationHistoryStateRef.current;
+    if (annotations === previous) return;
+
+    const action = annotationHistoryActionRef.current;
+    if (action === 'undo') {
+      annotationHistoryFutureRef.current.push(cloneClipAnnotations(previous));
+    } else if (action === 'redo') {
+      annotationHistoryPastRef.current.push(cloneClipAnnotations(previous));
+    } else if (action !== 'sync') {
+      annotationHistoryPastRef.current.push(cloneClipAnnotations(previous));
+      annotationHistoryFutureRef.current = [];
+    }
+
+    lastAnnotationHistoryStateRef.current = annotations;
+    annotationHistoryActionRef.current = null;
+  }, [annotations]);
+
   // Cleanup save timer
   useEffect(() => {
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
@@ -437,7 +558,8 @@ export default function ClipEditor({
   // Create a new annotation with a single keyframe at currentTMs
   const createAnnotation = useCallback((type: ClipAnnotationType, geometry: Record<string, any>) => {
     const Hinv = currentHomographyInvRef.current;
-    const usePitchCoords = drawCoordMode === 'pitch' && !!Hinv;
+    const supportsPitchCoords = type === 'box' || type === 'circle' || type === 'arrow' || type === 'text' || type === 'highlight';
+    const usePitchCoords = supportsPitchCoords && drawCoordMode === 'pitch' && !!Hinv;
     const toPitchPoint = (x: number, y: number) => {
       if (!Hinv) return { u: x, v: y };
       return applyHomographyInv(Hinv, x, y);
@@ -509,18 +631,52 @@ export default function ClipEditor({
       }
     }
 
+    let style: ClipAnnotation['style'];
+    if (type === 'shadow') {
+      style = {
+        stroke: defaultColor,
+        strokeWidth: Math.max(2, Math.min(defaultStrokeWidth, 4)),
+        strokePattern: 'solid',
+        fill: defaultFill,
+        fillOpacity: Math.max(defaultFillOpacity, 0.22),
+      };
+    } else if (type === 'text') {
+      style = {
+        stroke: defaultColor,
+        strokeWidth: 1,
+        strokePattern: 'solid',
+        fontSize: defaultFontSize,
+        fontFamily: 'Inter, system-ui, sans-serif',
+        textHighlight: defaultTextHighlight,
+      };
+    } else if (isFillCapableAnnotation(type)) {
+      style = {
+        stroke: defaultColor,
+        strokeWidth: defaultStrokeWidth,
+        strokePattern: 'solid',
+        fill: defaultFill,
+        fillOpacity: defaultFillOpacity,
+      };
+    } else {
+      style = {
+        stroke: defaultColor,
+        strokeWidth: defaultStrokeWidth,
+        strokePattern: 'solid',
+      };
+    }
+
     const ann: ClipAnnotation = {
       id: makeId(),
       type,
       coordMode: usePitchCoords ? 'pitch' : 'image',
       source: 'manual',
-      style: { stroke: defaultColor, strokeWidth: defaultStrokeWidth },
+      style,
       keyframes: [{ tMs: currentTMsRef.current, ...keyframeGeometry } as ClipKeyframe],
     };
     setAnnotations(prev => [...prev, ann]);
     setSelectedAnnotationId(ann.id);
     return ann.id;
-  }, [defaultColor, defaultStrokeWidth, drawCoordMode]);
+  }, [defaultColor, defaultStrokeWidth, defaultFill, defaultFillOpacity, defaultFontSize, defaultTextHighlight, drawCoordMode]);
 
   // Delete selected annotation
   const deleteSelectedAnnotation = useCallback(() => {
@@ -623,6 +779,17 @@ export default function ClipEditor({
     if (!selectedAnnotationId) return null;
     return annotations.find(a => a.id === selectedAnnotationId) || null;
   }, [selectedAnnotationId, annotations]);
+  const currentFrameToleranceMs = 1000 / Math.max(1, videoFps);
+  const selectedAnnInterpolated = useMemo(() => {
+    if (!selectedAnn) return null;
+    return interpolateKeyframes(selectedAnn.keyframes, currentTMs, selectedAnn.type, videoFps);
+  }, [selectedAnn, currentTMs, videoFps]);
+  const selectedKeyframeIndexAtCurrentFrame = useMemo(() => {
+    if (!selectedAnn) return -1;
+    return selectedAnn.keyframes.findIndex((keyframe) => Math.abs(keyframe.tMs - currentTMs) <= currentFrameToleranceMs);
+  }, [selectedAnn, currentTMs, currentFrameToleranceMs]);
+  const selectedHasCurrentKeyframe = selectedKeyframeIndexAtCurrentFrame >= 0;
+  const selectedCanDeleteCurrentKeyframe = !!selectedAnn && selectedHasCurrentKeyframe && selectedAnn.keyframes.length > 1;
 
   const canTrackSelection = !!selectedAnn && isTrackableAnnotationType(selectedAnn.type);
   const trackButtonEnabled = canTrack && canTrackSelection;
@@ -660,6 +827,166 @@ export default function ClipEditor({
         return null;
     }
   }, []);
+
+  const extractKeyframeGeometry = useCallback((interp: InterpolatedKeyframe): Record<string, any> | null => {
+    switch (interp.type) {
+      case 'box': {
+        const b = interp as InterpolatedBox;
+        return { x: b.x, y: b.y, w: b.w, h: b.h };
+      }
+      case 'circle': {
+        const c = interp as InterpolatedCircle;
+        return { cx: c.cx, cy: c.cy, rx: c.rx, ry: c.ry };
+      }
+      case 'shadow': {
+        const s = interp as InterpolatedShadow;
+        return { x: s.x, y: s.y, r: s.r, rotation: s.rotation, spreadDeg: s.spreadDeg };
+      }
+      case 'arrow': {
+        const a = interp as InterpolatedArrow;
+        return { x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2 };
+      }
+      case 'lob': {
+        const l = interp as InterpolatedLob;
+        return { x1: l.x1, y1: l.y1, cx: l.cx, cy: l.cy, x2: l.x2, y2: l.y2 };
+      }
+      case 'text': {
+        const t = interp as InterpolatedText;
+        return { x: t.x, y: t.y };
+      }
+      case 'poly': {
+        const p = interp as InterpolatedPoly;
+        return { points: p.points.map(([x, y]) => [x, y] as [number, number]) };
+      }
+      case 'highlight': {
+        const h = interp as InterpolatedHighlight;
+        return { cx: h.cx, cy: h.cy, radius: h.radius };
+      }
+      default:
+        return null;
+    }
+  }, []);
+
+  const resolveAnnotationDisplayStyle = useCallback((ann: ClipAnnotation) => {
+    const style = ann.style || {};
+    const stroke = style.stroke || defaultColor;
+    const strokeWidth = style.strokeWidth ?? getDefaultStrokeWidthForAnnotation(ann.type);
+    const dash = dashFromStrokePattern(style.strokePattern as StrokePattern | undefined, strokeWidth);
+    const fontSize = style.fontSize || defaultFontSize;
+    const fontFamily = style.fontFamily || 'Inter, system-ui, sans-serif';
+    const textHighlight = style.textHighlight ?? defaultTextHighlight;
+    const fillEnabled = isFillCapableAnnotation(ann.type, ann.closed);
+    const fallbackFillOpacity = ann.type === 'shadow' ? 0.22 : defaultFillOpacity;
+    const fillColor = fillEnabled
+      ? hexToRgba(style.fill && style.fill !== 'transparent' ? style.fill : stroke, style.fillOpacity ?? fallbackFillOpacity)
+      : (style.fill && style.fill !== 'transparent'
+          ? hexToRgba(style.fill, style.fillOpacity ?? defaultFillOpacity)
+          : 'transparent');
+
+    return {
+      stroke,
+      strokeWidth,
+      dash,
+      fillColor,
+      fontSize,
+      fontFamily,
+      textHighlight,
+      fillOpacity: style.fillOpacity ?? fallbackFillOpacity,
+    };
+  }, [defaultColor, defaultFillOpacity, defaultFontSize, defaultTextHighlight]);
+
+  const getInterpolatedBounds = useCallback((ann: ClipAnnotation, props: InterpolatedKeyframe, homography: number[] | null = null) => {
+    if (ann.coordMode === 'pitch' && homography) {
+      switch (props.type) {
+        case 'box': {
+          const b = props as InterpolatedBox;
+          return getBoundsForFlatPoints(rectPlaneToImagePoints(homography, b.x + b.w / 2, b.y + b.h / 2, b.w, b.h));
+        }
+        case 'circle': {
+          const c = props as InterpolatedCircle;
+          return getBoundsForFlatPoints(ellipsePlaneToImagePoints(homography, c.cx, c.cy, c.rx, c.ry));
+        }
+        case 'highlight': {
+          const h = props as InterpolatedHighlight;
+          return getBoundsForFlatPoints(ellipsePlaneToImagePoints(homography, h.cx, h.cy, h.radius, h.radius * 0.35));
+        }
+        case 'arrow': {
+          const a = props as InterpolatedArrow;
+          const p1 = applyHomography(homography, a.x1, a.y1);
+          const p2 = applyHomography(homography, a.x2, a.y2);
+          return getBoundsForFlatPoints([p1.x, p1.y, p2.x, p2.y]);
+        }
+        case 'lob': {
+          const l = props as InterpolatedLob;
+          const p1 = applyHomography(homography, l.x1, l.y1);
+          const pc = applyHomography(homography, l.cx, l.cy);
+          const p2 = applyHomography(homography, l.x2, l.y2);
+          return getBoundsForFlatPoints([p1.x, p1.y, pc.x, pc.y, p2.x, p2.y]);
+        }
+        case 'text': {
+          const t = props as InterpolatedText;
+          const p = applyHomography(homography, t.x, t.y);
+          const fontSize = resolveAnnotationDisplayStyle(ann).fontSize;
+          return { x: p.x, y: p.y, w: 100, h: fontSize };
+        }
+        case 'poly': {
+          const p = props as InterpolatedPoly;
+          return getBoundsForFlatPoints(p.points.flatMap(([x, y]) => {
+            const pt = applyHomography(homography, x, y);
+            return [pt.x, pt.y];
+          }));
+        }
+      }
+    }
+    switch (props.type) {
+      case 'box': {
+        const b = props as InterpolatedBox;
+        return { x: b.x, y: b.y, w: b.w, h: b.h };
+      }
+      case 'circle': {
+        const c = props as InterpolatedCircle;
+        return { x: c.cx - c.rx, y: c.cy - c.ry, w: c.rx * 2, h: c.ry * 2 };
+      }
+      case 'shadow': {
+        const s = props as InterpolatedShadow;
+        return getBoundsForFlatPoints(buildShadowSectorPoints(s.x, s.y, s.r, s.rotation, s.spreadDeg));
+      }
+      case 'arrow': {
+        const a = props as InterpolatedArrow;
+        return getBoundsForFlatPoints([a.x1, a.y1, a.x2, a.y2]);
+      }
+      case 'lob': {
+        const l = props as InterpolatedLob;
+        return getBoundsForFlatPoints([l.x1, l.y1, l.cx, l.cy, l.x2, l.y2]);
+      }
+      case 'text': {
+        const t = props as InterpolatedText;
+        const fontSize = resolveAnnotationDisplayStyle(ann).fontSize;
+        return { x: t.x, y: t.y, w: 100, h: fontSize };
+      }
+      case 'poly': {
+        const p = props as InterpolatedPoly;
+        return getBoundsForFlatPoints(p.points.flatMap(([x, y]) => [x, y]));
+      }
+      case 'highlight': {
+        const h = props as InterpolatedHighlight;
+        return { x: h.cx - h.radius, y: h.cy - (h.radius * 0.35), w: h.radius * 2, h: h.radius * 0.7 };
+      }
+      default:
+        return { x: 0, y: 0, w: 0, h: 0 };
+    }
+  }, [resolveAnnotationDisplayStyle]);
+
+  const selectedAnnCanUseTransformer = useMemo(() => {
+    if (!selectedAnn || !selectedAnnInterpolated) return false;
+    if (selectedAnn.coordMode === 'pitch') return false;
+    return (
+      selectedAnnInterpolated.type === 'box'
+      || selectedAnnInterpolated.type === 'circle'
+      || selectedAnnInterpolated.type === 'highlight'
+      || selectedAnnInterpolated.type === 'text'
+    );
+  }, [selectedAnn, selectedAnnInterpolated]);
 
   // Shared tracking helper: call /track, convert keyframes, update annotation
   const doTrack = useCallback(async (
@@ -789,8 +1116,30 @@ export default function ClipEditor({
     await doTrack(ann, seedBbox, seedAbsMs, trackStart, trackEnd, 'range', rangeEndMs);
   }, [hasVideoSource, selectedAnn, retrackRangeEndMs, videoFps, clip.startMs, extractSeedBbox, doTrack]);
 
-  // Undo: revert to snapshot
-  const handleUndo = useCallback(() => {
+  const handleUndoAnnotations = useCallback(() => {
+    const previous = annotationHistoryPastRef.current.pop();
+    if (!previous) return false;
+    annotationHistoryActionRef.current = 'undo';
+    setAnnotations(cloneClipAnnotations(previous));
+    if (selectedAnnotationId && !previous.some((annotation) => annotation.id === selectedAnnotationId)) {
+      setSelectedAnnotationId(previous[0]?.id ?? null);
+    }
+    return true;
+  }, [selectedAnnotationId]);
+
+  const handleRedoAnnotations = useCallback(() => {
+    const next = annotationHistoryFutureRef.current.pop();
+    if (!next) return false;
+    annotationHistoryActionRef.current = 'redo';
+    setAnnotations(cloneClipAnnotations(next));
+    if (selectedAnnotationId && !next.some((annotation) => annotation.id === selectedAnnotationId)) {
+      setSelectedAnnotationId(next[0]?.id ?? null);
+    }
+    return true;
+  }, [selectedAnnotationId]);
+
+  // Undo: revert the last tracking pass when a track-specific snapshot exists.
+  const handleUndoTracking = useCallback(() => {
     if (!undoSnapshot) return;
     setAnnotations(prev => prev.map(a => {
       if (a.id !== undoSnapshot.annId) return a;
@@ -799,6 +1148,18 @@ export default function ClipEditor({
     setUndoSnapshot(null);
     setTrackError(null);
   }, [undoSnapshot]);
+
+  const handleInsertCurrentKeyframe = useCallback(() => {
+    if (!selectedAnn || !selectedAnnInterpolated) return;
+    const geometry = extractKeyframeGeometry(selectedAnnInterpolated);
+    if (!geometry) return;
+    upsertKeyframe(selectedAnn.id, currentTMsRef.current, geometry);
+  }, [selectedAnn, selectedAnnInterpolated, extractKeyframeGeometry, upsertKeyframe]);
+
+  const handleDeleteCurrentKeyframe = useCallback(() => {
+    if (!selectedAnn || selectedKeyframeIndexAtCurrentFrame < 0) return;
+    deleteKeyframe(selectedAnn.id, selectedKeyframeIndexAtCurrentFrame);
+  }, [selectedAnn, selectedKeyframeIndexAtCurrentFrame, deleteKeyframe]);
 
   // --- Homography ---
   const hasHomographyCapability = sidecar.connected && sidecar.capabilities.includes('homography');
@@ -1008,6 +1369,11 @@ export default function ClipEditor({
     currentHomographyInvRef.current = currentHomographyInv;
   }, [currentHomographyInv]);
 
+  const selectedAnnBounds = useMemo(() => {
+    if (!selectedAnn || !selectedAnnInterpolated) return null;
+    return getInterpolatedBounds(selectedAnn, selectedAnnInterpolated, currentHomography);
+  }, [selectedAnn, selectedAnnInterpolated, currentHomography, getInterpolatedBounds]);
+
   const handleTrackHomographyFromSeed = useCallback(async () => {
     if (!hasVideoSource) {
       setTrackError('Tracking unavailable: no registered video source');
@@ -1146,9 +1512,15 @@ export default function ClipEditor({
         e.preventDefault();
         deleteSelectedAnnotation();
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && e.shiftKey) {
         e.preventDefault();
-        handleUndo();
+        handleRedoAnnotations();
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (!handleUndoAnnotations()) {
+          handleUndoTracking();
+        }
       }
       if (e.key === 'Escape') {
         setRetrackRangeEndMs(null);
@@ -1178,7 +1550,7 @@ export default function ClipEditor({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [togglePlay, stepFrame, deleteSelectedAnnotation, handleUndo, projectDir, clip, onClipUpdate, onSaveStatus]);
+  }, [togglePlay, stepFrame, deleteSelectedAnnotation, handleRedoAnnotations, handleUndoAnnotations, handleUndoTracking, projectDir, clip, onClipUpdate, onSaveStatus]);
 
   // --- Interpolate annotations ---
   const interpolated = useMemo(() => {
@@ -1190,6 +1562,41 @@ export default function ClipEditor({
     return results;
   }, [annotations, currentTMs, videoFps]);
 
+  useEffect(() => {
+    const transformer = transformerRef.current;
+    if (!transformer) return;
+    if (!selectedAnnCanUseTransformer) {
+      selectedNodeRef.current = null;
+    }
+    if (selectedNodeRef.current) {
+      transformer.nodes([selectedNodeRef.current]);
+    } else {
+      transformer.nodes([]);
+    }
+    transformer.getLayer()?.batchDraw();
+  }, [selectedAnnotationId, selectedAnnCanUseTransformer, interpolated, scale]);
+
+  const shadowInterpolated = useMemo(
+    () => interpolated.filter(({ props }) => props.type === 'shadow'),
+    [interpolated],
+  );
+  const otherInterpolated = useMemo(
+    () => interpolated.filter(({ props }) => props.type === 'box' || props.type === 'circle'),
+    [interpolated],
+  );
+  const lineInterpolated = useMemo(
+    () => interpolated.filter(({ props }) => props.type === 'arrow' || props.type === 'lob' || props.type === 'poly'),
+    [interpolated],
+  );
+  const highlightInterpolated = useMemo(
+    () => interpolated.filter(({ props }) => props.type === 'highlight'),
+    [interpolated],
+  );
+  const textInterpolated = useMemo(
+    () => interpolated.filter(({ props }) => props.type === 'text'),
+    [interpolated],
+  );
+
   // --- Format time ---
   const formatTime = useCallback((ms: number) => {
     const total = Math.max(0, Math.floor(ms));
@@ -1198,6 +1605,16 @@ export default function ClipEditor({
     const f = Math.floor(((total % 1000) / 1000) * videoFps);
     return `${m}:${String(s).padStart(2, '0')}:${String(f).padStart(2, '0')}`;
   }, [videoFps]);
+
+  const formatAbsoluteTimeNoFrames = useCallback((ms: number) => {
+    const total = Math.max(0, Math.floor(ms));
+    const h = Math.floor(total / 3600000);
+    const m = Math.floor((total % 3600000) / 60000);
+    const s = Math.floor((total % 60000) / 1000);
+    return h > 0
+      ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+      : `${m}:${String(s).padStart(2, '0')}`;
+  }, []);
 
   const handleImportStill = useCallback(async (stillId: string) => {
     if (!projectDir || !manifest) {
@@ -1228,22 +1645,21 @@ export default function ClipEditor({
         return;
       }
 
-      setAnnotations((prev) => [...prev, ...result.annotations]);
+      const applyResult = applyStillImportToClip(annotations, result.annotations, clipFrameMs);
+      setAnnotations(applyResult.annotations);
       setSelectedAnnotationId(result.annotations[0]?.id ?? null);
       seekToMs(clipFrameMs);
       const annotationSetLabel = loaded?.entry.label || loaded?.entry.id || 'default';
       const annotationSetSuffix = annotationSetLabel ? ` from "${annotationSetLabel}"` : '';
       setStillImportMessage(
-        result.skipped > 0
-          ? `Imported ${result.annotations.length} annotations from ${still.id}${annotationSetSuffix}; skipped ${result.skipped} unsupported shape${result.skipped === 1 ? '' : 's'}`
-          : `Imported ${result.annotations.length} annotations from ${still.id}${annotationSetSuffix}`,
+        `${applyResult.existingAtFrameCount > 0 ? `Appended ${applyResult.importedCount} annotations alongside ${applyResult.existingAtFrameCount} existing annotation${applyResult.existingAtFrameCount === 1 ? '' : 's'}` : `Imported ${applyResult.importedCount} annotations`} from ${still.id}${annotationSetSuffix}${result.skipped > 0 ? `; skipped ${result.skipped} unsupported shape${result.skipped === 1 ? '' : 's'}` : ''}`,
       );
     } catch (error: any) {
       setStillImportMessage(error?.message || 'Failed to import still annotations');
     } finally {
       setIsImportingStillId(null);
     }
-  }, [projectDir, manifest, inBoundsStills, clip.startMs, videoFps, seekToMs]);
+  }, [projectDir, manifest, inBoundsStills, clip, videoFps, seekToMs, annotations]);
 
   // --- Pointer position in image coords ---
   const getPointerImagePos = useCallback((e: any): { x: number; y: number } | null => {
@@ -1259,6 +1675,7 @@ export default function ClipEditor({
     setIsDrawing(false);
     drawStartRef.current = null;
     arrowStartRef.current = null;
+    lobStartRef.current = null;
     setTempShape(null);
   }, []);
 
@@ -1303,6 +1720,14 @@ export default function ClipEditor({
         upsertKeyframe(ann.id, tMs, { cx: nx, cy: ny, rx: c.rx, ry: c.ry });
         break;
       }
+      case 'shadow': {
+        const s = props as InterpolatedShadow;
+        const nx = pos.x / scale;
+        const ny = pos.y / scale;
+        if (Math.abs(nx - s.x) < 0.5 && Math.abs(ny - s.y) < 0.5) return;
+        upsertKeyframe(ann.id, tMs, { x: nx, y: ny, r: s.r, rotation: s.rotation, spreadDeg: s.spreadDeg });
+        break;
+      }
       case 'arrow': {
         // Arrow rendered at x=0,y=0 — pos is pure drag delta
         const a = props as InterpolatedArrow;
@@ -1310,6 +1735,21 @@ export default function ClipEditor({
         const dy = pos.y / scale;
         if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
         upsertKeyframe(ann.id, tMs, { x1: a.x1 + dx, y1: a.y1 + dy, x2: a.x2 + dx, y2: a.y2 + dy });
+        break;
+      }
+      case 'lob': {
+        const l = props as InterpolatedLob;
+        const dx = pos.x / scale;
+        const dy = pos.y / scale;
+        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+        upsertKeyframe(ann.id, tMs, {
+          x1: l.x1 + dx,
+          y1: l.y1 + dy,
+          cx: l.cx + dx,
+          cy: l.cy + dy,
+          x2: l.x2 + dx,
+          y2: l.y2 + dy,
+        });
         break;
       }
       case 'text': {
@@ -1341,6 +1781,80 @@ export default function ClipEditor({
     }
   }, [tool, scale, upsertKeyframe]);
 
+  const onShapeTransformEnd = useCallback((ann: ClipAnnotation, props: InterpolatedKeyframe, e: any) => {
+    if (tool !== 'select' || ann.coordMode === 'pitch') return;
+    const node = e.target;
+    const scaleX = node.scaleX();
+    const scaleY = node.scaleY();
+    const pos = node.position();
+
+    switch (props.type) {
+      case 'box': {
+        const box = props as InterpolatedBox;
+        const nextW = Math.max(0.5, (box.w * scaleX));
+        const nextH = Math.max(0.5, (box.h * scaleY));
+        node.scaleX(1);
+        node.scaleY(1);
+        upsertKeyframe(ann.id, currentTMsRef.current, {
+          x: pos.x / scale,
+          y: pos.y / scale,
+          w: nextW,
+          h: nextH,
+        });
+        break;
+      }
+      case 'circle': {
+        const circle = props as InterpolatedCircle;
+        node.scaleX(1);
+        node.scaleY(1);
+        upsertKeyframe(ann.id, currentTMsRef.current, {
+          cx: pos.x / scale,
+          cy: pos.y / scale,
+          rx: Math.max(0.5, circle.rx * scaleX),
+          ry: Math.max(0.5, circle.ry * scaleY),
+        });
+        break;
+      }
+      case 'highlight': {
+        const highlight = props as InterpolatedHighlight;
+        node.scaleX(1);
+        node.scaleY(1);
+        upsertKeyframe(ann.id, currentTMsRef.current, {
+          cx: pos.x / scale,
+          cy: pos.y / scale,
+          radius: Math.max(0.5, highlight.radius * Math.max(scaleX, scaleY)),
+        });
+        break;
+      }
+      case 'text': {
+        node.scaleX(1);
+        node.scaleY(1);
+        upsertKeyframe(ann.id, currentTMsRef.current, {
+          x: pos.x / scale,
+          y: pos.y / scale,
+        });
+        break;
+      }
+      default:
+        node.scaleX(1);
+        node.scaleY(1);
+        break;
+    }
+  }, [tool, scale, upsertKeyframe]);
+
+  const handleSelectedLobControlDrag = useCallback((pos: { x: number; y: number }) => {
+    if (!selectedAnn || !selectedAnnInterpolated || selectedAnnInterpolated.type !== 'lob') return;
+    const lob = selectedAnnInterpolated as InterpolatedLob;
+    upsertKeyframe(selectedAnn.id, currentTMsRef.current, {
+      x1: lob.x1,
+      y1: lob.y1,
+      cx: pos.x / scale,
+      cy: pos.y / scale,
+      x2: lob.x2,
+      y2: lob.y2,
+    });
+  }, [selectedAnn, selectedAnnInterpolated, scale, upsertKeyframe]);
+
   // --- Stage mouse handlers (matching stills Editor behavior) ---
 
   const onStageMouseDown = useCallback((e: any) => {
@@ -1369,7 +1883,7 @@ export default function ClipEditor({
         setManualKeypointOrder(prev => prev.filter(id => id !== clearId));
         return;
       }
-      if (isDrawing || arrowStartRef.current) {
+      if (isDrawing || arrowStartRef.current || lobStartRef.current) {
         cancelDrawing();
       } else {
         setSelectedAnnotationId(null);
@@ -1387,8 +1901,8 @@ export default function ClipEditor({
       if (isStage) setSelectedAnnotationId(null);
       return;
     }
-    // Box/Circle: start drag-draw
-    if (tool === 'box' || tool === 'circle') {
+    // Box/Circle/Shadow: start drag-draw
+    if (tool === 'box' || tool === 'circle' || tool === 'shadow') {
       if (!isStage) return;
       setIsDrawing(true);
       drawStartRef.current = p;
@@ -1398,12 +1912,19 @@ export default function ClipEditor({
   const onStageMouseMove = useCallback((e: any) => {
     if (isManualHomographyMode) return;
     if (!isDrawing || !drawStartRef.current) {
-      // Arrow temp preview: if arrow start is set, show temp line to cursor
+      // Arrow/lob temp preview: if the first point is set, show temp line/curve to cursor
       if (tool === 'arrow' && arrowStartRef.current) {
         const p = getPointerImagePos(e);
         if (p) {
           const s = arrowStartRef.current;
           setTempShape({ type: 'arrow', x1: s.x, y1: s.y, x2: p.x, y2: p.y });
+        }
+      } else if (tool === 'lob' && lobStartRef.current) {
+        const p = getPointerImagePos(e);
+        if (p) {
+          const s = lobStartRef.current;
+          const control = buildDefaultLobControlPoint({ x: s.x, y: s.y }, { x: p.x, y: p.y });
+          setTempShape({ type: 'lob', x1: s.x, y1: s.y, cx: control.x, cy: control.y, x2: p.x, y2: p.y });
         }
       }
       return;
@@ -1422,6 +1943,19 @@ export default function ClipEditor({
       const rx = Math.abs(p.x - s.x);
       const ry = Math.abs(p.y - s.y);
       setTempShape({ type: 'circle', cx: s.x, cy: s.y, rx, ry });
+    } else if (tool === 'shadow') {
+      const dx = p.x - s.x;
+      const dy = p.y - s.y;
+      const dist = Math.hypot(dx, dy);
+      const rotation = dist <= 3 ? 0 : (Math.atan2(dy, dx) * 180) / Math.PI;
+      setTempShape({
+        type: 'shadow',
+        x: s.x,
+        y: s.y,
+        r: dist <= 3 ? DEFAULT_SHADOW_RADIUS : dist,
+        rotation,
+        spreadDeg: DEFAULT_SHADOW_SPREAD_DEG,
+      });
     }
   }, [isDrawing, tool, getPointerImagePos, isManualHomographyMode]);
 
@@ -1450,6 +1984,15 @@ export default function ClipEditor({
         } else {
           createAnnotation('circle', { cx: s.x, cy: s.y, rx: Math.abs(dx), ry: Math.abs(dy) });
         }
+      } else if (tool === 'shadow') {
+        const dist = Math.hypot(dx, dy);
+        createAnnotation('shadow', {
+          x: s.x,
+          y: s.y,
+          r: dist <= 3 ? DEFAULT_SHADOW_RADIUS : dist,
+          rotation: dist <= 3 ? 0 : (Math.atan2(dy, dx) * 180) / Math.PI,
+          spreadDeg: DEFAULT_SHADOW_SPREAD_DEG,
+        });
       }
     }
     setIsDrawing(false);
@@ -1492,6 +2035,22 @@ export default function ClipEditor({
       return;
     }
 
+    if (tool === 'lob') {
+      if (!isStage) return;
+      if (!lobStartRef.current) {
+        lobStartRef.current = p;
+      } else {
+        const s = lobStartRef.current;
+        if (Math.hypot(p.x - s.x, p.y - s.y) >= 3) {
+          const control = buildDefaultLobControlPoint({ x: s.x, y: s.y }, { x: p.x, y: p.y });
+          createAnnotation('lob', { x1: s.x, y1: s.y, cx: control.x, cy: control.y, x2: p.x, y2: p.y });
+        }
+        lobStartRef.current = null;
+        setTempShape(null);
+      }
+      return;
+    }
+
     // Highlight: single click creates default-sized ellipse
     if (tool === 'highlight') {
       if (!isStage) return;
@@ -1511,31 +2070,45 @@ export default function ClipEditor({
         coordMode: usePitchCoords ? 'pitch' : 'image',
         source: 'manual',
         text: 'Text',
-        style: { stroke: defaultColor, strokeWidth: defaultStrokeWidth, fontSize: 48 },
+        style: {
+          stroke: defaultColor,
+          strokeWidth: 1,
+          strokePattern: 'solid',
+          fontSize: defaultFontSize,
+          fontFamily: 'Inter, system-ui, sans-serif',
+          textHighlight: defaultTextHighlight,
+        },
         keyframes: [{ tMs: currentTMsRef.current, x: tp.u, y: tp.v } as ClipKeyframe],
       };
       setAnnotations(prev => [...prev, ann]);
       setSelectedAnnotationId(ann.id);
       return;
     }
-  }, [tool, getPointerImagePos, createAnnotation, drawCoordMode, defaultColor, defaultStrokeWidth, isManualHomographyMode, selectedManualPitchKeyId, manualKeypointImageById]);
+  }, [tool, getPointerImagePos, createAnnotation, drawCoordMode, defaultColor, defaultFontSize, defaultTextHighlight, isManualHomographyMode, selectedManualPitchKeyId, manualKeypointImageById]);
 
   // --- Render annotations as Konva shapes ---
   const isSelectMode = tool === 'select';
   const isPaused = !isPlaying;
   const canInteract = isSelectMode && isPaused;
 
-  const renderAnnotation = useCallback((ann: ClipAnnotation, props: InterpolatedKeyframe, idx: number) => {
-    const style = ann.style || {};
-    const stroke = style.stroke || '#ff0000';
-    const strokeWidth = style.strokeWidth || 3;
-    const fillColor = style.fill && style.fill !== 'transparent'
-      ? hexToRgba(style.fill, style.fillOpacity ?? 0.3)
-      : 'transparent';
-    const dash = dashFromStrokePattern(style.strokePattern as StrokePattern | undefined, strokeWidth);
-    const isSelected = ann.id === selectedAnnotationId;
-    const selStroke = isSelected ? '#ffffff' : undefined;
-    const selStrokeW = isSelected ? 1 : 0;
+  const renderAnnotation = useCallback((ann: ClipAnnotation, props: InterpolatedKeyframe) => {
+    const {
+      stroke,
+      strokeWidth,
+      dash,
+      fillColor,
+      fontSize,
+      fontFamily,
+      textHighlight,
+      fillOpacity,
+    } = resolveAnnotationDisplayStyle(ann);
+    const scaledStrokeWidth = strokeWidth * scale;
+    const scaledDash = dash?.map((segment) => segment * scale);
+    const scaledPointerLength = 10 * scale;
+    const scaledPointerWidth = 10 * scale;
+    const selectedRef = ann.id === selectedAnnotationId && selectedAnnCanUseTransformer
+      ? (node: any) => { selectedNodeRef.current = node; }
+      : undefined;
 
     // --- Pitch-space rendering: transform through homography ---
     if (ann.coordMode === 'pitch' && currentHomography) {
@@ -1567,11 +2140,10 @@ export default function ClipEditor({
               key={ann.id}
               x={0} y={0}
               points={[p1.x * scale, p1.y * scale, p2.x * scale, p2.y * scale]}
-              stroke={stroke} strokeWidth={strokeWidth} fill={stroke}
-              pointerLength={10} pointerWidth={10} dash={dash}
+              stroke={stroke} strokeWidth={scaledStrokeWidth} fill={stroke}
+              pointerLength={scaledPointerLength} pointerWidth={scaledPointerWidth} dash={scaledDash}
               lineCap="round" lineJoin="round"
               listening={false} draggable={false}
-              shadowColor={selStroke} shadowBlur={isSelected ? 6 : 0} shadowEnabled={isSelected}
               hitStrokeWidth={16}
             />
           );
@@ -1583,10 +2155,9 @@ export default function ClipEditor({
             <KText
               key={ann.id}
               x={tp.x * scale} y={tp.y * scale}
-              text={ann.text || ''} fontSize={(style.fontSize || 48) * scale}
-              fontFamily={style.fontFamily || 'Inter, system-ui, sans-serif'}
+              text={ann.text || ''} fontSize={fontSize * scale}
+              fontFamily={fontFamily}
               fill={stroke} listening={false} draggable={false}
-              shadowColor={selStroke} shadowBlur={isSelected ? 6 : 0} shadowEnabled={isSelected}
             />
           );
         }
@@ -1610,11 +2181,10 @@ export default function ClipEditor({
             key={ann.id}
             x={0} y={0}
             points={scaled}
-            stroke={stroke} strokeWidth={strokeWidth} fill={fillColor}
-            closed={ann.closed !== false} dash={dash} lineCap="round" lineJoin="round"
+            stroke={stroke} strokeWidth={scaledStrokeWidth} fill={fillColor}
+            closed={ann.closed !== false} dash={scaledDash} lineCap="round" lineJoin="round"
             listening={canInteract} draggable={false}
             onClick={(e: any) => onShapeClick(ann.id, e)}
-            shadowColor={selStroke} shadowBlur={isSelected ? 6 : 0} shadowEnabled={isSelected}
             hitStrokeWidth={16}
           />
         );
@@ -1634,17 +2204,16 @@ export default function ClipEditor({
             width={b.w * scale}
             height={b.h * scale}
             stroke={stroke}
-            strokeWidth={strokeWidth}
+            strokeWidth={scaledStrokeWidth}
             fill={fillColor}
-            dash={dash}
+            dash={scaledDash}
             listening={canInteract}
             draggable={canInteract}
             onClick={(e: any) => onShapeClick(ann.id, e)}
             onDragEnd={(e: any) => onShapeDragEnd(ann, props, e)}
-            shadowColor={selStroke}
-            shadowBlur={isSelected ? 6 : 0}
-            shadowEnabled={isSelected}
+            onTransformEnd={(e: any) => onShapeTransformEnd(ann, props, e)}
             hitStrokeWidth={12}
+            ref={selectedRef}
           />
         );
       }
@@ -1658,17 +2227,40 @@ export default function ClipEditor({
             radiusX={c.rx * scale}
             radiusY={c.ry * scale}
             stroke={stroke}
-            strokeWidth={strokeWidth}
+            strokeWidth={scaledStrokeWidth}
             fill={fillColor}
-            dash={dash}
+            dash={scaledDash}
             listening={canInteract}
             draggable={canInteract}
             onClick={(e: any) => onShapeClick(ann.id, e)}
             onDragEnd={(e: any) => onShapeDragEnd(ann, props, e)}
-            shadowColor={selStroke}
-            shadowBlur={isSelected ? 6 : 0}
-            shadowEnabled={isSelected}
+            onTransformEnd={(e: any) => onShapeTransformEnd(ann, props, e)}
             hitStrokeWidth={12}
+            ref={selectedRef}
+          />
+        );
+      }
+      case 'shadow': {
+        const s = props as InterpolatedShadow;
+        const localPoints = buildShadowSectorPoints(0, 0, s.r, s.rotation, s.spreadDeg).map((value) => value * scale);
+        return (
+          <KLine
+            key={ann.id}
+            x={s.x * scale}
+            y={s.y * scale}
+            points={localPoints}
+            stroke={stroke}
+            strokeWidth={scaledStrokeWidth}
+            fill={fillColor === 'transparent' ? hexToRgba(stroke, fillOpacity) : fillColor}
+            closed
+            dash={scaledDash}
+            lineCap="round"
+            lineJoin="round"
+            listening={canInteract}
+            draggable={canInteract}
+            onClick={(e: any) => onShapeClick(ann.id, e)}
+            onDragEnd={(e: any) => onShapeDragEnd(ann, props, e)}
+            hitStrokeWidth={16}
           />
         );
       }
@@ -1681,51 +2273,85 @@ export default function ClipEditor({
             y={0}
             points={[a.x1 * scale, a.y1 * scale, a.x2 * scale, a.y2 * scale]}
             stroke={stroke}
-            strokeWidth={strokeWidth}
+            strokeWidth={scaledStrokeWidth}
             fill={stroke}
-            pointerLength={10}
-            pointerWidth={10}
-            dash={dash}
+            pointerLength={scaledPointerLength}
+            pointerWidth={scaledPointerWidth}
+            dash={scaledDash}
             lineCap="round"
             lineJoin="round"
             listening={canInteract}
             draggable={canInteract}
             onClick={(e: any) => onShapeClick(ann.id, e)}
             onDragEnd={(e: any) => onShapeDragEnd(ann, props, e)}
-            shadowColor={selStroke}
-            shadowBlur={isSelected ? 6 : 0}
-            shadowEnabled={isSelected}
             hitStrokeWidth={16}
+          />
+        );
+      }
+      case 'lob': {
+        const l = props as InterpolatedLob;
+        return (
+          <KShape
+            key={ann.id}
+            x={0}
+            y={0}
+            stroke={stroke}
+            strokeWidth={scaledStrokeWidth}
+            dash={scaledDash}
+            fill={stroke}
+            lineCap="round"
+            lineJoin="round"
+            listening={canInteract}
+            draggable={canInteract}
+            onClick={(e: any) => onShapeClick(ann.id, e)}
+            onDragEnd={(e: any) => onShapeDragEnd(ann, props, e)}
+            hitStrokeWidth={16}
+            sceneFunc={(ctx, shape) => {
+              drawLobPathWithArrowhead(
+                ctx,
+                shape,
+                { x: l.x1 * scale, y: l.y1 * scale },
+                { x: l.cx * scale, y: l.cy * scale },
+                { x: l.x2 * scale, y: l.y2 * scale },
+                scaledStrokeWidth,
+              );
+            }}
           />
         );
       }
       case 'text': {
         const t = props as InterpolatedText;
-        const fontSize = (style.fontSize || 48) * scale;
-        const fontFamily = style.fontFamily || 'Inter, system-ui, sans-serif';
-        const highlight = style.textHighlight ?? false;
+        const scaledFontSize = fontSize * scale;
+        const highlight = textHighlight;
         const textColor = stroke;
         const outlineColor = contrastStrokeForHex(stroke);
+        const outlineWidth = Math.max(2, Math.round(fontSize * 0.18)) * scale;
         return (
           <KText
             key={ann.id}
             x={t.x * scale}
             y={t.y * scale}
             text={ann.text || ''}
-            fontSize={fontSize}
+            fontSize={scaledFontSize}
             fontFamily={fontFamily}
             fill={textColor}
             strokeEnabled={highlight}
             stroke={highlight ? outlineColor : undefined}
-            strokeWidth={highlight ? 1 : 0}
+            strokeWidth={highlight ? outlineWidth : 0}
             listening={canInteract}
             draggable={canInteract}
             onClick={(e: any) => onShapeClick(ann.id, e)}
             onDragEnd={(e: any) => onShapeDragEnd(ann, props, e)}
-            shadowColor={selStroke}
-            shadowBlur={isSelected ? 6 : 0}
-            shadowEnabled={isSelected}
+            shadowEnabled={highlight}
+            shadowColor={highlight ? outlineColor : undefined}
+            shadowBlur={highlight ? 2 * scale : 0}
+            shadowOpacity={highlight ? 1 : 0}
+            shadowOffsetX={0}
+            shadowOffsetY={0}
             hitStrokeWidth={12}
+            onTransformEnd={(e: any) => onShapeTransformEnd(ann, props, e)}
+            padding={6 * scale}
+            ref={selectedRef}
           />
         );
       }
@@ -1739,10 +2365,10 @@ export default function ClipEditor({
             y={0}
             points={flatPoints}
             stroke={stroke}
-            strokeWidth={strokeWidth}
+            strokeWidth={scaledStrokeWidth}
             fill={fillColor}
             closed={ann.closed !== false}
-            dash={dash}
+            dash={scaledDash}
             lineCap="round"
             lineJoin="round"
             listening={canInteract}
@@ -1763,24 +2389,23 @@ export default function ClipEditor({
             radiusX={h.radius * scale}
             radiusY={(h.radius * 0.35) * scale}
             stroke={stroke}
-            strokeWidth={strokeWidth}
+            strokeWidth={scaledStrokeWidth}
             fill={fillColor}
-            dash={dash}
+            dash={scaledDash}
             listening={canInteract}
             draggable={canInteract}
             onClick={(e: any) => onShapeClick(ann.id, e)}
             onDragEnd={(e: any) => onShapeDragEnd(ann, props, e)}
-            shadowColor={selStroke}
-            shadowBlur={isSelected ? 6 : 0}
-            shadowEnabled={isSelected}
+            onTransformEnd={(e: any) => onShapeTransformEnd(ann, props, e)}
             hitStrokeWidth={12}
+            ref={selectedRef}
           />
         );
       }
       default:
         return null;
     }
-  }, [scale, canInteract, selectedAnnotationId, currentHomography, onShapeClick, onShapeDragEnd]);
+  }, [scale, canInteract, currentHomography, onShapeClick, onShapeDragEnd, onShapeTransformEnd, resolveAnnotationDisplayStyle, selectedAnnotationId, selectedAnnCanUseTransformer]);
 
   // --- Export: Canvas 2D annotation renderer ---
   const canExport = sidecar.connected && sidecar.capabilities.includes('export');
@@ -1800,11 +2425,14 @@ export default function ClipEditor({
 
     for (const { ann, props } of interps) {
       const style = ann.style || {};
-      const stroke = style.stroke || '#ff0000';
-      const strokeWidth = style.strokeWidth || 3;
-      const fillColor = style.fill && style.fill !== 'transparent'
-        ? hexToRgba(style.fill, style.fillOpacity ?? 0.3)
-        : 'transparent';
+      const {
+        stroke,
+        strokeWidth,
+        fillColor,
+        fontSize,
+        fontFamily,
+        textHighlight,
+      } = resolveAnnotationDisplayStyle(ann);
 
       ctx.strokeStyle = stroke;
       ctx.lineWidth = strokeWidth;
@@ -1827,6 +2455,21 @@ export default function ClipEditor({
           ctx.stroke();
           break;
         }
+        case 'shadow': {
+          const s = props as InterpolatedShadow;
+          const points = buildShadowSectorPoints(s.x, s.y, s.r, s.rotation, s.spreadDeg);
+          if (points.length < 4) break;
+          ctx.beginPath();
+          ctx.moveTo(points[0], points[1]);
+          for (let i = 2; i < points.length; i += 2) {
+            ctx.lineTo(points[i], points[i + 1]);
+          }
+          ctx.closePath();
+          ctx.fillStyle = fillColor === 'transparent' ? hexToRgba(stroke, style.fillOpacity ?? 0.22) : fillColor;
+          ctx.fill();
+          ctx.stroke();
+          break;
+        }
         case 'arrow': {
           const a = props as InterpolatedArrow;
           ctx.beginPath();
@@ -1845,11 +2488,42 @@ export default function ClipEditor({
           ctx.fill();
           break;
         }
+        case 'lob': {
+          const l = props as InterpolatedLob;
+          ctx.beginPath();
+          ctx.moveTo(l.x1, l.y1);
+          ctx.quadraticCurveTo(l.cx, l.cy, l.x2, l.y2);
+          ctx.stroke();
+          const tx = l.x2 - l.cx;
+          const ty = l.y2 - l.cy;
+          const len = Math.hypot(tx, ty) || 1;
+          const ux = tx / len;
+          const uy = ty / len;
+          const px = -uy;
+          const py = ux;
+          const headLength = Math.max(10, strokeWidth * 2.2);
+          const headWidth = Math.max(8, strokeWidth * 1.6);
+          const baseX = l.x2 - ux * headLength;
+          const baseY = l.y2 - uy * headLength;
+          ctx.beginPath();
+          ctx.moveTo(l.x2, l.y2);
+          ctx.lineTo(baseX + px * headWidth * 0.5, baseY + py * headWidth * 0.5);
+          ctx.lineTo(baseX - px * headWidth * 0.5, baseY - py * headWidth * 0.5);
+          ctx.closePath();
+          ctx.fillStyle = stroke;
+          ctx.fill();
+          break;
+        }
         case 'text': {
           const t = props as InterpolatedText;
-          const fontSize = style.fontSize || 48;
-          const fontFamily = style.fontFamily || 'Inter, system-ui, sans-serif';
           ctx.font = `${fontSize}px ${fontFamily}`;
+          if (textHighlight) {
+            const outlineColor = contrastStrokeForHex(stroke);
+            const outlineWidth = Math.max(2, Math.round(fontSize * 0.18));
+            ctx.strokeStyle = outlineColor;
+            ctx.lineWidth = outlineWidth;
+            ctx.strokeText(ann.text || '', t.x, t.y + fontSize);
+          }
           ctx.fillStyle = stroke;
           ctx.fillText(ann.text || '', t.x, t.y + fontSize);
           break;
@@ -1879,7 +2553,7 @@ export default function ClipEditor({
         }
       }
     }
-  }, [annotations]);
+  }, [annotations, resolveAnnotationDisplayStyle]);
 
   // --- Progress bar ---
   const progressFrac = clipDurationMs > 0 ? currentTMs / clipDurationMs : 0;
@@ -1946,48 +2620,18 @@ export default function ClipEditor({
                   />
                 </React.Fragment>
               );})}
-              {interpolated.map(({ ann, props }, i) => renderAnnotation(ann, props, i))}
-              {/* Temp shape preview during drawing */}
-              {tempShape?.type === 'box' && (
-                <KRect
-                  x={tempShape.x * scale}
-                  y={tempShape.y * scale}
-                  width={tempShape.w * scale}
-                  height={tempShape.h * scale}
-                  stroke={defaultColor}
-                  strokeWidth={defaultStrokeWidth}
-                  dash={[6, 3]}
-                  listening={false}
-                />
-              )}
-              {tempShape?.type === 'circle' && (
-                <KEllipse
-                  x={tempShape.cx * scale}
-                  y={tempShape.cy * scale}
-                  radiusX={tempShape.rx * scale}
-                  radiusY={tempShape.ry * scale}
-                  stroke={defaultColor}
-                  strokeWidth={defaultStrokeWidth}
-                  dash={[6, 3]}
-                  listening={false}
-                />
-              )}
-              {tempShape?.type === 'arrow' && (
-                <KArrow
-                  x={0} y={0}
-                  points={[
-                    tempShape.x1 * scale, tempShape.y1 * scale,
-                    tempShape.x2 * scale, tempShape.y2 * scale,
-                  ]}
-                  stroke={defaultColor}
-                  strokeWidth={defaultStrokeWidth}
-                  fill={defaultColor}
-                  pointerLength={10}
-                  pointerWidth={10}
-                  dash={[6, 3]}
-                  listening={false}
-                />
-              )}
+            </Layer>
+            <Layer>
+              {shadowInterpolated.map(({ ann, props }) => renderAnnotation(ann, props))}
+            </Layer>
+            <Layer>
+              {otherInterpolated.map(({ ann, props }) => renderAnnotation(ann, props))}
+            </Layer>
+            <Layer>
+              {lineInterpolated.map(({ ann, props }) => renderAnnotation(ann, props))}
+            </Layer>
+            <Layer>
+              {highlightInterpolated.map(({ ann, props }) => renderAnnotation(ann, props))}
             </Layer>
             {showHomographyOverlay && homographyOverlayLines.length > 0 && (
               <Layer listening={false}>
@@ -1996,8 +2640,8 @@ export default function ClipEditor({
                     key={`homography-overlay-${idx}`}
                     points={line.points}
                     stroke="#22d3ee"
-                    strokeWidth={1.5}
-                    dash={line.dashed ? [6, 4] : undefined}
+                    strokeWidth={1.5 * scale}
+                    dash={line.dashed ? [6 * scale, 4 * scale] : undefined}
                     opacity={0.9}
                     lineCap="round"
                     lineJoin="round"
@@ -2010,6 +2654,141 @@ export default function ClipEditor({
                 <KImage image={foregroundCutout} x={0} y={0} width={stageW} height={stageH} />
               </Layer>
             )}
+            <Layer>
+              {textInterpolated.map(({ ann, props }) => renderAnnotation(ann, props))}
+            </Layer>
+            <Layer>
+              {/* Temp shape preview during drawing */}
+              {tempShape?.type === 'box' && (
+                <KRect
+                  x={tempShape.x * scale}
+                  y={tempShape.y * scale}
+                  width={tempShape.w * scale}
+                  height={tempShape.h * scale}
+                  stroke={defaultColor}
+                  strokeWidth={defaultStrokeWidth * scale}
+                  dash={[6 * scale, 3 * scale]}
+                  listening={false}
+                />
+              )}
+              {tempShape?.type === 'circle' && (
+                <KEllipse
+                  x={tempShape.cx * scale}
+                  y={tempShape.cy * scale}
+                  radiusX={tempShape.rx * scale}
+                  radiusY={tempShape.ry * scale}
+                  stroke={defaultColor}
+                  strokeWidth={defaultStrokeWidth * scale}
+                  dash={[6 * scale, 3 * scale]}
+                  listening={false}
+                />
+              )}
+              {tempShape?.type === 'shadow' && (
+                <KLine
+                  x={tempShape.x * scale}
+                  y={tempShape.y * scale}
+                  points={buildShadowSectorPoints(0, 0, tempShape.r, tempShape.rotation, tempShape.spreadDeg).map((value) => value * scale)}
+                  stroke={defaultColor}
+                  strokeWidth={defaultStrokeWidth * scale}
+                  fill={hexToRgba(defaultColor, 0.18)}
+                  closed
+                  dash={[6 * scale, 3 * scale]}
+                  lineCap="round"
+                  lineJoin="round"
+                  listening={false}
+                />
+              )}
+              {tempShape?.type === 'arrow' && (
+                <KArrow
+                  x={0} y={0}
+                  points={[
+                    tempShape.x1 * scale, tempShape.y1 * scale,
+                    tempShape.x2 * scale, tempShape.y2 * scale,
+                  ]}
+                  stroke={defaultColor}
+                  strokeWidth={defaultStrokeWidth * scale}
+                  fill={defaultColor}
+                  pointerLength={10 * scale}
+                  pointerWidth={10 * scale}
+                  dash={[6 * scale, 3 * scale]}
+                  listening={false}
+                />
+              )}
+              {tempShape?.type === 'lob' && (
+                <KShape
+                  x={0}
+                  y={0}
+                  stroke={defaultColor}
+                  strokeWidth={defaultStrokeWidth * scale}
+                  dash={[6 * scale, 3 * scale]}
+                  fill={defaultColor}
+                  lineCap="round"
+                  lineJoin="round"
+                  listening={false}
+                  sceneFunc={(ctx, shape) => {
+                    drawLobPathWithArrowhead(
+                      ctx,
+                      shape,
+                      { x: tempShape.x1 * scale, y: tempShape.y1 * scale },
+                      { x: tempShape.cx * scale, y: tempShape.cy * scale },
+                      { x: tempShape.x2 * scale, y: tempShape.y2 * scale },
+                      defaultStrokeWidth * scale,
+                    );
+                  }}
+                />
+              )}
+            </Layer>
+            <Layer>
+              {selectedAnnBounds && (
+                <KRect
+                  x={selectedAnnBounds.x * scale}
+                  y={selectedAnnBounds.y * scale}
+                  width={Math.max(0, selectedAnnBounds.w * scale)}
+                  height={Math.max(0, selectedAnnBounds.h * scale)}
+                  stroke="#60a5fa"
+                  dash={[4 * scale, 4 * scale]}
+                  strokeWidth={1.5 * scale}
+                  listening={false}
+                />
+              )}
+              {selectedAnn && selectedAnnInterpolated?.type === 'lob' && (() => {
+                const lob = selectedAnnInterpolated as InterpolatedLob;
+                return (
+                  <>
+                    <KLine
+                      points={[
+                        lob.x1 * scale,
+                        lob.y1 * scale,
+                        lob.cx * scale,
+                        lob.cy * scale,
+                        lob.x2 * scale,
+                        lob.y2 * scale,
+                      ]}
+                      stroke="#60a5fa"
+                      dash={[4 * scale, 4 * scale]}
+                      strokeWidth={1.5 * scale}
+                      listening={false}
+                    />
+                    <KCircle
+                      x={lob.cx * scale}
+                      y={lob.cy * scale}
+                      radius={7 * scale}
+                      fill="#60a5fa"
+                      stroke="#ffffff"
+                      strokeWidth={1.5 * scale}
+                      draggable={canInteract}
+                      onDragMove={(e: any) => handleSelectedLobControlDrag(e.target.position())}
+                    />
+                  </>
+                );
+              })()}
+              <Transformer
+                ref={transformerRef}
+                rotateEnabled={false}
+                anchorSize={10 * scale}
+                enabledAnchors={selectedAnnCanUseTransformer ? undefined : []}
+              />
+            </Layer>
           </Stage>
         )}
       </div>
@@ -2018,6 +2797,7 @@ export default function ClipEditor({
       <TimelineStrip
         durationMs={clipDurationMs}
         currentTMs={currentTMs}
+        currentFrameToleranceMs={currentFrameToleranceMs}
         annotations={annotations}
         selectedAnnotationId={selectedAnnotationId}
         retrackRangeEndMs={retrackRangeEndMs}
@@ -2030,51 +2810,118 @@ export default function ClipEditor({
         onShiftClick={setRetrackRangeEndMs}
       />
 
+      <div className="shrink-0 bg-surface border-t border-border">
+        <div className="px-3 py-2 flex items-center gap-2 flex-wrap">
+          <div className="text-xs uppercase tracking-wide text-muted">Selection</div>
+          {selectedAnn ? (
+            <>
+              <div className="text-xs font-medium">{selectedAnn.type}</div>
+              <div className="text-xs text-muted">source: {selectedAnn.source}</div>
+              <div className="text-xs text-muted">{selectedAnn.coordMode} coords</div>
+              <div className="text-xs text-muted">{selectedAnn.keyframes.length} keyframe{selectedAnn.keyframes.length === 1 ? '' : 's'}</div>
+              <div className={`text-xs ${selectedHasCurrentKeyframe ? 'text-white' : 'text-muted'}`}>
+                {selectedHasCurrentKeyframe ? 'Current frame is keyed' : (selectedAnnInterpolated ? 'Current frame is interpolated' : 'Not visible at current frame')}
+              </div>
+              <button
+                onClick={handleInsertCurrentKeyframe}
+                disabled={!selectedAnnInterpolated}
+                className="px-2 py-1 text-xs border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Create or refresh a keyframe for the selected annotation at the current frame"
+              >
+                KF Here
+              </button>
+              <button
+                onClick={handleDeleteCurrentKeyframe}
+                disabled={!selectedCanDeleteCurrentKeyframe}
+                className="px-2 py-1 text-xs border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Delete the selected annotation's current-frame keyframe when another keyframe still exists"
+              >
+                Delete KF
+              </button>
+            </>
+          ) : (
+            <div className="text-xs text-muted">No annotation selected. Pause playback and use Select mode to inspect or edit an annotation.</div>
+          )}
+          <div className="flex-1" />
+          <div className="text-xs text-muted">Selected annotations use the same dashed frame overlays as the still editor, and current-frame keyframes are emphasized in the timeline.</div>
+        </div>
+      </div>
+
       {manifest && (
         <div className="shrink-0 bg-surface border-t border-border">
           <div className="px-3 py-2 flex items-center gap-2">
             <div className="text-xs uppercase tracking-wide text-muted">Stills In Clip</div>
             <div className="text-xs text-muted">
-              {inBoundsStills.length} in-range still{inBoundsStills.length === 1 ? '' : 's'}
+              {stillPositionCounts.inside} in clip • {stillPositionCounts.before} before • {stillPositionCounts.after} after
             </div>
-            <div className="flex-1" />
-            <div className="text-xs text-muted">Import uses the still&apos;s default annotation set when available, otherwise the first available saved set</div>
           </div>
           <div className="px-3 pb-3 overflow-x-auto">
-            {inBoundsStills.length === 0 ? (
-              <div className="text-xs text-muted py-1">No stills fall inside this clip&apos;s time bounds yet.</div>
+            {videoStills.length === 0 ? (
+              <div className="text-xs text-muted py-1">No stills exist yet for this clip&apos;s source video.</div>
             ) : (
               <div className="flex items-stretch gap-2 min-w-max">
-                {inBoundsStills.map((still) => {
+                {videoStills.map((still) => {
                   const clipStillTMs = roundToFrame(getClipRelativeMsForStill(clip, still), videoFps);
-                  const isCurrent = Math.abs(currentTMs - clipStillTMs) <= (1000 / Math.max(1, videoFps));
-                  const hasIndexedAnnotations = !!manifest.annotations?.some((entry) => entry.stillId === still.id);
+                  const position = getStillClipPosition(clip, still);
+                  const isInside = position === 'inside';
+                  const isCurrent = isInside && Math.abs(currentTMs - clipStillTMs) <= (1000 / Math.max(1, videoFps));
+                  const statusLabel = position === 'inside'
+                    ? 'In clip'
+                    : position === 'before'
+                      ? 'Before clip'
+                      : 'After clip';
+                  const timingLabel = isInside
+                    ? formatTime(clipStillTMs)
+                    : `${formatAbsoluteTimeNoFrames(still.t_ms)} source`;
                   return (
                     <div
                       key={still.id}
-                      className={`rounded border px-3 py-2 min-w-[220px] ${isCurrent ? 'border-accent bg-selected' : 'border-subtle bg-canvas'}`}
+                      className={`rounded border px-2 py-1.5 min-w-[172px] ${
+                        isCurrent
+                          ? 'border-accent bg-selected'
+                          : isInside
+                            ? 'border-subtle bg-canvas'
+                            : 'border-subtle bg-raised opacity-70'
+                      } ${isInside ? 'cursor-pointer' : ''}`}
+                      onClick={isInside ? () => seekToMs(clipStillTMs) : undefined}
+                      onKeyDown={isInside ? (event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          seekToMs(clipStillTMs);
+                        }
+                      } : undefined}
+                      role={isInside ? 'button' : undefined}
+                      tabIndex={isInside ? 0 : undefined}
+                      title={isInside ? `Jump to ${timingLabel}` : undefined}
                     >
-                      <div className="text-xs font-medium">{formatTime(clipStillTMs)}</div>
-                      <div className="text-[11px] text-muted mt-1 truncate" title={still.id}>{still.id}</div>
-                      <div className="text-[11px] text-muted mt-1">
-                        {hasIndexedAnnotations ? 'Saved annotations available' : 'No indexed annotation sets'}
-                      </div>
-                      <div className="flex items-center gap-2 mt-2">
-                        <button
-                          onClick={() => seekToMs(clipStillTMs)}
-                          className="px-2 py-1 text-xs border-0 cursor-pointer"
-                          title="Jump to the still's matching frame in this clip"
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-medium whitespace-nowrap">{timingLabel}</div>
+                        <div
+                          className={`text-[10px] uppercase tracking-wide whitespace-nowrap ${
+                            isInside ? 'text-accent' : 'text-muted'
+                          }`}
                         >
-                          Jump
-                        </button>
-                        <button
-                          onClick={() => handleImportStill(still.id)}
-                          disabled={isImportingStillId === still.id}
-                          className="px-2 py-1 text-xs border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                          title="Import this still's primary annotation set onto the matching clip frame"
-                        >
-                          {isImportingStillId === still.id ? 'Importing...' : 'Import'}
-                        </button>
+                          {statusLabel}
+                        </div>
+                        {isInside ? (
+                          <div className="ml-auto flex items-center gap-1">
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleImportStill(still.id);
+                              }}
+                              onKeyDown={(event) => event.stopPropagation()}
+                              disabled={isImportingStillId === still.id}
+                              className="px-2 py-0.5 text-xs border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                              title="Import this still onto the matching clip frame"
+                              aria-label={`Import ${timingLabel}`}
+                            >
+                              {isImportingStillId === still.id ? '…' : '↓'}
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="ml-auto text-[10px] text-muted whitespace-nowrap">Outside</div>
+                        )}
                       </div>
                     </div>
                   );
@@ -2153,9 +3000,9 @@ export default function ClipEditor({
           {/* Undo re-track */}
           {undoSnapshot && (
             <button
-              onClick={handleUndo}
+              onClick={handleUndoTracking}
               className="px-3 py-0.5 text-sm border-0 cursor-pointer"
-              title="Undo last re-track (Ctrl+Z)"
+              title="Undo last re-track"
             >
               Undo
             </button>

@@ -70,6 +70,12 @@ export default function StillsPage() {
   }, [manifest, clips]);
 
   const videoFps = useMemo(() => (manifest?.videos.find(v => v.id === selectedVideoId)?.fps) || 30, [manifest, selectedVideoId]);
+  const selectedVideo = useMemo(
+    () => manifest?.videos.find((video) => video.id === selectedVideoId) ?? null,
+    [manifest, selectedVideoId],
+  );
+  const hasMultipleVideos = (manifest?.videos.length || 0) > 1;
+  const selectedVideoLabel = selectedVideo?.label || 'current video';
 
   const formatTimeNoMs = useCallback((ms: number) => {
     const clamped = Math.max(0, Math.floor(ms || 0));
@@ -79,6 +85,17 @@ export default function StillsPage() {
     const ss = Math.floor(r / 1000);
     return hh > 0 ? `${hh}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}` : `${mm}:${String(ss).padStart(2,'0')}`;
   }, []);
+  const formatDurationLabel = useCallback((ms: number) => {
+    const totalSeconds = Math.max(0, Math.round((ms || 0) / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes <= 0) return `${seconds}s`;
+    if (seconds === 0) return `${minutes}m`;
+    return `${minutes}m ${seconds}s`;
+  }, []);
+  const countClipKeyframes = useCallback((clip: Clip) => (
+    clip.annotations.reduce((sum, annotation) => sum + annotation.keyframes.length, 0)
+  ), []);
 
   const getFileUrlForPath = useCallback(async (dir: FileSystemDirectoryHandle, path: string) => {
     const parts = path.split('/').filter(Boolean);
@@ -441,6 +458,18 @@ export default function StillsPage() {
     }
   }, [projectDir]);
 
+  const applyCurrentPlayerTimeToClipBoundary = useCallback((boundary: 'start' | 'end') => {
+    const nowMs = Math.max(0, Math.round(playerRef.current?.getCurrentTimeMs() ?? 0));
+    if (boundary === 'start') {
+      setNewClipStartMarkId('');
+      setNewClipStartMs(String(nowMs));
+    } else {
+      setNewClipEndMarkId('');
+      setNewClipEndMs(String(nowMs));
+    }
+    setError(null);
+  }, []);
+
   
 
   const generateHere = useCallback(async () => {
@@ -642,8 +671,24 @@ export default function StillsPage() {
             />
           </div>
           <div className="flex-[1_1_50%] min-w-[320px] min-h-0 overflow-y-auto border-l border-subtle p-3">
+            <div className="mb-4 rounded border border-subtle bg-raised px-3 py-2">
+              <div className="text-sm font-medium">Working in {selectedVideoLabel}</div>
+              <div className="mt-1 text-xs text-muted">
+                This page shows stills and clips for the currently selected video only.
+                {hasMultipleVideos ? ' Go back to Home to switch videos before browsing or creating clips for another source.' : ''}
+              </div>
+              <div className="mt-1 text-[11px] text-muted">
+                {(selectedVideo?.durationMs != null) ? `Duration ${formatTimeNoMs(selectedVideo.durationMs)} • ` : ''}
+                {videoFps} fps
+                {hasMultipleVideos ? ` • ${manifest.videos.length} videos in project` : ''}
+              </div>
+            </div>
+
             {/* Stills section */}
-            <strong>Stills ({thumbs.length})</strong>
+            <div className="flex items-end justify-between gap-3">
+              <strong>Stills for {selectedVideoLabel} ({thumbs.length})</strong>
+              <div className="text-[11px] text-muted">Frozen moments for static analysis</div>
+            </div>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 mt-2">
               {thumbs.map(t => (
                 <div
@@ -690,7 +735,10 @@ export default function StillsPage() {
 
             {/* Clips section */}
             <div className="mt-6">
-              <strong>Clips ({clips.length})</strong>
+              <div className="flex items-end justify-between gap-3">
+                <strong>Clips for {selectedVideoLabel} ({clips.length})</strong>
+                <div className="text-[11px] text-muted">Sequence analysis windows in the selected video</div>
+              </div>
               <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 mt-2">
                 {clips.map(c => (
                   <div
@@ -705,12 +753,23 @@ export default function StillsPage() {
                     ) : (
                       <div className="w-full aspect-video bg-raised flex items-center justify-center text-muted text-xs">Loading...</div>
                     )}
-                    <div className="px-1.5 py-1 text-xs text-muted flex justify-between">
-                      <span>{formatTimeNoMs(c.startMs)} – {formatTimeNoMs(c.endMs)}</span>
-                      <span>{c.annotations.length} ann.</span>
-                    </div>
-                    <div className="px-1.5 pb-1 text-[11px] text-muted">
-                      {derivedStillCountByClipId.get(c.id) ?? 0} derived still{(derivedStillCountByClipId.get(c.id) ?? 0) === 1 ? '' : 's'} in bounds
+                    <div className="px-2 py-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="text-sm font-medium">
+                          {formatTimeNoMs(c.startMs)} – {formatTimeNoMs(c.endMs)}
+                        </div>
+                        <div className="text-[11px] text-muted whitespace-nowrap">
+                          {formatDurationLabel(c.endMs - c.startMs)}
+                        </div>
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted">
+                        {c.startMarkId ? 'Start from mark' : 'Manual start'} • {c.endMarkId ? 'End from mark' : 'Manual end'}
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px] text-muted">
+                        <span>{c.annotations.length} annotation{c.annotations.length === 1 ? '' : 's'}</span>
+                        <span>{countClipKeyframes(c)} keyframe{countClipKeyframes(c) === 1 ? '' : 's'}</span>
+                        <span>{derivedStillCountByClipId.get(c.id) ?? 0} in-bounds still{(derivedStillCountByClipId.get(c.id) ?? 0) === 1 ? '' : 's'}</span>
+                      </div>
                     </div>
                     <div className={`absolute top-0 bottom-0 right-0 flex flex-col border-l border-border transition-[transform,opacity] duration-[120ms] ease w-9 ${hoveredClipId === c.id ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'}`}>
                       <button
@@ -731,7 +790,7 @@ export default function StillsPage() {
                   </div>
                 ))}
                 {clips.length === 0 && (
-                  <div className="text-xs text-muted py-2">No clips yet. Click &quot;New Clip&quot; to create one.</div>
+                  <div className="text-xs text-muted py-2">No clips yet for {selectedVideoLabel}. Click &quot;New Clip&quot; to create one in the current video.</div>
                 )}
               </div>
             </div>
@@ -744,6 +803,10 @@ export default function StillsPage() {
         <div className="modal-overlay" onClick={() => setShowNewClipModal(false)}>
           <div className="modal-card" onClick={e => e.stopPropagation()} style={{ minWidth: 340, maxWidth: 440 }}>
             <strong className="block mb-3">New Clip</strong>
+            <div className="mb-3 text-xs text-muted">
+              Creating a clip in <strong>{selectedVideoLabel}</strong>.
+              {hasMultipleVideos ? ' This modal only uses marks and times from the currently selected video.' : ''}
+            </div>
 
             <div className="flex flex-col gap-3">
               {/* Start */}
@@ -771,6 +834,14 @@ export default function StillsPage() {
                       className="w-24 text-sm"
                     />
                   )}
+                  <button
+                    onClick={() => applyCurrentPlayerTimeToClipBoundary('start')}
+                    type="button"
+                    className="px-2 py-1 text-xs cursor-pointer"
+                    title="Use the current player time for the clip start"
+                  >
+                    Use current
+                  </button>
                 </div>
               </div>
 
@@ -799,6 +870,14 @@ export default function StillsPage() {
                       className="w-24 text-sm"
                     />
                   )}
+                  <button
+                    onClick={() => applyCurrentPlayerTimeToClipBoundary('end')}
+                    type="button"
+                    className="px-2 py-1 text-xs cursor-pointer"
+                    title="Use the current player time for the clip end"
+                  >
+                    Use current
+                  </button>
                 </div>
               </div>
             </div>

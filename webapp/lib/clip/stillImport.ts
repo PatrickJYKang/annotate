@@ -13,6 +13,15 @@ type ImportResult = {
   skipped: number;
 };
 
+export type StillImportConflictResolution = 'append';
+
+type ApplyStillImportResult = {
+  annotations: ClipAnnotation[];
+  existingAtFrameCount: number;
+  importedCount: number;
+  resolution: StillImportConflictResolution;
+};
+
 function toPointPairs(points: number[] | undefined): [number, number][] {
   if (!Array.isArray(points) || points.length < 2) return [];
   const out: [number, number][] = [];
@@ -119,6 +128,25 @@ function buildKeyframeFromShape(
         keyframe: { tMs, cx: shape.x, cy: shape.y, rx: rx!, ry: ry! },
       };
     }
+    case 'shadow': {
+      if (shape.plane) return null;
+      const radius = shape.r ?? shape.rx;
+      if (!Number.isFinite(shape.x) || !Number.isFinite(shape.y) || !Number.isFinite(radius)) {
+        return null;
+      }
+      return {
+        type: 'shadow',
+        coordMode: 'image',
+        keyframe: {
+          tMs,
+          x: shape.x,
+          y: shape.y,
+          r: radius!,
+          rotation: Number.isFinite(shape.rotation) ? shape.rotation! : 0,
+          spreadDeg: Number.isFinite(shape.spreadDeg) ? shape.spreadDeg! : 42,
+        },
+      };
+    }
     case 'arrow': {
       const points = toPointPairs(shape.points);
       if (points.length < 2) return null;
@@ -131,6 +159,24 @@ function buildKeyframeFromShape(
           y1: points[0][1],
           x2: points[1][0],
           y2: points[1][1],
+        },
+      };
+    }
+    case 'lob': {
+      if (shape.plane) return null;
+      const points = toPointPairs(shape.points);
+      if (points.length < 3) return null;
+      return {
+        type: 'lob',
+        coordMode: 'image',
+        keyframe: {
+          tMs,
+          x1: points[0][0],
+          y1: points[0][1],
+          cx: points[1][0],
+          cy: points[1][1],
+          x2: points[2][0],
+          y2: points[2][1],
         },
       };
     }
@@ -223,4 +269,21 @@ export function importStillDocumentToClip(
   }
 
   return { annotations, skipped };
+}
+
+export function applyStillImportToClip(
+  existingAnnotations: ClipAnnotation[],
+  importedAnnotations: ClipAnnotation[],
+  clipFrameMs: number,
+): ApplyStillImportResult {
+  const existingAtFrameCount = existingAnnotations.filter((annotation) =>
+    annotation.keyframes.some((keyframe) => keyframe.tMs === clipFrameMs),
+  ).length;
+
+  return {
+    annotations: [...existingAnnotations, ...importedAnnotations],
+    existingAtFrameCount,
+    importedCount: importedAnnotations.length,
+    resolution: 'append',
+  };
 }

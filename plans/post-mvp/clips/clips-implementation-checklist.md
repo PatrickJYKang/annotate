@@ -65,22 +65,24 @@ Current behavior: clip import reads exactly one annotation document at a time fo
 
 ### 2.2 Clip browser usability
 
-- [ ] Review the stills/clips page layout with the newer clip-first workflow in mind.
-- [ ] Decide whether clips remain primarily surfaced on the stills page or need a more dedicated entry pattern later.
-- [ ] Improve clip card metadata so sequence work is easier to scan quickly.
-- [ ] Verify clip creation flows work cleanly when multiple videos are present.
+- [x] Review the stills/clips page layout with the newer clip-first workflow in mind.
+- [x] Decide whether clips remain primarily surfaced on the stills page or need a more dedicated entry pattern later.
+Current stance: keep clips primarily surfaced on the stills page for now, but make the selected-video scope explicit and revisit a dedicated clip browser only when cross-video browsing becomes a real pain point.
+- [x] Improve clip card metadata so sequence work is easier to scan quickly.
+- [x] Verify clip creation flows work cleanly when multiple videos are present.
+Current implementation: the stills page and new-clip modal now make the current-video scope explicit, clip cards surface duration / bounds / annotation counts / in-bounds still counts more clearly, and clip creation can pull start or end times directly from the current player position when manual bounds are being used.
 
 ### 2.3 In-bounds still surfacing
 
 - [x] Surface all stills within clip bounds automatically inside the clip editor.
 - [x] Order surfaced stills chronologically.
-- [-] Decide UI treatment for surfaced stills:
+- [x] Decide UI treatment for surfaced stills:
   - inline timeline markers
   - side rail
   - filmstrip
   - inspector/browser section
-Current implementation uses a dedicated in-editor still browser strip with `Jump` and `Import` actions.
-- [ ] Make it obvious which stills are within bounds vs outside the clip.
+Current implementation uses a dedicated in-editor still browser strip for the clip's source video, with explicit `Before clip` / `In clip` / `After clip` status and `Jump` / `Import` actions only for in-clip stills.
+- [x] Make it obvious which stills are within bounds vs outside the clip.
 - [x] Ensure surfaced stills update automatically when clip bounds change.
 
 ---
@@ -100,16 +102,17 @@ Current implementation uses a dedicated in-editor still browser strip with `Jump
 - [x] Preserve annotation geometry and styles where possible.
 - [x] Define how annotation IDs are regenerated or remapped on import.
 - [x] Decide how text and multi-shape still annotation sets are handled.
-Current behavior: import uses the still's primary saved annotation set, regenerates clip annotation IDs, and flattens perspective-backed still shapes into image-space clip annotations where needed.
+Current behavior: import uses the still's default annotation set when available and otherwise the first available saved set, regenerates clip annotation IDs, and flattens perspective-backed still shapes into image-space clip annotations where needed.
 
 ### 3.3 Conflict handling
 
-- [ ] Decide what happens if the clip already has annotations of the same apparent semantic role at that frame.
-- [ ] Choose initial behavior:
+- [x] Decide what happens if the clip already has annotations of the same apparent semantic role at that frame.
+- [x] Choose initial behavior:
   - append imported annotations
   - replace selected annotations
   - user chooses merge mode
-- [ ] Add tests for repeated import into the same clip frame.
+Current behavior: still import does not attempt semantic matching or replacement. If the clip already has annotations at the target frame, the imported annotations are appended as additional manual annotations and the UI makes that explicit.
+- [x] Add tests for repeated import into the same clip frame.
 
 ---
 
@@ -123,11 +126,13 @@ Current behavior: import uses the still's primary saved annotation set, regenera
 
 ### 4.2 UX polish
 
-- [ ] Review the clip editor against the "After Effects lite for tactical analysis" target.
-- [ ] Improve toolbar clarity and tool affordances.
-- [ ] Improve selection state visibility for annotations and keyframes.
-- [ ] Make keyframe editing less fiddly where needed.
-- [ ] Add missing tactical tool presets once the shared annotation language expands.
+- [x] Review the clip editor against the "After Effects lite for tactical analysis" target.
+- [x] Improve toolbar clarity and tool affordances.
+- [x] Improve selection state visibility for annotations and keyframes.
+- [x] Make keyframe editing less fiddly where needed.
+- Current implementation: the clip page now exposes a clearer tool palette with per-tool hints, the editor shows a dedicated selected-annotation status strip, selected shapes/keyframes are more visibly emphasized, and current-frame keyframe actions (`KF Here`, `Delete KF`) make timeline editing less fiddly.
+- [x] Add missing tactical tool presets once the shared annotation language expands.
+Current implementation: the clip editor now supports `shadow` and `lob` as first-class tactical tools, with schema/interpolation/import/rendering support so those shapes can be created directly in clips and imported from stills.
 
 ### 4.3 Playback context
 

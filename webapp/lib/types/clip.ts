@@ -11,7 +11,9 @@ export type AnnotationSource = 'manual' | 'auto' | 'corrected';
 export type ClipAnnotationType =
   | 'box'
   | 'circle'
+  | 'shadow'
   | 'arrow'
+  | 'lob'
   | 'text'
   | 'poly'
   | 'highlight';
@@ -45,9 +47,26 @@ export interface CircleKeyframe extends KeyframeBase {
   ry: number;
 }
 
+export interface ShadowKeyframe extends KeyframeBase {
+  x: number;
+  y: number;
+  r: number;
+  rotation: number;
+  spreadDeg: number;
+}
+
 export interface ArrowKeyframe extends KeyframeBase {
   x1: number;
   y1: number;
+  x2: number;
+  y2: number;
+}
+
+export interface LobKeyframe extends KeyframeBase {
+  x1: number;
+  y1: number;
+  cx: number;
+  cy: number;
   x2: number;
   y2: number;
 }
@@ -71,7 +90,9 @@ export type ClipKeyframe =
   | BoxKeyframe
   | BoxQuadKeyframe
   | CircleKeyframe
+  | ShadowKeyframe
   | ArrowKeyframe
+  | LobKeyframe
   | TextKeyframe
   | PolyKeyframe
   | HighlightKeyframe;
