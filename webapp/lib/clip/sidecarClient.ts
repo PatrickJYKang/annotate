@@ -20,6 +20,25 @@ export interface HealthResponse {
     narya: boolean;
     opencv: boolean;
   };
+  tracking?: {
+    backend: string;
+    detectorModelName: string;
+    coreTrackerConfig: string;
+    sampleFps: number;
+    classes: number[];
+    confThreshold: number;
+    iouThreshold: number;
+    trackBufferFrames: number;
+  };
+  homography?: {
+    providerName: string | null;
+    shortFailedGapFrames: number;
+    providers: Array<{
+      name: string;
+      supports_manual_seed_tracking: boolean;
+      available: boolean;
+    }>;
+  };
 }
 
 export interface TrackingParams {

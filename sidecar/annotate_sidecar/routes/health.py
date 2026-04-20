@@ -12,11 +12,15 @@ os.environ.setdefault("SM_FRAMEWORK", "tf.keras")
 
 from fastapi import APIRouter
 
+from ..config import get_tracking_defaults
+from ..services.calibration.service import CalibrationService
+
 router = APIRouter()
 logger = logging.getLogger("annotate_sidecar.health")
 
 # Models directory (relative to package root)
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
+_calibration_service = CalibrationService()
 
 
 def _check_model_importable(module_name: str) -> bool:
@@ -61,6 +65,8 @@ def _check_capabilities() -> dict:
             "narya": narya_deps,
             "opencv": opencv,
         },
+        "tracking": get_tracking_defaults().to_public_dict(),
+        "homography": _calibration_service.describe_public(),
     }
 
 

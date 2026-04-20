@@ -1,5 +1,13 @@
 import type { ClipAnnotation, ClipKeyframe } from "../types/clip";
 
+function normalizeTrackedKeyframe(keyframe: ClipKeyframe): ClipKeyframe {
+  if (keyframe.provenance) return keyframe;
+  return {
+    ...keyframe,
+    provenance: keyframe.visible === false ? "lost" : "tracked",
+  };
+}
+
 export function cloneClipAnnotations(annotations: ClipAnnotation[]): ClipAnnotation[] {
   if (typeof structuredClone === "function") {
     return structuredClone(annotations);
@@ -123,27 +131,36 @@ export function mergeTrackedKeyframesIntoAnnotation(
   annotation: ClipAnnotation,
   newKeyframes: ClipKeyframe[],
   options: {
-    mergeMode: "replace" | "forward" | "range";
+    mergeMode: "replace" | "forward" | "range" | "to_correction";
     currentTMs: number;
     rangeEndMs?: number;
     clipDurationMs: number;
   },
 ): ClipAnnotation {
   const { mergeMode, currentTMs, rangeEndMs, clipDurationMs } = options;
+  const normalizedTrackedKeyframes = newKeyframes.map(normalizeTrackedKeyframe);
 
   let merged: ClipKeyframe[];
   if (mergeMode === "replace") {
-    merged = newKeyframes;
+    merged = normalizedTrackedKeyframes;
   } else if (mergeMode === "forward") {
-    const kept = annotation.keyframes.filter((keyframe) => keyframe.tMs <= currentTMs);
-    merged = [...kept, ...newKeyframes.filter((keyframe) => keyframe.tMs > currentTMs)];
+    const kept = annotation.keyframes.filter((keyframe) => keyframe.tMs < currentTMs);
+    merged = [...kept, ...normalizedTrackedKeyframes.filter((keyframe) => keyframe.tMs >= currentTMs)];
+  } else if (mergeMode === "to_correction") {
+    const rawBoundaryEnd = rangeEndMs ?? clipDurationMs;
+    const rangeStart = Math.min(currentTMs, rawBoundaryEnd);
+    const boundaryEnd = Math.max(currentTMs, rawBoundaryEnd);
+    const before = annotation.keyframes.filter((keyframe) => keyframe.tMs < rangeStart);
+    const after = annotation.keyframes.filter((keyframe) => keyframe.tMs >= boundaryEnd);
+    const middle = normalizedTrackedKeyframes.filter((keyframe) => keyframe.tMs >= rangeStart && keyframe.tMs < boundaryEnd);
+    merged = [...before, ...middle, ...after];
   } else {
     const rawRangeEnd = rangeEndMs ?? clipDurationMs;
     const rangeStart = Math.min(currentTMs, rawRangeEnd);
     const rangeEnd = Math.max(currentTMs, rawRangeEnd);
     const before = annotation.keyframes.filter((keyframe) => keyframe.tMs < rangeStart);
     const after = annotation.keyframes.filter((keyframe) => keyframe.tMs > rangeEnd);
-    const middle = newKeyframes.filter((keyframe) => keyframe.tMs >= rangeStart && keyframe.tMs <= rangeEnd);
+    const middle = normalizedTrackedKeyframes.filter((keyframe) => keyframe.tMs >= rangeStart && keyframe.tMs <= rangeEnd);
     merged = [...before, ...middle, ...after];
   }
 

@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
+  interpolateAnnotationAtTime,
   interpolateKeyframes,
   lerp,
   catmullRom,
   findBracketIndex,
 } from './interpolation';
 import type {
+  ClipAnnotation,
   BoxKeyframe,
   CircleKeyframe,
   ShadowKeyframe,
@@ -51,6 +53,17 @@ function polyKf(tMs: number, points: [number, number][]): PolyKeyframe {
 
 function highlightKf(tMs: number, cx: number, cy: number, radius: number): HighlightKeyframe {
   return { tMs, cx, cy, radius };
+}
+
+function makeBoxAnnotation(id: string, source: ClipAnnotation["source"], keyframes: ClipKeyframe[]): ClipAnnotation {
+  return {
+    id,
+    type: 'box',
+    coordMode: 'image',
+    source,
+    style: {},
+    keyframes,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -138,6 +151,38 @@ describe('interpolateKeyframes', () => {
   it('returns null if clamped-to last keyframe is invisible', () => {
     const kfs = [boxKf(0, 0, 0, 10, 10), boxKf(100, 10, 10, 20, 20, false)];
     expect(interpolateKeyframes(kfs, 200, 'box')).toBeNull();
+  });
+
+  it('keeps continuity through a short tracked gap', () => {
+    const annotation = makeBoxAnnotation('ann-short-gap', 'corrected', [
+      { ...boxKf(0, 0, 0, 10, 10), provenance: 'tracked' },
+      { ...boxKf(150, 15, 15, 10, 10), provenance: 'tracked' },
+    ]);
+
+    const r = interpolateAnnotationAtTime(annotation, 75, 30, 300);
+    expect(r).not.toBeNull();
+    expect(r).toEqual({ type: 'box', x: 7.5, y: 7.5, w: 10, h: 10 });
+  });
+
+  it('hides a long tracked gap conservatively', () => {
+    const annotation = makeBoxAnnotation('ann-long-gap', 'corrected', [
+      { ...boxKf(0, 0, 0, 10, 10), provenance: 'tracked' },
+      { ...boxKf(400, 40, 40, 10, 10), provenance: 'tracked' },
+    ]);
+
+    expect(interpolateAnnotationAtTime(annotation, 200, 30, 500)).toBeNull();
+    expect(interpolateAnnotationAtTime(annotation, 0, 30, 500)).toEqual({ type: 'box', x: 0, y: 0, w: 10, h: 10 });
+    expect(interpolateAnnotationAtTime(annotation, 400, 30, 500)).toEqual({ type: 'box', x: 40, y: 40, w: 10, h: 10 });
+  });
+
+  it('stays hidden until a correction after a long tracked gap', () => {
+    const annotation = makeBoxAnnotation('ann-correction-gap', 'corrected', [
+      { ...boxKf(100, 10, 10, 10, 10), provenance: 'tracked' },
+      { ...boxKf(700, 70, 70, 10, 10), provenance: 'correction' },
+    ]);
+
+    expect(interpolateAnnotationAtTime(annotation, 400, 30, 900)).toBeNull();
+    expect(interpolateAnnotationAtTime(annotation, 700, 30, 900)).toEqual({ type: 'box', x: 70, y: 70, w: 10, h: 10 });
   });
 
   // --- Linear box interpolation (close keyframes, gap ≤ 2 frames at 30fps) ---

@@ -4,6 +4,7 @@
 // ---------------------------------------------------------------------------
 
 import type {
+  ClipAnnotation,
   ClipAnnotationType,
   ClipKeyframe,
   BoxKeyframe,
@@ -15,6 +16,7 @@ import type {
   PolyKeyframe,
   HighlightKeyframe,
 } from '../types/clip';
+import { getHiddenSpans, isTimeWithinHiddenSpan } from './trackingState';
 
 // ---------------------------------------------------------------------------
 // Result types — one per annotation type
@@ -358,6 +360,27 @@ export function interpolateKeyframes(
     default:
       return null;
   }
+}
+
+export function interpolateAnnotationAtTime(
+  annotation: ClipAnnotation,
+  tMs: number,
+  fps: number = 30,
+  clipDurationMs: number = annotation.keyframes[annotation.keyframes.length - 1]?.tMs ?? 0,
+): InterpolatedKeyframe | null {
+  if (!annotation.keyframes || annotation.keyframes.length === 0) return null;
+
+  const exact = annotation.keyframes.find((keyframe) => keyframe.tMs === tMs);
+  if (exact) {
+    if (exact.visible === false) return null;
+    return clampToKeyframe(exact, annotation.type);
+  }
+
+  if (isTimeWithinHiddenSpan(getHiddenSpans(annotation, clipDurationMs, fps), tMs)) {
+    return null;
+  }
+
+  return interpolateKeyframes(annotation.keyframes, tMs, annotation.type, fps);
 }
 
 // ---------------------------------------------------------------------------

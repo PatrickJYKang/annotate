@@ -12,6 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator, model_validator
 
+from ..config import get_tracking_defaults
 from ..services.tracker import Tracker, BBox
 from ..video_registry import resolve_video_ref
 
@@ -29,10 +30,10 @@ class TrackRequest(BaseModel):
     endMs: float
     seedBbox: dict  # { x, y, w, h }
     seedFrameMs: float
-    fps: float = 30.0
+    fps: Optional[float] = None
     classes: Optional[list[int]] = None
-    confThreshold: float = 0.25
-    iouThreshold: float = 0.3
+    confThreshold: Optional[float] = None
+    iouThreshold: Optional[float] = None
 
     @field_validator("endMs")
     @classmethod
@@ -62,6 +63,7 @@ class TrackRequest(BaseModel):
 @router.post("")
 async def track(req: TrackRequest):
     """Track an object across a video range."""
+    defaults = get_tracking_defaults()
     # Resolve from uploaded ref first, then fall back to direct absolute path.
     video_path = resolve_video_ref(req.videoRef)
     if req.videoRef and not video_path and not req.videoPath:
@@ -98,10 +100,11 @@ async def track(req: TrackRequest):
             end_ms=req.endMs,
             seed_bbox=seed,
             seed_frame_ms=req.seedFrameMs,
-            fps=req.fps,
-            classes=req.classes,
-            conf_threshold=req.confThreshold,
-            iou_threshold=req.iouThreshold,
+            fps=req.fps if req.fps is not None else defaults.sample_fps,
+            classes=req.classes if req.classes is not None else list(defaults.classes),
+            conf_threshold=req.confThreshold if req.confThreshold is not None else defaults.conf_threshold,
+            iou_threshold=req.iouThreshold if req.iouThreshold is not None else defaults.iou_threshold,
+            track_buffer=defaults.track_buffer_frames,
         )
         return result
 

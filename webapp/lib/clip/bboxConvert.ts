@@ -13,6 +13,7 @@ import type {
   ArrowKeyframe,
   HighlightKeyframe,
   ClipKeyframe,
+  ClipKeyframeProvenance,
 } from '../types/clip';
 
 export type Bbox = { x: number; y: number; w: number; h: number };
@@ -77,7 +78,12 @@ export function convertTrackingKeyframes(
 ): ClipKeyframe[] {
   return rawKeyframes.map((raw): ClipKeyframe => {
     const tMs = raw.tMs - clipStartMs;
-    const base = { tMs, ...(raw.visible === false ? { visible: false } : {}) };
+    const provenance: ClipKeyframeProvenance = raw.visible === false ? 'lost' : 'tracked';
+    const base = {
+      tMs,
+      provenance,
+      ...(raw.visible === false ? { visible: false } : {}),
+    };
 
     switch (annotationType) {
       case 'box': {

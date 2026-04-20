@@ -142,18 +142,19 @@ describe("mergeTrackedKeyframesIntoAnnotation", () => {
 
     expect(result.source).toBe("auto");
     expect(result.keyframes.map((keyframe) => keyframe.tMs)).toEqual([100, 200]);
+    expect(result.keyframes.every((keyframe) => keyframe.provenance === "tracked")).toBe(true);
   });
 
   it("keeps earlier keyframes and replaces only later ones during forward re-track", () => {
     const annotation = makeBoxAnnotation("tracked", [
-      { tMs: 0, x: 0, y: 0, w: 10, h: 10 },
-      { tMs: 300, x: 3, y: 3, w: 10, h: 10 },
-      { tMs: 700, x: 7, y: 7, w: 10, h: 10 },
+      { tMs: 0, x: 0, y: 0, w: 10, h: 10, provenance: "manual" },
+      { tMs: 300, x: 3, y: 3, w: 10, h: 10, provenance: "tracked" },
+      { tMs: 700, x: 7, y: 7, w: 10, h: 10, provenance: "tracked" },
     ]);
     const tracked = [
-      { tMs: 300, x: 30, y: 30, w: 10, h: 10 },
-      { tMs: 500, x: 50, y: 50, w: 10, h: 10 },
-      { tMs: 900, x: 90, y: 90, w: 10, h: 10 },
+      { tMs: 300, x: 30, y: 30, w: 10, h: 10, provenance: "tracked" },
+      { tMs: 500, x: 50, y: 50, w: 10, h: 10, provenance: "tracked" },
+      { tMs: 900, x: 90, y: 90, w: 10, h: 10, provenance: "tracked" },
     ] satisfies ClipKeyframe[];
 
     const result = mergeTrackedKeyframesIntoAnnotation(annotation, tracked, {
@@ -164,18 +165,26 @@ describe("mergeTrackedKeyframesIntoAnnotation", () => {
 
     expect(result.source).toBe("corrected");
     expect(result.keyframes.map((keyframe) => keyframe.tMs)).toEqual([0, 300, 500, 900]);
+    expect(result.keyframes[0]?.provenance).toBe("manual");
+    expect(result.keyframes[1]?.provenance).toBe("tracked");
+    expect(result.keyframes[0]).toMatchObject({ tMs: 0, x: 0, y: 0, provenance: "manual" });
+    expect(result.keyframes.slice(1)).toMatchObject([
+      { tMs: 300, x: 30, y: 30, provenance: "tracked" },
+      { tMs: 500, x: 50, y: 50, provenance: "tracked" },
+      { tMs: 900, x: 90, y: 90, provenance: "tracked" },
+    ]);
   });
 
   it("normalizes backwards-selected range bounds before replacing the middle span", () => {
     const annotation = makeBoxAnnotation("tracked", [
-      { tMs: 100, x: 1, y: 1, w: 10, h: 10 },
-      { tMs: 500, x: 5, y: 5, w: 10, h: 10 },
-      { tMs: 900, x: 9, y: 9, w: 10, h: 10 },
+      { tMs: 100, x: 1, y: 1, w: 10, h: 10, provenance: "manual" },
+      { tMs: 500, x: 5, y: 5, w: 10, h: 10, provenance: "tracked" },
+      { tMs: 900, x: 9, y: 9, w: 10, h: 10, provenance: "correction" },
     ]);
     const tracked = [
-      { tMs: 300, x: 30, y: 30, w: 10, h: 10 },
-      { tMs: 400, x: 40, y: 40, w: 10, h: 10 },
-      { tMs: 800, x: 80, y: 80, w: 10, h: 10 },
+      { tMs: 300, x: 30, y: 30, w: 10, h: 10, provenance: "tracked" },
+      { tMs: 400, x: 40, y: 40, w: 10, h: 10, provenance: "tracked" },
+      { tMs: 800, x: 80, y: 80, w: 10, h: 10, provenance: "tracked" },
     ] satisfies ClipKeyframe[];
 
     const result = mergeTrackedKeyframesIntoAnnotation(annotation, tracked, {
@@ -187,5 +196,42 @@ describe("mergeTrackedKeyframesIntoAnnotation", () => {
 
     expect(result.source).toBe("corrected");
     expect(result.keyframes.map((keyframe) => keyframe.tMs)).toEqual([100, 300, 400, 800, 900]);
+    expect(result.keyframes).toMatchObject([
+      { tMs: 100, x: 1, y: 1, provenance: "manual" },
+      { tMs: 300, x: 30, y: 30, provenance: "tracked" },
+      { tMs: 400, x: 40, y: 40, provenance: "tracked" },
+      { tMs: 800, x: 80, y: 80, provenance: "tracked" },
+      { tMs: 900, x: 9, y: 9, provenance: "correction" },
+    ]);
+  });
+
+  it("can re-track from here to the next correction while preserving the boundary correction point", () => {
+    const annotation = makeBoxAnnotation("tracked", [
+      { tMs: 100, x: 1, y: 1, w: 10, h: 10, provenance: "manual" },
+      { tMs: 300, x: 3, y: 3, w: 10, h: 10, provenance: "tracked" },
+      { tMs: 700, x: 7, y: 7, w: 10, h: 10, provenance: "correction" },
+      { tMs: 900, x: 9, y: 9, w: 10, h: 10, provenance: "tracked" },
+    ]);
+    const tracked = [
+      { tMs: 300, x: 30, y: 30, w: 10, h: 10, provenance: "tracked" },
+      { tMs: 500, x: 50, y: 50, w: 10, h: 10, provenance: "tracked" },
+      { tMs: 700, x: 70, y: 70, w: 10, h: 10, provenance: "tracked" },
+    ] satisfies ClipKeyframe[];
+
+    const result = mergeTrackedKeyframesIntoAnnotation(annotation, tracked, {
+      mergeMode: "to_correction",
+      currentTMs: 300,
+      rangeEndMs: 700,
+      clipDurationMs: 1000,
+    });
+
+    expect(result.source).toBe("corrected");
+    expect(result.keyframes).toMatchObject([
+      { tMs: 100, x: 1, y: 1, provenance: "manual" },
+      { tMs: 300, x: 30, y: 30, provenance: "tracked" },
+      { tMs: 500, x: 50, y: 50, provenance: "tracked" },
+      { tMs: 700, x: 7, y: 7, provenance: "correction" },
+      { tMs: 900, x: 9, y: 9, provenance: "tracked" },
+    ]);
   });
 });

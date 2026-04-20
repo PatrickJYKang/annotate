@@ -65,8 +65,8 @@ Relative `videoPath` values are rejected.
 | Method   | Path               | Description                          |
 |----------|---------------------|--------------------------------------|
 | `GET`    | `/health`           | Sidecar status & model availability  |
-| `POST`   | `/track`            | Object tracking (YOLO + ByteTrack)   |
-| `POST`   | `/homography`       | Pitch homography (vendored Narya)    |
+| `POST`   | `/track`            | Object tracking (annotate adapter + vendored ByteTrack core) |
+| `POST`   | `/homography`       | Pitch homography (provider-oriented calibration service; legacy Narya provider currently active) |
 | `POST`   | `/segment`          | Person segmentation (YOLO + MobileSAM) |
 | `POST`   | `/export/start`     | Begin export session                 |
 | `POST`   | `/export/frame`     | Submit rendered frame (base64 JPEG)  |
@@ -94,14 +94,55 @@ annotate_sidecar/
     video.py               # Video register/unregister endpoints
   services/
     frame_extractor.py     # cv2.VideoCapture → frames by ms
-    tracker.py             # YOLO + ByteTrack wrapper
+    tracker.py             # annotate-owned tracking adapter / response shaping
     segmenter.py           # YOLO + MobileSAM wrapper
-    homography_estimator.py  # Narya wrapper
+    homography_estimator.py  # Legacy estimator implementation used by the current calibration provider
+    calibration/           # Provider-oriented calibration service + smoothing helpers
     encoder.py             # ffmpeg MP4 encoding
   vendor/
-    narya/               # Vendored Narya homography (MIT license)
+    narya/                 # Vendored Narya homography (MIT license)
+    trackers/              # Vendored tracking-core primitives (initial extraction step)
   models/                # Downloaded model weights (gitignored)
 ```
+
+## Tracking defaults
+
+Tracking defaults are centralized in:
+
+- [tracking.py](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/config/tracking.py)
+
+Current ownership stance:
+
+- `annotate` sidecar owns the practical app defaults and override policy
+- vendored tracker core owns lower-level implementation details
+- `/track` request fields (`fps`, `classes`, `confThreshold`, `iouThreshold`) act as request-level overrides
+
+Optional sidecar-level environment overrides:
+
+- `ANNOTATE_TRACKING_BACKEND`
+- `ANNOTATE_TRACKING_MODEL`
+- `ANNOTATE_TRACKING_CORE_CONFIG`
+- `ANNOTATE_TRACKING_SAMPLE_FPS`
+- `ANNOTATE_TRACKING_CLASSES`
+- `ANNOTATE_TRACKING_CONF_THRESHOLD`
+- `ANNOTATE_TRACKING_IOU_THRESHOLD`
+- `ANNOTATE_TRACKING_TRACK_BUFFER`
+
+## Homography calibration
+
+Homography now follows the same ownership pattern as tracking:
+
+- `annotate` sidecar owns the app-facing `/homography` contract and provider selection
+- the calibration layer lives under
+  [services/calibration](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/services/calibration)
+- the currently active provider is a legacy Narya-backed adapter
+- short failed calibration gaps are conservatively smoothed in the sidecar before results are returned to the app
+
+`GET /health` now includes a `homography` section with:
+
+- active provider name
+- short-gap smoothing threshold
+- provider availability summaries
 
 ## Hardware
 

@@ -7,6 +7,7 @@ export type ClipId = string;
 export type CoordMode = 'image' | 'pitch';
 
 export type AnnotationSource = 'manual' | 'auto' | 'corrected';
+export type ClipKeyframeProvenance = 'manual' | 'tracked' | 'lost' | 'correction';
 
 export type ClipAnnotationType =
   | 'box'
@@ -27,6 +28,7 @@ export type StrokePattern = 'solid' | 'dashed' | 'dotted' | 'dashdot';
 interface KeyframeBase {
   tMs: number;        // clip-relative milliseconds (0 = clip start)
   visible?: boolean;  // false → annotation hidden for this range
+  provenance?: ClipKeyframeProvenance;
 }
 
 export interface BoxKeyframe extends KeyframeBase {

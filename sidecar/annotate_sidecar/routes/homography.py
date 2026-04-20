@@ -12,13 +12,13 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator, model_validator
 from typing import Optional
 
-from ..services.homography_estimator import HomographyEstimator
+from ..services.calibration.service import CalibrationService
 from ..video_registry import resolve_video_ref
 
 router = APIRouter()
 logger = logging.getLogger("annotate_sidecar.routes.homography")
 
-_estimator = HomographyEstimator()
+_service = CalibrationService()
 
 
 class HomographyRequest(BaseModel):
@@ -102,14 +102,14 @@ async def estimate_homography(req: HomographyRequest):
     """Estimate pitch homography for a video range."""
     video_path = _resolve_video_path(req.videoRef, req.videoPath)
 
-    if not _estimator.available:
+    if not _service.available:
         raise HTTPException(
             status_code=501,
             detail="OpenCV is not installed. Homography estimation unavailable.",
         )
 
     try:
-        frames = _estimator.estimate_range(
+        frames = _service.estimate_range(
             video_path=video_path,
             start_ms=req.startMs,
             end_ms=req.endMs,
@@ -140,14 +140,14 @@ async def estimate_homography_from_manual_seed(req: ManualTrackHomographyRequest
     """Track homography across a clip from one manual seed homography."""
     video_path = _resolve_video_path(req.videoRef, req.videoPath)
 
-    if not _estimator.available:
+    if not _service.available:
         raise HTTPException(
             status_code=501,
             detail="OpenCV is not installed. Homography estimation unavailable.",
         )
 
     try:
-        frames = _estimator.estimate_range_from_seed_homography(
+        frames = _service.estimate_range_from_seed_homography(
             video_path=video_path,
             start_ms=req.startMs,
             end_ms=req.endMs,

@@ -1,146 +1,59 @@
 """
-Object tracking service — YOLO + ByteTrack wrapper.
+Object tracking service — app adapter over vendored tracker primitives.
 
-Provides:
-  - detect_frame(frame, classes) → list of detections with bboxes
-  - match_seed_bbox(detections, user_bbox, iou_threshold) → best match index
-  - track_range(video_path, start_ms, end_ms, seed_bbox, seed_frame_ms, fps)
-    → list of keyframe dicts with absolute video-ms timestamps
+This layer keeps annotate-owned behavior in one place:
+  - request/response shaping for `/track`
+  - seed bbox matching semantics exposed to the app
+  - absolute-ms keyframe formatting with `visible: false`
+
+The lower-level model loading, frame sampling, and ByteTrack execution now live
+under `annotate_sidecar.vendor.trackers`.
 """
 
 import logging
-from dataclasses import dataclass
-from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import numpy as np
 
+from ..config import TrackingDefaults, get_tracking_defaults
+from ..vendor.trackers import BBox, UltralyticsByteTrackCore
+from ..vendor.trackers.core.matching import find_best_iou_match
+
 logger = logging.getLogger("annotate_sidecar.tracker")
 
-
-@dataclass
-class BBox:
-    """Bounding box in pixel coordinates (x, y, w, h)."""
-    x: float
-    y: float
-    w: float
-    h: float
-    confidence: float = 0.0
-    class_id: int = 0
-    track_id: Optional[int] = None
-
-
-@dataclass
-class KeyframeDict:
-    """A tracking keyframe result with absolute video-ms timestamp."""
-    tMs: float
-    x: float
-    y: float
-    w: float
-    h: float
-    visible: bool = True
-
-
-def _iou(a: BBox, b: BBox) -> float:
-    """Compute intersection-over-union of two bboxes."""
-    ax1, ay1, ax2, ay2 = a.x, a.y, a.x + a.w, a.y + a.h
-    bx1, by1, bx2, by2 = b.x, b.y, b.x + b.w, b.y + b.h
-    ix1 = max(ax1, bx1)
-    iy1 = max(ay1, by1)
-    ix2 = min(ax2, bx2)
-    iy2 = min(ay2, by2)
-    iw = max(0, ix2 - ix1)
-    ih = max(0, iy2 - iy1)
-    inter = iw * ih
-    union = a.w * a.h + b.w * b.h - inter
-    return inter / union if union > 0 else 0.0
-
-
 class Tracker:
-    """YOLO + ByteTrack object tracker."""
+    """Annotate-owned adapter around the vendored tracker core."""
 
-    def __init__(self, model_name: str = "yolov8n.pt"):
-        self._model = None
-        self._model_name = model_name
-
-    def _load_model(self):
-        """Lazy-load the YOLO model on first use."""
-        if self._model is not None:
-            return
-        try:
-            from ultralytics import YOLO
-        except ImportError:
-            raise RuntimeError(
-                "ultralytics is required for tracking. "
-                "Install with: pip install ultralytics"
-            )
-        logger.info("Loading YOLO model: %s", self._model_name)
-        self._model = YOLO(self._model_name)
-        logger.info("YOLO model loaded")
+    def __init__(
+        self,
+        config: Optional[TrackingDefaults] = None,
+        core: Optional[UltralyticsByteTrackCore] = None,
+    ):
+        self._config = config or get_tracking_defaults()
+        self._core = core or UltralyticsByteTrackCore(
+            model_name=self._config.detector_model_name,
+            tracker_config=self._config.core_tracker_config,
+        )
 
     def detect_frame(
         self,
         frame: np.ndarray,
-        classes: Optional[List[int]] = None,
-        conf_threshold: float = 0.25,
-    ) -> List[BBox]:
-        """
-        Run YOLO detection on a single frame.
-
-        Args:
-            frame: BGR numpy array.
-            classes: COCO class IDs to keep (default [0] = person).
-            conf_threshold: Minimum confidence.
-
-        Returns:
-            List of BBox detections.
-        """
-        self._load_model()
+        classes: Optional[list[int]] = None,
+        conf_threshold: Optional[float] = None,
+    ) -> list[BBox]:
         if classes is None:
-            classes = [0]  # person
-
-        results = self._model(frame, verbose=False, conf=conf_threshold)
-        detections: List[BBox] = []
-
-        for r in results:
-            if r.boxes is None:
-                continue
-            for box in r.boxes:
-                cls_id = int(box.cls[0].item())
-                if cls_id not in classes:
-                    continue
-                x1, y1, x2, y2 = box.xyxy[0].tolist()
-                conf = float(box.conf[0].item())
-                detections.append(BBox(
-                    x=x1, y=y1, w=x2 - x1, h=y2 - y1,
-                    confidence=conf, class_id=cls_id,
-                ))
-
-        return detections
+            classes = list(self._config.classes)
+        if conf_threshold is None:
+            conf_threshold = self._config.conf_threshold
+        return self._core.detect_frame(frame, classes=classes, conf_threshold=conf_threshold)
 
     def match_seed_bbox(
         self,
-        detections: List[BBox],
+        detections: list[BBox],
         user_bbox: BBox,
         iou_threshold: float = 0.3,
     ) -> Optional[int]:
-        """
-        Find the detection that best matches the user-provided seed bbox.
-
-        Returns:
-            Index of best matching detection, or None if no match above threshold.
-        """
-        best_idx = None
-        best_iou = 0.0
-        for i, det in enumerate(detections):
-            score = _iou(det, user_bbox)
-            if score > best_iou:
-                best_iou = score
-                best_idx = i
-
-        if best_iou >= iou_threshold:
-            return best_idx
-        return None
+        return find_best_iou_match(detections, user_bbox, iou_threshold=iou_threshold)
 
     def track_range(
         self,
@@ -149,11 +62,11 @@ class Tracker:
         end_ms: float,
         seed_bbox: BBox,
         seed_frame_ms: float,
-        fps: float = 30.0,
-        classes: Optional[List[int]] = None,
-        conf_threshold: float = 0.25,
-        iou_threshold: float = 0.3,
-        track_buffer: int = 30,
+        fps: Optional[float] = None,
+        classes: Optional[list[int]] = None,
+        conf_threshold: Optional[float] = None,
+        iou_threshold: Optional[float] = None,
+        track_buffer: Optional[int] = None,
     ) -> dict:
         """
         Track an object across a video range using YOLO + ByteTrack.
@@ -177,89 +90,31 @@ class Tracker:
             FileNotFoundError: If video doesn't exist.
             ValueError: If no matching detection found at seed frame.
         """
-        self._load_model()
         if classes is None:
-            classes = [0]
+            classes = list(self._config.classes)
+        if fps is None:
+            fps = self._config.sample_fps
+        if conf_threshold is None:
+            conf_threshold = self._config.conf_threshold
+        if iou_threshold is None:
+            iou_threshold = self._config.iou_threshold
+        if track_buffer is None:
+            track_buffer = self._config.track_buffer_frames
 
-        path = Path(video_path)
-        if not path.exists():
-            raise FileNotFoundError(f"Video not found: {video_path}")
-
-        from .frame_extractor import extract_frame
-
-        # --- Pass 1: Run tracking on all frames ---
-        import cv2
-
-        cap = cv2.VideoCapture(str(path))
-        if not cap.isOpened():
-            raise FileNotFoundError(f"Cannot open video: {video_path}")
-
-        interval_ms = 1000.0 / fps
-        timestamps: List[float] = []
-        t = start_ms
-        while t <= end_ms:
-            timestamps.append(t)
-            t += interval_ms
-
-        logger.info(
-            "Tracking %d frames in %.1f–%.1fms of %s",
-            len(timestamps), start_ms, end_ms, path.name,
+        tracked_frames = self._core.track_video_range(
+            video_path=video_path,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            fps=fps,
+            classes=classes,
+            conf_threshold=conf_threshold,
         )
 
-        # Collect frames
-        frames: List[np.ndarray] = []
-        actual_timestamps: List[float] = []
-        for ts in timestamps:
-            cap.set(cv2.CAP_PROP_POS_MSEC, ts)
-            ret, frame = cap.read()
-            if ret and frame is not None:
-                frames.append(frame)
-                actual_timestamps.append(ts)
-        cap.release()
-
-        if not frames:
-            raise RuntimeError("No frames could be read from video")
-
-        # Run YOLO tracking with persist=True for ByteTrack
-        logger.info("Running YOLO+ByteTrack on %d frames...", len(frames))
-        self._model.predictor = None  # Reset tracker state
-        all_track_results = []
-        for frame in frames:
-            results = self._model.track(
-                frame,
-                verbose=False,
-                conf=conf_threshold,
-                classes=classes,
-                persist=True,
-                tracker="bytetrack.yaml",
-            )
-            all_track_results.append(results)
-
-        # --- Pass 2: Find seed frame and match target track ID ---
-        # Find the frame closest to seed_frame_ms
-        seed_idx = 0
-        min_diff = abs(actual_timestamps[0] - seed_frame_ms)
-        for i, ts in enumerate(actual_timestamps):
-            diff = abs(ts - seed_frame_ms)
-            if diff < min_diff:
-                min_diff = diff
-                seed_idx = i
-
-        # Extract detections from seed frame results
-        seed_results = all_track_results[seed_idx]
-        seed_detections: List[BBox] = []
-        for r in seed_results:
-            if r.boxes is None:
-                continue
-            for box in r.boxes:
-                cls_id = int(box.cls[0].item())
-                x1, y1, x2, y2 = box.xyxy[0].tolist()
-                conf = float(box.conf[0].item())
-                tid = int(box.id[0].item()) if box.id is not None else None
-                seed_detections.append(BBox(
-                    x=x1, y=y1, w=x2 - x1, h=y2 - y1,
-                    confidence=conf, class_id=cls_id, track_id=tid,
-                ))
+        seed_idx = min(
+            range(len(tracked_frames)),
+            key=lambda index: abs(tracked_frames[index].timestamp_ms - seed_frame_ms),
+        )
+        seed_detections = tracked_frames[seed_idx].detections
 
         # Match seed bbox
         match_idx = self.match_seed_bbox(seed_detections, seed_bbox, iou_threshold)
@@ -282,32 +137,25 @@ class Tracker:
         logger.info("Target track ID: %d", target_track_id)
 
         # --- Pass 3: Extract keyframes for target track ID ---
-        keyframes: List[dict] = []
+        keyframes: list[dict] = []
         total_detections = 0
         frames_since_seen = 0
 
-        for frame_idx, (ts, results) in enumerate(zip(actual_timestamps, all_track_results)):
+        for frame_result in tracked_frames:
             found = False
-            for r in results:
-                if r.boxes is None:
-                    continue
-                for box in r.boxes:
-                    total_detections += 1
-                    tid = int(box.id[0].item()) if box.id is not None else None
-                    if tid == target_track_id:
-                        x1, y1, x2, y2 = box.xyxy[0].tolist()
-                        keyframes.append({
-                            "tMs": ts,
-                            "x": x1,
-                            "y": y1,
-                            "w": x2 - x1,
-                            "h": y2 - y1,
-                            "visible": True,
-                        })
-                        found = True
-                        frames_since_seen = 0
-                        break
-                if found:
+            total_detections += len(frame_result.detections)
+            for detection in frame_result.detections:
+                if detection.track_id == target_track_id:
+                    keyframes.append({
+                        "tMs": frame_result.timestamp_ms,
+                        "x": detection.x,
+                        "y": detection.y,
+                        "w": detection.w,
+                        "h": detection.h,
+                        "visible": True,
+                    })
+                    found = True
+                    frames_since_seen = 0
                     break
 
             if not found:
@@ -315,7 +163,7 @@ class Tracker:
                 if frames_since_seen > track_buffer:
                     # Target lost for too long — mark invisible
                     keyframes.append({
-                        "tMs": ts,
+                        "tMs": frame_result.timestamp_ms,
                         "x": 0, "y": 0, "w": 0, "h": 0,
                         "visible": False,
                     })

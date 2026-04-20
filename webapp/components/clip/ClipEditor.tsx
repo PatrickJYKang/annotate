@@ -5,7 +5,7 @@ import { Stage, Layer, Rect as KRect, Ellipse as KEllipse, Arrow as KArrow, Text
 import type { Clip, ClipAnnotation, ClipAnnotationType, ClipKeyframe, BoxKeyframe, CircleKeyframe, ShadowKeyframe, ArrowKeyframe, LobKeyframe, TextKeyframe, HighlightKeyframe } from "../../lib/types/clip";
 import type { ProjectManifestV1 } from "../../lib/types/project";
 import {
-  interpolateKeyframes,
+  interpolateAnnotationAtTime,
   type InterpolatedKeyframe,
   type InterpolatedBox,
   type InterpolatedCircle,
@@ -35,9 +35,15 @@ import {
   getClipRelativeMsForStill,
   listStillsWithinClipBounds,
 } from "../../lib/clip/stillRelationship";
-import { applyHomography, applyHomographyInv, computeHomographyFromCorrespondences, invert3, rectPlaneToImagePoints, ellipsePlaneToImagePoints } from "../../lib/annotate/homography";
+import { applyHomography, computeHomographyFromCorrespondences, invert3 } from "../../lib/annotate/homography";
 import { OcclusionCache, fetchOcclusionMask, compositeForeground, roundToFrame } from "../../lib/clip/occlusionCompositor";
 import { applyStillImportToClip, importStillDocumentToClip } from "../../lib/clip/stillImport";
+import {
+  annotationTypeSupportsPitchCoords,
+  convertImageGeometryToPitchGeometry,
+  getProjectedPitchShapeBounds,
+  projectPitchKeyframeToImageShape,
+} from "../../lib/clip/pitchProjection";
 import {
   createDebouncedAsyncScheduler,
   deleteSelectedClipAnnotation,
@@ -51,6 +57,14 @@ import {
   hasSidecarVideoSource,
   isTrackableAnnotationType,
 } from "../../lib/clip/videoLocator";
+import {
+  countCorrectionKeyframes,
+  getCurrentKeyframeAtTime,
+  getFrameTrackingState,
+  getKeyframeProvenance,
+  getHiddenSpans,
+  getNextCorrectionKeyframe,
+} from "../../lib/clip/trackingState";
 import ExportModal from "./ExportModal";
 import TimelineStrip from "./TimelineStrip";
 
@@ -83,6 +97,29 @@ const PITCH_CENTER = (PITCH_MIN + PITCH_MAX) / 2;
 const ANALYSIS_LOOP_OPTIONS_MS = [1000, 2000, 4000] as const;
 const SHORT_SHUTTLE_MS = 250;
 const LONG_SHUTTLE_MS = 1000;
+
+function getTrackingAccentColor(state: "manual" | "tracked" | "correction" | "lost"): string {
+  if (state === "tracked") return "#60a5fa";
+  if (state === "correction") return "#f59e0b";
+  if (state === "lost") return "#f87171";
+  return "#e5e7eb";
+}
+
+function getTrackingStatusText(args: {
+  hasCurrentKeyframe: boolean;
+  frameState: "manual" | "tracked" | "correction" | "lost";
+  currentProvenance: "manual" | "tracked" | "lost" | "correction" | null;
+  isVisible: boolean;
+}): string {
+  const { hasCurrentKeyframe, frameState, currentProvenance, isVisible } = args;
+  if (!isVisible || frameState === "lost") return "Tracker lost object here";
+  if (hasCurrentKeyframe && currentProvenance === "correction") return "Current frame is a correction point";
+  if (hasCurrentKeyframe && currentProvenance === "tracked") return "Current frame is a tracked keyframe";
+  if (hasCurrentKeyframe && currentProvenance === "manual") return "Current frame is a manual keyframe";
+  if (frameState === "correction") return "Current span follows a correction";
+  if (frameState === "tracked") return "Current span is tracked";
+  return "Current span is manual";
+}
 
 type ManualPitchKeypoint = {
   id: string;
@@ -314,6 +351,7 @@ export default function ClipEditor({
   // --- Occlusion state ---
   const [occlusionEnabled, setOcclusionEnabled] = useState(false);
   const [foregroundCutout, setForegroundCutout] = useState<HTMLCanvasElement | null>(null);
+  const [occlusionStatus, setOcclusionStatus] = useState<string | null>(null);
   const occlusionGenRef = useRef(0);
   const occlusionCacheRef = useRef(new OcclusionCache());
 
@@ -590,11 +628,12 @@ export default function ClipEditor({
     setAnnotations(prev => prev.map(ann => {
       if (ann.id !== annId) return ann;
       const kfs = [...ann.keyframes];
+      const nextProvenance = ann.source === 'auto' || ann.source === 'corrected' ? 'correction' : 'manual';
       const existIdx = kfs.findIndex(k => Math.abs(k.tMs - tMs) < frameTolerance);
       if (existIdx >= 0) {
-        kfs[existIdx] = { ...kfs[existIdx], ...props, tMs };
+        kfs[existIdx] = { ...kfs[existIdx], ...props, tMs, provenance: nextProvenance };
       } else {
-        kfs.push({ ...props, tMs } as ClipKeyframe);
+        kfs.push({ ...props, tMs, provenance: nextProvenance } as ClipKeyframe);
         kfs.sort((a, b) => a.tMs - b.tMs);
       }
       const source = ann.source === 'auto' ? 'corrected' as const : ann.source;
@@ -614,79 +653,13 @@ export default function ClipEditor({
 
   // Create a new annotation with a single keyframe at currentTMs
   const createAnnotation = useCallback((type: ClipAnnotationType, geometry: Record<string, any>) => {
-    const Hinv = currentHomographyInvRef.current;
-    const supportsPitchCoords = type === 'box' || type === 'circle' || type === 'arrow' || type === 'text' || type === 'highlight';
-    const usePitchCoords = supportsPitchCoords && drawCoordMode === 'pitch' && !!Hinv;
-    const toPitchPoint = (x: number, y: number) => {
-      if (!Hinv) return { u: x, v: y };
-      return applyHomographyInv(Hinv, x, y);
-    };
-
-    let keyframeGeometry: Record<string, any> = geometry;
-    if (usePitchCoords) {
-      switch (type) {
-        case 'box': {
-          const x = Number(geometry.x ?? 0);
-          const y = Number(geometry.y ?? 0);
-          const w = Number(geometry.w ?? 0);
-          const h = Number(geometry.h ?? 0);
-          const corners = [
-            toPitchPoint(x, y),
-            toPitchPoint(x + w, y),
-            toPitchPoint(x + w, y + h),
-            toPitchPoint(x, y + h),
-          ];
-          const us = corners.map(p => p.u);
-          const vs = corners.map(p => p.v);
-          const minU = Math.min(...us);
-          const maxU = Math.max(...us);
-          const minV = Math.min(...vs);
-          const maxV = Math.max(...vs);
-          keyframeGeometry = { x: minU, y: minV, w: maxU - minU, h: maxV - minV };
-          break;
-        }
-        case 'circle': {
-          const cx = Number(geometry.cx ?? 0);
-          const cy = Number(geometry.cy ?? 0);
-          const rx = Number(geometry.rx ?? 0);
-          const ry = Number(geometry.ry ?? 0);
-          const c = toPitchPoint(cx, cy);
-          const px = toPitchPoint(cx + rx, cy);
-          const py = toPitchPoint(cx, cy + ry);
-          keyframeGeometry = {
-            cx: c.u,
-            cy: c.v,
-            rx: Math.hypot(px.u - c.u, px.v - c.v),
-            ry: Math.hypot(py.u - c.u, py.v - c.v),
-          };
-          break;
-        }
-        case 'highlight': {
-          const cx = Number(geometry.cx ?? 0);
-          const cy = Number(geometry.cy ?? 0);
-          const radius = Number(geometry.radius ?? 0);
-          const c = toPitchPoint(cx, cy);
-          const p = toPitchPoint(cx + radius, cy);
-          keyframeGeometry = {
-            cx: c.u,
-            cy: c.v,
-            radius: Math.hypot(p.u - c.u, p.v - c.v),
-          };
-          break;
-        }
-        case 'arrow': {
-          const p1 = toPitchPoint(Number(geometry.x1 ?? 0), Number(geometry.y1 ?? 0));
-          const p2 = toPitchPoint(Number(geometry.x2 ?? 0), Number(geometry.y2 ?? 0));
-          keyframeGeometry = { x1: p1.u, y1: p1.v, x2: p2.u, y2: p2.v };
-          break;
-        }
-        case 'text': {
-          const p = toPitchPoint(Number(geometry.x ?? 0), Number(geometry.y ?? 0));
-          keyframeGeometry = { x: p.u, y: p.v };
-          break;
-        }
-      }
-    }
+    const usePitchCoords =
+      drawCoordMode === 'pitch'
+      && annotationTypeSupportsPitchCoords(type)
+      && !!currentHomographyInvRef.current;
+    const keyframeGeometry = usePitchCoords
+      ? convertImageGeometryToPitchGeometry(type, geometry, currentHomographyInvRef.current)
+      : geometry;
 
     let style: ClipAnnotation['style'];
     if (type === 'shadow') {
@@ -722,14 +695,14 @@ export default function ClipEditor({
       };
     }
 
-    const ann: ClipAnnotation = {
-      id: makeId(),
-      type,
-      coordMode: usePitchCoords ? 'pitch' : 'image',
-      source: 'manual',
-      style,
-      keyframes: [{ tMs: currentTMsRef.current, ...keyframeGeometry } as ClipKeyframe],
-    };
+      const ann: ClipAnnotation = {
+        id: makeId(),
+        type,
+        coordMode: usePitchCoords ? 'pitch' : 'image',
+        source: 'manual',
+        style,
+        keyframes: [{ tMs: currentTMsRef.current, provenance: 'manual', ...keyframeGeometry } as ClipKeyframe],
+      };
     setAnnotations(prev => [...prev, ann]);
     setSelectedAnnotationIds([]);
     setSelectedAnnotationId(ann.id);
@@ -786,6 +759,15 @@ export default function ClipEditor({
     if (!occlusionEnabled || isPlaying || !hasVideoSource || !canSegment) {
       occlusionGenRef.current++;
       setForegroundCutout(null);
+      if (!canSegment) {
+        setOcclusionStatus(null);
+      } else if (!occlusionEnabled) {
+        setOcclusionStatus('Occlusion off');
+      } else if (isPlaying) {
+        setOcclusionStatus('Paused-frame only');
+      } else {
+        setOcclusionStatus('Waiting for paused frame');
+      }
       return;
     }
 
@@ -800,16 +782,18 @@ export default function ClipEditor({
       if (v && v.videoWidth > 0) {
         const cutout = compositeForeground(v, cached, videoSize.w, videoSize.h);
         setForegroundCutout(cutout);
+        setOcclusionStatus('Foreground mask ready');
       }
       return;
     }
 
     const token = ++occlusionGenRef.current;
     setForegroundCutout(null);
+    setOcclusionStatus('Loading paused-frame mask…');
 
     (async () => {
       try {
-        const { mask } = await fetchOcclusionMask(videoLocator, absMs);
+        const { mask, personCount } = await fetchOcclusionMask(videoLocator, absMs);
         if (token !== occlusionGenRef.current) { mask.close(); return; }
         cache.set(frameKey, mask);
         const v = videoRef.current;
@@ -817,9 +801,11 @@ export default function ClipEditor({
           const cutout = compositeForeground(v, mask, videoSize.w, videoSize.h);
           if (token !== occlusionGenRef.current) return;
           setForegroundCutout(cutout);
+          setOcclusionStatus(personCount > 0 ? 'Foreground mask ready' : 'No players detected on this frame');
         }
       } catch (err) {
         if (token !== occlusionGenRef.current) return;
+        setOcclusionStatus('Foreground mask unavailable');
         console.warn('Occlusion fetch failed:', err);
       }
     })();
@@ -852,14 +838,57 @@ export default function ClipEditor({
   const currentFrameToleranceMs = 1000 / Math.max(1, videoFps);
   const selectedAnnInterpolated = useMemo(() => {
     if (!selectedAnn) return null;
-    return interpolateKeyframes(selectedAnn.keyframes, currentTMs, selectedAnn.type, videoFps);
-  }, [selectedAnn, currentTMs, videoFps]);
+    return interpolateAnnotationAtTime(selectedAnn, currentTMs, videoFps, clipDurationMs);
+  }, [selectedAnn, currentTMs, videoFps, clipDurationMs]);
   const selectedKeyframeIndexAtCurrentFrame = useMemo(() => {
     if (!selectedAnn) return -1;
     return selectedAnn.keyframes.findIndex((keyframe) => Math.abs(keyframe.tMs - currentTMs) <= currentFrameToleranceMs);
   }, [selectedAnn, currentTMs, currentFrameToleranceMs]);
   const selectedHasCurrentKeyframe = selectedKeyframeIndexAtCurrentFrame >= 0;
   const selectedCanDeleteCurrentKeyframe = !!selectedAnn && selectedHasCurrentKeyframe && selectedAnn.keyframes.length > 1;
+  const selectedCanInsertCurrentKeyframe = !!selectedAnnInterpolated && !selectedHasCurrentKeyframe;
+  const selectedCurrentKeyframe = useMemo(() => {
+    if (!selectedAnn) return null;
+    return getCurrentKeyframeAtTime(selectedAnn, currentTMs, currentFrameToleranceMs);
+  }, [selectedAnn, currentTMs, currentFrameToleranceMs]);
+  const selectedFrameTrackingState = useMemo(() => {
+    if (!selectedAnn) return null;
+    return getFrameTrackingState(selectedAnn, currentTMs, currentFrameToleranceMs, clipDurationMs, videoFps);
+  }, [selectedAnn, currentTMs, currentFrameToleranceMs, clipDurationMs, videoFps]);
+  const selectedCurrentKeyframeProvenance = useMemo(() => {
+    if (!selectedAnn || !selectedCurrentKeyframe) return null;
+    return getKeyframeProvenance(selectedAnn, selectedCurrentKeyframe);
+  }, [selectedAnn, selectedCurrentKeyframe]);
+  const selectedLossSpans = useMemo(() => {
+    if (!selectedAnn) return [];
+    return getHiddenSpans(selectedAnn, clipDurationMs, videoFps);
+  }, [selectedAnn, clipDurationMs, videoFps]);
+  const selectedCorrectionCount = useMemo(() => {
+    if (!selectedAnn) return 0;
+    return countCorrectionKeyframes(selectedAnn);
+  }, [selectedAnn]);
+  const selectedNextCorrectionKeyframe = useMemo(() => {
+    if (!selectedAnn) return null;
+    return getNextCorrectionKeyframe(selectedAnn, currentTMs, currentFrameToleranceMs);
+  }, [selectedAnn, currentTMs, currentFrameToleranceMs]);
+  const retrackRangeBounds = useMemo(() => {
+    if (retrackRangeEndMs == null) return null;
+    return {
+      startMs: Math.min(currentTMs, retrackRangeEndMs),
+      endMs: Math.max(currentTMs, retrackRangeEndMs),
+    };
+  }, [currentTMs, retrackRangeEndMs]);
+  const selectedTrackingAccentColor = selectedFrameTrackingState
+    ? getTrackingAccentColor(selectedFrameTrackingState)
+    : "#60a5fa";
+  const selectedTrackingStatusText = selectedAnn
+    ? getTrackingStatusText({
+        hasCurrentKeyframe: selectedHasCurrentKeyframe,
+        frameState: selectedFrameTrackingState ?? "manual",
+        currentProvenance: selectedCurrentKeyframeProvenance,
+        isVisible: !!selectedAnnInterpolated,
+      })
+    : "";
 
   const canTrackSelection = !!selectedAnn && isTrackableAnnotationType(selectedAnn.type);
   const trackButtonEnabled = canTrack && canTrackSelection;
@@ -876,6 +905,8 @@ export default function ClipEditor({
   const showRetrackButton = canTrack && selectedAnn &&
     (selectedAnn.source === 'auto' || selectedAnn.source === 'corrected') &&
     isTrackableAnnotationType(selectedAnn.type);
+  const canRetrackRange = showRetrackButton && retrackRangeBounds != null && retrackRangeBounds.startMs !== retrackRangeBounds.endMs;
+  const canRetrackToNextCorrection = showRetrackButton && !!selectedNextCorrectionKeyframe;
 
   // Helper: extract seed bbox from interpolated annotation
   const extractSeedBbox = useCallback((interp: InterpolatedKeyframe): { x: number; y: number; w: number; h: number } | null => {
@@ -967,45 +998,9 @@ export default function ClipEditor({
 
   const getInterpolatedBounds = useCallback((ann: ClipAnnotation, props: InterpolatedKeyframe, homography: number[] | null = null) => {
     if (ann.coordMode === 'pitch' && homography) {
-      switch (props.type) {
-        case 'box': {
-          const b = props as InterpolatedBox;
-          return getBoundsForFlatPoints(rectPlaneToImagePoints(homography, b.x + b.w / 2, b.y + b.h / 2, b.w, b.h));
-        }
-        case 'circle': {
-          const c = props as InterpolatedCircle;
-          return getBoundsForFlatPoints(ellipsePlaneToImagePoints(homography, c.cx, c.cy, c.rx, c.ry));
-        }
-        case 'highlight': {
-          const h = props as InterpolatedHighlight;
-          return getBoundsForFlatPoints(ellipsePlaneToImagePoints(homography, h.cx, h.cy, h.radius, h.radius * 0.35));
-        }
-        case 'arrow': {
-          const a = props as InterpolatedArrow;
-          const p1 = applyHomography(homography, a.x1, a.y1);
-          const p2 = applyHomography(homography, a.x2, a.y2);
-          return getBoundsForFlatPoints([p1.x, p1.y, p2.x, p2.y]);
-        }
-        case 'lob': {
-          const l = props as InterpolatedLob;
-          const p1 = applyHomography(homography, l.x1, l.y1);
-          const pc = applyHomography(homography, l.cx, l.cy);
-          const p2 = applyHomography(homography, l.x2, l.y2);
-          return getBoundsForFlatPoints([p1.x, p1.y, pc.x, pc.y, p2.x, p2.y]);
-        }
-        case 'text': {
-          const t = props as InterpolatedText;
-          const p = applyHomography(homography, t.x, t.y);
-          const fontSize = resolveAnnotationDisplayStyle(ann).fontSize;
-          return { x: p.x, y: p.y, w: 100, h: fontSize };
-        }
-        case 'poly': {
-          const p = props as InterpolatedPoly;
-          return getBoundsForFlatPoints(p.points.flatMap(([x, y]) => {
-            const pt = applyHomography(homography, x, y);
-            return [pt.x, pt.y];
-          }));
-        }
+      const projected = projectPitchKeyframeToImageShape(props, homography);
+      if (projected) {
+        return getProjectedPitchShapeBounds(projected, resolveAnnotationDisplayStyle(ann).fontSize);
       }
     }
     switch (props.type) {
@@ -1066,7 +1061,7 @@ export default function ClipEditor({
     seedFrameMs: number,
     trackStartMs: number,
     trackEndMs: number,
-    mergeMode: 'replace' | 'forward' | 'range',
+    mergeMode: 'replace' | 'forward' | 'range' | 'to_correction',
     rangeEndMs?: number,
   ) => {
     if (!hasVideoSource) return;
@@ -1126,7 +1121,7 @@ export default function ClipEditor({
       return;
     }
 
-    const interp = interpolateKeyframes(ann.keyframes, currentTMsRef.current, ann.type, videoFps);
+    const interp = interpolateAnnotationAtTime(ann, currentTMsRef.current, videoFps, clipDurationMs);
     if (!interp) { setTrackError('No visible annotation at current time'); return; }
 
     const seedBbox = extractSeedBbox(interp);
@@ -1141,7 +1136,7 @@ export default function ClipEditor({
     const ann = selectedAnn;
     const tMs = currentTMsRef.current;
 
-    const interp = interpolateKeyframes(ann.keyframes, tMs, ann.type, videoFps);
+    const interp = interpolateAnnotationAtTime(ann, tMs, videoFps, clipDurationMs);
     if (!interp) { setTrackError('No visible annotation at current time'); return; }
 
     const seedBbox = extractSeedBbox(interp);
@@ -1157,7 +1152,7 @@ export default function ClipEditor({
     const ann = selectedAnn;
     const tMs = currentTMsRef.current;
 
-    const interp = interpolateKeyframes(ann.keyframes, tMs, ann.type, videoFps);
+    const interp = interpolateAnnotationAtTime(ann, tMs, videoFps, clipDurationMs);
     if (!interp) { setTrackError('No visible annotation at current time'); return; }
 
     const seedBbox = extractSeedBbox(interp);
@@ -1168,8 +1163,34 @@ export default function ClipEditor({
     const seedAbsMs = clip.startMs + tMs;
     const trackStart = clip.startMs + rangeStartMs;
     const trackEnd = clip.startMs + rangeEndMs;
-    await doTrack(ann, seedBbox, seedAbsMs, trackStart, trackEnd, 'range', rangeEndMs);
+    await doTrack(ann, seedBbox, seedAbsMs, trackStart, trackEnd, 'range', retrackRangeEndMs);
   }, [hasVideoSource, selectedAnn, retrackRangeEndMs, videoFps, clip.startMs, extractSeedBbox, doTrack]);
+
+  const handleRetrackToNextCorrection = useCallback(async () => {
+    if (!hasVideoSource || !selectedAnn || !selectedNextCorrectionKeyframe) return;
+    const ann = selectedAnn;
+    const tMs = currentTMsRef.current;
+    const boundaryEndMs = selectedNextCorrectionKeyframe.tMs;
+
+    const interp = interpolateAnnotationAtTime(ann, tMs, videoFps, clipDurationMs);
+    if (!interp) { setTrackError('No visible annotation at current time'); return; }
+
+    const seedBbox = extractSeedBbox(interp);
+    if (!seedBbox) { setTrackError('Cannot extract bbox for re-tracking'); return; }
+
+    const seedAbsMs = clip.startMs + tMs;
+    const trackStart = clip.startMs + Math.min(tMs, boundaryEndMs);
+    const trackEnd = clip.startMs + Math.max(tMs, boundaryEndMs);
+    await doTrack(ann, seedBbox, seedAbsMs, trackStart, trackEnd, 'to_correction', boundaryEndMs);
+  }, [hasVideoSource, selectedAnn, selectedNextCorrectionKeyframe, videoFps, clip.startMs, extractSeedBbox, doTrack]);
+
+  const handleSetRetrackRangeEnd = useCallback(() => {
+    setRetrackRangeEndMs(currentTMsRef.current);
+  }, []);
+
+  const handleClearRetrackRange = useCallback(() => {
+    setRetrackRangeEndMs(null);
+  }, []);
 
   const handleUndoAnnotations = useCallback(() => {
     const result = undoClipAnnotationHistory({
@@ -1437,6 +1458,23 @@ export default function ClipEditor({
     currentHomographyInvRef.current = currentHomographyInv;
   }, [currentHomographyInv]);
 
+  const activeToolSupportsPitchCoords = useMemo(() => (
+    tool !== 'select' && annotationTypeSupportsPitchCoords(tool as ClipAnnotationType)
+  ), [tool]);
+
+  const effectiveDrawCoordMode = useMemo(() => (
+    drawCoordMode === 'pitch' && activeToolSupportsPitchCoords && !!currentHomographyInv
+      ? 'pitch'
+      : 'image'
+  ), [drawCoordMode, activeToolSupportsPitchCoords, currentHomographyInv]);
+
+  const drawCoordModeStatus = useMemo(() => {
+    if (drawCoordMode !== 'pitch') return null;
+    if (!activeToolSupportsPitchCoords) return 'Current tool uses image coordinates';
+    if (!currentHomographyInv) return 'No usable H at this frame; new shapes will fall back to image';
+    return 'New shapes will use pitch coordinates';
+  }, [drawCoordMode, activeToolSupportsPitchCoords, currentHomographyInv]);
+
   const selectedAnnBounds = useMemo(() => {
     if (!selectedAnn || !selectedAnnInterpolated) return null;
     return getInterpolatedBounds(selectedAnn, selectedAnnInterpolated, currentHomography);
@@ -1447,7 +1485,7 @@ export default function ClipEditor({
     const selectedSet = new Set(selectedAnnotationIds);
     return annotations.flatMap((annotation) => {
       if (!selectedSet.has(annotation.id)) return [];
-      const interpolatedKeyframe = interpolateKeyframes(annotation.keyframes, currentTMs, annotation.type, videoFps);
+      const interpolatedKeyframe = interpolateAnnotationAtTime(annotation, currentTMs, videoFps, clipDurationMs);
       if (!interpolatedKeyframe) return [];
       return [{
         id: annotation.id,
@@ -1656,7 +1694,7 @@ export default function ClipEditor({
   const interpolated = useMemo(() => {
     const results: { ann: ClipAnnotation; props: InterpolatedKeyframe }[] = [];
     for (const ann of annotations) {
-      const p = interpolateKeyframes(ann.keyframes, currentTMs, ann.type, videoFps);
+      const p = interpolateAnnotationAtTime(ann, currentTMs, videoFps, clipDurationMs);
       if (p) results.push({ ann, props: p });
     }
     return results;
@@ -2142,7 +2180,7 @@ export default function ClipEditor({
           && left.y + left.h > right.y
         );
         const hits = annotations.filter((annotation) => {
-          const interpolatedKeyframe = interpolateKeyframes(annotation.keyframes, currentTMsRef.current, annotation.type, videoFps);
+          const interpolatedKeyframe = interpolateAnnotationAtTime(annotation, currentTMsRef.current, videoFps, clipDurationMs);
           if (!interpolatedKeyframe) return false;
           return intersects(getInterpolatedBounds(annotation, interpolatedKeyframe, currentHomography), rect);
         }).map((annotation) => annotation.id);
@@ -2289,9 +2327,10 @@ export default function ClipEditor({
     // Text: single click creates text annotation
     if (tool === 'text') {
       if (!isStage) return;
-      const Hinv = currentHomographyInvRef.current;
-      const usePitchCoords = drawCoordMode === 'pitch' && !!Hinv;
-      const tp = usePitchCoords && Hinv ? applyHomographyInv(Hinv, p.x, p.y) : { u: p.x, v: p.y };
+      const usePitchCoords = drawCoordMode === 'pitch' && !!currentHomographyInvRef.current;
+      const geometry = usePitchCoords
+        ? convertImageGeometryToPitchGeometry('text', { x: p.x, y: p.y }, currentHomographyInvRef.current)
+        : { x: p.x, y: p.y };
       const ann: ClipAnnotation = {
         id: makeId(),
         type: 'text',
@@ -2306,7 +2345,7 @@ export default function ClipEditor({
           fontFamily: 'Inter, system-ui, sans-serif',
           textHighlight: defaultTextHighlight,
         },
-        keyframes: [{ tMs: currentTMsRef.current, x: tp.u, y: tp.v } as ClipKeyframe],
+        keyframes: [{ tMs: currentTMsRef.current, x: geometry.x, y: geometry.y, provenance: 'manual' } as ClipKeyframe],
       };
       setAnnotations(prev => [...prev, ann]);
       setSelectedAnnotationIds([]);
@@ -2341,70 +2380,61 @@ export default function ClipEditor({
 
     // --- Pitch-space rendering: transform through homography ---
     if (ann.coordMode === 'pitch' && currentHomography) {
-      const H = currentHomography;
-      let imgPoints: number[] = [];
+      const projected = projectPitchKeyframeToImageShape(props, currentHomography);
+      if (!projected) return null;
 
-      switch (props.type) {
-        case 'box': {
-          const b = props as InterpolatedBox;
-          imgPoints = rectPlaneToImagePoints(H, b.x + b.w / 2, b.y + b.h / 2, b.w, b.h);
-          break;
-        }
-        case 'circle': {
-          const c = props as InterpolatedCircle;
-          imgPoints = ellipsePlaneToImagePoints(H, c.cx, c.cy, c.rx, c.ry);
-          break;
-        }
-        case 'highlight': {
-          const h = props as InterpolatedHighlight;
-          imgPoints = ellipsePlaneToImagePoints(H, h.cx, h.cy, h.radius, h.radius * 0.35);
-          break;
-        }
-        case 'arrow': {
-          const a = props as InterpolatedArrow;
-          const p1 = applyHomography(H, a.x1, a.y1);
-          const p2 = applyHomography(H, a.x2, a.y2);
-          return (
-            <KArrow
-              key={ann.id}
-              x={0} y={0}
-              points={[p1.x * scale, p1.y * scale, p2.x * scale, p2.y * scale]}
-              stroke={stroke} strokeWidth={scaledStrokeWidth} fill={stroke}
-              pointerLength={scaledPointerLength} pointerWidth={scaledPointerWidth} dash={scaledDash}
-              lineCap="round" lineJoin="round"
-              listening={false} draggable={false}
-              hitStrokeWidth={16}
-            />
-          );
-        }
-        case 'text': {
-          const t = props as InterpolatedText;
-          const tp = applyHomography(H, t.x, t.y);
-          return (
-            <KText
-              key={ann.id}
-              x={tp.x * scale} y={tp.y * scale}
-              text={ann.text || ''} fontSize={fontSize * scale}
-              fontFamily={fontFamily}
-              fill={stroke} listening={false} draggable={false}
-            />
-          );
-        }
-        case 'poly': {
-          const p = props as InterpolatedPoly;
-          imgPoints = p.points.flatMap(([u, v]) => {
-            const pt = applyHomography(H, u, v);
-            return [pt.x, pt.y];
-          });
-          break;
-        }
-        default:
-          return null;
+      if (projected.kind === 'arrow') {
+        return (
+          <KArrow
+            key={ann.id}
+            x={0} y={0}
+            points={projected.points.map((value) => value * scale)}
+            stroke={stroke} strokeWidth={scaledStrokeWidth} fill={stroke}
+            pointerLength={scaledPointerLength} pointerWidth={scaledPointerWidth} dash={scaledDash}
+            lineCap="round" lineJoin="round"
+            listening={false} draggable={false}
+            hitStrokeWidth={16}
+          />
+        );
       }
 
-      // Render transformed polygon
-      if (imgPoints.length >= 4) {
-        const scaled = imgPoints.map((v, i) => v * scale);
+      if (projected.kind === 'lob') {
+        return (
+          <KShape
+            key={ann.id}
+            sceneFunc={(ctx, shape) => {
+              const [x1, y1, cx, cy, x2, y2] = projected.points.map((value) => value * scale);
+              ctx.beginPath();
+              ctx.moveTo(x1, y1);
+              ctx.quadraticCurveTo(cx, cy, x2, y2);
+              ctx.strokeShape(shape);
+            }}
+            stroke={stroke}
+            strokeWidth={scaledStrokeWidth}
+            dash={scaledDash}
+            lineCap="round"
+            lineJoin="round"
+            listening={false}
+            draggable={false}
+            hitStrokeWidth={16}
+          />
+        );
+      }
+
+      if (projected.kind === 'text') {
+        return (
+          <KText
+            key={ann.id}
+            x={projected.x * scale} y={projected.y * scale}
+            text={ann.text || ''} fontSize={fontSize * scale}
+            fontFamily={fontFamily}
+            fill={stroke} listening={false} draggable={false}
+          />
+        );
+      }
+
+      if (projected.points.length >= 4) {
+        const scaled = projected.points.map((value) => value * scale);
         return (
           <KLine
             key={ann.id}
@@ -2649,7 +2679,7 @@ export default function ClipEditor({
     if (!ctx) return;
 
     const interps = annotations
-      .map(ann => ({ ann, props: interpolateKeyframes(ann.keyframes, tMs, ann.type) }))
+      .map(ann => ({ ann, props: interpolateAnnotationAtTime(ann, tMs, videoFps, clipDurationMs) }))
       .filter(({ props }) => props !== null) as { ann: ClipAnnotation; props: InterpolatedKeyframe }[];
 
     for (const { ann, props } of interps) {
@@ -2995,7 +3025,7 @@ export default function ClipEditor({
                     y={selectedAnnBounds.y * scale}
                     width={Math.max(0, selectedAnnBounds.w * scale)}
                     height={Math.max(0, selectedAnnBounds.h * scale)}
-                    stroke="#60a5fa"
+                    stroke={selectedTrackingAccentColor}
                     dash={[4 * scale, 4 * scale]}
                     strokeWidth={1.5 * scale}
                     listening={false}
@@ -3014,7 +3044,7 @@ export default function ClipEditor({
                           lob.x2 * scale,
                           lob.y2 * scale,
                         ]}
-                        stroke="#60a5fa"
+                        stroke={selectedTrackingAccentColor}
                         dash={[4 * scale, 4 * scale]}
                         strokeWidth={1.5 * scale}
                         listening={false}
@@ -3023,7 +3053,7 @@ export default function ClipEditor({
                         x={lob.cx * scale}
                         y={lob.cy * scale}
                         radius={7 * scale}
-                        fill="#60a5fa"
+                        fill={selectedTrackingAccentColor}
                         stroke="#ffffff"
                         strokeWidth={1.5 * scale}
                         draggable={canInteract}
@@ -3041,6 +3071,23 @@ export default function ClipEditor({
               </Layer>
             </Stage>
             {videoReady && <div data-testid="clip-video-ready" className="sr-only">ready</div>}
+            {selectedAnn && (
+              <div
+                className="absolute left-3 top-3 pointer-events-none"
+                style={{
+                  backgroundColor: selectedFrameTrackingState === 'lost'
+                    ? 'rgba(127, 29, 29, 0.9)'
+                    : 'rgba(17, 24, 39, 0.86)',
+                  border: `1px solid ${selectedTrackingAccentColor}`,
+                  color: '#f8fafc',
+                  fontSize: 11,
+                  padding: '4px 8px',
+                  borderRadius: 999,
+                }}
+              >
+                {selectedTrackingStatusText}
+              </div>
+            )}
           </div>
         )}
         {isSelecting && selRect && (
@@ -3064,6 +3111,7 @@ export default function ClipEditor({
       <TimelineStrip
         durationMs={clipDurationMs}
         currentTMs={currentTMs}
+        fps={videoFps}
         currentFrameToleranceMs={currentFrameToleranceMs}
         annotations={annotations}
         selectedAnnotationId={selectedAnnotationId}
@@ -3093,17 +3141,40 @@ export default function ClipEditor({
           ) : selectedAnn ? (
             <>
               <div className="text-xs font-medium">{selectedAnn.type}</div>
-              <div className="text-xs text-muted">source: {selectedAnn.source}</div>
+              <div
+                className="text-xs px-2 py-0.5 rounded-full border"
+                style={{ borderColor: selectedTrackingAccentColor, color: selectedTrackingAccentColor }}
+              >
+                source: {selectedAnn.source}
+              </div>
               <div className="text-xs text-muted">{selectedAnn.coordMode} coords</div>
               <div className="text-xs text-muted">{selectedAnn.keyframes.length} keyframe{selectedAnn.keyframes.length === 1 ? '' : 's'}</div>
-              <div className={`text-xs ${selectedHasCurrentKeyframe ? 'text-white' : 'text-muted'}`}>
-                {selectedHasCurrentKeyframe ? 'Current frame is keyed' : (selectedAnnInterpolated ? 'Current frame is interpolated' : 'Not visible at current frame')}
+              <div className="text-xs text-muted">
+                {selectedCorrectionCount} correction point{selectedCorrectionCount === 1 ? '' : 's'} · {selectedLossSpans.length} lost span{selectedLossSpans.length === 1 ? '' : 's'}
+              </div>
+              {selectedNextCorrectionKeyframe && (
+                <div className="text-xs text-muted">
+                  next correction {formatTime(selectedNextCorrectionKeyframe.tMs)}
+                </div>
+              )}
+              {retrackRangeBounds && (
+                <div className="text-xs text-muted">
+                  range {formatTime(retrackRangeBounds.startMs)}-{formatTime(retrackRangeBounds.endMs)}
+                </div>
+              )}
+              <div
+                className="text-xs px-2 py-0.5 rounded-full border"
+                style={{ borderColor: selectedTrackingAccentColor, color: selectedTrackingAccentColor }}
+              >
+                {selectedTrackingStatusText}
               </div>
               <button
                 onClick={handleInsertCurrentKeyframe}
-                disabled={!selectedAnnInterpolated}
+                disabled={!selectedCanInsertCurrentKeyframe}
                 className="px-2 py-1 text-xs border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                title="Create or refresh a keyframe for the selected annotation at the current frame"
+                title={selectedHasCurrentKeyframe
+                  ? "A keyframe already exists at the current frame"
+                  : "Create a keyframe for the selected annotation at the current frame"}
               >
                 KF Here
               </button>
@@ -3120,7 +3191,7 @@ export default function ClipEditor({
             <div className="text-xs text-muted">No annotation selected. Pause playback and use Select mode to inspect or edit an annotation.</div>
           )}
           <div className="flex-1" />
-          <div className="text-xs text-muted">Selected annotations use the same dashed frame overlays as the still editor, and current-frame keyframes are emphasized in the timeline.</div>
+          <div className="text-xs text-muted">Timeline markers show manual, tracked, correction, and lost states. Range retrack now works with an explicit range endpoint button as well as Shift-click on the timeline.</div>
         </div>
       </div>
 
@@ -3311,16 +3382,58 @@ export default function ClipEditor({
             </button>
           )}
 
-          {/* Re-track range */}
-          {showRetrackButton && retrackRangeEndMs != null && !isPlaying && (
+          {showRetrackButton && !isPlaying && (
             <button
-              onClick={handleRetrackRange}
+              onClick={handleSetRetrackRangeEnd}
               disabled={isTracking}
               className="px-3 py-0.5 text-sm border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Re-track within the selected range (Shift-click timeline to set range)"
+              title="Store the current playhead as the other end of a re-track range. You can also Shift-click the timeline."
+            >
+              Mark Range End
+            </button>
+          )}
+
+          {/* Re-track range */}
+          {showRetrackButton && !isPlaying && (
+            <button
+              onClick={handleRetrackRange}
+              disabled={!canRetrackRange || isTracking}
+              className="px-3 py-0.5 text-sm border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              title={retrackRangeBounds
+                ? `Re-track the selected range (${formatTime(retrackRangeBounds.startMs)}-${formatTime(retrackRangeBounds.endMs)}). Set the other endpoint with Mark Range End or Shift-click on the timeline.`
+                : "Set a range end first with Mark Range End or Shift-click on the timeline."}
             >
               Re-track range
             </button>
+          )}
+
+          {canRetrackToNextCorrection && !isPlaying && (
+            <button
+              onClick={handleRetrackToNextCorrection}
+              disabled={isTracking}
+              className="px-3 py-0.5 text-sm border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              title={`Re-track from the current frame until the next correction point at ${formatTime(selectedNextCorrectionKeyframe!.tMs)}`}
+            >
+              To Next Correction
+            </button>
+          )}
+
+          {showRetrackButton && retrackRangeBounds && !isPlaying && (
+            <>
+              <span
+                className="text-xs text-amber-300 font-mono tabular-nums"
+                title="Active re-track range"
+              >
+                Range {formatTime(retrackRangeBounds.startMs)}-{formatTime(retrackRangeBounds.endMs)}
+              </span>
+              <button
+                onClick={handleClearRetrackRange}
+                className="px-3 py-0.5 text-sm border-0 cursor-pointer"
+                title="Clear the current re-track range"
+              >
+                Clear Range
+              </button>
+            </>
           )}
 
           {/* Undo re-track */}
@@ -3421,27 +3534,40 @@ export default function ClipEditor({
           {homographyFrames && (
             <button
               onClick={() => setDrawCoordMode(prev => (prev === 'pitch' ? 'image' : 'pitch'))}
-              disabled={!currentHomographyInv}
-              className="px-3 py-0.5 text-sm border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-              title={currentHomographyInv
-                ? `Drawing in ${drawCoordMode === 'pitch' ? 'pitch/3D' : 'image/2D'} coordinates`
-                : 'No usable homography at current frame'}
+              className="px-3 py-0.5 text-sm border-0 cursor-pointer"
+              title={
+                drawCoordMode === 'pitch'
+                  ? 'Prefer pitch coordinates for supported tools when the current frame has a usable homography'
+                  : 'Use image coordinates for new annotations'
+              }
             >
-              {drawCoordMode === 'pitch' ? 'Draw: 3D' : 'Draw: 2D'}
+              {effectiveDrawCoordMode === 'pitch' ? 'Draw: Pitch' : 'Draw: Image'}
             </button>
+          )}
+          {homographyFrames && drawCoordModeStatus && (
+            <span className="text-xs text-muted" title={drawCoordModeStatus}>
+              {drawCoordModeStatus}
+            </span>
           )}
 
           {/* Occlusion toggle */}
           {canSegment && (
-            <button
-              onClick={() => setOcclusionEnabled(prev => !prev)}
-              className={`px-3 py-0.5 text-sm border-0 cursor-pointer ${occlusionEnabled ? 'text-green-400' : ''}`}
-              title={occlusionEnabled
-                ? 'Disable foreground occlusion (people rendered above annotations)'
-                : 'Enable foreground occlusion (people rendered above annotations)'}
-            >
-              {occlusionEnabled ? 'Occ ✓' : 'Occ'}
-            </button>
+            <>
+              <button
+                onClick={() => setOcclusionEnabled(prev => !prev)}
+                className={`px-3 py-0.5 text-sm border-0 cursor-pointer ${occlusionEnabled ? 'text-green-400' : ''}`}
+                title={occlusionEnabled
+                  ? 'Disable paused-frame foreground occlusion (people rendered above annotations when paused)'
+                  : 'Enable paused-frame foreground occlusion (people rendered above annotations when paused)'}
+              >
+                {occlusionEnabled ? 'Occ ✓' : 'Occ'}
+              </button>
+              {occlusionStatus && (
+                <span className="text-xs text-muted" title={occlusionStatus}>
+                  {occlusionStatus}
+                </span>
+              )}
+            </>
           )}
 
           {/* Export */}

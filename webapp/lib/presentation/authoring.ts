@@ -7,9 +7,11 @@ import type {
   StillSlide,
   TitleSlide,
 } from '../types/presentation';
+import type { Clip } from '../types/clip';
 import type { TaggingNode, TaggingSchema } from '../tagging/schema';
 import { ensureTaggingSelection } from '../tagging/schema';
 import { findCanonicalStillForMark, findLinkedStillsForMark } from '../utils/projectIntegrity';
+import { listStillsWithinClipBounds } from '../clip/stillRelationship';
 
 export type PresentationAssetMark = {
   mark: ProjectManifestV1['marks'][number];
@@ -41,6 +43,12 @@ export type ChronologicalStillAsset = {
 
 export type ChronologicalStillGroup = {
   videoId: string;
+  videoLabel: string;
+  stills: ChronologicalStillAsset[];
+};
+
+export type ClipCenteredStillGroup = {
+  clip: Clip;
   videoLabel: string;
   stills: ChronologicalStillAsset[];
 };
@@ -261,6 +269,45 @@ export function buildChronologicalStillGroups(
         return a.still.id.localeCompare(b.still.id);
       }),
     }));
+}
+
+export function buildClipCenteredStillGroups(
+  manifest: ProjectManifestV1,
+  clips: Clip[],
+): ClipCenteredStillGroup[] {
+  const markById = new Map(manifest.marks.map((mark) => [mark.id, mark] as const));
+  const videoLabelById = new Map(manifest.videos.map((video) => [video.id, video.label] as const));
+  const videoOrderById = new Map(manifest.videos.map((video, index) => [video.id, index] as const));
+
+  return clips
+    .slice()
+    .sort((left, right) => {
+      const leftVideoOrder = videoOrderById.get(left.videoId) ?? Number.MAX_SAFE_INTEGER;
+      const rightVideoOrder = videoOrderById.get(right.videoId) ?? Number.MAX_SAFE_INTEGER;
+      if (leftVideoOrder !== rightVideoOrder) return leftVideoOrder - rightVideoOrder;
+      if (left.videoId !== right.videoId) return left.videoId.localeCompare(right.videoId);
+      if (left.startMs !== right.startMs) return left.startMs - right.startMs;
+      if (left.endMs !== right.endMs) return left.endMs - right.endMs;
+      return left.id.localeCompare(right.id);
+    })
+    .map((clip) => {
+      const stills = listStillsWithinClipBounds(manifest.stills, clip).map((still) => {
+        const sourceMark = still.sourceMarkId ? markById.get(still.sourceMarkId) ?? null : null;
+        const selection = ensureTaggingSelection(sourceMark?.tags);
+        return {
+          still,
+          sourceMark,
+          canonicalForSourceMark: sourceMark ? findCanonicalStillForMark(manifest, sourceMark.id)?.id === still.id : false,
+          primaryTag: selection.primary || null,
+        };
+      });
+
+      return {
+        clip,
+        videoLabel: videoLabelById.get(clip.videoId) || clip.videoId,
+        stills,
+      };
+    });
 }
 
 export function insertSlideAfterSelection(

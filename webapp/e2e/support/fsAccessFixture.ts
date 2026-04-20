@@ -70,12 +70,13 @@ export async function installDirectoryPickerFixture(page: Page, fixturePath: str
   const absoluteFixturePath = path.isAbsolute(fixturePath)
     ? fixturePath
     : path.resolve(fixturePath);
+  const storageKey = `playwright-fs-fixture:${absoluteFixturePath}`;
   const serializedRoot = await serializeFixtureEntry(absoluteFixturePath);
   if (serializedRoot.kind !== 'directory') {
     throw new Error(`Fixture path is not a directory: ${absoluteFixturePath}`);
   }
 
-  await page.addInitScript((root: SerializedFixtureDirectory) => {
+  await page.addInitScript((root: SerializedFixtureDirectory, fixtureStorageKey: string) => {
     type BrowserFixtureDirectory = {
       kind: 'directory';
       name: string;
@@ -99,6 +100,13 @@ export async function installDirectoryPickerFixture(page: Page, fixturePath: str
         bytes[index] = binary.charCodeAt(index);
       }
       return bytes;
+    };
+    const encodeBase64 = (value: Uint8Array): string => {
+      let binary = '';
+      value.forEach((byte) => {
+        binary += String.fromCharCode(byte);
+      });
+      return btoa(binary);
     };
 
     const encodeText = (value: string): Uint8Array => new TextEncoder().encode(value);
@@ -142,6 +150,43 @@ export async function installDirectoryPickerFixture(page: Page, fixturePath: str
       };
     };
 
+    const serializeEntry = (entry: BrowserFixtureEntry): SerializedFixtureEntry => {
+      if (entry.kind === 'file') {
+        return {
+          kind: 'file',
+          name: entry.name,
+          mimeType: entry.mimeType,
+          lastModified: entry.lastModified,
+          base64: encodeBase64(entry.bytes),
+        };
+      }
+      return {
+        kind: 'directory',
+        name: entry.name,
+        entries: Array.from(entry.entries.values())
+          .sort((left, right) => left.name.localeCompare(right.name))
+          .map((child) => serializeEntry(child)),
+      };
+    };
+
+    const storedRoot = (() => {
+      try {
+        const raw = sessionStorage.getItem(fixtureStorageKey);
+        if (!raw) return null;
+        return JSON.parse(raw) as SerializedFixtureDirectory;
+      } catch {
+        return null;
+      }
+    })();
+    const rootNode = hydrateEntry(storedRoot ?? root) as BrowserFixtureDirectory;
+    const persistFixture = () => {
+      try {
+        sessionStorage.setItem(fixtureStorageKey, JSON.stringify(serializeEntry(rootNode)));
+      } catch {
+      }
+    };
+    persistFixture();
+
     class MockWritableFileStream {
       private fileNode: BrowserFixtureFile;
       private chunks: Uint8Array[] = [];
@@ -174,6 +219,7 @@ export async function installDirectoryPickerFixture(page: Page, fixturePath: str
         });
         this.fileNode.bytes = bytes;
         this.fileNode.lastModified = Date.now();
+        persistFixture();
       }
     }
 
@@ -238,6 +284,7 @@ export async function installDirectoryPickerFixture(page: Page, fixturePath: str
             entries: new Map(),
           };
           this.directoryNode.entries.set(name, created);
+          persistFixture();
           return new MockDirectoryHandle(created);
         }
         throw notFoundError(`Directory not found: ${name}`);
@@ -260,6 +307,7 @@ export async function installDirectoryPickerFixture(page: Page, fixturePath: str
             bytes: new Uint8Array(),
           };
           this.directoryNode.entries.set(name, created);
+          persistFixture();
           return new MockFileHandle(created);
         }
         throw notFoundError(`File not found: ${name}`);
@@ -270,6 +318,7 @@ export async function installDirectoryPickerFixture(page: Page, fixturePath: str
           throw notFoundError(`Entry not found: ${name}`);
         }
         this.directoryNode.entries.delete(name);
+        persistFixture();
       }
 
       async *entries(): AsyncIterableIterator<[string, FileSystemFileHandle | FileSystemDirectoryHandle]> {
@@ -350,11 +399,11 @@ export async function installDirectoryPickerFixture(page: Page, fixturePath: str
       return 'application/octet-stream';
     };
 
-    const projectHandle = new MockDirectoryHandle(hydrateEntry(root) as BrowserFixtureDirectory);
+    const projectHandle = new MockDirectoryHandle(rootNode);
     Object.defineProperty(window, 'showDirectoryPicker', {
       configurable: true,
       value: async () => projectHandle,
     });
     (window as Window & { __playwrightProjectHandle?: FileSystemDirectoryHandle }).__playwrightProjectHandle = projectHandle;
-  }, serializedRoot);
+  }, serializedRoot, storageKey);
 }

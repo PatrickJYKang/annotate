@@ -2,6 +2,7 @@
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import type { ClipAnnotation } from "../../lib/types/clip";
+import { getHiddenSpans, getKeyframeProvenance } from "../../lib/clip/trackingState";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -10,6 +11,7 @@ import type { ClipAnnotation } from "../../lib/types/clip";
 export interface TimelineStripProps {
   durationMs: number;
   currentTMs: number;
+  fps?: number;
   currentFrameToleranceMs?: number;
   annotations: ClipAnnotation[];
   selectedAnnotationId: string | null;
@@ -32,6 +34,12 @@ const PLAYHEAD_W = 2;
 const RESIZE_HANDLE_H = 8;
 const DEFAULT_VISIBLE_LANES = 5;
 
+function getAnnotationAccentColor(annotation: ClipAnnotation): string {
+  if (annotation.source === "auto") return "#60a5fa";
+  if (annotation.source === "corrected") return "#f59e0b";
+  return "#e5e7eb";
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -39,6 +47,7 @@ const DEFAULT_VISIBLE_LANES = 5;
 export default function TimelineStrip({
   durationMs,
   currentTMs,
+  fps = 30,
   currentFrameToleranceMs = 0,
   annotations,
   selectedAnnotationId,
@@ -231,6 +240,8 @@ export default function TimelineStrip({
             const laneTop = idx * LANE_H;
             const isSelected = ann.id === selectedAnnotationId;
             const strokeColor = ann.style?.stroke || '#000000';
+            const accentColor = getAnnotationAccentColor(ann);
+            const lossSpans = getHiddenSpans(ann, durationMs, fps);
 
             return (
               <div
@@ -242,11 +253,20 @@ export default function TimelineStrip({
                   className={`absolute inset-0 ${isSelected ? 'bg-hover' : ''}`}
                   style={{
                     borderBottom: '1px solid var(--color-border)',
-                    boxShadow: isSelected ? 'inset 2px 0 0 rgba(255,255,255,0.85)' : undefined,
+                    boxShadow: isSelected ? `inset 2px 0 0 ${accentColor}` : undefined,
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
                     onSelectAnnotation(ann.id === selectedAnnotationId ? null : ann.id);
+                  }}
+                />
+
+                <div
+                  className="absolute left-0 top-0 bottom-0"
+                  style={{
+                    width: 2,
+                    backgroundColor: accentColor,
+                    opacity: 0.9,
                   }}
                 />
 
@@ -257,27 +277,59 @@ export default function TimelineStrip({
                   {ann.type}
                 </div>
 
+                {lossSpans.map((span, spanIndex) => {
+                  const left = durationMs > 0 ? (span.startMs / durationMs) * 100 : 0;
+                  const width = durationMs > 0 ? ((span.endMs - span.startMs) / durationMs) * 100 : 0;
+                  return (
+                    <div
+                      key={`${ann.id}-loss-${spanIndex}`}
+                      className="absolute pointer-events-none"
+                      style={{
+                        left: `${left}%`,
+                        width: `${width}%`,
+                        top: 2,
+                        height: LANE_H - 4,
+                        backgroundColor: "rgba(248, 113, 113, 0.16)",
+                        borderLeft: "1px solid rgba(248, 113, 113, 0.65)",
+                        borderRight: "1px solid rgba(248, 113, 113, 0.35)",
+                      }}
+                      title="Tracker lost object in this span"
+                    />
+                  );
+                })}
+
                 {ann.keyframes.map((kf, ki) => {
                   const x = durationMs > 0 ? (kf.tMs / durationMs) * 100 : 0;
                   const isAtCurrentFrame = currentFrameToleranceMs > 0
                     ? Math.abs(kf.tMs - currentTMs) <= currentFrameToleranceMs
                     : kf.tMs === currentTMs;
+                  const provenance = getKeyframeProvenance(ann, kf);
                   const diamondSize = isAtCurrentFrame ? DIAMOND_SIZE + 3 : DIAMOND_SIZE;
+                  const markerColor = provenance === "correction"
+                    ? "#f59e0b"
+                    : provenance === "tracked"
+                      ? "#60a5fa"
+                      : provenance === "lost"
+                        ? "#f87171"
+                        : strokeColor;
+                  const isDiamond = provenance === "tracked" || provenance === "manual";
+                  const markerHeight = provenance === "lost" ? 4 : diamondSize;
                   return (
                     <div
                       key={`${ann.id}-kf-${ki}`}
                       className="absolute cursor-pointer"
                       style={{
                         left: `${x}%`,
-                        top: (LANE_H - diamondSize) / 2,
+                        top: (LANE_H - markerHeight) / 2,
                         width: diamondSize,
-                        height: diamondSize,
-                        transform: 'translateX(-50%) rotate(45deg)',
-                        backgroundColor: strokeColor,
+                        height: markerHeight,
+                        transform: isDiamond ? 'translateX(-50%) rotate(45deg)' : 'translateX(-50%)',
+                        borderRadius: provenance === "correction" ? 2 : provenance === "lost" ? 999 : 0,
+                        backgroundColor: markerColor,
                         border: isSelected ? '1px solid white' : '1px solid rgba(0,0,0,0.3)',
                         boxShadow: isAtCurrentFrame ? '0 0 0 2px rgba(255,255,255,0.55)' : undefined,
                       }}
-                      title={`${ann.type} keyframe @ ${Math.round(kf.tMs)}ms`}
+                      title={`${ann.type} ${provenance} keyframe @ ${Math.round(kf.tMs)}ms`}
                       onClick={(e) => {
                         e.stopPropagation();
                         onSelectAnnotation(ann.id);

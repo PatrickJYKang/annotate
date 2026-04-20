@@ -65,6 +65,7 @@ describe('convertTrackingKeyframes', () => {
     expect(k1.y).toBe(20);
     expect(k1.w).toBe(30);
     expect(k1.h).toBe(40);
+    expect(k1.provenance).toBe('tracked');
   });
 
   it('converts to circle keyframes', () => {
@@ -110,6 +111,7 @@ describe('convertTrackingKeyframes', () => {
     ];
     const kfs = convertTrackingKeyframes(rawInvis, 'box', clipStartMs);
     expect(kfs[0].visible).toBe(false);
+    expect(kfs[0].provenance).toBe('lost');
   });
 
   it('does not set visible if not explicitly false', () => {

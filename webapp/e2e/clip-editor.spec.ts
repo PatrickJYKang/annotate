@@ -16,6 +16,30 @@ type TrackRequest = {
   fps?: number;
 };
 
+function buildMockTrackedKeyframes(body: TrackRequest) {
+  const stepMs = 150;
+  const timestamps: number[] = [];
+  for (let tMs = body.startMs; tMs < body.endMs; tMs += stepMs) {
+    timestamps.push(tMs);
+  }
+  if (timestamps[timestamps.length - 1] !== body.endMs) {
+    timestamps.push(body.endMs);
+  }
+  const lastIndex = Math.max(1, timestamps.length - 1);
+
+  return timestamps.map((tMs, index) => {
+    const ratio = index / lastIndex;
+    return {
+      tMs,
+      x: Math.round(body.seedBbox.x + 24 * ratio),
+      y: Math.round(body.seedBbox.y + 18 * ratio),
+      w: body.seedBbox.w,
+      h: body.seedBbox.h,
+      visible: true,
+    };
+  });
+}
+
 async function installMockSidecar(page: Page): Promise<TrackRequest[]> {
   const trackRequests: TrackRequest[] = [];
 
@@ -57,34 +81,7 @@ async function installMockSidecar(page: Page): Promise<TrackRequest[]> {
     if (url.pathname === '/track') {
       const body = request.postDataJSON() as TrackRequest;
       trackRequests.push(body);
-      const duration = Math.max(0, body.endMs - body.startMs);
-      const midMs = body.startMs + Math.round(duration / 2);
-      const keyframes = [
-        {
-          tMs: body.startMs,
-          x: body.seedBbox.x,
-          y: body.seedBbox.y,
-          w: body.seedBbox.w,
-          h: body.seedBbox.h,
-          visible: true,
-        },
-        {
-          tMs: midMs,
-          x: body.seedBbox.x + 18,
-          y: body.seedBbox.y + 12,
-          w: body.seedBbox.w,
-          h: body.seedBbox.h,
-          visible: true,
-        },
-        {
-          tMs: body.endMs,
-          x: body.seedBbox.x + 24,
-          y: body.seedBbox.y + 18,
-          w: body.seedBbox.w,
-          h: body.seedBbox.h,
-          visible: true,
-        },
-      ];
+      const keyframes = buildMockTrackedKeyframes(body);
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -120,6 +117,18 @@ async function readClipFromFixture(page: Page) {
     const file = await handle.getFile();
     return JSON.parse(await file.text());
   }, CLIP_ID);
+}
+
+function summarizePrimaryAnnotation(clip: any) {
+  const annotation = clip.annotations?.[0] ?? null;
+  return {
+    annotationCount: clip.annotations?.length ?? 0,
+    source: annotation?.source ?? null,
+    keyframes: (annotation?.keyframes ?? []).map((keyframe: any) => ({
+      tMs: keyframe.tMs,
+      provenance: keyframe.provenance ?? null,
+    })),
+  };
 }
 
 test('clip editor supports major authoring flows end to end', async ({ page }) => {
@@ -171,32 +180,36 @@ test('clip editor supports major authoring flows end to end', async ({ page }) =
 
   await expect.poll(async () => {
     const clip = await readClipFromFixture(page);
-    return {
-      annotationCount: clip.annotations.length,
-      source: clip.annotations[0]?.source ?? null,
-      keyframeCount: clip.annotations[0]?.keyframes?.length ?? 0,
-    };
+    return summarizePrimaryAnnotation(clip);
   }).toEqual({
     annotationCount: 1,
     source: 'manual',
-    keyframeCount: 2,
+    keyframes: [
+      { tMs: 0, provenance: 'manual' },
+      { tMs: 250, provenance: 'manual' },
+    ],
   });
-  const manuallyEditedClip = await readClipFromFixture(page);
-  expect(manuallyEditedClip.annotations[0]?.keyframes?.[0]?.x ?? 0).toBeGreaterThan(createX - 40);
-  expect(manuallyEditedClip.annotations[0]?.keyframes?.[0]?.y ?? 0).toBeGreaterThan(createY - 24);
 
   await page.getByRole('button', { name: 'Track' }).click();
   await expect(page.getByText(/^source: auto$/)).toBeVisible();
 
   await expect.poll(async () => {
     const clip = await readClipFromFixture(page);
-    return {
-      source: clip.annotations[0]?.source ?? null,
-      keyframeCount: clip.annotations[0]?.keyframes?.length ?? 0,
-    };
+    return summarizePrimaryAnnotation(clip);
   }).toEqual({
+    annotationCount: 1,
     source: 'auto',
-    keyframeCount: 3,
+    keyframes: [
+      { tMs: 0, provenance: 'tracked' },
+      { tMs: 150, provenance: 'tracked' },
+      { tMs: 300, provenance: 'tracked' },
+      { tMs: 450, provenance: 'tracked' },
+      { tMs: 600, provenance: 'tracked' },
+      { tMs: 750, provenance: 'tracked' },
+      { tMs: 900, provenance: 'tracked' },
+      { tMs: 1050, provenance: 'tracked' },
+      { tMs: 1200, provenance: 'tracked' },
+    ],
   });
 
   await page.getByRole('button', { name: '+250' }).click();
@@ -205,42 +218,83 @@ test('clip editor supports major authoring flows end to end', async ({ page }) =
 
   await expect.poll(async () => {
     const clip = await readClipFromFixture(page);
-    return {
-      source: clip.annotations[0]?.source ?? null,
-      keyframeCount: clip.annotations[0]?.keyframes?.length ?? 0,
-    };
+    return summarizePrimaryAnnotation(clip);
   }).toEqual({
+    annotationCount: 1,
     source: 'corrected',
-    keyframeCount: 3,
+    keyframes: [
+      { tMs: 0, provenance: 'tracked' },
+      { tMs: 150, provenance: 'tracked' },
+      { tMs: 300, provenance: 'tracked' },
+      { tMs: 450, provenance: 'tracked' },
+      { tMs: 500, provenance: 'tracked' },
+      { tMs: 650, provenance: 'tracked' },
+      { tMs: 800, provenance: 'tracked' },
+      { tMs: 950, provenance: 'tracked' },
+      { tMs: 1100, provenance: 'tracked' },
+      { tMs: 1200, provenance: 'tracked' },
+    ],
   });
 
+  await page.getByRole('button', { name: 'Mark Range End' }).click();
+  await expect(page.getByRole('button', { name: 'Clear Range' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Re-track range' })).toBeDisabled();
   await page.getByRole('button', { name: '+250' }).click();
-  const timelineBox = await page.locator('[data-testid="clip-timeline"]').boundingBox();
-  if (!timelineBox) throw new Error('Timeline bounds unavailable');
-  await page.locator('[data-testid="clip-timeline"]').click({
-    modifiers: ['Shift'],
-    position: {
-      x: Math.round((250 / 1200) * timelineBox.width),
-      y: 10,
-    },
-  });
-
-  await expect(page.getByRole('button', { name: 'Re-track range' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Re-track range' })).toBeEnabled();
   await page.getByRole('button', { name: 'Re-track range' }).click();
   await expect(page.getByText(/^source: corrected$/)).toBeVisible();
 
   await expect.poll(async () => {
     const clip = await readClipFromFixture(page);
-    return {
-      source: clip.annotations[0]?.source ?? null,
-      keyframeCount: clip.annotations[0]?.keyframes?.length ?? 0,
-    };
+    return summarizePrimaryAnnotation(clip);
   }).toEqual({
+    annotationCount: 1,
     source: 'corrected',
-    keyframeCount: 3,
+    keyframes: [
+      { tMs: 0, provenance: 'tracked' },
+      { tMs: 150, provenance: 'tracked' },
+      { tMs: 300, provenance: 'tracked' },
+      { tMs: 450, provenance: 'tracked' },
+      { tMs: 500, provenance: 'tracked' },
+      { tMs: 650, provenance: 'tracked' },
+      { tMs: 750, provenance: 'tracked' },
+      { tMs: 800, provenance: 'tracked' },
+      { tMs: 950, provenance: 'tracked' },
+      { tMs: 1100, provenance: 'tracked' },
+      { tMs: 1200, provenance: 'tracked' },
+    ],
   });
 
-  expect(trackRequests).toHaveLength(3);
+  await page.getByRole('button', { name: '+250' }).click();
+  await page.getByRole('button', { name: 'KF Here' }).click();
+  await expect(page.getByText(/^Current frame is a correction point$/).first()).toBeVisible();
+  await expect(page.getByText(/1 correction point/)).toBeVisible();
+  await page.getByRole('button', { name: '-250' }).click();
+  await expect(page.getByRole('button', { name: 'To Next Correction' })).toBeVisible();
+  await page.getByRole('button', { name: 'To Next Correction' }).click();
+
+  await expect.poll(async () => {
+    const clip = await readClipFromFixture(page);
+    return summarizePrimaryAnnotation(clip);
+  }).toEqual({
+    annotationCount: 1,
+    source: 'corrected',
+    keyframes: [
+      { tMs: 0, provenance: 'tracked' },
+      { tMs: 150, provenance: 'tracked' },
+      { tMs: 300, provenance: 'tracked' },
+      { tMs: 450, provenance: 'tracked' },
+      { tMs: 500, provenance: 'tracked' },
+      { tMs: 650, provenance: 'tracked' },
+      { tMs: 750, provenance: 'tracked' },
+      { tMs: 900, provenance: 'tracked' },
+      { tMs: 1000, provenance: 'correction' },
+      { tMs: 1100, provenance: 'tracked' },
+      { tMs: 1200, provenance: 'tracked' },
+    ],
+  });
+
+  expect(trackRequests).toHaveLength(4);
   expect(trackRequests[0]).toMatchObject({
     videoRef: 'video-ref-playwright',
     startMs: 200,
@@ -255,8 +309,14 @@ test('clip editor supports major authoring flows end to end', async ({ page }) =
   });
   expect(trackRequests[2]).toMatchObject({
     videoRef: 'video-ref-playwright',
-    startMs: 450,
+    startMs: 700,
     endMs: 950,
+    seedFrameMs: 950,
+  });
+  expect(trackRequests[3]).toMatchObject({
+    videoRef: 'video-ref-playwright',
+    startMs: 950,
+    endMs: 1200,
     seedFrameMs: 950,
   });
 

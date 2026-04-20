@@ -94,7 +94,7 @@ function buildKeyframeFromShape(
           type: 'poly',
           coordMode: 'image',
           closed: true,
-          keyframe: { tMs, points },
+          keyframe: { tMs, points, provenance: 'manual' },
         };
       }
       if (!Number.isFinite(shape.x) || !Number.isFinite(shape.y) || !Number.isFinite(shape.w) || !Number.isFinite(shape.h)) {
@@ -103,7 +103,7 @@ function buildKeyframeFromShape(
       return {
         type: 'box',
         coordMode: 'image',
-        keyframe: { tMs, x: shape.x, y: shape.y, w: shape.w!, h: shape.h! },
+        keyframe: { tMs, x: shape.x, y: shape.y, w: shape.w!, h: shape.h!, provenance: 'manual' },
       };
     }
     case 'circle': {
@@ -114,7 +114,7 @@ function buildKeyframeFromShape(
           type: 'poly',
           coordMode: 'image',
           closed: true,
-          keyframe: { tMs, points },
+          keyframe: { tMs, points, provenance: 'manual' },
         };
       }
       const rx = shape.rx ?? shape.r;
@@ -125,7 +125,7 @@ function buildKeyframeFromShape(
       return {
         type: 'circle',
         coordMode: 'image',
-        keyframe: { tMs, cx: shape.x, cy: shape.y, rx: rx!, ry: ry! },
+        keyframe: { tMs, cx: shape.x, cy: shape.y, rx: rx!, ry: ry!, provenance: 'manual' },
       };
     }
     case 'shadow': {
@@ -144,6 +144,7 @@ function buildKeyframeFromShape(
           r: radius!,
           rotation: Number.isFinite(shape.rotation) ? shape.rotation! : 0,
           spreadDeg: Number.isFinite(shape.spreadDeg) ? shape.spreadDeg! : 42,
+          provenance: 'manual',
         },
       };
     }
@@ -159,6 +160,7 @@ function buildKeyframeFromShape(
           y1: points[0][1],
           x2: points[1][0],
           y2: points[1][1],
+          provenance: 'manual',
         },
       };
     }
@@ -177,6 +179,7 @@ function buildKeyframeFromShape(
           cy: points[1][1],
           x2: points[2][0],
           y2: points[2][1],
+          provenance: 'manual',
         },
       };
     }
@@ -188,7 +191,7 @@ function buildKeyframeFromShape(
           type: 'text',
           coordMode: 'image',
           text: shape.text ?? '',
-          keyframe: { tMs, x: point.x, y: point.y },
+          keyframe: { tMs, x: point.x, y: point.y, provenance: 'manual' },
         };
       }
       if (!Number.isFinite(shape.x) || !Number.isFinite(shape.y)) return null;
@@ -196,7 +199,7 @@ function buildKeyframeFromShape(
         type: 'text',
         coordMode: 'image',
         text: shape.text ?? '',
-        keyframe: { tMs, x: shape.x, y: shape.y },
+        keyframe: { tMs, x: shape.x, y: shape.y, provenance: 'manual' },
       };
     }
     case 'poly': {
@@ -206,7 +209,7 @@ function buildKeyframeFromShape(
         type: 'poly',
         coordMode: 'image',
         closed: shape.closed !== false,
-        keyframe: { tMs, points },
+        keyframe: { tMs, points, provenance: 'manual' },
       };
     }
     case 'highlight': {
@@ -217,7 +220,7 @@ function buildKeyframeFromShape(
           type: 'poly',
           coordMode: 'image',
           closed: true,
-          keyframe: { tMs, points },
+          keyframe: { tMs, points, provenance: 'manual' },
         };
       }
       const radius = shape.rx ?? shape.r;
@@ -227,7 +230,7 @@ function buildKeyframeFromShape(
       return {
         type: 'highlight',
         coordMode: 'image',
-        keyframe: { tMs, cx: shape.x, cy: shape.y, radius: radius! },
+        keyframe: { tMs, cx: shape.x, cy: shape.y, radius: radius!, provenance: 'manual' },
       };
     }
     default:

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildChronologicalStillGroups } from './authoring';
+import { buildChronologicalStillGroups, buildClipCenteredStillGroups } from './authoring';
 import type { ProjectManifestV1 } from '../types/project';
+import type { Clip } from '../types/clip';
 
 function buildManifest(): ProjectManifestV1 {
   return {
@@ -50,5 +51,46 @@ describe('buildChronologicalStillGroups', () => {
     expect(nonCanonical?.canonicalForSourceMark).toBe(false);
     expect(unlinked?.sourceMark).toBeNull();
     expect(unlinked?.primaryTag).toBeNull();
+  });
+});
+
+describe('buildClipCenteredStillGroups', () => {
+  const clips: Clip[] = [
+    {
+      schema: 1,
+      id: 'clip-a',
+      videoId: 'video-a',
+      startMs: 1500,
+      endMs: 6500,
+      annotations: [],
+    },
+    {
+      schema: 1,
+      id: 'clip-b',
+      videoId: 'video-b',
+      startMs: 500,
+      endMs: 1500,
+      annotations: [],
+    },
+  ];
+
+  it('groups stills under clips using the derived in-bounds relationship', () => {
+    const groups = buildClipCenteredStillGroups(buildManifest(), clips);
+
+    expect(groups.map((group) => group.clip.id)).toEqual(['clip-b', 'clip-a']);
+    expect(groups[0]?.stills.map((entry) => entry.still.id)).toEqual(['still-1']);
+    expect(groups[1]?.stills.map((entry) => entry.still.id)).toEqual(['still-2', 'still-3', 'still-4']);
+  });
+
+  it('preserves source-mark context for clip-centered still rows', () => {
+    const groups = buildClipCenteredStillGroups(buildManifest(), clips);
+    const clipA = groups.find((group) => group.clip.id === 'clip-a');
+    const canonical = clipA?.stills.find((entry) => entry.still.id === 'still-3');
+    const nonCanonical = clipA?.stills.find((entry) => entry.still.id === 'still-4');
+
+    expect(canonical?.sourceMark?.id).toBe('mark-1');
+    expect(canonical?.canonicalForSourceMark).toBe(true);
+    expect(canonical?.primaryTag).toBe('build_up');
+    expect(nonCanonical?.canonicalForSourceMark).toBe(false);
   });
 });
