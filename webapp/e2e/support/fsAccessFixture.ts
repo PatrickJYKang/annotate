@@ -76,7 +76,7 @@ export async function installDirectoryPickerFixture(page: Page, fixturePath: str
     throw new Error(`Fixture path is not a directory: ${absoluteFixturePath}`);
   }
 
-  await page.addInitScript((root: SerializedFixtureDirectory, fixtureStorageKey: string) => {
+  await page.addInitScript(({ root, fixtureStorageKey }: { root: SerializedFixtureDirectory; fixtureStorageKey: string }) => {
     type BrowserFixtureDirectory = {
       kind: 'directory';
       name: string;
@@ -405,5 +405,5 @@ export async function installDirectoryPickerFixture(page: Page, fixturePath: str
       value: async () => projectHandle,
     });
     (window as Window & { __playwrightProjectHandle?: FileSystemDirectoryHandle }).__playwrightProjectHandle = projectHandle;
-  }, serializedRoot, storageKey);
+  }, { root: serializedRoot, fixtureStorageKey: storageKey });
 }

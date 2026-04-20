@@ -56,8 +56,11 @@ async function installMockSidecar(page: Page): Promise<TrackRequest[]> {
           capabilities: ['tracking'],
           models: {
             yolo: true,
+            supervision: true,
+            lap: true,
             mobilesam: false,
-            narya: false,
+            ellipse: false,
+            pnlcalib: false,
             opencv: true,
           },
         }),

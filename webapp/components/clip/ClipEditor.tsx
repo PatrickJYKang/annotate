@@ -29,13 +29,13 @@ import { readPrimaryAnnotationDocumentForStill } from "../../lib/fs/annotationSt
 import { writeClip } from "../../lib/fs/clipStorage";
 import { findOverlappingCache, writeHomographyCache, type HomographyFrame } from "../../lib/fs/homographyCache";
 import { useSidecar } from "../../lib/state/SidecarContext";
-import { requestTracking, requestHomography, requestManualTrackHomography, type TrackingError } from "../../lib/clip/sidecarClient";
+import { requestTracking, requestHomography, type TrackingError } from "../../lib/clip/sidecarClient";
 import { convertTrackingKeyframes } from "../../lib/clip/bboxConvert";
 import {
   getClipRelativeMsForStill,
   listStillsWithinClipBounds,
 } from "../../lib/clip/stillRelationship";
-import { applyHomography, computeHomographyFromCorrespondences, invert3 } from "../../lib/annotate/homography";
+import { applyHomography, invert3 } from "../../lib/annotate/homography";
 import { OcclusionCache, fetchOcclusionMask, compositeForeground, roundToFrame } from "../../lib/clip/occlusionCompositor";
 import { applyStillImportToClip, importStillDocumentToClip } from "../../lib/clip/stillImport";
 import {
@@ -120,86 +120,6 @@ function getTrackingStatusText(args: {
   if (frameState === "tracked") return "Current span is tracked";
   return "Current span is manual";
 }
-
-type ManualPitchKeypoint = {
-  id: string;
-  label: string;
-  tooltip: string;
-  x: number;
-  y: number;
-};
-
-const FIELD_SPAN = PITCH_MAX - PITCH_MIN;
-const PENALTY_DEPTH = FIELD_SPAN * (16.5 / 105);
-const SIX_YARD_DEPTH = FIELD_SPAN * (5.5 / 105);
-const PENALTY_HALF_WIDTH = FIELD_SPAN * ((40.32 / 2) / 68);
-const SIX_YARD_HALF_WIDTH = FIELD_SPAN * ((18.32 / 2) / 68);
-const PENALTY_SPOT_OFFSET = FIELD_SPAN * (11 / 105);
-const ARC_RADIUS = FIELD_SPAN * (9.15 / 105);
-const ARC_DX = PENALTY_DEPTH - PENALTY_SPOT_OFFSET;
-const ARC_DY = Math.sqrt(Math.max(0, ARC_RADIUS * ARC_RADIUS - ARC_DX * ARC_DX));
-
-const LEFT_PENALTY_X = PITCH_MIN + PENALTY_DEPTH;
-const RIGHT_PENALTY_X = PITCH_MAX - PENALTY_DEPTH;
-const LEFT_SIX_X = PITCH_MIN + SIX_YARD_DEPTH;
-const RIGHT_SIX_X = PITCH_MAX - SIX_YARD_DEPTH;
-
-const PENALTY_TOP_Y = PITCH_CENTER - PENALTY_HALF_WIDTH;
-const PENALTY_BOTTOM_Y = PITCH_CENTER + PENALTY_HALF_WIDTH;
-const SIX_TOP_Y = PITCH_CENTER - SIX_YARD_HALF_WIDTH;
-const SIX_BOTTOM_Y = PITCH_CENTER + SIX_YARD_HALF_WIDTH;
-
-const LEFT_PENALTY_SPOT_X = PITCH_MIN + PENALTY_SPOT_OFFSET;
-const RIGHT_PENALTY_SPOT_X = PITCH_MAX - PENALTY_SPOT_OFFSET;
-
-const MANUAL_PITCH_KEYPOINTS: ManualPitchKeypoint[] = [
-  // Pitch outer corners
-  { id: 'tl', label: 'TL', tooltip: 'Top-left pitch corner', x: PITCH_MIN, y: PITCH_MIN },
-  { id: 'tr', label: 'TR', tooltip: 'Top-right pitch corner', x: PITCH_MAX, y: PITCH_MIN },
-  { id: 'br', label: 'BR', tooltip: 'Bottom-right pitch corner', x: PITCH_MAX, y: PITCH_MAX },
-  { id: 'bl', label: 'BL', tooltip: 'Bottom-left pitch corner', x: PITCH_MIN, y: PITCH_MAX },
-
-  // Center line + center spot
-  { id: 'cl_t', label: 'CL-T', tooltip: 'Center line at top touchline', x: PITCH_CENTER, y: PITCH_MIN },
-  { id: 'cl_b', label: 'CL-B', tooltip: 'Center line at bottom touchline', x: PITCH_CENTER, y: PITCH_MAX },
-  { id: 'c_sp', label: 'C-SP', tooltip: 'Center spot', x: PITCH_CENTER, y: PITCH_CENTER },
-
-  // Left penalty area box (4 corners)
-  { id: 'lpa_tl', label: 'LPA-TL', tooltip: 'Left penalty area top-left corner', x: PITCH_MIN, y: PENALTY_TOP_Y },
-  { id: 'lpa_tr', label: 'LPA-TR', tooltip: 'Left penalty area top-right corner', x: LEFT_PENALTY_X, y: PENALTY_TOP_Y },
-  { id: 'lpa_br', label: 'LPA-BR', tooltip: 'Left penalty area bottom-right corner', x: LEFT_PENALTY_X, y: PENALTY_BOTTOM_Y },
-  { id: 'lpa_bl', label: 'LPA-BL', tooltip: 'Left penalty area bottom-left corner', x: PITCH_MIN, y: PENALTY_BOTTOM_Y },
-
-  // Right penalty area box (4 corners)
-  { id: 'rpa_tl', label: 'RPA-TL', tooltip: 'Right penalty area top-left corner', x: RIGHT_PENALTY_X, y: PENALTY_TOP_Y },
-  { id: 'rpa_tr', label: 'RPA-TR', tooltip: 'Right penalty area top-right corner', x: PITCH_MAX, y: PENALTY_TOP_Y },
-  { id: 'rpa_br', label: 'RPA-BR', tooltip: 'Right penalty area bottom-right corner', x: PITCH_MAX, y: PENALTY_BOTTOM_Y },
-  { id: 'rpa_bl', label: 'RPA-BL', tooltip: 'Right penalty area bottom-left corner', x: RIGHT_PENALTY_X, y: PENALTY_BOTTOM_Y },
-
-  // Left six-yard box (4 corners)
-  { id: 'lsb_tl', label: 'LSB-TL', tooltip: 'Left six-yard box top-left corner', x: PITCH_MIN, y: SIX_TOP_Y },
-  { id: 'lsb_tr', label: 'LSB-TR', tooltip: 'Left six-yard box top-right corner', x: LEFT_SIX_X, y: SIX_TOP_Y },
-  { id: 'lsb_br', label: 'LSB-BR', tooltip: 'Left six-yard box bottom-right corner', x: LEFT_SIX_X, y: SIX_BOTTOM_Y },
-  { id: 'lsb_bl', label: 'LSB-BL', tooltip: 'Left six-yard box bottom-left corner', x: PITCH_MIN, y: SIX_BOTTOM_Y },
-
-  // Right six-yard box (4 corners)
-  { id: 'rsb_tl', label: 'RSB-TL', tooltip: 'Right six-yard box top-left corner', x: RIGHT_SIX_X, y: SIX_TOP_Y },
-  { id: 'rsb_tr', label: 'RSB-TR', tooltip: 'Right six-yard box top-right corner', x: PITCH_MAX, y: SIX_TOP_Y },
-  { id: 'rsb_br', label: 'RSB-BR', tooltip: 'Right six-yard box bottom-right corner', x: PITCH_MAX, y: SIX_BOTTOM_Y },
-  { id: 'rsb_bl', label: 'RSB-BL', tooltip: 'Right six-yard box bottom-left corner', x: RIGHT_SIX_X, y: SIX_BOTTOM_Y },
-
-  // Penalty spots
-  { id: 'l_ps', label: 'L-PS', tooltip: 'Left penalty spot', x: LEFT_PENALTY_SPOT_X, y: PITCH_CENTER },
-  { id: 'r_ps', label: 'R-PS', tooltip: 'Right penalty spot', x: RIGHT_PENALTY_SPOT_X, y: PITCH_CENTER },
-
-  // Penalty arcs (sampled as top/apex/bottom for each side)
-  { id: 'l_arc_t', label: 'L-ARC-T', tooltip: 'Left penalty arc top point', x: LEFT_PENALTY_X, y: PITCH_CENTER - ARC_DY },
-  { id: 'l_arc_a', label: 'L-ARC-A', tooltip: 'Left penalty arc apex (toward center)', x: LEFT_PENALTY_SPOT_X + ARC_RADIUS, y: PITCH_CENTER },
-  { id: 'l_arc_b', label: 'L-ARC-B', tooltip: 'Left penalty arc bottom point', x: LEFT_PENALTY_X, y: PITCH_CENTER + ARC_DY },
-  { id: 'r_arc_t', label: 'R-ARC-T', tooltip: 'Right penalty arc top point', x: RIGHT_PENALTY_X, y: PITCH_CENTER - ARC_DY },
-  { id: 'r_arc_a', label: 'R-ARC-A', tooltip: 'Right penalty arc apex (toward center)', x: RIGHT_PENALTY_SPOT_X - ARC_RADIUS, y: PITCH_CENTER },
-  { id: 'r_arc_b', label: 'R-ARC-B', tooltip: 'Right penalty arc bottom point', x: RIGHT_PENALTY_X, y: PITCH_CENTER + ARC_DY },
-];
 
 function isUsableHomographyFrame(frame: HomographyFrame): boolean {
   return (
@@ -342,10 +262,6 @@ export default function ClipEditor({
   const [isComputingHomography, setIsComputingHomography] = useState(false);
   const [showHomographyOverlay, setShowHomographyOverlay] = useState(false);
   const [drawCoordMode, setDrawCoordMode] = useState<'image' | 'pitch'>('image');
-  const [isManualHomographyMode, setIsManualHomographyMode] = useState(false);
-  const [manualKeypointImageById, setManualKeypointImageById] = useState<Record<string, { x: number; y: number }>>({});
-  const [manualKeypointOrder, setManualKeypointOrder] = useState<string[]>([]);
-  const [selectedManualPitchKeyId, setSelectedManualPitchKeyId] = useState<string>(MANUAL_PITCH_KEYPOINTS[0].id);
   const currentHomographyInvRef = useRef<number[] | null>(null);
 
   // --- Occlusion state ---
@@ -1253,141 +1169,6 @@ export default function ClipEditor({
   const hasHomographyCapability = sidecar.connected && sidecar.capabilities.includes('homography');
   const canComputeHomography = hasHomographyCapability && hasVideoSource;
 
-  const manualKeypointCount = manualKeypointOrder.length;
-
-  const startManualHomography = useCallback(() => {
-    setIsDrawing(false);
-    drawStartRef.current = null;
-    arrowStartRef.current = null;
-    setTempShape(null);
-    setSelectedAnnotationIds([]);
-    setSelectedAnnotationId(null);
-    setTrackError(null);
-    setIsManualHomographyMode(true);
-    setManualKeypointImageById({});
-    setManualKeypointOrder([]);
-    setSelectedManualPitchKeyId(MANUAL_PITCH_KEYPOINTS[0].id);
-  }, []);
-
-  const cancelManualHomography = useCallback(() => {
-    setIsManualHomographyMode(false);
-    setManualKeypointImageById({});
-    setManualKeypointOrder([]);
-  }, []);
-
-  const applyManualHomography = useCallback(async () => {
-    const correspondences = MANUAL_PITCH_KEYPOINTS
-      .filter(k => !!manualKeypointImageById[k.id])
-      .map(k => ({
-        pitch: { x: k.x, y: k.y },
-        image: manualKeypointImageById[k.id]!,
-      }));
-
-    if (correspondences.length < 4) {
-      setTrackError('Manual H needs at least 4 labeled keypoints');
-      return;
-    }
-
-    const H = computeHomographyFromCorrespondences(
-      correspondences.map(c => c.pitch),
-      correspondences.map(c => c.image),
-    );
-    if (!H) {
-      setTrackError('Manual H failed: could not solve from selected keypoints');
-      return;
-    }
-
-    const normalized = normalizeHomography(H);
-    if (!normalized) {
-      setTrackError('Manual H failed: solved matrix is invalid');
-      return;
-    }
-
-    const absMs = clip.startMs + currentTMsRef.current;
-    const toleranceMs = Math.max(1, 1000 / Math.max(1, videoFps));
-    const nextFrames = [...(homographyFrames || [])];
-    const replaceIdx = nextFrames.findIndex(f => Math.abs(f.tMs - absMs) <= toleranceMs);
-    const nextFrame: HomographyFrame = { tMs: absMs, matrix: normalized, method: 'manual_keypoints' };
-    if (replaceIdx >= 0) {
-      nextFrames[replaceIdx] = nextFrame;
-    } else {
-      nextFrames.push(nextFrame);
-      nextFrames.sort((a, b) => a.tMs - b.tMs);
-    }
-
-    setHomographyFrames(nextFrames);
-    setDrawCoordMode('pitch');
-    setShowHomographyOverlay(true);
-    setTrackError(null);
-    setIsManualHomographyMode(false);
-    setManualKeypointImageById({});
-    setManualKeypointOrder([]);
-
-    if (projectDir) {
-      writeHomographyCache(projectDir, clip.startMs, clip.endMs, nextFrames).catch(() => {});
-    }
-
-    // Immediately propagate this seed across the clip so H evolves while playback advances.
-    if (!hasVideoSource) {
-      setTrackError('Saved seed keyframe, but dynamic tracking was skipped: no registered video source');
-      return;
-    }
-
-    setIsComputingHomography(true);
-    try {
-      const result = await requestManualTrackHomography({
-        videoRef: videoLocator.videoRef,
-        videoPath: videoLocator.videoPath,
-        startMs: clip.startMs,
-        endMs: clip.endMs,
-        seedMs: absMs,
-        seedMatrix: normalized,
-        fps: 5,
-      }, sidecar.baseUrl);
-
-      const trackedFrames: HomographyFrame[] = result.frames.map(f => ({
-        tMs: f.tMs,
-        matrix: f.matrix,
-        method: f.method,
-      }));
-
-      setHomographyFrames(trackedFrames);
-      const usableCount = trackedFrames.filter(f => f.method !== 'failed').length;
-      const dynamicCount = trackedFrames.filter(
-        f => f.method !== 'failed' && f.method !== 'manual_held' && f.method !== 'manual_keypoints',
-      ).length;
-      if (usableCount > 0) {
-        setDrawCoordMode('pitch');
-        setTrackError(
-          dynamicCount > 0
-            ? null
-            : 'Manual tracking completed but produced mostly held/static homographies; try a seed frame with clearer line keypoints',
-        );
-      } else {
-        setDrawCoordMode('image');
-        setTrackError('Manual seed tracking finished but no usable frames were found');
-      }
-
-      if (projectDir) {
-        writeHomographyCache(projectDir, clip.startMs, clip.endMs, trackedFrames).catch(() => {});
-      }
-    } catch (e: any) {
-      setTrackError(`Saved seed keyframe, but tracking failed: ${e?.message || 'unknown error'}`);
-    } finally {
-      setIsComputingHomography(false);
-    }
-  }, [
-    manualKeypointImageById,
-    clip.startMs,
-    clip.endMs,
-    projectDir,
-    videoFps,
-    homographyFrames,
-    hasVideoSource,
-    videoLocator,
-    sidecar.baseUrl,
-  ]);
-
   const handleComputeHomography = useCallback(async () => {
     if (!hasVideoSource) return;
     setIsComputingHomography(true);
@@ -1406,13 +1187,10 @@ export default function ClipEditor({
         method: f.method,
       }));
       setHomographyFrames(frames);
-      setIsManualHomographyMode(false);
-      setManualKeypointImageById({});
-      setManualKeypointOrder([]);
 
       const usableCount = frames.filter(f => f.method !== 'failed').length;
       if (usableCount > 0) {
-        setDrawCoordMode('pitch');
+        setDrawCoordMode('image');
         setTrackError(null);
       } else {
         setDrawCoordMode('image');
@@ -1493,65 +1271,6 @@ export default function ClipEditor({
       }];
     });
   }, [annotations, currentHomography, currentTMs, getInterpolatedBounds, selectedAnnotationIds, videoFps]);
-
-  const handleTrackHomographyFromSeed = useCallback(async () => {
-    if (!hasVideoSource) {
-      setTrackError('Tracking unavailable: no registered video source');
-      return;
-    }
-    if (!currentHomography) {
-      setTrackError('Manual seed homography is required at the current frame');
-      return;
-    }
-
-    setIsComputingHomography(true);
-    try {
-      const result = await requestManualTrackHomography({
-        videoRef: videoLocator.videoRef,
-        videoPath: videoLocator.videoPath,
-        startMs: clip.startMs,
-        endMs: clip.endMs,
-        seedMs: clip.startMs + currentTMs,
-        seedMatrix: currentHomography,
-        fps: 5,
-      }, sidecar.baseUrl);
-
-      const frames: HomographyFrame[] = result.frames.map(f => ({
-        tMs: f.tMs,
-        matrix: f.matrix,
-        method: f.method,
-      }));
-      setHomographyFrames(frames);
-      setIsManualHomographyMode(false);
-      setManualKeypointImageById({});
-      setManualKeypointOrder([]);
-
-      const usableCount = frames.filter(f => f.method !== 'failed').length;
-      const dynamicCount = frames.filter(
-        f => f.method !== 'failed' && f.method !== 'manual_held' && f.method !== 'manual_keypoints',
-      ).length;
-      if (usableCount > 0) {
-        setDrawCoordMode('pitch');
-        setTrackError(
-          dynamicCount > 0
-            ? null
-            : 'Tracking completed but produced mostly held/static homographies; try a seed frame with clearer line keypoints',
-        );
-        setShowHomographyOverlay(true);
-      } else {
-        setDrawCoordMode('image');
-        setTrackError('Manual seed tracking finished but no usable frames were found');
-      }
-
-      if (projectDir) {
-        writeHomographyCache(projectDir, clip.startMs, clip.endMs, frames).catch(() => {});
-      }
-    } catch (e: any) {
-      setTrackError(e?.message || 'Manual seed homography tracking failed');
-    } finally {
-      setIsComputingHomography(false);
-    }
-  }, [hasVideoSource, currentHomography, videoLocator, clip.startMs, clip.endMs, currentTMs, sidecar.baseUrl, projectDir]);
 
   const homographyOverlayLines = useMemo(() => {
     if (!showHomographyOverlay || !currentHomography) return [] as { points: number[]; dashed: boolean }[];
@@ -1663,9 +1382,6 @@ export default function ClipEditor({
         selStartRef.current = null;
         selCandidateRef.current = null;
         setSelRect(null);
-        setIsManualHomographyMode(false);
-        setManualKeypointImageById({});
-        setManualKeypointOrder([]);
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
@@ -2035,27 +1751,6 @@ export default function ClipEditor({
     // Right-click cancels drawing
     if (evt?.button === 2) {
       evt.preventDefault();
-      if (isManualHomographyMode) {
-        let clearId: string | null = null;
-        if (manualKeypointImageById[selectedManualPitchKeyId]) {
-          clearId = selectedManualPitchKeyId;
-        } else if (manualKeypointOrder.length > 0) {
-          clearId = manualKeypointOrder[manualKeypointOrder.length - 1];
-        }
-        if (!clearId) {
-          setIsManualHomographyMode(false);
-          setManualKeypointImageById({});
-          setManualKeypointOrder([]);
-          return;
-        }
-        setManualKeypointImageById(prev => {
-          const next = { ...prev };
-          delete next[clearId!];
-          return next;
-        });
-        setManualKeypointOrder(prev => prev.filter(id => id !== clearId));
-        return;
-      }
       if (isDrawing || arrowStartRef.current || lobStartRef.current) {
         cancelDrawing();
       } else {
@@ -2069,8 +1764,6 @@ export default function ClipEditor({
     if (!p) return;
     const isStage = e.target === e.target.getStage();
 
-    if (isManualHomographyMode) return;
-
     if (tool === 'select') {
       if (isStage) {
         selCandidateRef.current = p;
@@ -2083,10 +1776,9 @@ export default function ClipEditor({
       setIsDrawing(true);
       drawStartRef.current = p;
     }
-  }, [tool, getPointerImagePos, isDrawing, cancelDrawing, isManualHomographyMode, manualKeypointImageById, selectedManualPitchKeyId, manualKeypointOrder]);
+  }, [tool, getPointerImagePos, isDrawing, cancelDrawing]);
 
   const onStageMouseMove = useCallback((e: any) => {
-    if (isManualHomographyMode) return;
     if (tool === 'select' && (selStartRef.current || selCandidateRef.current)) {
       const p = getPointerImagePos(e);
       if (!p) return;
@@ -2152,10 +1844,9 @@ export default function ClipEditor({
         spreadDeg: DEFAULT_SHADOW_SPREAD_DEG,
       });
     }
-  }, [isDrawing, tool, getPointerImagePos, isManualHomographyMode]);
+  }, [isDrawing, tool, getPointerImagePos]);
 
   const onStageMouseUp = useCallback((e: any) => {
-    if (isManualHomographyMode) return;
     if (tool === 'select' && (selStartRef.current || selCandidateRef.current)) {
       const p = getPointerImagePos(e);
       const evt = e?.evt as MouseEvent | undefined;
@@ -2264,24 +1955,12 @@ export default function ClipEditor({
     setIsDrawing(false);
     drawStartRef.current = null;
     setTempShape(null);
-  }, [annotations, currentHomography, createAnnotation, getInterpolatedBounds, getPointerImagePos, isDrawing, isManualHomographyMode, selectedAnnotationId, selectedAnnotationIds, tool, videoFps]);
+  }, [annotations, currentHomography, createAnnotation, getInterpolatedBounds, getPointerImagePos, isDrawing, selectedAnnotationId, selectedAnnotationIds, tool, videoFps]);
 
   const onStageClick = useCallback((e: any) => {
     const p = getPointerImagePos(e);
     if (!p) return;
     const isStage = e.target === e.target.getStage();
-
-    if (isManualHomographyMode) {
-      if (!isStage) return;
-      const keyId = selectedManualPitchKeyId;
-      if (!keyId) return;
-      setManualKeypointImageById(prev => ({ ...prev, [keyId]: p }));
-      setManualKeypointOrder(prev => (prev.includes(keyId) ? prev : [...prev, keyId]));
-      const assignedIds = new Set<string>([...Object.keys(manualKeypointImageById), keyId]);
-      const nextUnassigned = MANUAL_PITCH_KEYPOINTS.find(k => !assignedIds.has(k.id));
-      if (nextUnassigned) setSelectedManualPitchKeyId(nextUnassigned.id);
-      return;
-    }
 
     // Arrow: click-click pattern
     if (tool === 'arrow') {
@@ -2352,7 +2031,7 @@ export default function ClipEditor({
       setSelectedAnnotationId(ann.id);
       return;
     }
-  }, [tool, getPointerImagePos, createAnnotation, drawCoordMode, defaultColor, defaultFontSize, defaultTextHighlight, isManualHomographyMode, selectedManualPitchKeyId, manualKeypointImageById]);
+  }, [tool, getPointerImagePos, createAnnotation, drawCoordMode, defaultColor, defaultFontSize, defaultTextHighlight]);
 
   // --- Render annotations as Konva shapes ---
   const isSelectMode = tool === 'select';
@@ -2851,7 +2530,7 @@ export default function ClipEditor({
               width: stageW,
               height: stageH,
             }}
-          >
+            >
             <Stage
               ref={stageRef}
               width={stageW}
@@ -2863,31 +2542,6 @@ export default function ClipEditor({
               onClick={onStageClick}
               onContextMenu={(e: any) => e.evt?.preventDefault()}
             >
-            <Layer>
-              {isManualHomographyMode && MANUAL_PITCH_KEYPOINTS.filter(k => !!manualKeypointImageById[k.id]).map((k) => {
-                const pt = manualKeypointImageById[k.id]!;
-                return (
-                <React.Fragment key={`manual-h-pt-${k.id}`}>
-                  <KCircle
-                    x={pt.x * scale}
-                    y={pt.y * scale}
-                    radius={6}
-                    fill={k.id === selectedManualPitchKeyId ? "#f97316" : "#f59e0b"}
-                    stroke="#111827"
-                    strokeWidth={1.5}
-                    listening={false}
-                  />
-                  <KText
-                    x={pt.x * scale + 8}
-                    y={pt.y * scale - 10}
-                    text={k.label}
-                    fontSize={14}
-                    fill="#f59e0b"
-                    listening={false}
-                  />
-                </React.Fragment>
-              );})}
-            </Layer>
             <Layer>
               {shadowInterpolated.map(({ ann, props }) => renderAnnotation(ann, props))}
             </Layer>
@@ -3458,60 +3112,6 @@ export default function ClipEditor({
                 : 'Homography unavailable: no registered video source'}
             >
               {isComputingHomography ? 'Computing H...' : homographyFrames ? 'Recompute H' : 'Compute H'}
-            </button>
-          )}
-          <button
-            onClick={isManualHomographyMode ? cancelManualHomography : startManualHomography}
-            disabled={isPlaying}
-            className="px-3 py-0.5 text-sm border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            title={isManualHomographyMode
-              ? 'Select a pitch keypoint label, then click its image location. Right-click clears selected keypoint.'
-              : 'Manual H keyframe from labeled pitch keypoints at current frame'}
-          >
-            {isManualHomographyMode
-              ? `Cancel Manual H (${manualKeypointCount} kp)`
-              : 'Manual H KF'}
-          </button>
-          {isManualHomographyMode && (
-            <div className="flex items-center gap-1">
-              {MANUAL_PITCH_KEYPOINTS.map(k => (
-                <button
-                  key={`kp-btn-${k.id}`}
-                  onClick={() => setSelectedManualPitchKeyId(k.id)}
-                  className="px-2 py-0.5 text-xs border-0 cursor-pointer"
-                  title={`${k.label}: ${k.tooltip}${manualKeypointImageById[k.id] ? ' (set)' : ''}`}
-                  style={{
-                    opacity: selectedManualPitchKeyId === k.id ? 1 : 0.7,
-                    color: manualKeypointImageById[k.id] ? '#34d399' : undefined,
-                  }}
-                >
-                  {k.label}
-                </button>
-              ))}
-            </div>
-          )}
-          {isManualHomographyMode && (
-            <button
-              onClick={applyManualHomography}
-              disabled={manualKeypointCount < 4}
-              className="px-3 py-0.5 text-sm border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-              title={manualKeypointCount >= 4
-                ? 'Save manual homography keyframe from labeled keypoints'
-                : 'Set at least 4 keypoints first'}
-            >
-              Save H KF
-            </button>
-          )}
-          {homographyFrames && (
-            <button
-              onClick={handleTrackHomographyFromSeed}
-              disabled={!hasVideoSource || !currentHomography || isComputingHomography}
-              className="px-3 py-0.5 text-sm border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-              title={currentHomography
-                ? 'Track homography from current seed using keypoints + line color gating'
-                : 'No seed homography at current frame'}
-            >
-              {isComputingHomography ? 'Tracking H...' : 'Track H'}
             </button>
           )}
           {homographyFrames && (

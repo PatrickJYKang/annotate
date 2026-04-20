@@ -24,8 +24,10 @@ async function installMockSegmentationSidecar(page: Page): Promise<{ getSegmentC
           capabilities: ['segmentation'],
           models: {
             yolo: true,
+            supervision: false,
             mobilesam: true,
-            narya: false,
+            ellipse: false,
+            pnlcalib: false,
             opencv: true,
           },
         }),

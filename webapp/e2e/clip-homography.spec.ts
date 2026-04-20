@@ -40,17 +40,18 @@ async function installMockHomographySidecar(page: Page): Promise<void> {
           capabilities: ['homography'],
           models: {
             yolo: false,
+            supervision: false,
             mobilesam: false,
-            narya: true,
+            ellipse: true,
+            pnlcalib: true,
             opencv: true,
           },
           homography: {
             providerName: 'playwright-mock',
-            shortFailedGapFrames: 2,
             providers: [
               {
                 name: 'playwright-mock',
-                supports_manual_seed_tracking: true,
+                supports_manual_seed_tracking: false,
                 available: true,
               },
             ],
@@ -111,9 +112,11 @@ test('clip editor supports cached homography and pitch-space authoring', async (
   await page.goto(`/clip/${CLIP_ID}`);
   await page.getByRole('button', { name: 'Open Project Folder' }).click();
 
-  await expect(page.getByRole('button', { name: 'Compute H' })).toBeVisible();
-  await page.getByRole('button', { name: 'Compute H' }).click();
-  await expect(page.getByText('H✓')).toBeVisible();
+  const computeHomographyButton = page.getByRole('button', { name: 'Compute H' });
+  await expect(computeHomographyButton).toBeVisible();
+  await expect(computeHomographyButton).toBeEnabled();
+  await computeHomographyButton.click();
+  await expect(page.getByRole('button', { name: 'Recompute H' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Draw: Image' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Box' }).click();
@@ -126,8 +129,10 @@ test('clip editor supports cached homography and pitch-space authoring', async (
 
   await expect(page.getByText(/^pitch coords$/)).toBeVisible();
 
-  const clip = await readClipFromFixture(page);
-  expect(clip.annotations[0]).toMatchObject({
+  await expect.poll(async () => {
+    const clip = await readClipFromFixture(page);
+    return clip.annotations[0] ?? null;
+  }).toMatchObject({
     type: 'box',
     coordMode: 'pitch',
     source: 'manual',
@@ -141,5 +146,5 @@ test('clip editor supports cached homography and pitch-space authoring', async (
   });
 
   await page.getByRole('button', { name: '+250' }).click();
-  await expect(page.getByText('H✓')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Recompute H' })).toBeVisible();
 });

@@ -29,14 +29,16 @@ def test_track_route_keeps_video_ref_resolution_in_annotate(monkeypatch, tmp_pat
     video_path.write_bytes(b"demo")
     fake_tracker = FakeRouteTracker()
     defaults = TrackingDefaults(
-        backend="bytetrack",
         detector_model_name="demo.pt",
-        core_tracker_config="bytetrack.yaml",
         sample_fps=30.0,
         classes=(0,),
         conf_threshold=0.25,
         iou_threshold=0.3,
         track_buffer_frames=30,
+        minimum_consecutive_frames=1,
+        direction_consistency_weight=0.2,
+        high_conf_det_threshold=0.25,
+        delta_t=3,
     )
 
     monkeypatch.setattr(track_route, "_tracker", fake_tracker)
@@ -97,14 +99,16 @@ def test_track_route_uses_centralized_defaults_when_request_omits_optional_tunin
     video_path.write_bytes(b"demo")
     fake_tracker = FakeRouteTracker()
     defaults = TrackingDefaults(
-        backend="ocsort",
         detector_model_name="rfdetr-nano.pt",
-        core_tracker_config="ocsort-demo",
         sample_fps=12.5,
         classes=(0, 32),
         conf_threshold=0.41,
         iou_threshold=0.66,
         track_buffer_frames=17,
+        minimum_consecutive_frames=1,
+        direction_consistency_weight=0.4,
+        high_conf_det_threshold=0.5,
+        delta_t=5,
     )
 
     monkeypatch.setattr(track_route, "_tracker", fake_tracker)

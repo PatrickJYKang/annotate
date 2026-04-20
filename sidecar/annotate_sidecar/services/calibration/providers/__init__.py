@@ -1,3 +1,3 @@
-from .legacy_narya import LegacyNaryaCalibrationProvider
+from .pnlcalib import PnLCalibCalibrationProvider
 
-__all__ = ["LegacyNaryaCalibrationProvider"]
+__all__ = ["PnLCalibCalibrationProvider"]

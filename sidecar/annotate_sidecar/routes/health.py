@@ -4,7 +4,6 @@ GET /health — reports sidecar status and model availability.
 
 import logging
 import os
-from pathlib import Path
 
 # Ensure Keras 2 compatibility for segmentation_models
 os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
@@ -17,9 +16,6 @@ from ..services.calibration.service import CalibrationService
 
 router = APIRouter()
 logger = logging.getLogger("annotate_sidecar.health")
-
-# Models directory (relative to package root)
-MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 _calibration_service = CalibrationService()
 
 
@@ -35,21 +31,18 @@ def _check_model_importable(module_name: str) -> bool:
 def _check_capabilities() -> dict:
     """Check which models/libraries are available."""
     yolo = _check_model_importable("ultralytics")
-    lap = _check_model_importable("lap") or _check_model_importable("lapx")
+    supervision = _check_model_importable("supervision")
     mobilesam = _check_model_importable("mobile_sam") or _check_model_importable("segment_anything")
-    # Narya is vendored; check its runtime dependencies instead
-    narya_deps = all(
-        _check_model_importable(m)
-        for m in ("tensorflow", "torch", "kornia", "segmentation_models")
-    )
+    ellipse = _check_model_importable("ellipse")
     opencv = _check_model_importable("cv2")
+    pnlcalib = _calibration_service.available
 
     capabilities = []
-    if yolo and lap and opencv:
+    if yolo and supervision and opencv:
         capabilities.append("tracking")
     if yolo and mobilesam and opencv:
         capabilities.append("segmentation")
-    if opencv:
+    if pnlcalib:
         capabilities.append("homography")
     if opencv:
         capabilities.append("frame_extraction")
@@ -60,9 +53,10 @@ def _check_capabilities() -> dict:
         "capabilities": capabilities,
         "models": {
             "yolo": yolo,
-            "lap": lap,
+            "supervision": supervision,
             "mobilesam": mobilesam,
-            "narya": narya_deps,
+            "ellipse": ellipse,
+            "pnlcalib": pnlcalib,
             "opencv": opencv,
         },
         "tracking": get_tracking_defaults().to_public_dict(),

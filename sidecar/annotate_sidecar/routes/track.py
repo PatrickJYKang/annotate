@@ -1,5 +1,5 @@
 """
-POST /track — object tracking (YOLO + ByteTrack).
+POST /track — object tracking (YOLO + trackers-backed OC-SORT).
 
 Accepts a video path, time range, and seed bounding box.
 Returns tracked keyframes with absolute video-ms timestamps.
@@ -123,10 +123,10 @@ async def track(req: TrackRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
     except Exception as e:
-        if isinstance(e, ModuleNotFoundError) and getattr(e, "name", "") == "lap":
+        if isinstance(e, ModuleNotFoundError) and getattr(e, "name", "") == "supervision":
             raise HTTPException(
                 status_code=501,
-                detail="Tracking dependency missing: lap. Install inside sidecar venv with `.venv/bin/pip install lap>=0.5.12` and restart the sidecar.",
+                detail="Tracking dependency missing: supervision. Install inside sidecar venv with `.venv/bin/pip install supervision>=0.26.1` and restart the sidecar.",
             )
         logger.exception("Unexpected tracking failure")
         raise HTTPException(status_code=500, detail=f"Tracking failed: {e}")

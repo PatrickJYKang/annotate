@@ -16,23 +16,28 @@ export interface HealthResponse {
   capabilities: string[];
   models: {
     yolo: boolean;
+    supervision?: boolean;
+    lap?: boolean;
     mobilesam: boolean;
-    narya: boolean;
+    ellipse?: boolean;
+    pnlcalib?: boolean;
     opencv: boolean;
   };
   tracking?: {
     backend: string;
     detectorModelName: string;
-    coreTrackerConfig: string;
     sampleFps: number;
     classes: number[];
     confThreshold: number;
     iouThreshold: number;
     trackBufferFrames: number;
+    minimumConsecutiveFrames?: number;
+    directionConsistencyWeight?: number;
+    highConfDetThreshold?: number;
+    deltaT?: number;
   };
   homography?: {
     providerName: string | null;
-    shortFailedGapFrames: number;
     providers: Array<{
       name: string;
       supports_manual_seed_tracking: boolean;
@@ -93,17 +98,6 @@ export interface HomographyParams {
   videoRef?: string;
   startMs: number;
   endMs: number;
-  fps?: number;
-  skipInterval?: number;
-}
-
-export interface ManualTrackHomographyParams {
-  videoPath?: string;
-  videoRef?: string;
-  startMs: number;
-  endMs: number;
-  seedMs: number;
-  seedMatrix: number[];
   fps?: number;
   skipInterval?: number;
 }
@@ -182,23 +176,6 @@ export async function registerVideoFile(
 
   if (!res.ok) {
     throw new Error(await buildErrorMessageFromResponse(res, `Video register failed (${res.status})`));
-  }
-
-  return await res.json();
-}
-
-export async function requestManualTrackHomography(
-  params: ManualTrackHomographyParams,
-  baseUrl: string = SIDECAR_BASE_URL,
-): Promise<HomographyResult> {
-  const res = await fetch(`${baseUrl}/homography/manual-track`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
-
-  if (!res.ok) {
-    throw new Error(await buildErrorMessageFromResponse(res, `Manual homography track failed (${res.status})`));
   }
 
   return await res.json();

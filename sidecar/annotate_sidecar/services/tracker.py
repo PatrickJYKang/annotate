@@ -1,13 +1,10 @@
 """
-Object tracking service — app adapter over vendored tracker primitives.
+Object tracking service — app adapter over vendored trackers OC-SORT primitives.
 
 This layer keeps annotate-owned behavior in one place:
   - request/response shaping for `/track`
   - seed bbox matching semantics exposed to the app
   - absolute-ms keyframe formatting with `visible: false`
-
-The lower-level model loading, frame sampling, and ByteTrack execution now live
-under `annotate_sidecar.vendor.trackers`.
 """
 
 import logging
@@ -16,23 +13,28 @@ from typing import Optional
 import numpy as np
 
 from ..config import TrackingDefaults, get_tracking_defaults
-from ..vendor.trackers import BBox, UltralyticsByteTrackCore
+from ..vendor.trackers import BBox, UltralyticsOCSORTCore
 from ..vendor.trackers.core.matching import find_best_iou_match
 
 logger = logging.getLogger("annotate_sidecar.tracker")
 
 class Tracker:
-    """Annotate-owned adapter around the vendored tracker core."""
+    """Annotate-owned adapter around the vendored trackers OC-SORT core."""
 
     def __init__(
         self,
         config: Optional[TrackingDefaults] = None,
-        core: Optional[UltralyticsByteTrackCore] = None,
+        core: Optional[UltralyticsOCSORTCore] = None,
     ):
         self._config = config or get_tracking_defaults()
-        self._core = core or UltralyticsByteTrackCore(
+        self._core = core or UltralyticsOCSORTCore(
             model_name=self._config.detector_model_name,
-            tracker_config=self._config.core_tracker_config,
+            lost_track_buffer=self._config.track_buffer_frames,
+            minimum_consecutive_frames=self._config.minimum_consecutive_frames,
+            minimum_iou_threshold=self._config.iou_threshold,
+            direction_consistency_weight=self._config.direction_consistency_weight,
+            high_conf_det_threshold=self._config.high_conf_det_threshold,
+            delta_t=self._config.delta_t,
         )
 
     def detect_frame(
@@ -69,7 +71,7 @@ class Tracker:
         track_buffer: Optional[int] = None,
     ) -> dict:
         """
-        Track an object across a video range using YOLO + ByteTrack.
+        Track an object across a video range using YOLO + trackers OC-SORT.
 
         Args:
             video_path: Path to the video file.
@@ -132,7 +134,7 @@ class Tracker:
 
         target_track_id = seed_detections[match_idx].track_id
         if target_track_id is None:
-            raise ValueError("Matched detection has no track ID assigned by ByteTrack.")
+            raise ValueError("Matched detection has no track ID assigned by OC-SORT.")
 
         logger.info("Target track ID: %d", target_track_id)
 

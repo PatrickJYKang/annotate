@@ -4,14 +4,16 @@ from annotate_sidecar.vendor.trackers.core.types import FrameTrackResult
 
 
 TEST_DEFAULTS = TrackingDefaults(
-    backend="bytetrack",
     detector_model_name="demo.pt",
-    core_tracker_config="bytetrack.yaml",
     sample_fps=10.0,
     classes=(0,),
     conf_threshold=0.25,
     iou_threshold=0.3,
     track_buffer_frames=30,
+    minimum_consecutive_frames=1,
+    direction_consistency_weight=0.2,
+    high_conf_det_threshold=0.25,
+    delta_t=3,
 )
 
 
