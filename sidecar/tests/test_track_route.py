@@ -15,6 +15,7 @@ class FakeRouteTracker:
             "keyframes": [{"tMs": 1000.0, "x": 1, "y": 2, "w": 3, "h": 4, "visible": True}],
             "trackId": 7,
             "detectionCount": 1,
+            "debugVideoPath": "/tmp/tracking_debug_demo.mp4",
         }
 
 
@@ -61,6 +62,8 @@ def test_track_route_keeps_video_ref_resolution_in_annotate(monkeypatch, tmp_pat
         "keyframes": [{"tMs": 1000.0, "x": 1, "y": 2, "w": 3, "h": 4, "visible": True}],
         "trackId": 7,
         "detectionCount": 1,
+        "debugVideoPath": "/tmp/tracking_debug_demo.mp4",
+        "debugVideoUrl": "/track/debug/tracking_debug_demo.mp4",
     }
     assert fake_tracker.calls == [{
         "video_path": str(video_path),
@@ -73,6 +76,7 @@ def test_track_route_keeps_video_ref_resolution_in_annotate(monkeypatch, tmp_pat
         "conf_threshold": 0.4,
         "iou_threshold": 0.5,
         "track_buffer": 30,
+        "debug_video": True,
     }]
 
 
@@ -135,4 +139,17 @@ def test_track_route_uses_centralized_defaults_when_request_omits_optional_tunin
         "conf_threshold": 0.41,
         "iou_threshold": 0.66,
         "track_buffer": 17,
+        "debug_video": True,
     }]
+
+
+def test_track_debug_route_serves_saved_artifact(monkeypatch, tmp_path):
+    artifact = tmp_path / "tracking_debug_test.mp4"
+    artifact.write_bytes(b"debug-video")
+    monkeypatch.setattr(track_route, "resolve_tracking_debug_artifact", lambda name: artifact if name == artifact.name else None)
+
+    response = make_client().get(f"/track/debug/{artifact.name}")
+
+    assert response.status_code == 200
+    assert response.content == b"debug-video"
+    assert response.headers["content-type"] == "video/mp4"

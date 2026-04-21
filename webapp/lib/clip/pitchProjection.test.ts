@@ -9,17 +9,15 @@ import {
 } from './pitchProjection';
 
 describe('annotationTypeSupportsPitchCoords', () => {
-  it('supports the pitch-aware clip tools', () => {
+  it('supports only box and circle pitch authoring', () => {
     expect(annotationTypeSupportsPitchCoords('box')).toBe(true);
     expect(annotationTypeSupportsPitchCoords('circle')).toBe(true);
-    expect(annotationTypeSupportsPitchCoords('arrow')).toBe(true);
-    expect(annotationTypeSupportsPitchCoords('lob')).toBe(true);
-    expect(annotationTypeSupportsPitchCoords('text')).toBe(true);
-    expect(annotationTypeSupportsPitchCoords('highlight')).toBe(true);
-  });
-
-  it('keeps shadow image-space only for now', () => {
+    expect(annotationTypeSupportsPitchCoords('arrow')).toBe(false);
+    expect(annotationTypeSupportsPitchCoords('lob')).toBe(false);
+    expect(annotationTypeSupportsPitchCoords('text')).toBe(false);
+    expect(annotationTypeSupportsPitchCoords('highlight')).toBe(false);
     expect(annotationTypeSupportsPitchCoords('shadow')).toBe(false);
+    expect(annotationTypeSupportsPitchCoords('poly')).toBe(false);
   });
 });
 
@@ -36,10 +34,10 @@ describe('convertImageGeometryToPitchGeometry', () => {
     ).toEqual({ x: 0, y: 0, w: 30, h: 40 });
   });
 
-  it('converts lob control points into pitch-space', () => {
+  it('leaves non-pitch tools in image-space', () => {
     expect(
       convertImageGeometryToPitchGeometry('lob', { x1: 20, y1: 30, cx: 40, cy: 10, x2: 60, y2: 25 }, translateInverse),
-    ).toEqual({ x1: 10, y1: 10, cx: 30, cy: -10, x2: 50, y2: 5 });
+    ).toEqual({ x1: 20, y1: 30, cx: 40, cy: 10, x2: 60, y2: 25 });
   });
 });
 

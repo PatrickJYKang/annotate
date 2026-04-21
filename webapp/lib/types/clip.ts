@@ -124,6 +124,7 @@ export interface ClipAnnotation {
   type: ClipAnnotationType;
   coordMode: CoordMode;
   source: AnnotationSource;
+  trackingAnchorId?: string | null; // optional highlight annotation that drives this annotation during tracking
   text?: string;                   // for type: 'text' — content doesn't vary over time
   closed?: boolean;                // for type: 'poly' — defaults to true when omitted
   style: ClipAnnotationStyle;

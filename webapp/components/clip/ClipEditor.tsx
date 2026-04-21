@@ -91,9 +91,10 @@ export interface ClipEditorProps {
   onSaveStatus?: (status: SaveStatus) => void;
 }
 
-const PITCH_MIN = 3;
-const PITCH_MAX = 317;
-const PITCH_CENTER = (PITCH_MIN + PITCH_MAX) / 2;
+const PITCH_LENGTH_M = 105;
+const PITCH_WIDTH_M = 68;
+const PITCH_CENTER_X_M = PITCH_LENGTH_M / 2;
+const CENTER_CIRCLE_RADIUS_M = 9.15;
 const ANALYSIS_LOOP_OPTIONS_MS = [1000, 2000, 4000] as const;
 const SHORT_SHUTTLE_MS = 250;
 const LONG_SHUTTLE_MS = 1000;
@@ -147,6 +148,26 @@ function normalizeHomography(m: number[]): number[] | null {
   return out;
 }
 
+function resolveUsableHomographyAtTime(
+  frames: HomographyFrame[] | null | undefined,
+  absMs: number,
+): number[] | null {
+  if (!frames || frames.length === 0) return null;
+  const usable = frames.filter(isUsableHomographyFrame);
+  if (usable.length === 0) return null;
+
+  let best = usable[0];
+  let bestDiff = Math.abs(best.tMs - absMs);
+  for (const frame of usable) {
+    const diff = Math.abs(frame.tMs - absMs);
+    if (diff < bestDiff) {
+      best = frame;
+      bestDiff = diff;
+    }
+  }
+  return normalizeHomography(best.matrix) || best.matrix;
+}
+
 function drawLobPathWithArrowhead(
   ctx: CanvasRenderingContext2D | any,
   shape: any,
@@ -188,6 +209,56 @@ function getDefaultStrokeWidthForAnnotation(type: ClipAnnotationType): number {
   if (type === 'text') return 1;
   if (type === 'shadow') return 3;
   return 6;
+}
+
+function isTrackingAnchorFollowerType(type: ClipAnnotationType): boolean {
+  return type === 'arrow' || type === 'lob' || type === 'poly';
+}
+
+function translateFollowerGeometry(
+  props: InterpolatedKeyframe,
+  dx: number,
+  dy: number,
+): Record<string, any> | null {
+  switch (props.type) {
+    case 'arrow':
+      return {
+        x1: props.x1 + dx,
+        y1: props.y1 + dy,
+        x2: props.x2 + dx,
+        y2: props.y2 + dy,
+      };
+    case 'lob':
+      return {
+        x1: props.x1 + dx,
+        y1: props.y1 + dy,
+        cx: props.cx + dx,
+        cy: props.cy + dy,
+        x2: props.x2 + dx,
+        y2: props.y2 + dy,
+      };
+    case 'poly':
+      return {
+        points: props.points.map(([x, y]) => [x + dx, y + dy] as [number, number]),
+      };
+    default:
+      return null;
+  }
+}
+
+function getHighlightImageAnchor(
+  annotation: ClipAnnotation,
+  props: InterpolatedKeyframe,
+  homography: number[] | null,
+): { x: number; y: number } | null {
+  if (props.type !== 'highlight') return null;
+  const highlight = props as InterpolatedHighlight;
+  if (annotation.coordMode === 'pitch') {
+    if (!homography) return null;
+    const point = applyHomography(homography, highlight.cx, highlight.cy);
+    return Number.isFinite(point.x) && Number.isFinite(point.y) ? point : null;
+  }
+  return { x: highlight.cx, y: highlight.cy + (highlight.radius * 0.35) };
 }
 
 // ---------------------------------------------------------------------------
@@ -611,19 +682,37 @@ export default function ClipEditor({
       };
     }
 
-      const ann: ClipAnnotation = {
-        id: makeId(),
-        type,
-        coordMode: usePitchCoords ? 'pitch' : 'image',
-        source: 'manual',
-        style,
-        keyframes: [{ tMs: currentTMsRef.current, provenance: 'manual', ...keyframeGeometry } as ClipKeyframe],
-      };
+    const selectedSingleAnnotation = selectedAnnotationIds.length === 0 && selectedAnnotationId
+      ? annotationsRef.current.find((annotation) => annotation.id === selectedAnnotationId) ?? null
+      : null;
+    const trackingAnchorId = isTrackingAnchorFollowerType(type) && selectedSingleAnnotation?.type === 'highlight'
+      ? selectedSingleAnnotation.id
+      : null;
+
+    const ann: ClipAnnotation = {
+      id: makeId(),
+      type,
+      coordMode: usePitchCoords ? 'pitch' : 'image',
+      source: 'manual',
+      trackingAnchorId,
+      style,
+      keyframes: [{ tMs: currentTMsRef.current, provenance: 'manual', ...keyframeGeometry } as ClipKeyframe],
+    };
     setAnnotations(prev => [...prev, ann]);
     setSelectedAnnotationIds([]);
     setSelectedAnnotationId(ann.id);
     return ann.id;
-  }, [defaultColor, defaultStrokeWidth, defaultFill, defaultFillOpacity, defaultFontSize, defaultTextHighlight, drawCoordMode]);
+  }, [
+    defaultColor,
+    defaultStrokeWidth,
+    defaultFill,
+    defaultFillOpacity,
+    defaultFontSize,
+    defaultTextHighlight,
+    drawCoordMode,
+    selectedAnnotationId,
+    selectedAnnotationIds,
+  ]);
 
   // Delete selected annotation
   const deleteSelectedAnnotation = useCallback(() => {
@@ -794,6 +883,10 @@ export default function ClipEditor({
       endMs: Math.max(currentTMs, retrackRangeEndMs),
     };
   }, [currentTMs, retrackRangeEndMs]);
+  const hasUsableHomographyAtCurrentFrame = useMemo(
+    () => !!resolveUsableHomographyAtTime(homographyFrames, clip.startMs + currentTMs),
+    [homographyFrames, clip.startMs, currentTMs],
+  );
   const selectedTrackingAccentColor = selectedFrameTrackingState
     ? getTrackingAccentColor(selectedFrameTrackingState)
     : "#60a5fa";
@@ -806,7 +899,9 @@ export default function ClipEditor({
       })
     : "";
 
-  const canTrackSelection = !!selectedAnn && isTrackableAnnotationType(selectedAnn.type);
+  const canTrackSelection = !!selectedAnn
+    && isTrackableAnnotationType(selectedAnn.type)
+    && (selectedAnn.coordMode === 'image' || hasUsableHomographyAtCurrentFrame);
   const trackButtonEnabled = canTrack && canTrackSelection;
   const trackButtonTitle = !hasTrackingCapability
     ? 'Tracking unavailable: sidecar not connected or tracking model missing'
@@ -815,8 +910,10 @@ export default function ClipEditor({
       : !selectedAnn
         ? 'Select an annotation to track'
         : !isTrackableAnnotationType(selectedAnn.type)
-          ? 'Tracking supports box, circle, or highlight annotations'
-          : 'Track selected annotation across clip';
+          ? 'Tracking supports highlight annotations'
+          : selectedAnn.coordMode === 'pitch' && !hasUsableHomographyAtCurrentFrame
+            ? 'Tracking needs a usable homography to project this pitch annotation back into image space'
+            : 'Track selected highlight until the next keyframe or clip end';
 
   const showRetrackButton = canTrack && selectedAnn &&
     (selectedAnn.source === 'auto' || selectedAnn.source === 'corrected') &&
@@ -825,25 +922,33 @@ export default function ClipEditor({
   const canRetrackToNextCorrection = showRetrackButton && !!selectedNextCorrectionKeyframe;
 
   // Helper: extract seed bbox from interpolated annotation
-  const extractSeedBbox = useCallback((interp: InterpolatedKeyframe): { x: number; y: number; w: number; h: number } | null => {
-    switch (interp.type) {
-      case 'box': {
-        const b = interp as InterpolatedBox;
-        return { x: b.x, y: b.y, w: b.w, h: b.h };
+  const extractSeedBbox = useCallback((
+    ann: ClipAnnotation,
+    interp: InterpolatedKeyframe,
+  ): { x: number; y: number; w: number; h: number } | null => {
+    if (!isTrackableAnnotationType(ann.type)) return null;
+    const resolvedHomography = resolveUsableHomographyAtTime(homographyFrames, clip.startMs + currentTMsRef.current);
+    let bounds: { x: number; y: number; w: number; h: number } | null = null;
+    if (ann.coordMode === 'pitch' && resolvedHomography) {
+      const projected = projectPitchKeyframeToImageShape(interp, resolvedHomography);
+      if (projected) {
+        bounds = getProjectedPitchShapeBounds(projected, defaultFontSize);
       }
-      case 'circle': {
-        const c = interp as InterpolatedCircle;
-        return { x: c.cx - c.rx, y: c.cy - c.ry, w: c.rx * 2, h: c.ry * 2 };
-      }
-      case 'highlight': {
-        const h = interp as InterpolatedHighlight;
-        const r = h.radius;
-        return { x: h.cx - r, y: h.cy - r * 0.35, w: r * 2, h: r * 0.7 };
-      }
-      default:
-        return null;
+    } else if (interp.type === 'highlight') {
+      const radius = interp.radius;
+      bounds = {
+        x: interp.cx - radius,
+        y: interp.cy - radius * 0.35,
+        w: radius * 2,
+        h: radius * 0.7,
+      };
     }
-  }, []);
+    if (!bounds) return null;
+    if (!Number.isFinite(bounds.x) || !Number.isFinite(bounds.y) || bounds.w <= 0 || bounds.h <= 0) {
+      return null;
+    }
+    return bounds;
+  }, [homographyFrames, clip.startMs, defaultFontSize]);
 
   const extractKeyframeGeometry = useCallback((interp: InterpolatedKeyframe): Record<string, any> | null => {
     switch (interp.type) {
@@ -979,6 +1084,7 @@ export default function ClipEditor({
     trackEndMs: number,
     mergeMode: 'replace' | 'forward' | 'range' | 'to_correction',
     rangeEndMs?: number,
+    mergeStartTMs?: number,
   ) => {
     if (!hasVideoSource) return;
 
@@ -1009,15 +1115,63 @@ export default function ClipEditor({
         clip.startMs,
       );
 
-      setAnnotations(prev => prev.map(a => {
-        if (a.id !== ann.id) return a;
-        return mergeTrackedKeyframesIntoAnnotation(a, newKeyframes, {
-          mergeMode,
-          currentTMs: currentTMsRef.current,
-          rangeEndMs,
-          clipDurationMs,
+      const effectiveMergeStartTMs = mergeStartTMs ?? currentTMsRef.current;
+      const seedClipTMs = seedFrameMs - clip.startMs;
+      const seedInterpolated = interpolateAnnotationAtTime(ann, seedClipTMs, videoFps, clipDurationMs);
+      const seedHomography = resolveUsableHomographyAtTime(homographyFrames, seedFrameMs);
+      const seedHighlightAnchor = seedInterpolated
+        ? getHighlightImageAnchor(ann, seedInterpolated, seedHomography)
+        : null;
+
+      setAnnotations(prev => {
+        const mergedAnnotations = prev.map((annotation) => {
+          if (annotation.id !== ann.id) return annotation;
+          return mergeTrackedKeyframesIntoAnnotation(annotation, newKeyframes, {
+            mergeMode,
+            currentTMs: effectiveMergeStartTMs,
+            rangeEndMs,
+            clipDurationMs,
+          });
         });
-      }));
+
+        if (ann.type !== 'highlight' || !seedHighlightAnchor) {
+          return mergedAnnotations;
+        }
+
+        return mergedAnnotations.map((annotation) => {
+          if (annotation.id === ann.id) return annotation;
+          if (annotation.trackingAnchorId !== ann.id) return annotation;
+          if (!isTrackingAnchorFollowerType(annotation.type)) return annotation;
+          if (annotation.coordMode !== 'image') return annotation;
+
+          const baseProps = interpolateAnnotationAtTime(annotation, seedClipTMs, videoFps, clipDurationMs);
+          if (!baseProps) return annotation;
+          const baseGeometry = translateFollowerGeometry(baseProps, 0, 0);
+          if (!baseGeometry) return annotation;
+
+          const linkedKeyframes = newKeyframes.map((keyframe) => {
+            const highlightKeyframe = keyframe as HighlightKeyframe;
+            const isVisible = highlightKeyframe.visible !== false;
+            const anchorY = highlightKeyframe.cy + (highlightKeyframe.radius * 0.35);
+            const dx = isVisible ? (highlightKeyframe.cx - seedHighlightAnchor.x) : 0;
+            const dy = isVisible ? (anchorY - seedHighlightAnchor.y) : 0;
+            const translated = translateFollowerGeometry(baseProps, dx, dy) ?? baseGeometry;
+            return {
+              tMs: keyframe.tMs,
+              provenance: keyframe.provenance,
+              ...(isVisible ? {} : { visible: false }),
+              ...translated,
+            } as ClipKeyframe;
+          });
+
+          return mergeTrackedKeyframesIntoAnnotation(annotation, linkedKeyframes, {
+            mergeMode,
+            currentTMs: effectiveMergeStartTMs,
+            rangeEndMs,
+            clipDurationMs,
+          });
+        });
+      });
       setRetrackRangeEndMs(null);
     } catch (e: any) {
       const msg = (e as TrackingError)?.message || e?.message || 'Tracking failed';
@@ -1026,25 +1180,73 @@ export default function ClipEditor({
     } finally {
       setIsTracking(false);
     }
-  }, [hasVideoSource, videoLocator, videoFps, clip.startMs, clipDurationMs, sidecar.baseUrl]);
+  }, [hasVideoSource, videoLocator, videoFps, clip.startMs, clipDurationMs, sidecar.baseUrl, homographyFrames]);
 
   // Full track: replace all keyframes
   const handleTrack = useCallback(async () => {
     if (!selectedAnn) return;
     const ann = selectedAnn;
     if (!isTrackableAnnotationType(ann.type)) {
-      setTrackError('Tracking supports box, circle, or highlight annotations');
+      setTrackError('Tracking supports highlight annotations');
       return;
     }
 
-    const interp = interpolateAnnotationAtTime(ann, currentTMsRef.current, videoFps, clipDurationMs);
-    if (!interp) { setTrackError('No visible annotation at current time'); return; }
+    if (!selectedCurrentKeyframe) {
+      setTrackError('Move to a keyed highlight frame to start tracking');
+      return;
+    }
 
-    const seedBbox = extractSeedBbox(interp);
-    if (!seedBbox) { setTrackError('Tracking only works with box, circle, or highlight annotations'); return; }
+    const seedTMs = selectedCurrentKeyframe.tMs;
+    const interp = interpolateAnnotationAtTime(ann, seedTMs, videoFps, clipDurationMs);
+    if (!interp) { setTrackError('No visible annotation at the selected keyframe'); return; }
 
-    await doTrack(ann, seedBbox, clip.startMs + currentTMsRef.current, clip.startMs, clip.endMs, 'replace');
-  }, [selectedAnn, videoFps, clip.startMs, clip.endMs, extractSeedBbox, doTrack]);
+    const seedBbox = extractSeedBbox(ann, interp);
+    if (!seedBbox) {
+      setTrackError(
+        ann.coordMode === 'pitch'
+          ? 'Need a usable homography at this frame to seed tracking from a pitch annotation'
+          : 'Could not derive an image-space seed bbox for tracking',
+      );
+      return;
+    }
+
+    const nextKeyframe = ann.keyframes.find((keyframe) => keyframe.tMs > seedTMs + currentFrameToleranceMs);
+    const seedAbsMs = clip.startMs + seedTMs;
+    if (nextKeyframe) {
+      await doTrack(
+        ann,
+        seedBbox,
+        seedAbsMs,
+        seedAbsMs,
+        clip.startMs + nextKeyframe.tMs,
+        'to_correction',
+        nextKeyframe.tMs,
+        seedTMs,
+      );
+      return;
+    }
+
+    await doTrack(
+      ann,
+      seedBbox,
+      seedAbsMs,
+      seedAbsMs,
+      clip.endMs,
+      'forward',
+      undefined,
+      seedTMs,
+    );
+  }, [
+    selectedAnn,
+    selectedCurrentKeyframe,
+    videoFps,
+    clip.startMs,
+    clip.endMs,
+    clipDurationMs,
+    extractSeedBbox,
+    doTrack,
+    currentFrameToleranceMs,
+  ]);
 
   // Re-track from here: keep keyframes <= currentTMs, re-track forward
   const handleRetrackFromHere = useCallback(async () => {
@@ -1055,11 +1257,11 @@ export default function ClipEditor({
     const interp = interpolateAnnotationAtTime(ann, tMs, videoFps, clipDurationMs);
     if (!interp) { setTrackError('No visible annotation at current time'); return; }
 
-    const seedBbox = extractSeedBbox(interp);
-    if (!seedBbox) { setTrackError('Cannot extract bbox for re-tracking'); return; }
+    const seedBbox = extractSeedBbox(ann, interp);
+    if (!seedBbox) { setTrackError('Cannot extract an image-space bbox for re-tracking'); return; }
 
     const seedAbsMs = clip.startMs + tMs;
-    await doTrack(ann, seedBbox, seedAbsMs, seedAbsMs, clip.endMs, 'forward');
+    await doTrack(ann, seedBbox, seedAbsMs, seedAbsMs, clip.endMs, 'forward', undefined, tMs);
   }, [hasVideoSource, selectedAnn, videoFps, clip.startMs, clip.endMs, extractSeedBbox, doTrack]);
 
   // Re-track range: re-track between currentTMs and retrackRangeEndMs
@@ -1071,15 +1273,15 @@ export default function ClipEditor({
     const interp = interpolateAnnotationAtTime(ann, tMs, videoFps, clipDurationMs);
     if (!interp) { setTrackError('No visible annotation at current time'); return; }
 
-    const seedBbox = extractSeedBbox(interp);
-    if (!seedBbox) { setTrackError('Cannot extract bbox for re-tracking'); return; }
+    const seedBbox = extractSeedBbox(ann, interp);
+    if (!seedBbox) { setTrackError('Cannot extract an image-space bbox for re-tracking'); return; }
 
     const rangeStartMs = Math.min(tMs, retrackRangeEndMs);
     const rangeEndMs = Math.max(tMs, retrackRangeEndMs);
     const seedAbsMs = clip.startMs + tMs;
     const trackStart = clip.startMs + rangeStartMs;
     const trackEnd = clip.startMs + rangeEndMs;
-    await doTrack(ann, seedBbox, seedAbsMs, trackStart, trackEnd, 'range', retrackRangeEndMs);
+    await doTrack(ann, seedBbox, seedAbsMs, trackStart, trackEnd, 'range', retrackRangeEndMs, tMs);
   }, [hasVideoSource, selectedAnn, retrackRangeEndMs, videoFps, clip.startMs, extractSeedBbox, doTrack]);
 
   const handleRetrackToNextCorrection = useCallback(async () => {
@@ -1091,13 +1293,13 @@ export default function ClipEditor({
     const interp = interpolateAnnotationAtTime(ann, tMs, videoFps, clipDurationMs);
     if (!interp) { setTrackError('No visible annotation at current time'); return; }
 
-    const seedBbox = extractSeedBbox(interp);
-    if (!seedBbox) { setTrackError('Cannot extract bbox for re-tracking'); return; }
+    const seedBbox = extractSeedBbox(ann, interp);
+    if (!seedBbox) { setTrackError('Cannot extract an image-space bbox for re-tracking'); return; }
 
     const seedAbsMs = clip.startMs + tMs;
     const trackStart = clip.startMs + Math.min(tMs, boundaryEndMs);
     const trackEnd = clip.startMs + Math.max(tMs, boundaryEndMs);
-    await doTrack(ann, seedBbox, seedAbsMs, trackStart, trackEnd, 'to_correction', boundaryEndMs);
+    await doTrack(ann, seedBbox, seedAbsMs, trackStart, trackEnd, 'to_correction', boundaryEndMs, tMs);
   }, [hasVideoSource, selectedAnn, selectedNextCorrectionKeyframe, videoFps, clip.startMs, extractSeedBbox, doTrack]);
 
   const handleSetRetrackRangeEnd = useCallback(() => {
@@ -1210,21 +1412,7 @@ export default function ClipEditor({
 
   // Look up the homography matrix for the current frame time
   const currentHomography = useMemo((): number[] | null => {
-    if (!homographyFrames || homographyFrames.length === 0) return null;
-    const absMs = clip.startMs + currentTMs;
-    const usable = homographyFrames.filter(isUsableHomographyFrame);
-    if (usable.length === 0) return null;
-
-    let best = usable[0];
-    let bestDiff = Math.abs(best.tMs - absMs);
-    for (const f of usable) {
-      const diff = Math.abs(f.tMs - absMs);
-      if (diff < bestDiff) {
-        best = f;
-        bestDiff = diff;
-      }
-    }
-    return normalizeHomography(best.matrix) || best.matrix;
+    return resolveUsableHomographyAtTime(homographyFrames, clip.startMs + currentTMs);
   }, [homographyFrames, clip.startMs, currentTMs]);
 
   const currentHomographyInv = useMemo(
@@ -1276,10 +1464,6 @@ export default function ClipEditor({
     if (!showHomographyOverlay || !currentHomography) return [] as { points: number[]; dashed: boolean }[];
 
     const H = currentHomography;
-    const MIN = 3;
-    const MAX = 317;
-    const CENTER = (MIN + MAX) / 2;
-    const CIRCLE_R = 36;
     const lines: { points: number[]; dashed: boolean }[] = [];
 
     const addSegment = (
@@ -1304,21 +1488,21 @@ export default function ClipEditor({
     };
 
     // Pitch border
-    addSegment(MIN, MIN, MAX, MIN, false);
-    addSegment(MAX, MIN, MAX, MAX, false);
-    addSegment(MAX, MAX, MIN, MAX, false);
-    addSegment(MIN, MAX, MIN, MIN, false);
+    addSegment(0, 0, PITCH_LENGTH_M, 0, false);
+    addSegment(PITCH_LENGTH_M, 0, PITCH_LENGTH_M, PITCH_WIDTH_M, false);
+    addSegment(PITCH_LENGTH_M, PITCH_WIDTH_M, 0, PITCH_WIDTH_M, false);
+    addSegment(0, PITCH_WIDTH_M, 0, 0, false);
 
     // Midline
-    addSegment(CENTER, MIN, CENTER, MAX, false);
+    addSegment(PITCH_CENTER_X_M, 0, PITCH_CENTER_X_M, PITCH_WIDTH_M, false);
 
     // Light internal guide grid
     const splits = [0.25, 0.5, 0.75];
     for (const t of splits) {
-      const x = MIN + (MAX - MIN) * t;
-      const y = MIN + (MAX - MIN) * t;
-      addSegment(x, MIN, x, MAX, true, 24);
-      addSegment(MIN, y, MAX, y, true, 24);
+      const x = PITCH_LENGTH_M * t;
+      const y = PITCH_WIDTH_M * t;
+      addSegment(x, 0, x, PITCH_WIDTH_M, true, 24);
+      addSegment(0, y, PITCH_LENGTH_M, y, true, 24);
     }
 
     // Center circle (approx)
@@ -1326,8 +1510,8 @@ export default function ClipEditor({
     const circleSteps = 64;
     for (let i = 0; i <= circleSteps; i++) {
       const a = (i / circleSteps) * Math.PI * 2;
-      const u = CENTER + CIRCLE_R * Math.cos(a);
-      const v = CENTER + CIRCLE_R * Math.sin(a);
+      const u = PITCH_CENTER_X_M + CENTER_CIRCLE_RADIUS_M * Math.cos(a);
+      const v = (PITCH_WIDTH_M / 2) + CENTER_CIRCLE_RADIUS_M * Math.sin(a);
       const p = applyHomography(H, u, v);
       if (Number.isFinite(p.x) && Number.isFinite(p.y)) {
         circlePts.push(p.x * scale, p.y * scale);

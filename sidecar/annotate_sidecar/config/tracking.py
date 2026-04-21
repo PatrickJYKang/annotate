@@ -79,7 +79,7 @@ def get_tracking_defaults() -> TrackingDefaults:
         sample_fps=_get_env_float("ANNOTATE_TRACKING_SAMPLE_FPS", 30.0),
         classes=_get_env_classes("ANNOTATE_TRACKING_CLASSES", (0,)),
         conf_threshold=_get_env_float("ANNOTATE_TRACKING_CONF_THRESHOLD", 0.25),
-        iou_threshold=_get_env_float("ANNOTATE_TRACKING_IOU_THRESHOLD", 0.3),
+        iou_threshold=_get_env_float("ANNOTATE_TRACKING_IOU_THRESHOLD", 0.15),
         track_buffer_frames=_get_env_int("ANNOTATE_TRACKING_TRACK_BUFFER", 30),
         minimum_consecutive_frames=_get_env_int(
             "ANNOTATE_TRACKING_MIN_CONSECUTIVE_FRAMES",

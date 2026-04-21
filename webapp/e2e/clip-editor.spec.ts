@@ -155,7 +155,7 @@ test('clip editor supports major authoring flows end to end', async ({ page }) =
   const createX = 200;
   const createY = 150;
 
-  await page.getByRole('button', { name: 'Box' }).click();
+  await page.getByRole('button', { name: 'Highlight' }).click();
   await stageSurface.click({ position: { x: createX, y: createY } });
 
   await expect(page.getByText(/^source: manual$/)).toBeVisible();
@@ -194,23 +194,23 @@ test('clip editor supports major authoring flows end to end', async ({ page }) =
   });
 
   await page.getByRole('button', { name: 'Track' }).click();
-  await expect(page.getByText(/^source: auto$/)).toBeVisible();
+  await expect(page.getByText(/^source: corrected$/)).toBeVisible();
 
   await expect.poll(async () => {
     const clip = await readClipFromFixture(page);
     return summarizePrimaryAnnotation(clip);
   }).toEqual({
     annotationCount: 1,
-    source: 'auto',
+    source: 'corrected',
     keyframes: [
-      { tMs: 0, provenance: 'tracked' },
-      { tMs: 150, provenance: 'tracked' },
-      { tMs: 300, provenance: 'tracked' },
-      { tMs: 450, provenance: 'tracked' },
-      { tMs: 600, provenance: 'tracked' },
-      { tMs: 750, provenance: 'tracked' },
-      { tMs: 900, provenance: 'tracked' },
-      { tMs: 1050, provenance: 'tracked' },
+      { tMs: 0, provenance: 'manual' },
+      { tMs: 250, provenance: 'tracked' },
+      { tMs: 400, provenance: 'tracked' },
+      { tMs: 550, provenance: 'tracked' },
+      { tMs: 700, provenance: 'tracked' },
+      { tMs: 850, provenance: 'tracked' },
+      { tMs: 1000, provenance: 'tracked' },
+      { tMs: 1150, provenance: 'tracked' },
       { tMs: 1200, provenance: 'tracked' },
     ],
   });
@@ -226,10 +226,9 @@ test('clip editor supports major authoring flows end to end', async ({ page }) =
     annotationCount: 1,
     source: 'corrected',
     keyframes: [
-      { tMs: 0, provenance: 'tracked' },
-      { tMs: 150, provenance: 'tracked' },
-      { tMs: 300, provenance: 'tracked' },
-      { tMs: 450, provenance: 'tracked' },
+      { tMs: 0, provenance: 'manual' },
+      { tMs: 250, provenance: 'tracked' },
+      { tMs: 400, provenance: 'tracked' },
       { tMs: 500, provenance: 'tracked' },
       { tMs: 650, provenance: 'tracked' },
       { tMs: 800, provenance: 'tracked' },
@@ -254,10 +253,9 @@ test('clip editor supports major authoring flows end to end', async ({ page }) =
     annotationCount: 1,
     source: 'corrected',
     keyframes: [
-      { tMs: 0, provenance: 'tracked' },
-      { tMs: 150, provenance: 'tracked' },
-      { tMs: 300, provenance: 'tracked' },
-      { tMs: 450, provenance: 'tracked' },
+      { tMs: 0, provenance: 'manual' },
+      { tMs: 250, provenance: 'tracked' },
+      { tMs: 400, provenance: 'tracked' },
       { tMs: 500, provenance: 'tracked' },
       { tMs: 650, provenance: 'tracked' },
       { tMs: 750, provenance: 'tracked' },
@@ -283,10 +281,9 @@ test('clip editor supports major authoring flows end to end', async ({ page }) =
     annotationCount: 1,
     source: 'corrected',
     keyframes: [
-      { tMs: 0, provenance: 'tracked' },
-      { tMs: 150, provenance: 'tracked' },
-      { tMs: 300, provenance: 'tracked' },
-      { tMs: 450, provenance: 'tracked' },
+      { tMs: 0, provenance: 'manual' },
+      { tMs: 250, provenance: 'tracked' },
+      { tMs: 400, provenance: 'tracked' },
       { tMs: 500, provenance: 'tracked' },
       { tMs: 650, provenance: 'tracked' },
       { tMs: 750, provenance: 'tracked' },
@@ -300,7 +297,7 @@ test('clip editor supports major authoring flows end to end', async ({ page }) =
   expect(trackRequests).toHaveLength(4);
   expect(trackRequests[0]).toMatchObject({
     videoRef: 'video-ref-playwright',
-    startMs: 200,
+    startMs: 450,
     endMs: 1400,
     seedFrameMs: 450,
   });
@@ -344,13 +341,4 @@ test('clip editor supports major authoring flows end to end', async ({ page }) =
     annotationCount: 1,
     source: 'corrected',
   });
-
-  await page.getByRole('button', { name: 'Box' }).click();
-  await stageSurface.click({ position: { x: 360, y: 240 } });
-  await page.getByRole('button', { name: 'Select' }).click();
-  await page.mouse.move(stageBox.x + 140, stageBox.y + 110);
-  await page.mouse.down();
-  await page.mouse.move(stageBox.x + 430, stageBox.y + 320);
-  await page.mouse.up();
-  await expect(page.getByText(/^2 annotations selected$/)).toBeVisible();
 });

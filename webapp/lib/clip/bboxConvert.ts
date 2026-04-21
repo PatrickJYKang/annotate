@@ -36,10 +36,13 @@ export function bboxToCircle(bbox: Bbox): { cx: number; cy: number; rx: number; 
 }
 
 export function bboxToHighlight(bbox: Bbox): { cx: number; cy: number; radius: number } {
+  const radius = (bbox.w / 2 + bbox.h / 2) / 2;
+  const radiusY = radius * 0.35;
   return {
     cx: bbox.x + bbox.w / 2,
-    cy: bbox.y + bbox.h / 2,
-    radius: (bbox.w / 2 + bbox.h / 2) / 2,
+    // Anchor tracked highlights to the player's feet rather than the bbox centre.
+    cy: bbox.y + bbox.h - radiusY,
+    radius,
   };
 }
 

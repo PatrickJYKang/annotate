@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   extractErrorMessage,
+  requestTracking,
   requestExactMotionEncode,
 } from './sidecarClient';
 
@@ -68,5 +69,38 @@ describe('requestExactMotionEncode', () => {
         endMs: 2000,
       }, 'http://127.0.0.1:8321'),
     ).rejects.toThrow('ffmpeg missing');
+  });
+});
+
+describe('requestTracking', () => {
+  it('surfaces debug artifact details from nested error payloads', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 422,
+      json: async () => ({
+        detail: {
+          message: 'Tracking failed',
+          detectedBboxes: [{ x: 1, y: 2, w: 3, h: 4, confidence: 0.9 }],
+          debugVideoPath: '/tmp/tracking_debug_demo.mp4',
+          debugVideoUrl: '/track/debug/tracking_debug_demo.mp4',
+        },
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      requestTracking({
+        videoRef: 'video-ref-1',
+        startMs: 1000,
+        endMs: 2000,
+        seedBbox: { x: 10, y: 20, w: 30, h: 40 },
+        seedFrameMs: 1200,
+      }, 'http://127.0.0.1:8321'),
+    ).rejects.toMatchObject({
+      message: 'Tracking failed',
+      detectedBboxes: [{ x: 1, y: 2, w: 3, h: 4, confidence: 0.9 }],
+      debugVideoPath: '/tmp/tracking_debug_demo.mp4',
+      debugVideoUrl: '/track/debug/tracking_debug_demo.mp4',
+    });
   });
 });

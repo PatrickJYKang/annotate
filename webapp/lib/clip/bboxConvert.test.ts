@@ -28,10 +28,10 @@ describe('bboxToCircle', () => {
 });
 
 describe('bboxToHighlight', () => {
-  it('computes centre + avg radius', () => {
+  it('anchors the highlight ellipse to the bbox foot point', () => {
     const r = bboxToHighlight(bbox);
     expect(r.cx).toBe(130);
-    expect(r.cy).toBe(220);
+    expect(r.cy).toBe(231.25);
     expect(r.radius).toBe(25); // (30 + 20) / 2
   });
 });
@@ -90,7 +90,7 @@ describe('convertTrackingKeyframes', () => {
     const kfs = convertTrackingKeyframes(raw.slice(0, 1), 'highlight', clipStartMs);
     const k = kfs[0] as HighlightKeyframe;
     expect(k.cx).toBe(25);
-    expect(k.cy).toBe(40);
+    expect(k.cy).toBe(53.875);
     expect(k.radius).toBe(17.5); // (15 + 20) / 2
   });
 

@@ -24,15 +24,7 @@ export type PitchProjectedShape =
   | { kind: 'text'; x: number; y: number };
 
 export function annotationTypeSupportsPitchCoords(type: ClipAnnotationType): boolean {
-  return (
-    type === 'box'
-    || type === 'circle'
-    || type === 'arrow'
-    || type === 'lob'
-    || type === 'text'
-    || type === 'poly'
-    || type === 'highlight'
-  );
+  return type === 'box' || type === 'circle';
 }
 
 export function projectImagePointToPitchPoint(

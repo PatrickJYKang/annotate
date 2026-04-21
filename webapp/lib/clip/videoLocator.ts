@@ -27,7 +27,7 @@ export function hasSidecarVideoSource(locator: SidecarVideoLocator): boolean {
 }
 
 export function isTrackableAnnotationType(type?: string | null): boolean {
-  return type === 'box' || type === 'circle' || type === 'highlight';
+  return type === 'highlight';
 }
 
 export function canShowTrackButton(args: {

@@ -23,7 +23,7 @@ def test_tracking_defaults_use_expected_app_baseline(monkeypatch):
     assert defaults.sample_fps == 30.0
     assert defaults.classes == (0,)
     assert defaults.conf_threshold == 0.25
-    assert defaults.iou_threshold == 0.3
+    assert defaults.iou_threshold == 0.15
     assert defaults.track_buffer_frames == 30
     assert defaults.minimum_consecutive_frames == 1
     assert defaults.direction_consistency_weight == 0.2
