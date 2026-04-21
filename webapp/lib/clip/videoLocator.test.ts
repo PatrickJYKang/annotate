@@ -29,8 +29,8 @@ describe('videoLocator helpers', () => {
   });
 
   it('recognizes trackable annotation types', () => {
-    expect(isTrackableAnnotationType('box')).toBe(true);
-    expect(isTrackableAnnotationType('circle')).toBe(true);
+    expect(isTrackableAnnotationType('box')).toBe(false);
+    expect(isTrackableAnnotationType('circle')).toBe(false);
     expect(isTrackableAnnotationType('highlight')).toBe(true);
     expect(isTrackableAnnotationType('text')).toBe(false);
   });
@@ -42,7 +42,7 @@ describe('videoLocator helpers', () => {
         sidecarConnected: true,
         capabilities: ['tracking'],
         locator,
-        selectedType: 'box',
+        selectedType: 'highlight',
       }),
     ).toBe(true);
 
@@ -51,7 +51,7 @@ describe('videoLocator helpers', () => {
         sidecarConnected: false,
         capabilities: ['tracking'],
         locator,
-        selectedType: 'box',
+        selectedType: 'highlight',
       }),
     ).toBe(false);
 
@@ -60,7 +60,7 @@ describe('videoLocator helpers', () => {
         sidecarConnected: true,
         capabilities: [],
         locator,
-        selectedType: 'box',
+        selectedType: 'highlight',
       }),
     ).toBe(false);
 
@@ -69,7 +69,7 @@ describe('videoLocator helpers', () => {
         sidecarConnected: true,
         capabilities: ['tracking'],
         locator: {},
-        selectedType: 'box',
+        selectedType: 'highlight',
       }),
     ).toBe(false);
 

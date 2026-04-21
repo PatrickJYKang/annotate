@@ -6,12 +6,13 @@ import type { ProjectManifestV1 } from '../../lib/types/project';
 import type { TaggingSchema } from '../../lib/tagging/schema';
 import { ensureTaggingSelection } from '../../lib/tagging/schema';
 import type {
+  ClipCenteredStillGroup,
   ChronologicalStillGroup,
   PresentationAssetIndex,
   PresentationAssetMark,
   PresentationAssetTreeNode,
 } from '../../lib/presentation/authoring';
-import { buildChronologicalStillGroups } from '../../lib/presentation/authoring';
+import { buildChronologicalStillGroups, buildClipCenteredStillGroups } from '../../lib/presentation/authoring';
 
 export interface PresentationAssetBrowserProps {
   schema: TaggingSchema | null;
@@ -158,6 +159,73 @@ function ChronologicalStillSection({
   );
 }
 
+function ClipCenteredSection({
+  group,
+  selectedStillId,
+  selectedClipId,
+  onInsertStill,
+  onInsertClip,
+  onPreviewMark,
+}: {
+  group: ClipCenteredStillGroup;
+  selectedStillId: string | null;
+  selectedClipId: string | null;
+  onInsertStill?: (stillId: string) => void;
+  onInsertClip?: (clipId: string) => void;
+  onPreviewMark: (mark: ProjectManifestV1['marks'][number]) => void;
+}) {
+  return (
+    <div className="border border-subtle rounded overflow-hidden">
+      <div className={`px-3 py-2 bg-canvas flex items-center gap-2 ${selectedClipId === group.clip.id ? 'bg-selected' : ''}`}>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium truncate">{group.clip.id}</div>
+          <div className="text-[11px] text-muted mt-1">
+            {group.videoLabel} · {formatTimestamp(group.clip.startMs)} → {formatTimestamp(group.clip.endMs)} · {group.stills.length} stills
+          </div>
+        </div>
+        {onInsertClip && (
+          <button onClick={() => onInsertClip(group.clip.id)} className="px-2 py-1 text-xs cursor-pointer">
+            Add clip
+          </button>
+        )}
+      </div>
+      {group.stills.length > 0 ? (
+        group.stills.map((entry) => (
+          <div
+            key={entry.still.id}
+            className={`px-3 py-2 border-t border-subtle first:border-t-0 ${selectedStillId === entry.still.id ? 'bg-selected' : 'bg-transparent'}`}
+          >
+            <div className="flex items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium">{formatTimestamp(entry.still.t_ms)}</div>
+                <div className="text-[11px] text-muted mt-1 flex flex-wrap gap-x-2 gap-y-1">
+                  <span>{entry.still.id}</span>
+                  {entry.primaryTag && <span>{entry.primaryTag}</span>}
+                  {entry.canonicalForSourceMark && <span>canonical</span>}
+                </div>
+              </div>
+              {entry.sourceMark && (
+                <button onClick={() => onPreviewMark(entry.sourceMark!)} className="px-2 py-1 text-xs cursor-pointer">
+                  Mark
+                </button>
+              )}
+              {onInsertStill && (
+                <button onClick={() => onInsertStill(entry.still.id)} className="px-2 py-1 text-xs cursor-pointer">
+                  Add still
+                </button>
+              )}
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="px-3 py-2 text-xs text-muted border-t border-subtle">
+          No stills fall inside this clip yet.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TreeNodeSection({
   node,
   selectedMarkId,
@@ -237,7 +305,7 @@ export default function PresentationAssetBrowser({
   onInsertClip,
   onCreateStillForMark,
 }: PresentationAssetBrowserProps) {
-  const [viewMode, setViewMode] = useState<'tagged' | 'chronological'>('tagged');
+  const [viewMode, setViewMode] = useState<'tagged' | 'chronological' | 'clip_centered'>('tagged');
   const unknownWithLabels = useMemo(() => {
     return assetIndex.unknown.map((asset) => ({
       asset,
@@ -245,7 +313,9 @@ export default function PresentationAssetBrowser({
     }));
   }, [assetIndex.unknown]);
   const chronologicalStillGroups = useMemo(() => buildChronologicalStillGroups(manifest), [manifest]);
+  const clipCenteredGroups = useMemo(() => buildClipCenteredStillGroups(manifest, clips), [manifest, clips]);
   const showChronological = mode === 'authoring' && viewMode === 'chronological';
+  const showClipCentered = mode === 'authoring' && viewMode === 'clip_centered';
 
   return (
     <div className={`${compact ? 'w-[320px]' : 'w-[360px] shrink-0 border-r'} min-h-0 border-subtle bg-surface p-4 overflow-y-auto flex flex-col gap-4`}>
@@ -282,6 +352,12 @@ export default function PresentationAssetBrowser({
           >
             Chronological
           </button>
+          <button
+            onClick={() => setViewMode('clip_centered')}
+            className={`px-2 py-1 text-xs border rounded ${viewMode === 'clip_centered' ? 'bg-selected border-accent' : 'border-subtle bg-canvas'}`}
+          >
+            Clip centered
+          </button>
         </div>
       )}
 
@@ -316,6 +392,24 @@ export default function PresentationAssetBrowser({
           </div>
         ) : (
           <div className="text-sm text-muted">No stills available yet.</div>
+        )
+      ) : showClipCentered ? (
+        clipCenteredGroups.length > 0 ? (
+          <div className="flex flex-col gap-3">
+            {clipCenteredGroups.map((group) => (
+              <ClipCenteredSection
+                key={group.clip.id}
+                group={group}
+                selectedStillId={selectedStillId}
+                selectedClipId={selectedClipId}
+                onInsertStill={onInsertStill}
+                onInsertClip={onInsertClip}
+                onPreviewMark={onPreviewMark}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="text-sm text-muted">No clips available yet.</div>
         )
       ) : (
         <>

@@ -25,6 +25,7 @@ import {
   findPlaneRotationForHorizontal, computeLocalJacobian,
   thetaForHorizontalUsingJacobian, thetaForHorizontal,
 } from "../../lib/annotate/homography";
+import type { PerspectiveQuadPoint } from "../../lib/annotate/pitchCalibration";
 
 export type Tool = 'select' | 'box' | 'circle' | 'shadow' | 'arrow' | 'lob' | 'text' | 'poly' | 'highlight' | 'calibrate';
 
@@ -140,6 +141,8 @@ export default function Editor({
   onRequestToolChange,
   saveTick,
   onSaveStatus,
+  autoPerspectiveQuad,
+  autoPerspectiveTick,
 }: {
   stillId: string;
   annotationId: string;
@@ -162,6 +165,8 @@ export default function Editor({
   onRequestToolChange?: (t: Tool) => void;
   saveTick?: number;
   onSaveStatus?: (s: { state: 'idle' | 'saving' | 'saved' | 'error'; at?: string; message?: string }) => void;
+  autoPerspectiveQuad?: PerspectiveQuadPoint[] | null;
+  autoPerspectiveTick?: number;
 }) {
   const { projectDir } = useProject();
   const [shapes, setShapes] = useState<Shape[]>([]);
@@ -204,6 +209,7 @@ export default function Editor({
   const hasLoadedRef = useRef(false);
   const loadGenRef = useRef(0);
   const shapesRef = useRef<Shape[]>([]);
+  const lastAutoPerspectiveTickRef = useRef<number>(0);
 
   const [textEdit, setTextEdit] = useState<null | { id: string; value: string; orig: string; isNew: boolean }>(null);
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -221,6 +227,39 @@ export default function Editor({
   const foregroundGenRef = useRef(0);
 
   const effectiveOcclusionMethod: 'edge' | 'ml' = occlusionMethod || 'edge';
+
+  function clearPerspectiveState() {
+    perspectiveRef.current = null;
+    lastNonNullPerspectiveRef.current = null;
+    setPerspective(null);
+    setCalibrating(false);
+    setCalibPoints([]);
+    setCalibHover(null);
+    setHlFrac(null);
+    setBoxFrac(null);
+    setCircFrac(null);
+  }
+
+  function applyPerspectiveQuadState(quad: PerspectiveQuadPoint[]) {
+    const nextPerspective = { quad };
+    perspectiveRef.current = nextPerspective;
+    lastNonNullPerspectiveRef.current = nextPerspective;
+    setPerspective(nextPerspective);
+    setCalibrating(false);
+    setCalibPoints([]);
+    setCalibHover(null);
+    const lerpPt = (a: { x: number; y: number }, b: { x: number; y: number }, t: number) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+    const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+    const leftMid = lerpPt(quad[0], quad[3], 0.5);
+    const rightMid = lerpPt(quad[1], quad[2], 0.5);
+    const widthMid = Math.max(1e-6, dist(leftMid, rightMid));
+    const topMid = lerpPt(quad[0], quad[1], 0.5);
+    const botMid = lerpPt(quad[3], quad[2], 0.5);
+    const heightMid = Math.max(1e-6, dist(topMid, botMid));
+    setHlFrac({ rx: 15 / widthMid, ry: 12 / heightMid });
+    setBoxFrac({ w: 80 / widthMid, h: 48 / heightMid });
+    setCircFrac({ rx: 24 / widthMid, ry: 16 / heightMid });
+  }
 
   useEffect(() => {
     if (!enableForegroundOcclusion) {
@@ -391,32 +430,10 @@ export default function Editor({
 
         if (token !== loadGenRef.current) return;
         if (quad && quad.length === 4) {
-          const nextPerspective = { quad };
-          perspectiveRef.current = nextPerspective;
-          lastNonNullPerspectiveRef.current = nextPerspective;
-          setPerspective(nextPerspective);
-          setCalibrating(false);
-          const lerpPt = (a: { x: number; y: number }, b: { x: number; y: number }, t: number) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
-          const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
-          const leftMid = lerpPt(quad[0], quad[3], 0.5);
-          const rightMid = lerpPt(quad[1], quad[2], 0.5);
-          const widthMid = Math.max(1e-6, dist(leftMid, rightMid));
-          const topMid = lerpPt(quad[0], quad[1], 0.5);
-          const botMid = lerpPt(quad[3], quad[2], 0.5);
-          const heightMid = Math.max(1e-6, dist(topMid, botMid));
-          setHlFrac({ rx: 15 / widthMid, ry: 12 / heightMid });
-          setBoxFrac({ w: 80 / widthMid, h: 48 / heightMid });
-          setCircFrac({ rx: 24 / widthMid, ry: 16 / heightMid });
+          applyPerspectiveQuadState(quad);
         } else {
           // No perspective yet; defaults will be flat and calibration is opt-in via tool.
-          perspectiveRef.current = null;
-          lastNonNullPerspectiveRef.current = null;
-          setPerspective(null);
-          setCalibrating(false);
-          setCalibPoints([]);
-          setHlFrac(null);
-          setBoxFrac(null);
-          setCircFrac(null);
+          clearPerspectiveState();
         }
 
         if (token !== loadGenRef.current) return;
@@ -688,6 +705,15 @@ export default function Editor({
     saveTimer.current = window.setTimeout(() => { void performSave(); }, 600);
   }, [performSave]);
 
+  useEffect(() => {
+    if (!autoPerspectiveTick || autoPerspectiveTick === lastAutoPerspectiveTickRef.current) return;
+    lastAutoPerspectiveTickRef.current = autoPerspectiveTick;
+    if (!autoPerspectiveQuad || autoPerspectiveQuad.length !== 4) return;
+    applyPerspectiveQuadState(autoPerspectiveQuad);
+    requestSave();
+    if (onRequestToolChange) Promise.resolve().then(() => onRequestToolChange('select'));
+  }, [autoPerspectiveQuad, autoPerspectiveTick, onRequestToolChange, requestSave]);
+
   // Manual Save: when parent bumps saveTick, run an immediate save
   useEffect(() => {
     const { nextSeenTick, shouldSave } = consumeManualSaveTick(lastManualTickRef.current, saveTick);
@@ -854,22 +880,7 @@ export default function Editor({
       setCalibPoints(prev => {
         const pts = [...prev, p];
         if (pts.length === 4) {
-          const nextPerspective = { quad: pts };
-          perspectiveRef.current = nextPerspective;
-          lastNonNullPerspectiveRef.current = nextPerspective;
-          setPerspective({ quad: pts });
-          const lerpPt = (a: { x: number; y: number }, b: { x: number; y: number }, t: number) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
-          const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
-          const leftMid = lerpPt(pts[0], pts[3], 0.5);
-          const rightMid = lerpPt(pts[1], pts[2], 0.5);
-          const widthMid = Math.max(1e-6, dist(leftMid, rightMid));
-          const topMid = lerpPt(pts[0], pts[1], 0.5);
-          const botMid = lerpPt(pts[3], pts[2], 0.5);
-          const heightMid = Math.max(1e-6, dist(topMid, botMid));
-          setHlFrac({ rx: 15 / widthMid, ry: 15 / heightMid });
-          setBoxFrac({ w: 80 / widthMid, h: 48 / heightMid });
-          setCircFrac({ rx: 24 / widthMid, ry: 16 / heightMid });
-          setCalibrating(false);
+          applyPerspectiveQuadState(pts);
           requestSave();
           if (onRequestToolChange) Promise.resolve().then(() => onRequestToolChange('select'));
         }

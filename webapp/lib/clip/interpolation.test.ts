@@ -1,14 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import {
+  interpolateAnnotationAtTime,
   interpolateKeyframes,
   lerp,
   catmullRom,
   findBracketIndex,
 } from './interpolation';
 import type {
+  ClipAnnotation,
   BoxKeyframe,
   CircleKeyframe,
+  ShadowKeyframe,
   ArrowKeyframe,
+  LobKeyframe,
   TextKeyframe,
   PolyKeyframe,
   HighlightKeyframe,
@@ -27,8 +31,16 @@ function circleKf(tMs: number, cx: number, cy: number, rx: number, ry: number): 
   return { tMs, cx, cy, rx, ry };
 }
 
+function shadowKf(tMs: number, x: number, y: number, r: number, rotation: number, spreadDeg: number): ShadowKeyframe {
+  return { tMs, x, y, r, rotation, spreadDeg };
+}
+
 function arrowKf(tMs: number, x1: number, y1: number, x2: number, y2: number): ArrowKeyframe {
   return { tMs, x1, y1, x2, y2 };
+}
+
+function lobKf(tMs: number, x1: number, y1: number, cx: number, cy: number, x2: number, y2: number): LobKeyframe {
+  return { tMs, x1, y1, cx, cy, x2, y2 };
 }
 
 function textKf(tMs: number, x: number, y: number): TextKeyframe {
@@ -41,6 +53,17 @@ function polyKf(tMs: number, points: [number, number][]): PolyKeyframe {
 
 function highlightKf(tMs: number, cx: number, cy: number, radius: number): HighlightKeyframe {
   return { tMs, cx, cy, radius };
+}
+
+function makeBoxAnnotation(id: string, source: ClipAnnotation["source"], keyframes: ClipKeyframe[]): ClipAnnotation {
+  return {
+    id,
+    type: 'box',
+    coordMode: 'image',
+    source,
+    style: {},
+    keyframes,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +153,38 @@ describe('interpolateKeyframes', () => {
     expect(interpolateKeyframes(kfs, 200, 'box')).toBeNull();
   });
 
+  it('keeps continuity through a short tracked gap', () => {
+    const annotation = makeBoxAnnotation('ann-short-gap', 'corrected', [
+      { ...boxKf(0, 0, 0, 10, 10), provenance: 'tracked' },
+      { ...boxKf(150, 15, 15, 10, 10), provenance: 'tracked' },
+    ]);
+
+    const r = interpolateAnnotationAtTime(annotation, 75, 30, 300);
+    expect(r).not.toBeNull();
+    expect(r).toEqual({ type: 'box', x: 7.5, y: 7.5, w: 10, h: 10 });
+  });
+
+  it('hides a long tracked gap conservatively', () => {
+    const annotation = makeBoxAnnotation('ann-long-gap', 'corrected', [
+      { ...boxKf(0, 0, 0, 10, 10), provenance: 'tracked' },
+      { ...boxKf(400, 40, 40, 10, 10), provenance: 'tracked' },
+    ]);
+
+    expect(interpolateAnnotationAtTime(annotation, 200, 30, 500)).toBeNull();
+    expect(interpolateAnnotationAtTime(annotation, 0, 30, 500)).toEqual({ type: 'box', x: 0, y: 0, w: 10, h: 10 });
+    expect(interpolateAnnotationAtTime(annotation, 400, 30, 500)).toEqual({ type: 'box', x: 40, y: 40, w: 10, h: 10 });
+  });
+
+  it('stays hidden until a correction after a long tracked gap', () => {
+    const annotation = makeBoxAnnotation('ann-correction-gap', 'corrected', [
+      { ...boxKf(100, 10, 10, 10, 10), provenance: 'tracked' },
+      { ...boxKf(700, 70, 70, 10, 10), provenance: 'correction' },
+    ]);
+
+    expect(interpolateAnnotationAtTime(annotation, 400, 30, 900)).toBeNull();
+    expect(interpolateAnnotationAtTime(annotation, 700, 30, 900)).toEqual({ type: 'box', x: 70, y: 70, w: 10, h: 10 });
+  });
+
   // --- Linear box interpolation (close keyframes, gap ≤ 2 frames at 30fps) ---
 
   it('linearly interpolates box at midpoint (close kfs)', () => {
@@ -172,6 +227,19 @@ describe('interpolateKeyframes', () => {
     expect(c.ry).toBeCloseTo(13, 1);
   });
 
+  it('interpolates shadow keyframes', () => {
+    const kfs = [shadowKf(0, 10, 20, 40, 15, 30), shadowKf(100, 30, 40, 80, 45, 60)];
+    const r = interpolateKeyframes(kfs, 50, 'shadow', 30);
+    expect(r).not.toBeNull();
+    expect(r!.type).toBe('shadow');
+    const s = r as { type: 'shadow'; x: number; y: number; r: number; rotation: number; spreadDeg: number };
+    expect(s.x).toBeCloseTo(20, 1);
+    expect(s.y).toBeCloseTo(30, 1);
+    expect(s.r).toBeCloseTo(60, 1);
+    expect(s.rotation).toBeCloseTo(30, 1);
+    expect(s.spreadDeg).toBeCloseTo(45, 1);
+  });
+
   // --- Arrow ---
 
   it('interpolates arrow keyframes', () => {
@@ -183,6 +251,20 @@ describe('interpolateKeyframes', () => {
     expect(a.y1).toBeCloseTo(25, 0);
     expect(a.x2).toBeCloseTo(125, 0);
     expect(a.y2).toBeCloseTo(125, 0);
+  });
+
+  it('interpolates lob keyframes', () => {
+    const kfs = [lobKf(0, 0, 0, 20, -10, 40, 0), lobKf(200, 20, 10, 40, 20, 80, 30)];
+    const r = interpolateKeyframes(kfs, 100, 'lob', 30);
+    expect(r).not.toBeNull();
+    expect(r!.type).toBe('lob');
+    const l = r as { type: 'lob'; x1: number; y1: number; cx: number; cy: number; x2: number; y2: number };
+    expect(l.x1).toBeCloseTo(10, 0);
+    expect(l.y1).toBeCloseTo(5, 0);
+    expect(l.cx).toBeCloseTo(30, 0);
+    expect(l.cy).toBeCloseTo(5, 0);
+    expect(l.x2).toBeCloseTo(60, 0);
+    expect(l.y2).toBeCloseTo(15, 0);
   });
 
   // --- Text ---

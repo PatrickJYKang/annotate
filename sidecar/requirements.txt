@@ -12,14 +12,15 @@ numpy>=1.24.0,<2.0
 
 # Object detection & tracking (Phase 6)
 ultralytics>=8.0.0,<9.0
-lap>=0.5.12
+supervision>=0.26.1
 
 # Segmentation (Phase 9)
 # mobile-sam or segment-anything — install separately:
 #   pip install git+https://github.com/ChaoningZhang/MobileSAM.git
 
-# Homography estimation (Phase 8) — vendored from narya (MIT License)
-# These are narya's runtime dependencies:
+# Homography estimation (PnLCalib via vendored trackers adapter)
+lsq-ellipse==2.2.1
+shapely>=2.0.0
 tensorflow>=2.10.0
 torch>=1.12.0
 torchvision>=0.13.0

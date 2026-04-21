@@ -7,11 +7,14 @@ export type ClipId = string;
 export type CoordMode = 'image' | 'pitch';
 
 export type AnnotationSource = 'manual' | 'auto' | 'corrected';
+export type ClipKeyframeProvenance = 'manual' | 'tracked' | 'lost' | 'correction';
 
 export type ClipAnnotationType =
   | 'box'
   | 'circle'
+  | 'shadow'
   | 'arrow'
+  | 'lob'
   | 'text'
   | 'poly'
   | 'highlight';
@@ -25,6 +28,7 @@ export type StrokePattern = 'solid' | 'dashed' | 'dotted' | 'dashdot';
 interface KeyframeBase {
   tMs: number;        // clip-relative milliseconds (0 = clip start)
   visible?: boolean;  // false → annotation hidden for this range
+  provenance?: ClipKeyframeProvenance;
 }
 
 export interface BoxKeyframe extends KeyframeBase {
@@ -45,9 +49,26 @@ export interface CircleKeyframe extends KeyframeBase {
   ry: number;
 }
 
+export interface ShadowKeyframe extends KeyframeBase {
+  x: number;
+  y: number;
+  r: number;
+  rotation: number;
+  spreadDeg: number;
+}
+
 export interface ArrowKeyframe extends KeyframeBase {
   x1: number;
   y1: number;
+  x2: number;
+  y2: number;
+}
+
+export interface LobKeyframe extends KeyframeBase {
+  x1: number;
+  y1: number;
+  cx: number;
+  cy: number;
   x2: number;
   y2: number;
 }
@@ -71,7 +92,9 @@ export type ClipKeyframe =
   | BoxKeyframe
   | BoxQuadKeyframe
   | CircleKeyframe
+  | ShadowKeyframe
   | ArrowKeyframe
+  | LobKeyframe
   | TextKeyframe
   | PolyKeyframe
   | HighlightKeyframe;
@@ -101,7 +124,10 @@ export interface ClipAnnotation {
   type: ClipAnnotationType;
   coordMode: CoordMode;
   source: AnnotationSource;
+  trackingAnchorId?: string | null; // optional highlight annotation that drives this annotation during tracking
+  vertexRefs?: (string | null)[];   // optional highlight refs for linked endpoints / vertices / centers
   text?: string;                   // for type: 'text' — content doesn't vary over time
+  closed?: boolean;                // for type: 'poly' — defaults to true when omitted
   style: ClipAnnotationStyle;
   keyframes: ClipKeyframe[];       // sorted by tMs ascending
 }

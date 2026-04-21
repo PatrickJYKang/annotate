@@ -16,9 +16,33 @@ export interface HealthResponse {
   capabilities: string[];
   models: {
     yolo: boolean;
+    supervision?: boolean;
+    lap?: boolean;
     mobilesam: boolean;
-    narya: boolean;
+    ellipse?: boolean;
+    pnlcalib?: boolean;
     opencv: boolean;
+  };
+  tracking?: {
+    backend: string;
+    detectorModelName: string;
+    sampleFps: number;
+    classes: number[];
+    confThreshold: number;
+    iouThreshold: number;
+    trackBufferFrames: number;
+    minimumConsecutiveFrames?: number;
+    directionConsistencyWeight?: number;
+    highConfDetThreshold?: number;
+    deltaT?: number;
+  };
+  homography?: {
+    providerName: string | null;
+    providers: Array<{
+      name: string;
+      supports_manual_seed_tracking: boolean;
+      available: boolean;
+    }>;
   };
 }
 
@@ -33,6 +57,7 @@ export interface TrackingParams {
   classes?: number[];
   confThreshold?: number;
   iouThreshold?: number;
+  debugVideo?: boolean;
 }
 
 export interface TrackingKeyframe {
@@ -48,11 +73,15 @@ export interface TrackingResult {
   keyframes: TrackingKeyframe[];
   trackId: number;
   detectionCount: number;
+  debugVideoPath?: string;
+  debugVideoUrl?: string;
 }
 
 export interface TrackingError {
   message: string;
   detectedBboxes?: { x: number; y: number; w: number; h: number; confidence: number }[];
+  debugVideoPath?: string;
+  debugVideoUrl?: string;
 }
 
 export interface SegmentationParams {
@@ -74,17 +103,6 @@ export interface HomographyParams {
   videoRef?: string;
   startMs: number;
   endMs: number;
-  fps?: number;
-  skipInterval?: number;
-}
-
-export interface ManualTrackHomographyParams {
-  videoPath?: string;
-  videoRef?: string;
-  startMs: number;
-  endMs: number;
-  seedMs: number;
-  seedMatrix: number[];
   fps?: number;
   skipInterval?: number;
 }
@@ -168,23 +186,6 @@ export async function registerVideoFile(
   return await res.json();
 }
 
-export async function requestManualTrackHomography(
-  params: ManualTrackHomographyParams,
-  baseUrl: string = SIDECAR_BASE_URL,
-): Promise<HomographyResult> {
-  const res = await fetch(`${baseUrl}/homography/manual-track`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
-
-  if (!res.ok) {
-    throw new Error(await buildErrorMessageFromResponse(res, `Manual homography track failed (${res.status})`));
-  }
-
-  return await res.json();
-}
-
 export async function unregisterVideoRef(
   videoRef: string,
   baseUrl: string = SIDECAR_BASE_URL,
@@ -209,9 +210,12 @@ export async function requestTracking(
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     const message = extractErrorMessage(body, `Tracking failed (${res.status})`);
+    const detail = body?.detail && typeof body.detail === 'object' ? body.detail : body;
     const err: TrackingError = {
       message,
-      detectedBboxes: body.detectedBboxes,
+      detectedBboxes: detail?.detectedBboxes,
+      debugVideoPath: detail?.debugVideoPath,
+      debugVideoUrl: detail?.debugVideoUrl,
     };
     throw err;
   }

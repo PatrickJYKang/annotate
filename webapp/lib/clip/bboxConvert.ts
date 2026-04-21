@@ -13,6 +13,7 @@ import type {
   ArrowKeyframe,
   HighlightKeyframe,
   ClipKeyframe,
+  ClipKeyframeProvenance,
 } from '../types/clip';
 
 export type Bbox = { x: number; y: number; w: number; h: number };
@@ -35,10 +36,13 @@ export function bboxToCircle(bbox: Bbox): { cx: number; cy: number; rx: number; 
 }
 
 export function bboxToHighlight(bbox: Bbox): { cx: number; cy: number; radius: number } {
+  const radius = (bbox.w / 2 + bbox.h / 2) / 2;
+  const radiusY = radius * 0.35;
   return {
     cx: bbox.x + bbox.w / 2,
-    cy: bbox.y + bbox.h / 2,
-    radius: (bbox.w / 2 + bbox.h / 2) / 2,
+    // Anchor tracked highlights to the player's feet rather than the bbox centre.
+    cy: bbox.y + bbox.h - radiusY,
+    radius,
   };
 }
 
@@ -77,7 +81,12 @@ export function convertTrackingKeyframes(
 ): ClipKeyframe[] {
   return rawKeyframes.map((raw): ClipKeyframe => {
     const tMs = raw.tMs - clipStartMs;
-    const base = { tMs, ...(raw.visible === false ? { visible: false } : {}) };
+    const provenance: ClipKeyframeProvenance = raw.visible === false ? 'lost' : 'tracked';
+    const base = {
+      tMs,
+      provenance,
+      ...(raw.visible === false ? { visible: false } : {}),
+    };
 
     switch (annotationType) {
       case 'box': {

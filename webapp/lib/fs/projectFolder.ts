@@ -1,7 +1,7 @@
 import { ProjectManifestV1, defaultProjectManifest } from '../types/project';
 import { scanAnnotationEntries } from './annotationStorage';
 import { writeDefaultTaggingSchema } from '../tagging/schema';
-import { repairManifestIntegrity, summarizeManifestRepairIssues } from '../utils/projectIntegrity';
+import { isBlockingManifestIssue, repairManifestIntegrity, summarizeManifestRepairIssues } from '../utils/projectIntegrity';
 
 async function getOrCreateDir(parent: FileSystemDirectoryHandle, name: string) {
   return await parent.getDirectoryHandle(name, { create: true });
@@ -66,8 +66,13 @@ export async function validateProjectFolderStructure(projectDir: FileSystemDirec
   if (reindexedChanged || repaired.changed) {
     await writeManifest(projectDir, repaired.manifest);
   }
-  if (repaired.issues.length > 0) {
-    return { ok: false, reason: summarizeManifestRepairIssues(repaired.issues) };
+  const blockingIssues = repaired.issues.filter(isBlockingManifestIssue);
+  const warningIssues = repaired.issues.filter((issue) => !isBlockingManifestIssue(issue));
+  if (warningIssues.length > 0) {
+    console.warn(`Project manifest compatibility warnings: ${summarizeManifestRepairIssues(warningIssues)}`);
+  }
+  if (blockingIssues.length > 0) {
+    return { ok: false, reason: summarizeManifestRepairIssues(blockingIssues) };
   }
   return { ok: true, manifest: repaired.manifest };
 }

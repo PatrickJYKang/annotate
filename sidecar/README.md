@@ -6,13 +6,14 @@ estimation, and video export encoding.
 
 ## Current scope note
 
-- The repository still contains clip-oriented CV endpoints and related tooling
-  (`/track`, `/segment`, `/homography`, clip export, occlusion support).
-- Those clip/CV-on-clips workflows are currently **on hold** as active
-  development tracks. They remain documented here because the code is still in
-  the repo.
-- Current sidecar-facing work is focused on **video loading for presentations**,
-  specifically exact-motion transition media.
+This sidecar now actively backs the clip-analysis workflow in the webapp:
+
+- `/track` is the live highlight-driven player-tracking path
+- `/homography` is the live clip homography path on vendored `PnLCalib`
+- `/segment` powers paused-frame foreground occlusion
+- `/derived-media/exact-motion` continues to power presentation playback media
+
+The clip CV paths are no longer just parked code in the repository.
 
 ## Requirements
 
@@ -36,10 +37,13 @@ pip install -r requirements.txt
 pip install git+https://github.com/ChaoningZhang/MobileSAM.git
 ```
 
-> **Note:** Narya (homography estimation) is vendored at
-> `annotate_sidecar/vendor/narya/` — no separate install needed.
-> Its dependencies (tensorflow, torch, kornia, segmentation-models)
-> are included in `requirements.txt`.
+> **Note:** tracking now depends on `supervision`, and homography now depends on
+> `lsq-ellipse` plus an accessible `PnLCalib` checkout + weights. Those Python
+> dependencies are included in `requirements.txt`; the upstream `PnLCalib`
+> assets are discovered from either:
+> - `sidecar/third_party/pnlcalib`
+> - a sibling checkout at `../trackers/third_party/pnlcalib`
+> - `ANNOTATE_PNLCALIB_ROOT`
 
 ## Running
 
@@ -65,8 +69,9 @@ Relative `videoPath` values are rejected.
 | Method   | Path               | Description                          |
 |----------|---------------------|--------------------------------------|
 | `GET`    | `/health`           | Sidecar status & model availability  |
-| `POST`   | `/track`            | Object tracking (YOLO + ByteTrack)   |
-| `POST`   | `/homography`       | Pitch homography (vendored Narya)    |
+| `POST`   | `/track`            | Object tracking (annotate adapter + vendored trackers OC-SORT core) |
+| `GET`    | `/track/debug/{artifact}` | Download a saved tracking debug MP4 artifact |
+| `POST`   | `/homography`       | Pitch homography (annotate range adapter + vendored trackers PnLCalib provider) |
 | `POST`   | `/segment`          | Person segmentation (YOLO + MobileSAM) |
 | `POST`   | `/export/start`     | Begin export session                 |
 | `POST`   | `/export/frame`     | Submit rendered frame (base64 JPEG)  |
@@ -86,7 +91,7 @@ annotate_sidecar/
   video_registry.py        # Temporary videoRef -> temp-file registry
   routes/
     health.py              # GET /health
-    track.py               # POST /track
+    track.py               # POST /track + optional debug artifact download
     segment.py             # POST /segment
     homography.py          # POST /homography
     export.py              # Export endpoints
@@ -94,14 +99,68 @@ annotate_sidecar/
     video.py               # Video register/unregister endpoints
   services/
     frame_extractor.py     # cv2.VideoCapture → frames by ms
-    tracker.py             # YOLO + ByteTrack wrapper
+    tracker.py             # annotate-owned tracking adapter / response shaping
     segmenter.py           # YOLO + MobileSAM wrapper
-    homography_estimator.py  # Narya wrapper
+    calibration/           # PnLCalib-backed range adapter + public response types
     encoder.py             # ffmpeg MP4 encoding
   vendor/
-    narya/               # Vendored Narya homography (MIT license)
+    trackers/              # Vendored trackers primitives (OC-SORT + PnLCalib)
   models/                # Downloaded model weights (gitignored)
 ```
+
+## Tracking defaults
+
+Tracking defaults are centralized in:
+
+- [tracking.py](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/config/tracking.py)
+
+Current ownership stance:
+
+- `annotate` sidecar owns the practical app defaults and override policy
+- vendored trackers core owns lower-level implementation details
+- `/track` request fields (`fps`, `classes`, `confThreshold`, `iouThreshold`) act as request-level overrides
+
+Current app-facing tracking semantics:
+
+- the clip editor seeds tracking from `highlight` annotations
+- tracked highlight geometry is treated as foot-anchored
+- the sidecar seed matcher prefers the selected player's foot point and tolerates loose seeds
+- raw OC-SORT IDs are treated as a preference signal, not absolute truth, because seed-frame detections may be immature (`track_id = -1`) and later frames can reassign IDs
+- the annotate-owned adapter follows spatial continuity when a raw ID would imply an unreasonable jump
+
+Optional sidecar-level environment overrides:
+
+- `ANNOTATE_TRACKING_MODEL`
+- `ANNOTATE_TRACKING_SAMPLE_FPS`
+- `ANNOTATE_TRACKING_CLASSES`
+- `ANNOTATE_TRACKING_CONF_THRESHOLD`
+- `ANNOTATE_TRACKING_IOU_THRESHOLD`
+- `ANNOTATE_TRACKING_TRACK_BUFFER`
+- `ANNOTATE_TRACKING_MIN_CONSECUTIVE_FRAMES`
+- `ANNOTATE_TRACKING_DIRECTION_WEIGHT`
+- `ANNOTATE_TRACKING_HIGH_CONF_THRESHOLD`
+- `ANNOTATE_TRACKING_DELTA_T`
+
+## Homography calibration
+
+Homography now follows the same ownership pattern as tracking:
+
+- `annotate` sidecar owns the app-facing `/homography` contract and clip-range extraction
+- the calibration layer lives under
+  [services/calibration](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/services/calibration)
+- the only active provider is the vendored trackers `PnLCalibProvider`
+- smoothing/interpolation happens inside the vendored provider config, then results are adapted back into annotate's cached frame format
+
+Current clip-side coexistence rule:
+
+- pitch-space authoring is supported for pitch-grounded primitives such as `box` and `circle`
+- normal tactical tools and tracking anchors remain image-space
+- the clip editor projects pitch-space annotations through the returned homography at playback/render time
+
+`GET /health` now includes a `homography` section with:
+
+- active provider name
+- provider availability summaries
 
 ## Hardware
 
@@ -126,8 +185,15 @@ dev server on any port.
   inside the sidecar venv.
 - **TensorFlow not installing** — Use Python 3.12. TensorFlow does not
   yet support 3.13+.
+- **PnLCalib unavailable** — ensure `lsq-ellipse` is installed and that the
+  upstream checkout + weights are reachable via `sidecar/third_party/pnlcalib`,
+  `../trackers/third_party/pnlcalib`, or `ANNOTATE_PNLCALIB_ROOT`.
 - **YOLO model download fails** — The first `/track` or `/segment` call
   downloads `yolov8n.pt` (~6MB). Check internet connectivity.
+- **Need to inspect tracker behavior frame-by-frame** — `/track` can optionally
+  emit a saved annotated MP4 and expose it through `/track/debug/{artifact}`.
+  The normal UI path currently leaves this disabled, but the route support is
+  kept for debugging hard tracking cases.
 - **MobileSAM weights download fails** — Weights (~10MB) are auto-downloaded
   to `~/.cache/annotate-sidecar/` on first `/segment` call. Check internet
   connectivity and write permissions.

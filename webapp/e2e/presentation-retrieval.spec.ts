@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { installDirectoryPickerFixture } from './support/fsAccessFixture';
+import { activatePresentationMarkRow } from './support/presentationHelpers';
 
 test('opens a presentation and retrieves a mark without proxy playback', async ({ page }) => {
   const previewProxyRequests: string[] = [];
@@ -37,7 +38,7 @@ test('opens a presentation and retrieves a mark without proxy playback', async (
   await expect(page.getByRole('button', { name: 'Present', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Prepare' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Present degraded' })).toHaveCount(0);
-  await page.getByRole('button', { name: /0:00\.400/ }).click();
+  await activatePresentationMarkRow(page, /0:00\.400/);
 
   await expect(page.getByText('Retrieved mark preview').first()).toBeVisible();
   await expect(page.getByText('Original fallback').first()).toBeVisible();

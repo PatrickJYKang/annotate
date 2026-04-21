@@ -52,7 +52,7 @@ The working stance is:
 
 - Stills and clips are both first-class assets.
 - In real analysis workflow, stills often feel like they belong within clips.
-- That belonging should be soft and contextual in the model, not hard ownership.
+- That belonging should be derived from time bounds, not stored as hard ownership.
 
 In other words:
 
@@ -84,21 +84,23 @@ That would be too rigid for:
 
 ### Stills can be related to clips
 
-A still can be related to a clip when:
+A still is related to a clip when its timestamp falls within the clip bounds.
 
-- the still timestamp falls within the clip bounds
-- the user explicitly pins the still to the clip
-- the still is used to seed clip annotations
+This relationship should be fully derived at read time from time bounds rather than stored explicitly.
 
-This should behave more like membership or association than folder ownership.
+That means:
 
-Useful relationship categories:
+- no explicit clip-to-still membership links
+- no user-managed pinning in the core model
+- no clip ownership of stills
 
-- `within_bounds`
-- `pinned`
-- `seed_frame`
+If clip bounds change, still membership changes automatically.
 
-This can be derived, stored explicitly, or both. The exact implementation can be decided later.
+This keeps the model simple, avoids stale relationship data, and naturally supports overlapping clips.
+
+Recommended boundary rule:
+
+- `clip.startMs <= still.t_ms <= clip.endMs`
 
 ### Tags remain parallel
 
@@ -215,6 +217,19 @@ Recommended stance:
 - stills seed clip work
 - clips extend still analysis through time
 
+### Still uniqueness
+
+There should only be one still per `(videoId, t_ms)`.
+
+The product model should not allow multiple stills at the same timestamp in the same source video.
+
+This keeps still identity clean and makes still-to-clip import much simpler.
+
+If a clip imports from a still:
+
+- it imports one annotation set from one still at a time
+- there is no need to resolve between competing still variants at the same moment
+
 ---
 
 ## Role of CV and tracking
@@ -243,6 +258,16 @@ That means CV outputs should be:
 - inspectable
 - editable
 - correctable
+
+### Current practical rule
+
+In the current clip editor implementation, tracking is anchored on `highlight` annotations rather than generic boxes or circles.
+
+- the highlight is the tracked player marker
+- linked `arrow`, `lob`, and `poly` annotations can follow that highlight through time
+- tracked highlight geometry is treated as foot-anchored so the user's selection aligns with where a footballer is actually planted on the ground
+
+Pitch-space authoring remains available for pitch-grounded primitives, but normal tactical shapes and tracking anchors continue to live in image space.
 - non-magical
 
 Avoid treating tracking results as a separate opaque object type that sits outside the normal annotation system.
@@ -299,29 +324,7 @@ This note does not propose:
 
 ## Open questions
 
-The main unresolved questions are implementation questions, not product-identity questions.
-
-### Clip relationship mechanics
-
-How should clip/still relationships be represented?
-
-Options include:
-
-- fully derived from time bounds
-- explicit user-managed links
-- hybrid model with derived membership plus user pinning
-
-The hybrid model currently seems the most promising.
-
-### Canonical still vs multiple stills at same moment
-
-If multiple stills exist at the same timestamp with different annotation sets, how should clip import behave?
-
-Possible answers:
-
-- import from the chosen still only
-- support multiple named annotation sets
-- treat one still as canonical and others as variants
+The main unresolved questions are now mostly UI and implementation questions rather than product-identity questions.
 
 ### Presentation browsing
 
@@ -336,6 +339,17 @@ Likely options:
 ### Frame holds / dwell behavior in clips
 
 This seems useful, but should be treated as a later playback behavior rather than a prerequisite for the domain model.
+
+### Clip editor still surfacing
+
+If a clip contains many stills, how should the clips editor surface them?
+
+Current likely direction:
+
+- automatically show all stills whose timestamps fall within the clip bounds
+- order them chronologically
+
+But the exact UI treatment is still open.
 
 ---
 

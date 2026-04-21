@@ -86,7 +86,7 @@ import {
   moveSlide,
   removeSlideAtIndex,
 } from '../../lib/presentation/authoring';
-import { findCanonicalStillForMark } from '../../lib/utils/projectIntegrity';
+import { findCanonicalStillForMark, findStillAtTimestamp } from '../../lib/utils/projectIntegrity';
 import PresentationCanvas from './PresentationCanvas';
 import PresentationDeckStrip from './PresentationDeckStrip';
 import PresentationInspector from './PresentationInspector';
@@ -894,6 +894,11 @@ export default function PresentationAuthoringEditor({
     const canonicalStill = findCanonicalStillForMark(workingManifest, mark.id);
     if (canonicalStill) {
       insertStillSlide(canonicalStill.id);
+      return;
+    }
+    const exactStill = findStillAtTimestamp(workingManifest.stills, mark.videoId, mark.t_ms);
+    if (exactStill) {
+      insertStillSlide(exactStill.id);
       return;
     }
     const videoEntry = workingManifest.videos.find((video) => video.id === mark.videoId);

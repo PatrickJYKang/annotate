@@ -2,6 +2,7 @@
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import type { ClipAnnotation } from "../../lib/types/clip";
+import { getHiddenSpans, getKeyframeProvenance } from "../../lib/clip/trackingState";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -10,8 +11,11 @@ import type { ClipAnnotation } from "../../lib/types/clip";
 export interface TimelineStripProps {
   durationMs: number;
   currentTMs: number;
+  fps?: number;
+  currentFrameToleranceMs?: number;
   annotations: ClipAnnotation[];
   selectedAnnotationId: string | null;
+  analysisLoopRange?: { startMs: number; endMs: number } | null;
   retrackRangeEndMs?: number | null;
   onSeek: (tMs: number) => void;
   onSelectAnnotation: (id: string | null) => void;
@@ -27,7 +31,14 @@ const HEADER_H = 20;       // ruler height
 const LANE_H = 18;         // per-annotation lane height
 const DIAMOND_SIZE = 8;
 const PLAYHEAD_W = 2;
-const MIN_HEIGHT = 40;
+const RESIZE_HANDLE_H = 8;
+const DEFAULT_VISIBLE_LANES = 5;
+
+function getAnnotationAccentColor(annotation: ClipAnnotation): string {
+  if (annotation.source === "auto") return "#60a5fa";
+  if (annotation.source === "corrected") return "#f59e0b";
+  return "#e5e7eb";
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -36,8 +47,11 @@ const MIN_HEIGHT = 40;
 export default function TimelineStrip({
   durationMs,
   currentTMs,
+  fps = 30,
+  currentFrameToleranceMs = 0,
   annotations,
   selectedAnnotationId,
+  analysisLoopRange = null,
   retrackRangeEndMs,
   onSeek,
   onSelectAnnotation,
@@ -45,9 +59,41 @@ export default function TimelineStrip({
   onShiftClick,
 }: TimelineStripProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const resizeStartRef = useRef<{ y: number; height: number } | null>(null);
+  const userResizedRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
+  const laneCount = Math.max(annotations.length, 1);
+  const lanesHeight = laneCount * LANE_H;
+  const minHeight = HEADER_H + LANE_H + RESIZE_HANDLE_H + 4;
+  const maxHeight = HEADER_H + lanesHeight + RESIZE_HANDLE_H + 4;
+  const defaultHeight = HEADER_H + Math.min(laneCount, DEFAULT_VISIBLE_LANES) * LANE_H + RESIZE_HANDLE_H + 4;
+  const [visibleHeight, setVisibleHeight] = useState(defaultHeight);
 
-  const totalH = Math.max(MIN_HEIGHT, HEADER_H + annotations.length * LANE_H + 4);
+  const clampHeight = useCallback((height: number) => {
+    return Math.max(minHeight, Math.min(maxHeight, height));
+  }, [minHeight, maxHeight]);
+
+  const timelineBodyHeight = Math.max(0, visibleHeight - HEADER_H - RESIZE_HANDLE_H);
+
+  const playheadFrac = durationMs > 0 ? currentTMs / durationMs : 0;
+
+  const syncScrollTop = useCallback((scrollTop: number) => {
+    const scrollEl = scrollRef.current;
+    if (!scrollEl) return;
+    if (Math.abs(scrollEl.scrollTop - scrollTop) > 1) {
+      scrollEl.scrollTop = scrollTop;
+    }
+  }, []);
+
+  React.useEffect(() => {
+    setVisibleHeight((previous) => {
+      if (!userResizedRef.current) {
+        return defaultHeight;
+      }
+      return clampHeight(previous);
+    });
+  }, [defaultHeight, clampHeight]);
 
   // --- Fraction from mouse event ---
   const fracFromEvent = useCallback((e: React.MouseEvent | MouseEvent) => {
@@ -86,6 +132,29 @@ export default function TimelineStrip({
     window.addEventListener('mouseup', onUp);
   }, [durationMs, onSeek, onShiftClick, fracFromEvent]);
 
+  const onResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    userResizedRef.current = true;
+    resizeStartRef.current = { y: e.clientY, height: visibleHeight };
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const start = resizeStartRef.current;
+      if (!start) return;
+      const nextHeight = clampHeight(start.height + (moveEvent.clientY - start.y));
+      setVisibleHeight(nextHeight);
+    };
+
+    const onUp = () => {
+      resizeStartRef.current = null;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, [clampHeight, visibleHeight]);
+
   // --- Ruler tick marks ---
   const ticks = useMemo(() => {
     if (durationMs <= 0) return [];
@@ -107,13 +176,12 @@ export default function TimelineStrip({
     return result;
   }, [durationMs]);
 
-  const playheadFrac = durationMs > 0 ? currentTMs / durationMs : 0;
-
   return (
     <div
       ref={containerRef}
+      data-testid="clip-timeline"
       className="shrink-0 bg-surface border-t border-border select-none cursor-crosshair relative overflow-hidden"
-      style={{ height: totalH }}
+      style={{ height: visibleHeight }}
       onMouseDown={onMouseDown}
     >
       {/* Ruler ticks */}
@@ -141,86 +209,161 @@ export default function TimelineStrip({
         style={{ top: HEADER_H }}
       />
 
-      {/* Annotation lanes */}
-      {annotations.map((ann, idx) => {
-        const laneTop = HEADER_H + idx * LANE_H;
-        const isSelected = ann.id === selectedAnnotationId;
-        const strokeColor = ann.style?.stroke || '#ff0000';
+      <div
+        ref={scrollRef}
+        className="absolute left-0 right-0 overflow-y-auto"
+        style={{ top: HEADER_H, height: timelineBodyHeight }}
+        onScroll={(e) => syncScrollTop((e.target as HTMLDivElement).scrollTop)}
+      >
+        <div className="relative" style={{ height: lanesHeight }}>
+          {analysisLoopRange && durationMs > 0 && (() => {
+            const left = (Math.max(0, Math.min(durationMs, analysisLoopRange.startMs)) / durationMs) * 100;
+            const width = (Math.max(0, Math.min(durationMs, analysisLoopRange.endMs)) - Math.max(0, Math.min(durationMs, analysisLoopRange.startMs))) / durationMs * 100;
+            return (
+              <div
+                className="absolute top-0 pointer-events-none"
+                style={{
+                  left: `${left}%`,
+                  width: `${width}%`,
+                  height: lanesHeight,
+                  backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                  borderLeft: '1px solid rgba(245, 158, 11, 0.45)',
+                  borderRight: '1px solid rgba(245, 158, 11, 0.45)',
+                  zIndex: 4,
+                }}
+              />
+            );
+          })()}
 
-        return (
-          <div
-            key={ann.id}
-            className="absolute left-0 right-0"
-            style={{ top: laneTop, height: LANE_H }}
-          >
-            {/* Lane background */}
-            <div
-              className={`absolute inset-0 ${isSelected ? 'bg-hover' : ''}`}
-              style={{ borderBottom: '1px solid var(--color-border)' }}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelectAnnotation(ann.id === selectedAnnotationId ? null : ann.id);
-              }}
-            />
+          {/* Annotation lanes */}
+          {annotations.map((ann, idx) => {
+            const laneTop = idx * LANE_H;
+            const isSelected = ann.id === selectedAnnotationId;
+            const strokeColor = ann.style?.stroke || '#000000';
+            const accentColor = getAnnotationAccentColor(ann);
+            const lossSpans = getHiddenSpans(ann, durationMs, fps);
 
-            {/* Lane label */}
-            <div
-              className="absolute text-[9px] text-muted pointer-events-none truncate"
-              style={{ left: 2, top: 2, maxWidth: 60 }}
-            >
-              {ann.type}
-            </div>
-
-            {/* Keyframe diamonds */}
-            {ann.keyframes.map((kf, ki) => {
-              const x = durationMs > 0 ? (kf.tMs / durationMs) * 100 : 0;
-              return (
+            return (
+              <div
+                key={ann.id}
+                className="absolute left-0 right-0"
+                style={{ top: laneTop, height: LANE_H }}
+              >
                 <div
-                  key={`${ann.id}-kf-${ki}`}
-                  className="absolute cursor-pointer"
+                  className={`absolute inset-0 ${isSelected ? 'bg-hover' : ''}`}
                   style={{
-                    left: `${x}%`,
-                    top: (LANE_H - DIAMOND_SIZE) / 2,
-                    width: DIAMOND_SIZE,
-                    height: DIAMOND_SIZE,
-                    transform: 'translateX(-50%) rotate(45deg)',
-                    backgroundColor: strokeColor,
-                    border: isSelected ? '1px solid white' : '1px solid rgba(0,0,0,0.3)',
+                    borderBottom: '1px solid var(--color-border)',
+                    boxShadow: isSelected ? `inset 2px 0 0 ${accentColor}` : undefined,
                   }}
-                  title={`${ann.type} keyframe @ ${Math.round(kf.tMs)}ms`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    onSelectAnnotation(ann.id);
-                    onSeekToKeyframe(ann.id, kf.tMs);
+                    onSelectAnnotation(ann.id === selectedAnnotationId ? null : ann.id);
                   }}
                 />
-              );
-            })}
-          </div>
-        );
-      })}
 
-      {/* Re-track range overlay */}
-      {retrackRangeEndMs != null && durationMs > 0 && (() => {
-        const startFrac = currentTMs / durationMs;
-        const endFrac = retrackRangeEndMs / durationMs;
-        const left = Math.min(startFrac, endFrac) * 100;
-        const width = Math.abs(endFrac - startFrac) * 100;
-        return (
-          <div
-            className="absolute top-0 pointer-events-none"
-            style={{
-              left: `${left}%`,
-              width: `${width}%`,
-              height: totalH,
-              backgroundColor: 'rgba(59, 130, 246, 0.15)',
-              borderLeft: '1px solid rgba(59, 130, 246, 0.5)',
-              borderRight: '1px solid rgba(59, 130, 246, 0.5)',
-              zIndex: 5,
-            }}
-          />
-        );
-      })()}
+                <div
+                  className="absolute left-0 top-0 bottom-0"
+                  style={{
+                    width: 2,
+                    backgroundColor: accentColor,
+                    opacity: 0.9,
+                  }}
+                />
+
+                <div
+                  className={`absolute text-[9px] pointer-events-none truncate ${isSelected ? 'text-white' : 'text-muted'}`}
+                  style={{ left: 2, top: 2, maxWidth: 60 }}
+                >
+                  {ann.type}
+                </div>
+
+                {lossSpans.map((span, spanIndex) => {
+                  const left = durationMs > 0 ? (span.startMs / durationMs) * 100 : 0;
+                  const width = durationMs > 0 ? ((span.endMs - span.startMs) / durationMs) * 100 : 0;
+                  return (
+                    <div
+                      key={`${ann.id}-loss-${spanIndex}`}
+                      className="absolute pointer-events-none"
+                      style={{
+                        left: `${left}%`,
+                        width: `${width}%`,
+                        top: 2,
+                        height: LANE_H - 4,
+                        backgroundColor: "rgba(248, 113, 113, 0.16)",
+                        borderLeft: "1px solid rgba(248, 113, 113, 0.65)",
+                        borderRight: "1px solid rgba(248, 113, 113, 0.35)",
+                      }}
+                      title="Tracker lost object in this span"
+                    />
+                  );
+                })}
+
+                {ann.keyframes.map((kf, ki) => {
+                  const x = durationMs > 0 ? (kf.tMs / durationMs) * 100 : 0;
+                  const isAtCurrentFrame = currentFrameToleranceMs > 0
+                    ? Math.abs(kf.tMs - currentTMs) <= currentFrameToleranceMs
+                    : kf.tMs === currentTMs;
+                  const provenance = getKeyframeProvenance(ann, kf);
+                  const diamondSize = isAtCurrentFrame ? DIAMOND_SIZE + 3 : DIAMOND_SIZE;
+                  const markerColor = provenance === "correction"
+                    ? "#f59e0b"
+                    : provenance === "tracked"
+                      ? "#60a5fa"
+                      : provenance === "lost"
+                        ? "#f87171"
+                        : strokeColor;
+                  const isDiamond = provenance === "tracked" || provenance === "manual";
+                  const markerHeight = provenance === "lost" ? 4 : diamondSize;
+                  return (
+                    <div
+                      key={`${ann.id}-kf-${ki}`}
+                      className="absolute cursor-pointer"
+                      style={{
+                        left: `${x}%`,
+                        top: (LANE_H - markerHeight) / 2,
+                        width: diamondSize,
+                        height: markerHeight,
+                        transform: isDiamond ? 'translateX(-50%) rotate(45deg)' : 'translateX(-50%)',
+                        borderRadius: provenance === "correction" ? 2 : provenance === "lost" ? 999 : 0,
+                        backgroundColor: markerColor,
+                        border: isSelected ? '1px solid white' : '1px solid rgba(0,0,0,0.3)',
+                        boxShadow: isAtCurrentFrame ? '0 0 0 2px rgba(255,255,255,0.55)' : undefined,
+                      }}
+                      title={`${ann.type} ${provenance} keyframe @ ${Math.round(kf.tMs)}ms`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectAnnotation(ann.id);
+                        onSeekToKeyframe(ann.id, kf.tMs);
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            );
+          })}
+
+          {retrackRangeEndMs != null && durationMs > 0 && (() => {
+            const startFrac = currentTMs / durationMs;
+            const endFrac = retrackRangeEndMs / durationMs;
+            const left = Math.min(startFrac, endFrac) * 100;
+            const width = Math.abs(endFrac - startFrac) * 100;
+            return (
+              <div
+                className="absolute top-0 pointer-events-none"
+                style={{
+                  left: `${left}%`,
+                  width: `${width}%`,
+                  height: lanesHeight,
+                  backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                  borderLeft: '1px solid rgba(59, 130, 246, 0.5)',
+                  borderRight: '1px solid rgba(59, 130, 246, 0.5)',
+                  zIndex: 5,
+                }}
+              />
+            );
+          })()}
+        </div>
+      </div>
 
       {/* Playhead */}
       <div
@@ -228,11 +371,16 @@ export default function TimelineStrip({
         style={{
           left: `${playheadFrac * 100}%`,
           width: PLAYHEAD_W,
-          height: totalH,
+          height: HEADER_H + timelineBodyHeight,
           backgroundColor: '#fff',
           transform: 'translateX(-50%)',
           zIndex: 10,
         }}
+      />
+
+      <div
+        className="absolute inset-x-0 bottom-0 h-2 cursor-row-resize border-t border-border bg-white/5 hover:bg-white/10"
+        onMouseDown={onResizeMouseDown}
       />
     </div>
   );

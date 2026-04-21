@@ -1,5 +1,5 @@
 """
-POST /track — object tracking (YOLO + ByteTrack).
+POST /track — object tracking (YOLO + trackers-backed OC-SORT).
 
 Accepts a video path, time range, and seed bounding box.
 Returns tracked keyframes with absolute video-ms timestamps.
@@ -10,9 +10,12 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator, model_validator
 
+from ..config import get_tracking_defaults
 from ..services.tracker import Tracker, BBox
+from ..services.tracking_debug import resolve_tracking_debug_artifact
 from ..video_registry import resolve_video_ref
 
 router = APIRouter()
@@ -29,10 +32,11 @@ class TrackRequest(BaseModel):
     endMs: float
     seedBbox: dict  # { x, y, w, h }
     seedFrameMs: float
-    fps: float = 30.0
+    fps: Optional[float] = None
     classes: Optional[list[int]] = None
-    confThreshold: float = 0.25
-    iouThreshold: float = 0.3
+    confThreshold: Optional[float] = None
+    iouThreshold: Optional[float] = None
+    debugVideo: bool = True
 
     @field_validator("endMs")
     @classmethod
@@ -62,6 +66,7 @@ class TrackRequest(BaseModel):
 @router.post("")
 async def track(req: TrackRequest):
     """Track an object across a video range."""
+    defaults = get_tracking_defaults()
     # Resolve from uploaded ref first, then fall back to direct absolute path.
     video_path = resolve_video_ref(req.videoRef)
     if req.videoRef and not video_path and not req.videoPath:
@@ -98,11 +103,16 @@ async def track(req: TrackRequest):
             end_ms=req.endMs,
             seed_bbox=seed,
             seed_frame_ms=req.seedFrameMs,
-            fps=req.fps,
-            classes=req.classes,
-            conf_threshold=req.confThreshold,
-            iou_threshold=req.iouThreshold,
+            fps=req.fps if req.fps is not None else defaults.sample_fps,
+            classes=req.classes if req.classes is not None else list(defaults.classes),
+            conf_threshold=req.confThreshold if req.confThreshold is not None else defaults.conf_threshold,
+            iou_threshold=req.iouThreshold if req.iouThreshold is not None else defaults.iou_threshold,
+            track_buffer=defaults.track_buffer_frames,
+            debug_video=req.debugVideo,
         )
+        debug_path = result.get("debugVideoPath")
+        if isinstance(debug_path, str) and debug_path:
+            result["debugVideoUrl"] = f"/track/debug/{Path(debug_path).name}"
         return result
 
     except FileNotFoundError as e:
@@ -114,16 +124,29 @@ async def track(req: TrackRequest):
         detail: dict = {"message": str(args[0]) if args else "No matching detection"}
         if len(args) > 1 and isinstance(args[1], list):
             detail["detectedBboxes"] = args[1]
+        if len(args) > 2 and isinstance(args[2], dict):
+            detail.update(args[2])
+            debug_path = detail.get("debugVideoPath")
+            if isinstance(debug_path, str) and debug_path:
+                detail["debugVideoUrl"] = f"/track/debug/{Path(debug_path).name}"
         raise HTTPException(status_code=422, detail=detail)
 
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
     except Exception as e:
-        if isinstance(e, ModuleNotFoundError) and getattr(e, "name", "") == "lap":
+        if isinstance(e, ModuleNotFoundError) and getattr(e, "name", "") == "supervision":
             raise HTTPException(
                 status_code=501,
-                detail="Tracking dependency missing: lap. Install inside sidecar venv with `.venv/bin/pip install lap>=0.5.12` and restart the sidecar.",
+                detail="Tracking dependency missing: supervision. Install inside sidecar venv with `.venv/bin/pip install supervision>=0.26.1` and restart the sidecar.",
             )
         logger.exception("Unexpected tracking failure")
         raise HTTPException(status_code=500, detail=f"Tracking failed: {e}")
+
+
+@router.get("/debug/{artifact_name}")
+async def get_tracking_debug_video(artifact_name: str):
+    artifact = resolve_tracking_debug_artifact(artifact_name)
+    if artifact is None:
+        raise HTTPException(status_code=404, detail=f"Unknown tracking debug artifact: {artifact_name}")
+    return FileResponse(str(artifact), media_type="video/mp4", filename=artifact.name)
