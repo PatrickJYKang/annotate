@@ -125,6 +125,7 @@ export interface ClipAnnotation {
   coordMode: CoordMode;
   source: AnnotationSource;
   trackingAnchorId?: string | null; // optional highlight annotation that drives this annotation during tracking
+  vertexRefs?: (string | null)[];   // optional highlight refs for linked endpoints / vertices / centers
   text?: string;                   // for type: 'text' — content doesn't vary over time
   closed?: boolean;                // for type: 'poly' — defaults to true when omitted
   style: ClipAnnotationStyle;

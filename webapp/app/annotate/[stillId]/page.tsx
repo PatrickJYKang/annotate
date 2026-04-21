@@ -17,6 +17,14 @@ import {
 import type { ProjectAnnotationIndexEntry } from "../../../lib/types/project";
 import { writeManifest } from "../../../lib/fs/projectFolder";
 import { validateProjectFolderStructure } from "../../../lib/fs/projectFolder";
+import {
+  registerVideoFile,
+  requestHomography,
+  unregisterVideoRef,
+} from "../../../lib/clip/sidecarClient";
+import type { HomographyFrame } from "../../../lib/fs/homographyCache";
+import { resolveUsableHomographyAtTime } from "../../../lib/clip/homographyInterpolation";
+import { projectPitchBoundsToPerspectiveQuad } from "../../../lib/annotate/pitchCalibration";
 
 export default function AnnotatePage({ params }: { params: { stillId: string } }) {
   const { stillId } = params;
@@ -44,6 +52,13 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
   const [isRenamingAnnotationSet, setIsRenamingAnnotationSet] = useState(false);
   const [newAnnotationLabel, setNewAnnotationLabel] = useState('');
   const [renameAnnotationLabel, setRenameAnnotationLabel] = useState('');
+  const [isComputingHomography, setIsComputingHomography] = useState(false);
+  const [homographyStatus, setHomographyStatus] = useState<string | null>(null);
+  const [autoPerspectiveQuad, setAutoPerspectiveQuad] = useState<Array<{ x: number; y: number }> | null>(null);
+  const [autoPerspectiveTick, setAutoPerspectiveTick] = useState(0);
+  const [sidecarVideoRef, setSidecarVideoRef] = useState<string | null>(null);
+  const [sidecarVideoError, setSidecarVideoError] = useState<string | null>(null);
+  const activeSidecarVideoRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!saveStatus) return;
@@ -201,16 +216,20 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
 
   const Editor = useMemo(() => dynamic(() => import("../../../components/annotate/Editor"), { ssr: false }), []);
 
-  const getFileUrlForPath = useCallback(async (dir: FileSystemDirectoryHandle, path: string) => {
+  const getFileForPath = useCallback(async (dir: FileSystemDirectoryHandle, path: string) => {
     const parts = path.split('/').filter(Boolean);
     let cur: FileSystemDirectoryHandle = dir;
     for (let i = 0; i < parts.length - 1; i++) {
       cur = await cur.getDirectoryHandle(parts[i], { create: false });
     }
     const fh = await cur.getFileHandle(parts[parts.length - 1], { create: false });
-    const file = await fh.getFile();
-    return URL.createObjectURL(file);
+    return await fh.getFile();
   }, []);
+
+  const getFileUrlForPath = useCallback(async (dir: FileSystemDirectoryHandle, path: string) => {
+    const file = await getFileForPath(dir, path);
+    return URL.createObjectURL(file);
+  }, [getFileForPath]);
 
   // Persist and restore the chosen project directory handle using IndexedDB
   const openDB = useCallback((): Promise<IDBDatabase> => {
@@ -294,6 +313,13 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
     height: still?.height || imgSize?.h || 0,
   }), [still, imgSize]);
 
+  const sourceVideoPath = useMemo(() => {
+    if (!manifest || !still) return null;
+    return manifest.videos.find((video) => video.id === still.videoId)?.file || null;
+  }, [manifest, still]);
+
+  const canAutoCalibrate = !!(projectDir && still && sourceVideoPath && sidecarVideoRef);
+
   useEffect(() => {
     (async () => {
       if (!projectDir || !still) return;
@@ -316,6 +342,64 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
   useEffect(() => {
     return () => { if (imgUrl) URL.revokeObjectURL(imgUrl); };
   }, [imgUrl]);
+
+  useEffect(() => {
+    let active = true;
+
+    (async () => {
+      if (!projectDir || !sourceVideoPath) {
+        const prev = activeSidecarVideoRef.current;
+        activeSidecarVideoRef.current = null;
+        if (prev) {
+          await unregisterVideoRef(prev).catch(() => {});
+        }
+        setSidecarVideoRef(null);
+        setSidecarVideoError(null);
+        return;
+      }
+
+      try {
+        const file = await getFileForPath(projectDir, sourceVideoPath);
+        const reg = await registerVideoFile(file);
+
+        if (!active) {
+          await unregisterVideoRef(reg.videoRef).catch(() => {});
+          return;
+        }
+
+        const prev = activeSidecarVideoRef.current;
+        activeSidecarVideoRef.current = reg.videoRef;
+        setSidecarVideoRef(reg.videoRef);
+        setSidecarVideoError(null);
+        if (prev && prev !== reg.videoRef) {
+          await unregisterVideoRef(prev).catch(() => {});
+        }
+      } catch (e: any) {
+        if (!active) return;
+        const prev = activeSidecarVideoRef.current;
+        activeSidecarVideoRef.current = null;
+        if (prev) {
+          await unregisterVideoRef(prev).catch(() => {});
+        }
+        setSidecarVideoRef(null);
+        setSidecarVideoError(e?.message || 'Failed to register source video with sidecar');
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [projectDir, sourceVideoPath, getFileForPath]);
+
+  useEffect(() => {
+    return () => {
+      const ref = activeSidecarVideoRef.current;
+      if (ref) {
+        void unregisterVideoRef(ref).catch(() => {});
+        activeSidecarVideoRef.current = null;
+      }
+    };
+  }, []);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const pageRootRef = useRef<HTMLDivElement | null>(null);
@@ -471,12 +555,57 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
     }
   }, [panning]);
 
+  const handleAutoCalibrate = useCallback(async () => {
+    if (!still || !sidecarVideoRef) return;
+    setIsComputingHomography(true);
+    setHomographyStatus(null);
+    setError(null);
+
+    const paddingMs = 400;
+    const startMs = Math.max(0, still.t_ms - paddingMs);
+    const endMs = Math.max(startMs + 1, still.t_ms + paddingMs);
+
+    try {
+      const result = await requestHomography({
+        videoRef: sidecarVideoRef,
+        startMs,
+        endMs,
+        fps: 5,
+      });
+
+      const frames: HomographyFrame[] = result.frames.map((frame) => ({
+        tMs: frame.tMs,
+        matrix: frame.matrix,
+        method: frame.method,
+      }));
+      const matrix = resolveUsableHomographyAtTime(frames, still.t_ms);
+      const quad = projectPitchBoundsToPerspectiveQuad(matrix);
+
+      if (!quad) {
+        throw new Error('PnLCalib ran, but no usable homography was found for this still');
+      }
+
+      setAutoPerspectiveQuad(quad);
+      setAutoPerspectiveTick((tick) => tick + 1);
+      setTool('select');
+      setHomographyStatus('PnLCalib applied');
+    } catch (e: any) {
+      setHomographyStatus(null);
+      setError(e?.message || 'PnLCalib calibration failed');
+    } finally {
+      setIsComputingHomography(false);
+    }
+  }, [sidecarVideoRef, still]);
+
   const toolBtnCls = (t: Tool) =>
     `self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base cursor-pointer ${
       tool === t
         ? 'bg-[#2563eb] text-white'
         : 'bg-surface text-primary'
     }`;
+
+  const actionBtnCls =
+    'self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base cursor-pointer bg-canvas text-primary disabled:opacity-50 disabled:cursor-not-allowed';
 
   const saveStatusCls =
     saveStatus?.state === 'error' ? 'text-danger'
@@ -586,7 +715,21 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
       <button onClick={() => setTool('lob')} aria-pressed={tool === 'lob'} className={toolBtnCls('lob')}>Lob</button>
       <button onClick={() => setTool('poly')} aria-pressed={tool === 'poly'} className={toolBtnCls('poly')}>Poly</button>
       <button onClick={() => setTool('text')} aria-pressed={tool === 'text'} className={toolBtnCls('text')}>Text</button>
-      <button onClick={() => setTool('calibrate')} aria-pressed={tool === 'calibrate'} className={toolBtnCls('calibrate')}>Calibrate</button>
+      <button
+        onClick={() => void handleAutoCalibrate()}
+        disabled={!canAutoCalibrate || isComputingHomography}
+        className={actionBtnCls}
+      >
+        {isComputingHomography ? 'Calibrating…' : 'Calibrate'}
+      </button>
+      <button onClick={() => setTool('calibrate')} aria-pressed={tool === 'calibrate'} className={toolBtnCls('calibrate')}>Manual H</button>
+      {(homographyStatus || sidecarVideoError) && (
+        <div className={`self-stretch flex items-center px-3 border-0 border-l border-solid border-border text-sm ${
+          sidecarVideoError ? 'text-warning' : 'text-muted'
+        }`}>
+          {sidecarVideoError || homographyStatus}
+        </div>
+      )}
       {hasStroke && (
         <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
           <span className="text-muted">Stroke</span>
@@ -722,6 +865,8 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
               onRequestToolChange={setTool}
               saveTick={saveTick}
               onSaveStatus={setSaveStatus}
+              autoPerspectiveQuad={autoPerspectiveQuad}
+              autoPerspectiveTick={autoPerspectiveTick}
             />
           )}
         </div>

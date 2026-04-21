@@ -80,7 +80,10 @@ function buildKeyframeFromShape(
   shape: ExportShape,
   tMs: number,
   perspectiveMatrix: number[] | null,
-): Pick<ClipAnnotation, 'type' | 'coordMode' | 'text' | 'closed'> & { keyframe: ClipKeyframe } | null {
+): Pick<ClipAnnotation, 'type' | 'coordMode' | 'text' | 'closed' | 'vertexRefs'> & {
+  keyframe: ClipKeyframe;
+  sourceShapeId: string;
+} | null {
   if (shape.plane && !perspectiveMatrix) {
     return null;
   }
@@ -94,6 +97,7 @@ function buildKeyframeFromShape(
           type: 'poly',
           coordMode: 'image',
           closed: true,
+          sourceShapeId: shape.id,
           keyframe: { tMs, points, provenance: 'manual' },
         };
       }
@@ -103,6 +107,7 @@ function buildKeyframeFromShape(
       return {
         type: 'box',
         coordMode: 'image',
+        sourceShapeId: shape.id,
         keyframe: { tMs, x: shape.x, y: shape.y, w: shape.w!, h: shape.h!, provenance: 'manual' },
       };
     }
@@ -114,6 +119,7 @@ function buildKeyframeFromShape(
           type: 'poly',
           coordMode: 'image',
           closed: true,
+          sourceShapeId: shape.id,
           keyframe: { tMs, points, provenance: 'manual' },
         };
       }
@@ -125,6 +131,7 @@ function buildKeyframeFromShape(
       return {
         type: 'circle',
         coordMode: 'image',
+        sourceShapeId: shape.id,
         keyframe: { tMs, cx: shape.x, cy: shape.y, rx: rx!, ry: ry!, provenance: 'manual' },
       };
     }
@@ -137,6 +144,8 @@ function buildKeyframeFromShape(
       return {
         type: 'shadow',
         coordMode: 'image',
+        sourceShapeId: shape.id,
+        vertexRefs: Array.isArray(shape.vertexRefs) ? shape.vertexRefs.slice(0, 1) : undefined,
         keyframe: {
           tMs,
           x: shape.x,
@@ -154,6 +163,8 @@ function buildKeyframeFromShape(
       return {
         type: 'arrow',
         coordMode: 'image',
+        sourceShapeId: shape.id,
+        vertexRefs: Array.isArray(shape.vertexRefs) ? shape.vertexRefs.slice(0, 2) : undefined,
         keyframe: {
           tMs,
           x1: points[0][0],
@@ -171,6 +182,8 @@ function buildKeyframeFromShape(
       return {
         type: 'lob',
         coordMode: 'image',
+        sourceShapeId: shape.id,
+        vertexRefs: Array.isArray(shape.vertexRefs) ? shape.vertexRefs.slice(0, 2) : undefined,
         keyframe: {
           tMs,
           x1: points[0][0],
@@ -191,6 +204,7 @@ function buildKeyframeFromShape(
           type: 'text',
           coordMode: 'image',
           text: shape.text ?? '',
+          sourceShapeId: shape.id,
           keyframe: { tMs, x: point.x, y: point.y, provenance: 'manual' },
         };
       }
@@ -199,6 +213,7 @@ function buildKeyframeFromShape(
         type: 'text',
         coordMode: 'image',
         text: shape.text ?? '',
+        sourceShapeId: shape.id,
         keyframe: { tMs, x: shape.x, y: shape.y, provenance: 'manual' },
       };
     }
@@ -209,6 +224,8 @@ function buildKeyframeFromShape(
         type: 'poly',
         coordMode: 'image',
         closed: shape.closed !== false,
+        sourceShapeId: shape.id,
+        vertexRefs: Array.isArray(shape.vertexRefs) ? shape.vertexRefs.slice(0, points.length) : undefined,
         keyframe: { tMs, points, provenance: 'manual' },
       };
     }
@@ -220,6 +237,7 @@ function buildKeyframeFromShape(
           type: 'poly',
           coordMode: 'image',
           closed: true,
+          sourceShapeId: shape.id,
           keyframe: { tMs, points, provenance: 'manual' },
         };
       }
@@ -230,6 +248,7 @@ function buildKeyframeFromShape(
       return {
         type: 'highlight',
         coordMode: 'image',
+        sourceShapeId: shape.id,
         keyframe: { tMs, cx: shape.x, cy: shape.y, radius: radius!, provenance: 'manual' },
       };
     }
@@ -243,7 +262,13 @@ export function importStillDocumentToClip(
   clipFrameMs: number,
 ): ImportResult {
   const perspectiveMatrix = buildPerspectiveMatrix(document);
-  const annotations: ClipAnnotation[] = [];
+  const builtAnnotations: Array<
+    Pick<ClipAnnotation, 'type' | 'coordMode' | 'text' | 'closed' | 'vertexRefs'> & {
+      keyframe: ClipKeyframe;
+      sourceShapeId: string;
+      style: ClipAnnotationStyle;
+    }
+  > = [];
   let skipped = 0;
   const frameMs = Number.isFinite(clipFrameMs) ? clipFrameMs : 0;
 
@@ -257,21 +282,48 @@ export function importStillDocumentToClip(
       continue;
     }
 
-    annotations.push({
-      id: makeId(),
-      type: built.type,
-      coordMode: built.coordMode,
-      // Imported still annotations are user-authored starting points, so they
-      // remain manual until tracking/correction workflows take over later.
-      source: 'manual',
-      text: built.text,
-      closed: built.closed,
+    builtAnnotations.push({
+      ...built,
       style: normalizeClipStyle(shape),
-      keyframes: [built.keyframe],
     });
   }
 
-  return { annotations, skipped };
+  const annotations: ClipAnnotation[] = builtAnnotations.map((built) => ({
+    id: makeId(),
+    type: built.type,
+    coordMode: built.coordMode,
+    source: 'manual',
+    text: built.text,
+    closed: built.closed,
+    vertexRefs: built.vertexRefs,
+    style: built.style,
+    keyframes: [built.keyframe],
+  }));
+
+  const importedBySourceShapeId = new Map(
+    builtAnnotations.map((built, index) => [
+      built.sourceShapeId,
+      { id: annotations[index]!.id, type: annotations[index]!.type },
+    ]),
+  );
+
+  const remappedAnnotations = annotations.map((annotation, index) => {
+    const originalRefs = builtAnnotations[index]?.vertexRefs;
+    if (!Array.isArray(originalRefs) || originalRefs.length === 0) {
+      return annotation;
+    }
+    const remappedRefs = originalRefs.map((refId) => {
+      if (!refId) return null;
+      const imported = importedBySourceShapeId.get(refId);
+      return imported?.type === 'highlight' ? imported.id : null;
+    });
+    return {
+      ...annotation,
+      vertexRefs: remappedRefs.some(Boolean) ? remappedRefs : undefined,
+    };
+  });
+
+  return { annotations: remappedAnnotations, skipped };
 }
 
 export function applyStillImportToClip(

@@ -19,6 +19,7 @@ const TOOL_OPTIONS: Array<{ id: ClipTool; label: string; hint: string }> = [
   { id: 'shadow', label: 'Shadow', hint: 'Drag out a cover shadow wedge from the player or area of interest.' },
   { id: 'arrow', label: 'Arrow', hint: 'Click once for the start point and again for the end point.' },
   { id: 'lob', label: 'Lob', hint: 'Click once for the start point and again for the end point to place a curved pass.' },
+  { id: 'poly', label: 'Poly', hint: 'Click to place points, click the first point to close, or press Enter to finish.' },
   { id: 'text', label: 'Text', hint: 'Click to drop a text label at the current frame.' },
   { id: 'highlight', label: 'Highlight', hint: 'Click to add a player highlight at the current frame.' },
 ];

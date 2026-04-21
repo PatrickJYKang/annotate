@@ -13,11 +13,11 @@ describe('importStillDocumentToClip', () => {
       shapes: [
         { id: 'box-1', type: 'box', x: 10, y: 20, w: 30, h: 40, style: { stroke: '#f00', fill: '#0f0', fillOpacity: 0.2 } },
         { id: 'circle-1', type: 'circle', x: 50, y: 60, rx: 15, ry: 10, style: { stroke: '#0ff' } },
-        { id: 'shadow-1', type: 'shadow', x: 52, y: 61, r: 42, rotation: 25, spreadDeg: 38, style: { stroke: '#f0f', fill: '#f0f', fillOpacity: 0.15 } },
-        { id: 'arrow-1', type: 'arrow', x: 0, y: 0, points: [1, 2, 30, 40], style: { stroke: '#00f' } },
-        { id: 'lob-1', type: 'lob', x: 0, y: 0, points: [5, 6, 20, 0, 40, 12], style: { stroke: '#0aa' } },
+        { id: 'shadow-1', type: 'shadow', x: 52, y: 61, r: 42, rotation: 25, spreadDeg: 38, vertexRefs: ['hl-1'], style: { stroke: '#f0f', fill: '#f0f', fillOpacity: 0.15 } },
+        { id: 'arrow-1', type: 'arrow', x: 0, y: 0, points: [1, 2, 30, 40], vertexRefs: ['hl-1', null], style: { stroke: '#00f' } },
+        { id: 'lob-1', type: 'lob', x: 0, y: 0, points: [5, 6, 20, 0, 40, 12], vertexRefs: [null, 'hl-1'], style: { stroke: '#0aa' } },
         { id: 'text-1', type: 'text', x: 70, y: 80, text: 'Hello', style: { stroke: '#111', fontSize: 24 } },
-        { id: 'poly-1', type: 'poly', x: 0, y: 0, points: [0, 0, 20, 0, 20, 10], closed: false, style: { stroke: '#333' } },
+        { id: 'poly-1', type: 'poly', x: 0, y: 0, points: [0, 0, 20, 0, 20, 10], vertexRefs: ['hl-1', null, 'hl-1'], closed: false, style: { stroke: '#333' } },
         { id: 'hl-1', type: 'highlight', x: 90, y: 100, rx: 25, ry: 8, style: { stroke: '#fa0', fill: '#fa0', fillOpacity: 0.3 } },
       ],
     };
@@ -64,6 +64,10 @@ describe('importStillDocumentToClip', () => {
       type: 'highlight',
       keyframes: [{ tMs: 250, cx: 90, cy: 100, radius: 25 }],
     });
+    expect(result.annotations[2]?.vertexRefs).toEqual([result.annotations[7]?.id]);
+    expect(result.annotations[3]?.vertexRefs).toEqual([result.annotations[7]?.id, null]);
+    expect(result.annotations[4]?.vertexRefs).toEqual([null, result.annotations[7]?.id]);
+    expect(result.annotations[6]?.vertexRefs).toEqual([result.annotations[7]?.id, null, result.annotations[7]?.id]);
   });
 
   it('projects plane-space shapes to image-space when perspective is available', () => {
