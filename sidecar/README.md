@@ -6,13 +6,14 @@ estimation, and video export encoding.
 
 ## Current scope note
 
-- The repository still contains clip-oriented CV endpoints and related tooling
-  (`/track`, `/segment`, `/homography`, clip export, occlusion support).
-- Those clip/CV-on-clips workflows are currently **on hold** as active
-  development tracks. They remain documented here because the code is still in
-  the repo.
-- Current sidecar-facing work is focused on **video loading for presentations**,
-  specifically exact-motion transition media.
+This sidecar now actively backs the clip-analysis workflow in the webapp:
+
+- `/track` is the live highlight-driven player-tracking path
+- `/homography` is the live clip homography path on vendored `PnLCalib`
+- `/segment` powers paused-frame foreground occlusion
+- `/derived-media/exact-motion` continues to power presentation playback media
+
+The clip CV paths are no longer just parked code in the repository.
 
 ## Requirements
 
@@ -69,6 +70,7 @@ Relative `videoPath` values are rejected.
 |----------|---------------------|--------------------------------------|
 | `GET`    | `/health`           | Sidecar status & model availability  |
 | `POST`   | `/track`            | Object tracking (annotate adapter + vendored trackers OC-SORT core) |
+| `GET`    | `/track/debug/{artifact}` | Download a saved tracking debug MP4 artifact |
 | `POST`   | `/homography`       | Pitch homography (annotate range adapter + vendored trackers PnLCalib provider) |
 | `POST`   | `/segment`          | Person segmentation (YOLO + MobileSAM) |
 | `POST`   | `/export/start`     | Begin export session                 |
@@ -89,7 +91,7 @@ annotate_sidecar/
   video_registry.py        # Temporary videoRef -> temp-file registry
   routes/
     health.py              # GET /health
-    track.py               # POST /track
+    track.py               # POST /track + optional debug artifact download
     segment.py             # POST /segment
     homography.py          # POST /homography
     export.py              # Export endpoints
@@ -118,6 +120,14 @@ Current ownership stance:
 - vendored trackers core owns lower-level implementation details
 - `/track` request fields (`fps`, `classes`, `confThreshold`, `iouThreshold`) act as request-level overrides
 
+Current app-facing tracking semantics:
+
+- the clip editor seeds tracking from `highlight` annotations
+- tracked highlight geometry is treated as foot-anchored
+- the sidecar seed matcher prefers the selected player's foot point and tolerates loose seeds
+- raw OC-SORT IDs are treated as a preference signal, not absolute truth, because seed-frame detections may be immature (`track_id = -1`) and later frames can reassign IDs
+- the annotate-owned adapter follows spatial continuity when a raw ID would imply an unreasonable jump
+
 Optional sidecar-level environment overrides:
 
 - `ANNOTATE_TRACKING_MODEL`
@@ -140,6 +150,12 @@ Homography now follows the same ownership pattern as tracking:
   [services/calibration](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/services/calibration)
 - the only active provider is the vendored trackers `PnLCalibProvider`
 - smoothing/interpolation happens inside the vendored provider config, then results are adapted back into annotate's cached frame format
+
+Current clip-side coexistence rule:
+
+- pitch-space authoring is supported for pitch-grounded primitives such as `box` and `circle`
+- normal tactical tools and tracking anchors remain image-space
+- the clip editor projects pitch-space annotations through the returned homography at playback/render time
 
 `GET /health` now includes a `homography` section with:
 
@@ -174,6 +190,10 @@ dev server on any port.
   `../trackers/third_party/pnlcalib`, or `ANNOTATE_PNLCALIB_ROOT`.
 - **YOLO model download fails** — The first `/track` or `/segment` call
   downloads `yolov8n.pt` (~6MB). Check internet connectivity.
+- **Need to inspect tracker behavior frame-by-frame** — `/track` can optionally
+  emit a saved annotated MP4 and expose it through `/track/debug/{artifact}`.
+  The normal UI path currently leaves this disabled, but the route support is
+  kept for debugging hard tracking cases.
 - **MobileSAM weights download fails** — Weights (~10MB) are auto-downloaded
   to `~/.cache/annotate-sidecar/` on first `/segment` call. Check internet
   connectivity and write permissions.

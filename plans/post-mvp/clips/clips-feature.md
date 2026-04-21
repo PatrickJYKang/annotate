@@ -4,6 +4,14 @@
 > trackable annotations. This is the prerequisite for the presentation
 > feature.
 
+> **Status note:** This is now mainly a historical planning/spec document.
+> The active implementation truth lives in
+> [clips-implementation-checklist.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/clips/clips-implementation-checklist.md)
+> and [clips-roadmap.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/clips/clips-roadmap.md).
+> Some detailed assumptions below are now outdated, especially around
+> trackable tool types, pitch/image coexistence, and how the sidecar treats raw
+> tracker IDs.
+
 ---
 
 ## 1  Core concepts

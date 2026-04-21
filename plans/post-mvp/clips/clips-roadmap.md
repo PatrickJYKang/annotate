@@ -148,6 +148,13 @@ The current practical baseline is:
 - player tracking via `OC-SORT`
 - pitch homography via `PnLCalib`
 
+In the live `annotate` tree, that baseline is now no longer just conceptual:
+
+- the sidecar is fully on the vendored `trackers` OC-SORT + PnLCalib path
+- tracking is seeded from clip-editor highlights, not generic boxes
+- tracked highlight geometry is treated as foot-anchored
+- the sidecar adapter now follows spatial continuity when raw tracker IDs are immature (`-1`) or reassign between frames
+
 That is already strong enough to build on.
 
 ### What matters next
@@ -246,6 +253,7 @@ The exact UI treatment is still open, but the relationship itself is derived and
 - correct manually
 - retrack from here
 - retrack range
+- keep following the same player even when raw tracker IDs are unstable
 
 ### 4. Pitch-space support
 
@@ -311,6 +319,7 @@ Focus on:
 - retrack-range
 - explicit gap handling
 - preserving good spans
+- robust player continuity when tracker IDs mature late or reassign
 
 This is the most important near-term CV milestone.
 
@@ -380,6 +389,6 @@ This roadmap is the high-level synthesis layer across those notes.
 - Stills relate to clips purely by time bounds, not explicit links.
 - The clip editor should feel like After Effects lite for tactical analysis.
 - Still-to-clip import is one of the highest-value bridges to build.
-- `OC-SORT + PnLCalib` is already a strong baseline.
+- `OC-SORT + PnLCalib` is already the active clip CV baseline.
 - The next real CV problem is correction UX, not tracker replacement.
 - `trackers` should be treated as a reusable CV component source, while `annotate` retains ownership of product behavior.

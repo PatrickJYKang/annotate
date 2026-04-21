@@ -37,6 +37,14 @@ The authoring model remains human-led.
 
 Tracking is assistive.
 
+One implementation detail worth calling out now that the baseline is live:
+
+- raw OC-SORT IDs are useful, but they are not stable enough to be treated as the sole truth in the app adapter
+- the seed frame can legitimately expose immature detections with `track_id = -1`
+- later sampled frames can reassign IDs even when the actual followed player is still obvious spatially
+
+So the current `annotate` sidecar adapter now treats tracker IDs as a preference signal, not an absolute identity contract.
+
 ---
 
 ## Core principles
@@ -67,6 +75,10 @@ It needs to make the common fix workflow fast:
 4. retrack from there
 
 That loop is more important than marginal tracker accuracy improvements.
+
+Related current rule:
+
+- if the old preferred tracker ID would imply an unreasonable positional jump, the adapter should follow the spatially nearest plausible continuation instead of snapping to that raw ID blindly
 
 ### 3. Do not hallucinate through uncertainty
 

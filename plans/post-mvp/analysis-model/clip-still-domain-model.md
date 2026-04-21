@@ -258,6 +258,16 @@ That means CV outputs should be:
 - inspectable
 - editable
 - correctable
+
+### Current practical rule
+
+In the current clip editor implementation, tracking is anchored on `highlight` annotations rather than generic boxes or circles.
+
+- the highlight is the tracked player marker
+- linked `arrow`, `lob`, and `poly` annotations can follow that highlight through time
+- tracked highlight geometry is treated as foot-anchored so the user's selection aligns with where a footballer is actually planted on the ground
+
+Pitch-space authoring remains available for pitch-grounded primitives, but normal tactical shapes and tracking anchors continue to live in image space.
 - non-magical
 
 Avoid treating tracking results as a separate opaque object type that sits outside the normal annotation system.

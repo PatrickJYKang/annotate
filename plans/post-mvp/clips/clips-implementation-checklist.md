@@ -160,6 +160,7 @@ Current implementation: clip editor save/history/tracking merge logic now runs t
 
 - [x] `annotate` already has a local `/track` route and tracking client flow.
 - [x] Clip keyframes already support tracked output and `visible: false`.
+Current implementation: tracking is now highlight-only from the clip editor, with tracked highlight geometry treated as foot-anchored rather than bbox-centered. The sidecar path remains `annotate`-owned at the API boundary but now uses vendored OC-SORT primitives and a more forgiving seed matcher that prefers the selected player's foot point, tolerates loose seeds, and follows spatial continuity when raw OC-SORT IDs are immature (`-1`) or reassign between adjacent sampled frames.
 
 ### 5.2 Tracker-core refactor toward `trackers`
 
@@ -204,6 +205,7 @@ Current implementation: clip keyframes now carry lightweight provenance (`manual
 - [x] Make range selection for retrack more discoverable and less fiddly.
 
 Current implementation: retrack merging is now verified in both pure state logic and the browser flow. The core merge rules live in [editorState.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/editorState.ts), where `forward`, `range`, and `to_correction` now preserve good spans intentionally. In [ClipEditor.tsx](/Users/patrickkang/Documents/code/annotate/webapp/components/clip/ClipEditor.tsx), the editor now exposes three partial repair actions directly: `Re-track →`, `Re-track range`, and `To Next Correction`. Range selection is no longer only a hidden Shift-click affordance: the user can explicitly `Mark Range End`, see the active range, and `Clear Range`, while Shift-click on the timeline still works as a faster alternate path. Verification was strengthened in [editorState.test.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/editorState.test.ts) and [clip-editor.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/clip-editor.spec.ts), including exact preserved keyframe/provenance expectations and a browser regression check for the range-boundary merge bug that was fixed during this pass.
+The current sidecar adapter also now protects retrack continuity from unstable raw tracker IDs by preferring the previously followed player's spatially nearest continuation when the old OC-SORT ID would imply an unreasonable jump.
 
 ### 6.3 Gap policy
 
@@ -252,6 +254,7 @@ Current implementation: `annotate` now has a provider-oriented calibration layer
 - [x] Add tests for projection correctness at clip playback time.
 
 Current implementation: pitch projection math for clip playback and pitch-space creation now runs through shared helpers in [pitchProjection.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/pitchProjection.ts) rather than remaining duplicated inline in [ClipEditor.tsx](/Users/patrickkang/Documents/code/annotate/webapp/components/clip/ClipEditor.tsx). The clip editor now uses the same shared projection path for pitch-space bounds and on-frame rendering, pitch-space `lob` creation/rendering is supported alongside the existing pitch-capable tools, and the UI now distinguishes the preferred draw mode from the effective one by surfacing when pitch drawing is selected but the current frame or current tool forces a fallback to image-space creation. Projection correctness is covered in [pitchProjection.test.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/pitchProjection.test.ts), with the broader clip authoring flow still covered by [clip-editor.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/clip-editor.spec.ts).
+Current coexistence rule: only `box` and `circle` are pitch-capable authoring tools. `highlight`, `arrow`, `lob`, `poly`, `shadow`, and `text` stay image-space in normal clip authoring, with highlights acting as the tracking anchors for linked tactical shapes.
 
 ---
 

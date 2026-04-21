@@ -18,6 +18,12 @@ The question is:
 
 - "What can be pulled from `trackers` into `annotate`, what should stay there, and in what order?"
 
+Current state note:
+
+- the key tracking and calibration primitives have now already been vendored into `annotate`
+- the older bespoke ByteTrack / Narya paths have been removed from the live sidecar path
+- this document is now mostly about boundary protection and any future move from vendored code to a formal dependency
+
 ---
 
 ## Current roles
@@ -87,11 +93,12 @@ Current problem:
 - it is a YOLO + ByteTrack specific service
 - it owns too much low-level tracking orchestration directly
 
-Target direction:
+Current implementation:
 
-- keep the `/track` HTTP route in `annotate`
-- keep `videoRef` resolution and app-specific request validation in `annotate`
-- replace the tracking internals with a thin adapter around `trackers.OCSORTTracker` or `trackers.ByteTrackTracker`
+- `/track` stays in `annotate`
+- `videoRef` resolution and app-specific request validation stay in `annotate`
+- low-level tracker execution now runs through vendored OC-SORT primitives from `trackers`
+- the annotate-owned adapter still owns seed matching, spatial continuity / continuity fallback, and response shaping
 
 What moves conceptually:
 
@@ -128,11 +135,11 @@ The `trackers` repo already has a cleaner abstraction:
 - `trackers/calibration/providers/pnlcalib.py`
 - `trackers/calibration/smoothing.py`
 
-Target direction:
+Current implementation:
 
-- keep `/homography` in `annotate`
-- keep clip/time-range request semantics in `annotate`
-- gradually replace internal calibration logic with a provider-driven layer inspired by or imported from `trackers`
+- `/homography` stays in `annotate`
+- clip/time-range request semantics stay in `annotate`
+- internal calibration now already runs through a provider-driven layer on the vendored `PnLCalib` path
 
 Best near-term reusable pieces:
 
@@ -319,8 +326,8 @@ Goal:
 Actions:
 
 - keep `sidecar/annotate_sidecar/routes/track.py`
-- refactor `sidecar/annotate_sidecar/services/tracker.py` into a thin adapter
-- make that adapter call into `trackers.OCSORTTracker` using detector output converted to the expected format
+- keep `sidecar/annotate_sidecar/services/tracker.py` as a thin adapter
+- keep low-level OC-SORT execution in vendored `trackers` code
 
 Important constraint:
 
@@ -334,9 +341,8 @@ Goal:
 
 Actions:
 
-- extract provider selection inside `annotate`
-- adopt or mirror `PnLCalibProvider`
-- adopt calibration smoothing / gap filling helpers
+- keep provider selection inside `annotate`
+- keep the vendored `PnLCalibProvider` path active
 - keep `/homography` output shape stable for the app
 
 ### Phase 3: Projection utility reuse
