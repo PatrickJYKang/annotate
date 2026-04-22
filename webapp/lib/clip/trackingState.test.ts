@@ -5,12 +5,16 @@ import {
   countCorrectionKeyframes,
   getDerivedHiddenGapSpans,
   getCurrentKeyframeAtTime,
+  getCurrentVisibilityKeyframeAtTime,
   getFrameTrackingState,
   getHiddenSpans,
   getKeyframeProvenance,
   getLossSpans,
+  getManualVisibilitySpans,
   getNextCorrectionKeyframe,
   getTrackingGapThresholdMs,
+  getVisibilityActionAtTime,
+  isAnnotationVisibleAtTime,
   isTimeWithinHiddenSpan,
 } from "./trackingState";
 
@@ -105,6 +109,40 @@ describe("trackingState", () => {
     ]);
     expect(isTimeWithinHiddenSpan(getHiddenSpans(annotation, 1000, 30), 200)).toBe(true);
     expect(isTimeWithinHiddenSpan(getHiddenSpans(annotation, 1000, 30), 800)).toBe(false);
+  });
+
+  it("derives manual hidden spans from show/hide visibility keyframes", () => {
+    const annotation: ClipAnnotation = {
+      id: "ann-manual-hidden",
+      type: "box",
+      coordMode: "image",
+      source: "manual",
+      style: {},
+      keyframes: [
+        { tMs: 0, x: 0, y: 0, w: 10, h: 10, provenance: "manual" },
+        { tMs: 1000, x: 100, y: 100, w: 10, h: 10, provenance: "manual" },
+      ],
+      visibilityKeyframes: [
+        { tMs: 200, action: "hide" },
+        { tMs: 500, action: "show" },
+        { tMs: 700, action: "hide" },
+      ],
+    };
+
+    expect(getManualVisibilitySpans(annotation, 1000)).toEqual([
+      { startMs: 200, endMs: 500 },
+      { startMs: 700, endMs: 1000 },
+    ]);
+    expect(getHiddenSpans(annotation, 1000, 30)).toEqual([
+      { startMs: 200, endMs: 500 },
+      { startMs: 700, endMs: 1000 },
+    ]);
+    expect(getCurrentVisibilityKeyframeAtTime(annotation, 201, 2)?.action).toBe("hide");
+    expect(getVisibilityActionAtTime(annotation, 650)).toBe("show");
+    expect(getVisibilityActionAtTime(annotation, 900)).toBe("hide");
+    expect(isAnnotationVisibleAtTime(annotation, 150)).toBe(true);
+    expect(isAnnotationVisibleAtTime(annotation, 300)).toBe(false);
+    expect(isAnnotationVisibleAtTime(annotation, 550)).toBe(true);
   });
 
   it("finds current keyed frame with tolerance", () => {

@@ -8,6 +8,7 @@ export type CoordMode = 'image' | 'pitch';
 
 export type AnnotationSource = 'manual' | 'auto' | 'corrected';
 export type ClipKeyframeProvenance = 'manual' | 'tracked' | 'lost' | 'correction';
+export type ClipVisibilityAction = 'show' | 'hide';
 
 export type ClipAnnotationType =
   | 'box'
@@ -99,6 +100,11 @@ export type ClipKeyframe =
   | PolyKeyframe
   | HighlightKeyframe;
 
+export interface ClipVisibilityKeyframe {
+  tMs: number;
+  action: ClipVisibilityAction;
+}
+
 // ---------------------------------------------------------------------------
 // Annotation style (per-annotation, not per-keyframe)
 // ---------------------------------------------------------------------------
@@ -130,6 +136,7 @@ export interface ClipAnnotation {
   closed?: boolean;                // for type: 'poly' — defaults to true when omitted
   style: ClipAnnotationStyle;
   keyframes: ClipKeyframe[];       // sorted by tMs ascending
+  visibilityKeyframes?: ClipVisibilityKeyframe[]; // sorted by tMs ascending; manual show/hide events
 }
 
 // ---------------------------------------------------------------------------

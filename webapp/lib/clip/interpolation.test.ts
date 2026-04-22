@@ -185,6 +185,48 @@ describe('interpolateKeyframes', () => {
     expect(interpolateAnnotationAtTime(annotation, 700, 30, 900)).toEqual({ type: 'box', x: 70, y: 70, w: 10, h: 10 });
   });
 
+  it('uses show/hide visibility keyframes as playback events without affecting position interpolation', () => {
+    const annotation: ClipAnnotation = {
+      id: 'ann-visibility-events',
+      type: 'box',
+      coordMode: 'image',
+      source: 'manual',
+      style: {},
+      keyframes: [
+        boxKf(0, 0, 0, 10, 10),
+        boxKf(1000, 100, 100, 10, 10),
+      ],
+      visibilityKeyframes: [
+        { tMs: 200, action: 'hide' },
+        { tMs: 500, action: 'show' },
+      ],
+    };
+
+    expect(interpolateAnnotationAtTime(annotation, 150, 30, 1000)).toEqual({
+      type: 'box',
+      x: 15,
+      y: 15,
+      w: 10,
+      h: 10,
+    });
+    expect(interpolateAnnotationAtTime(annotation, 200, 30, 1000)).toBeNull();
+    expect(interpolateAnnotationAtTime(annotation, 350, 30, 1000)).toBeNull();
+    expect(interpolateAnnotationAtTime(annotation, 500, 30, 1000)).toEqual({
+      type: 'box',
+      x: 50,
+      y: 50,
+      w: 10,
+      h: 10,
+    });
+    expect(interpolateAnnotationAtTime(annotation, 750, 30, 1000)).toEqual({
+      type: 'box',
+      x: 75,
+      y: 75,
+      w: 10,
+      h: 10,
+    });
+  });
+
   // --- Linear box interpolation (close keyframes, gap ≤ 2 frames at 30fps) ---
 
   it('linearly interpolates box at midpoint (close kfs)', () => {

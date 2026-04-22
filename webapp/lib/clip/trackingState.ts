@@ -3,11 +3,20 @@ import type {
   ClipAnnotation,
   ClipKeyframe,
   ClipKeyframeProvenance,
+  ClipVisibilityAction,
+  ClipVisibilityKeyframe,
 } from "../types/clip";
 
 export type ClipFrameTrackingState = "manual" | "tracked" | "correction" | "lost";
 export const MAX_INTERPOLATED_TRACK_GAP_MS = 250;
 export const MAX_INTERPOLATED_TRACK_GAP_FRAMES = 6;
+
+function sortVisibilityKeyframes(
+  visibilityKeyframes: ClipVisibilityKeyframe[] | undefined,
+): ClipVisibilityKeyframe[] {
+  if (!visibilityKeyframes || visibilityKeyframes.length === 0) return [];
+  return [...visibilityKeyframes].sort((left, right) => left.tMs - right.tMs);
+}
 
 function fallbackProvenanceFromSource(source: AnnotationSource): ClipKeyframeProvenance {
   if (source === "auto") return "tracked";
@@ -54,6 +63,35 @@ export function getLossSpans(annotation: ClipAnnotation, clipDurationMs: number)
 
   if (activeStart != null) {
     spans.push({ startMs: activeStart, endMs: clipDurationMs });
+  }
+
+  return spans;
+}
+
+export function getManualVisibilitySpans(
+  annotation: ClipAnnotation,
+  clipDurationMs: number,
+): Array<{ startMs: number; endMs: number }> {
+  const keyframes = sortVisibilityKeyframes(annotation.visibilityKeyframes);
+  if (keyframes.length === 0) return [];
+
+  const spans: Array<{ startMs: number; endMs: number }> = [];
+  let activeHideStart: number | null = null;
+
+  for (const keyframe of keyframes) {
+    if (keyframe.action === "hide") {
+      activeHideStart = keyframe.tMs;
+      continue;
+    }
+
+    if (activeHideStart != null) {
+      spans.push({ startMs: activeHideStart, endMs: keyframe.tMs });
+      activeHideStart = null;
+    }
+  }
+
+  if (activeHideStart != null) {
+    spans.push({ startMs: activeHideStart, endMs: clipDurationMs });
   }
 
   return spans;
@@ -113,6 +151,7 @@ export function getHiddenSpans(
   return mergeSpans([
     ...getLossSpans(annotation, clipDurationMs),
     ...getDerivedHiddenGapSpans(annotation, fps),
+    ...getManualVisibilitySpans(annotation, clipDurationMs),
   ]);
 }
 
@@ -129,6 +168,36 @@ export function getCurrentKeyframeAtTime(
   toleranceMs: number,
 ): ClipKeyframe | null {
   return annotation.keyframes.find((keyframe) => Math.abs(keyframe.tMs - currentTMs) <= toleranceMs) ?? null;
+}
+
+export function getCurrentVisibilityKeyframeAtTime(
+  annotation: ClipAnnotation,
+  currentTMs: number,
+  toleranceMs: number,
+): ClipVisibilityKeyframe | null {
+  const keyframes = annotation.visibilityKeyframes ?? [];
+  return keyframes.find((keyframe) => Math.abs(keyframe.tMs - currentTMs) <= toleranceMs) ?? null;
+}
+
+export function getVisibilityActionAtTime(
+  annotation: ClipAnnotation,
+  currentTMs: number,
+): ClipVisibilityAction | null {
+  const keyframes = sortVisibilityKeyframes(annotation.visibilityKeyframes);
+  let action: ClipVisibilityAction | null = null;
+  for (const keyframe of keyframes) {
+    if (keyframe.tMs > currentTMs) break;
+    action = keyframe.action;
+  }
+  return action;
+}
+
+export function isAnnotationVisibleAtTime(
+  annotation: ClipAnnotation,
+  currentTMs: number,
+): boolean {
+  const action = getVisibilityActionAtTime(annotation, currentTMs);
+  return action !== "hide";
 }
 
 export function getNextCorrectionKeyframe(

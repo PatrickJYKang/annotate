@@ -16,7 +16,7 @@ import type {
   PolyKeyframe,
   HighlightKeyframe,
 } from '../types/clip';
-import { getHiddenSpans, isTimeWithinHiddenSpan } from './trackingState';
+import { getHiddenSpans, isAnnotationVisibleAtTime, isTimeWithinHiddenSpan } from './trackingState';
 
 // ---------------------------------------------------------------------------
 // Result types — one per annotation type
@@ -369,6 +369,7 @@ export function interpolateAnnotationAtTime(
   clipDurationMs: number = annotation.keyframes[annotation.keyframes.length - 1]?.tMs ?? 0,
 ): InterpolatedKeyframe | null {
   if (!annotation.keyframes || annotation.keyframes.length === 0) return null;
+  if (!isAnnotationVisibleAtTime(annotation, tMs)) return null;
 
   const exact = annotation.keyframes.find((keyframe) => keyframe.tMs === tMs);
   if (exact) {
