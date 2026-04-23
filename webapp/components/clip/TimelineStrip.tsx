@@ -3,13 +3,25 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ClipAnnotation } from "../../lib/types/clip";
 import { getHiddenSpans, getKeyframeProvenance, getManualVisibilitySpans } from "../../lib/clip/trackingState";
+import { getFrameDurationMs, snapClipRelativeMsToVideoFrame } from "../../lib/clip/frameMath";
 
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 
+export interface TimelineKeyframeDescriptor {
+  key: string;
+  annId: string;
+  laneIndex: number;
+  keyframeIndex: number;
+  tMs: number;
+  kind: "position" | "visibility";
+  action?: "show" | "hide";
+}
+
 export interface TimelineStripProps {
   durationMs: number;
+  clipStartMs?: number;
   currentTMs: number;
   fps?: number;
   currentFrameToleranceMs?: number;
@@ -24,6 +36,7 @@ export interface TimelineStripProps {
   onSeekToKeyframe: (annId: string, tMs: number) => void;
   onSelectedKeyframeKeysChange?: (keys: string[]) => void;
   onShiftClick?: (tMs: number) => void;
+  onMoveKeyframe?: (descriptor: TimelineKeyframeDescriptor, nextTMs: number) => TimelineKeyframeDescriptor | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -46,15 +59,7 @@ function getAnnotationAccentColor(annotation: ClipAnnotation): string {
   return "#e5e7eb";
 }
 
-type KeyframeDescriptor = {
-  key: string;
-  annId: string;
-  laneIndex: number;
-  keyframeIndex: number;
-  tMs: number;
-  kind: "position" | "visibility";
-  action?: "show" | "hide";
-};
+type KeyframeDescriptor = TimelineKeyframeDescriptor;
 
 // ---------------------------------------------------------------------------
 // Component
@@ -62,6 +67,7 @@ type KeyframeDescriptor = {
 
 export default function TimelineStrip({
   durationMs,
+  clipStartMs = 0,
   currentTMs,
   fps = 30,
   currentFrameToleranceMs = 0,
@@ -76,6 +82,7 @@ export default function TimelineStrip({
   onSeekToKeyframe,
   onSelectedKeyframeKeysChange,
   onShiftClick,
+  onMoveKeyframe,
 }: TimelineStripProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const resizeStartRef = useRef<{ y: number; height: number } | null>(null);
@@ -84,6 +91,7 @@ export default function TimelineStrip({
   const [zoomX, setZoomX] = useState(1);
   const [visibleHeight, setVisibleHeight] = useState(HEADER_H + LANE_H + RESIZE_HANDLE_H + 4);
   const [selectedKeyframeAnchorKey, setSelectedKeyframeAnchorKey] = useState<string | null>(null);
+  const suppressClickUntilRef = useRef(0);
 
   const laneCount = Math.max(annotations.length, 1);
   const lanesHeight = laneCount * LANE_H;
@@ -94,7 +102,7 @@ export default function TimelineStrip({
   const contentWidth = Math.max(viewportWidth, Math.round(viewportWidth * zoomX));
   const maxScrollLeft = Math.max(0, contentWidth - viewportWidth);
   const playheadFrac = durationMs > 0 ? currentTMs / durationMs : 0;
-  const frameDurationMs = 1000 / Math.max(1, fps);
+  const frameDurationMs = getFrameDurationMs(fps);
 
   const clampHeight = useCallback((height: number) => {
     return Math.max(minHeight, Math.min(maxHeight, height));
@@ -133,10 +141,8 @@ export default function TimelineStrip({
 
   const snapToFrameMs = useCallback((tMs: number) => {
     if (!Number.isFinite(tMs)) return 0;
-    const snappedFrame = Math.round(tMs / frameDurationMs);
-    const snappedMs = snappedFrame * frameDurationMs;
-    return Math.max(0, Math.min(durationMs, snappedMs));
-  }, [durationMs, frameDurationMs]);
+    return snapClipRelativeMsToVideoFrame(clipStartMs, tMs, fps, durationMs);
+  }, [clipStartMs, durationMs, fps]);
 
   const keyframeDescriptors = useMemo<KeyframeDescriptor[]>(() => (
     annotations
@@ -189,7 +195,7 @@ export default function TimelineStrip({
     e.preventDefault();
     if (e.shiftKey && onShiftClick) {
       const frac = fracFromEvent(e);
-      onShiftClick(frac * durationMs);
+      onShiftClick(snapToFrameMs(frac * durationMs));
       return;
     }
 
@@ -283,6 +289,7 @@ export default function TimelineStrip({
 
   const handleKeyframeClick = useCallback((event: React.MouseEvent, descriptor: KeyframeDescriptor) => {
     event.stopPropagation();
+    if (Date.now() < suppressClickUntilRef.current) return;
 
     if (event.shiftKey) {
       const anchorKey = selectedKeyframeAnchorKey ?? descriptor.key;
@@ -310,6 +317,63 @@ export default function TimelineStrip({
 
     onSeekToKeyframe(descriptor.annId, descriptor.tMs);
   }, [keyframeDescriptors, keyframeOrder, onSeekToKeyframe, onSelectedKeyframeKeysChange, selectedKeyframeAnchorKey, selectedKeyframeKeys]);
+
+  const handleKeyframeMouseDown = useCallback((
+    event: React.MouseEvent,
+    descriptor: KeyframeDescriptor,
+    draggable: boolean,
+  ) => {
+    event.stopPropagation();
+    if (event.button !== 0) return;
+    if (!draggable || event.shiftKey || event.metaKey || event.ctrlKey || !onMoveKeyframe) return;
+
+    let activeDescriptor = descriptor;
+    let didDrag = false;
+    const startX = event.clientX;
+    const initialKey = descriptor.key;
+
+    if (!selectedKeyframeKeys.includes(initialKey)) {
+      onSelectedKeyframeKeysChange?.([initialKey]);
+      setSelectedKeyframeAnchorKey(initialKey);
+    }
+    onSeekToKeyframe(descriptor.annId, descriptor.tMs);
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const dx = moveEvent.clientX - startX;
+      if (!didDrag && Math.abs(dx) < 3) return;
+      didDrag = true;
+      moveEvent.preventDefault();
+      const nextFrac = fracFromEvent(moveEvent);
+      const nextTMs = snapToFrameMs(nextFrac * durationMs);
+      if (Math.abs(nextTMs - activeDescriptor.tMs) < currentFrameToleranceMs) return;
+      const moved = onMoveKeyframe(activeDescriptor, nextTMs);
+      if (!moved) return;
+      activeDescriptor = moved;
+      setSelectedKeyframeAnchorKey(moved.key);
+      onSeek(moved.tMs);
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      if (didDrag) {
+        suppressClickUntilRef.current = Date.now() + 150;
+      }
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [
+    currentFrameToleranceMs,
+    durationMs,
+    fracFromEvent,
+    onMoveKeyframe,
+    onSeek,
+    onSeekToKeyframe,
+    onSelectedKeyframeKeysChange,
+    selectedKeyframeKeys,
+    snapToFrameMs,
+  ]);
 
   const ticks = useMemo(() => {
     if (durationMs <= 0) return [] as Array<{ tMs: number; label: string }>;
@@ -533,12 +597,21 @@ export default function TimelineStrip({
                           : provenance === "lost"
                             ? "#f87171"
                             : strokeColor;
+                      const canDragKeyframe = provenance === "manual" || provenance === "correction";
                       const isDiamond = provenance === "tracked" || provenance === "manual";
                       const markerHeight = provenance === "lost" ? 4 : diamondSize;
+                      const descriptor: KeyframeDescriptor = {
+                        key,
+                        annId: annotation.id,
+                        laneIndex,
+                        keyframeIndex,
+                        tMs: keyframe.tMs,
+                        kind: "position",
+                      };
                       return (
                         <div
                           key={`${annotation.id}-kf-${keyframeIndex}`}
-                          className="absolute cursor-pointer"
+                          className={`absolute ${canDragKeyframe ? "cursor-ew-resize" : "cursor-pointer"}`}
                           style={{
                             left: `${x}%`,
                             top: (LANE_H - markerHeight) / 2,
@@ -549,9 +622,7 @@ export default function TimelineStrip({
                             backgroundColor: markerColor,
                             border: isKeyframeSelected
                               ? "2px solid white"
-                              : isSelected
-                                ? "1px solid white"
-                                : "1px solid rgba(0,0,0,0.3)",
+                              : "1px solid rgba(255,255,255,0.9)",
                             boxShadow: isKeyframeSelected
                               ? "0 0 0 2px rgba(96,165,250,0.55)"
                               : isAtCurrentFrame
@@ -559,16 +630,9 @@ export default function TimelineStrip({
                                 : undefined,
                             zIndex: isKeyframeSelected ? 8 : 6,
                           }}
-                          title={`${annotation.type} ${provenance} keyframe @ ${Math.round(keyframe.tMs)}ms`}
-                          onMouseDown={(event) => event.stopPropagation()}
-                          onClick={(event) => handleKeyframeClick(event, {
-                            key,
-                            annId: annotation.id,
-                            laneIndex,
-                            keyframeIndex,
-                            tMs: keyframe.tMs,
-                            kind: "position",
-                          })}
+                          title={`${annotation.type} ${provenance} keyframe @ ${Math.round(keyframe.tMs)}ms${canDragKeyframe ? " (drag to retime)" : ""}`}
+                          onMouseDown={(event) => handleKeyframeMouseDown(event, descriptor, canDragKeyframe)}
+                          onClick={(event) => handleKeyframeClick(event, descriptor)}
                         />
                       );
                     })}
@@ -578,10 +642,19 @@ export default function TimelineStrip({
                       const x = durationMs > 0 ? (keyframe.tMs / durationMs) * 100 : 0;
                       const isKeyframeSelected = selectedKeyframeKeys.includes(key);
                       const color = keyframe.action === "show" ? "#22c55e" : "#94a3b8";
+                      const descriptor: KeyframeDescriptor = {
+                        key,
+                        annId: annotation.id,
+                        laneIndex,
+                        keyframeIndex,
+                        tMs: keyframe.tMs,
+                        kind: "visibility",
+                        action: keyframe.action,
+                      };
                       return (
                         <div
                           key={`${annotation.id}-vis-${keyframeIndex}`}
-                          className="absolute cursor-pointer"
+                          className="absolute cursor-ew-resize"
                           style={{
                             left: `${x}%`,
                             top: (LANE_H - 10) / 2,
@@ -592,21 +665,13 @@ export default function TimelineStrip({
                             backgroundColor: color,
                             border: isKeyframeSelected
                               ? "2px solid white"
-                              : "1px solid rgba(0,0,0,0.45)",
+                              : "1px solid rgba(255,255,255,0.9)",
                             boxShadow: isKeyframeSelected ? "0 0 0 2px rgba(96,165,250,0.55)" : undefined,
                             zIndex: isKeyframeSelected ? 9 : 7,
                           }}
-                          title={`${annotation.type} ${keyframe.action} @ ${Math.round(keyframe.tMs)}ms`}
-                          onMouseDown={(event) => event.stopPropagation()}
-                          onClick={(event) => handleKeyframeClick(event, {
-                            key,
-                            annId: annotation.id,
-                            laneIndex,
-                            keyframeIndex,
-                            tMs: keyframe.tMs,
-                            kind: "visibility",
-                            action: keyframe.action,
-                          })}
+                          title={`${annotation.type} ${keyframe.action} @ ${Math.round(keyframe.tMs)}ms (drag to retime)`}
+                          onMouseDown={(event) => handleKeyframeMouseDown(event, descriptor, true)}
+                          onClick={(event) => handleKeyframeClick(event, descriptor)}
                         >
                           <div
                             className="absolute inset-0 flex items-center justify-center text-[8px] leading-none font-semibold text-black"

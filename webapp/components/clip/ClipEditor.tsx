@@ -32,7 +32,7 @@ import { useSidecar } from "../../lib/state/SidecarContext";
 import { requestTracking, requestHomography, type TrackingError } from "../../lib/clip/sidecarClient";
 import { convertTrackingKeyframes } from "../../lib/clip/bboxConvert";
 import {
-  getClipRelativeMsForStill,
+  getClipRelativeImportMsForStill,
   listStillsWithinClipBounds,
 } from "../../lib/clip/stillRelationship";
 import {
@@ -43,6 +43,7 @@ import {
   rectPlaneToImagePoints,
 } from "../../lib/annotate/homography";
 import { OcclusionCache, fetchOcclusionMask, compositeForeground, roundToFrame } from "../../lib/clip/occlusionCompositor";
+import { stepClipRelativeFrame, snapClipRelativeMsToVideoFrame } from "../../lib/clip/frameMath";
 import { applyStillImportToClip, importStillDocumentToClip } from "../../lib/clip/stillImport";
 import {
   annotationTypeSupportsPitchCoords,
@@ -77,7 +78,7 @@ import {
   isAnnotationVisibleAtTime,
 } from "../../lib/clip/trackingState";
 import ExportModal from "./ExportModal";
-import TimelineStrip from "./TimelineStrip";
+import TimelineStrip, { type TimelineKeyframeDescriptor } from "./TimelineStrip";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -518,13 +519,17 @@ export default function ClipEditor({
   const stepFrame = useCallback((direction: 1 | -1) => {
     const v = videoRef.current;
     if (!v || !v.paused) return;
-    const currentFrame = Math.round(currentTMsRef.current / frameDurationMs);
-    const nextFrame = Math.max(0, currentFrame + direction);
-    const nextTMs = Math.max(0, Math.min(nextFrame * frameDurationMs, clipDurationMs));
+    const nextTMs = stepClipRelativeFrame(
+      clip.startMs,
+      currentTMsRef.current,
+      direction,
+      videoFps,
+      clipDurationMs,
+    );
     currentTMsRef.current = nextTMs;
     setCurrentTMs(nextTMs);
     v.currentTime = (clip.startMs + nextTMs) / 1000;
-  }, [clip.startMs, clipDurationMs, frameDurationMs]);
+  }, [clip.startMs, clipDurationMs, videoFps]);
 
   const shuttleByMs = useCallback((deltaMs: number) => {
     const v = videoRef.current;
@@ -1008,6 +1013,92 @@ export default function ClipEditor({
     setSelectedKeyframeKeys((previous) => previous.filter((key) => !deletedKeys.has(key)));
     return true;
   }, [deletableSelectedKeyframeRefs]);
+
+  const moveTimelineKeyframe = useCallback((descriptor: TimelineKeyframeDescriptor, targetTMs: number): TimelineKeyframeDescriptor | null => {
+    const snappedTMs = snapClipRelativeMsToVideoFrame(clip.startMs, targetTMs, videoFps, clipDurationMs);
+    const annotation = annotationsRef.current.find((candidate) => candidate.id === descriptor.annId);
+    if (!annotation) return null;
+
+    if (descriptor.kind === "position") {
+      const keyframe = annotation.keyframes[descriptor.keyframeIndex];
+      if (!keyframe || Math.abs(keyframe.tMs - descriptor.tMs) > currentFrameToleranceMs) return null;
+      const provenance = getKeyframeProvenance(annotation, keyframe);
+      if (provenance === "tracked" || provenance === "lost") return null;
+      if (Math.abs(snappedTMs - keyframe.tMs) < currentFrameToleranceMs) {
+        return descriptor;
+      }
+      const geometryConflict = annotation.keyframes.some((candidate, index) => (
+        index !== descriptor.keyframeIndex && Math.abs(candidate.tMs - snappedTMs) < currentFrameToleranceMs
+      ));
+      const visibilityConflict = (annotation.visibilityKeyframes ?? []).some((candidate) => (
+        Math.abs(candidate.tMs - snappedTMs) < currentFrameToleranceMs
+      ));
+      if (geometryConflict || visibilityConflict) return descriptor;
+
+      const movedKeyframe = { ...keyframe, tMs: snappedTMs } as ClipKeyframe;
+      const nextKeyframes = annotation.keyframes.map((candidate, index) => (
+        index === descriptor.keyframeIndex ? movedKeyframe : candidate
+      )).sort((left, right) => left.tMs - right.tMs);
+      const nextIndex = nextKeyframes.findIndex((candidate) => candidate === movedKeyframe);
+      if (nextIndex < 0) return descriptor;
+
+      setAnnotations((previous) => previous.map((candidate) => (
+        candidate.id === annotation.id
+          ? { ...candidate, keyframes: nextKeyframes }
+          : candidate
+      )));
+
+      const nextKey = `geom:${annotation.id}:${nextIndex}:${movedKeyframe.tMs}`;
+      setSelectedKeyframeKeys((previous) => {
+        if (!previous.includes(descriptor.key)) return previous;
+        const replaced = previous.map((key) => (key === descriptor.key ? nextKey : key));
+        return Array.from(new Set(replaced));
+      });
+      return {
+        ...descriptor,
+        key: nextKey,
+        keyframeIndex: nextIndex,
+        tMs: movedKeyframe.tMs,
+      };
+    }
+
+    const visibilityKeyframe = (annotation.visibilityKeyframes ?? [])[descriptor.keyframeIndex];
+    if (!visibilityKeyframe || Math.abs(visibilityKeyframe.tMs - descriptor.tMs) > currentFrameToleranceMs) return null;
+    if (Math.abs(snappedTMs - visibilityKeyframe.tMs) < currentFrameToleranceMs) {
+      return descriptor;
+    }
+    const geometryConflict = annotation.keyframes.some((candidate) => Math.abs(candidate.tMs - snappedTMs) < currentFrameToleranceMs);
+    const visibilityConflict = (annotation.visibilityKeyframes ?? []).some((candidate, index) => (
+      index !== descriptor.keyframeIndex && Math.abs(candidate.tMs - snappedTMs) < currentFrameToleranceMs
+    ));
+    if (geometryConflict || visibilityConflict) return descriptor;
+
+    const movedVisibilityKeyframe: ClipVisibilityKeyframe = { ...visibilityKeyframe, tMs: snappedTMs };
+    const nextVisibilityKeyframes = (annotation.visibilityKeyframes ?? []).map((candidate, index) => (
+      index === descriptor.keyframeIndex ? movedVisibilityKeyframe : candidate
+    )).sort((left, right) => left.tMs - right.tMs);
+    const nextIndex = nextVisibilityKeyframes.findIndex((candidate) => candidate === movedVisibilityKeyframe);
+    if (nextIndex < 0) return descriptor;
+
+    setAnnotations((previous) => previous.map((candidate) => (
+      candidate.id === annotation.id
+        ? { ...candidate, visibilityKeyframes: nextVisibilityKeyframes }
+        : candidate
+    )));
+
+    const nextKey = `vis:${annotation.id}:${nextIndex}:${movedVisibilityKeyframe.tMs}`;
+    setSelectedKeyframeKeys((previous) => {
+      if (!previous.includes(descriptor.key)) return previous;
+      const replaced = previous.map((key) => (key === descriptor.key ? nextKey : key));
+      return Array.from(new Set(replaced));
+    });
+    return {
+      ...descriptor,
+      key: nextKey,
+      keyframeIndex: nextIndex,
+      tMs: movedVisibilityKeyframe.tMs,
+    };
+  }, [clip.startMs, clipDurationMs, currentFrameToleranceMs, videoFps]);
   const selectedCurrentKeyframe = useMemo(() => {
     if (!selectedAnn) return null;
     return getCurrentKeyframeAtTime(selectedAnn, currentTMs, currentFrameToleranceMs);
@@ -2270,7 +2361,7 @@ export default function ClipEditor({
         return;
       }
 
-      const clipFrameMs = roundToFrame(getClipRelativeMsForStill(clip, still), videoFps);
+      const clipFrameMs = getClipRelativeImportMsForStill(clip, still, videoFps);
       const result = importStillDocumentToClip(primary, clipFrameMs);
       if (result.annotations.length === 0) {
         setStillImportMessage('No supported annotation shapes were found to import');
@@ -3865,6 +3956,7 @@ export default function ClipEditor({
       {/* Timeline strip */}
       <TimelineStrip
         durationMs={clipDurationMs}
+        clipStartMs={clip.startMs}
         currentTMs={currentTMs}
         fps={videoFps}
         currentFrameToleranceMs={currentFrameToleranceMs}
@@ -3887,6 +3979,7 @@ export default function ClipEditor({
         }}
         onSelectedKeyframeKeysChange={setSelectedKeyframeKeys}
         onShiftClick={setRetrackRangeEndMs}
+        onMoveKeyframe={moveTimelineKeyframe}
       />
 
       <div className="shrink-0 bg-surface border-t border-border">
@@ -4004,7 +4097,7 @@ export default function ClipEditor({
             ) : (
               <div className="flex items-stretch gap-2 min-w-max">
                 {inBoundsStills.map((still) => {
-                  const clipStillTMs = roundToFrame(getClipRelativeMsForStill(clip, still), videoFps);
+                  const clipStillTMs = getClipRelativeImportMsForStill(clip, still, videoFps);
                   const isCurrent = Math.abs(currentTMs - clipStillTMs) <= (1000 / Math.max(1, videoFps));
                   const timingLabel = formatTime(clipStillTMs);
                   return (

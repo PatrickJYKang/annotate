@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  getClipRelativeImportMsForStill,
   getClipRelativeMsForStill,
   getStillClipPosition,
   isStillWithinClipBounds,
@@ -77,5 +78,34 @@ describe('listStillsForClipVideo', () => {
 describe('getClipRelativeMsForStill', () => {
   it('converts an in-bounds still timestamp to clip-relative ms', () => {
     expect(getClipRelativeMsForStill({ startMs: 1000 }, { t_ms: 1450 })).toBe(450);
+  });
+});
+
+describe('getClipRelativeImportMsForStill', () => {
+  it('snaps the imported still to the nearest source-video frame', () => {
+    const snapped = getClipRelativeImportMsForStill(
+      { startMs: 1000, endMs: 2000 },
+      { t_ms: 1450 },
+      30,
+    );
+    expect(snapped).toBeCloseTo(466.667, 2);
+  });
+
+  it('prefers an in-bounds frame when the nearest source frame would fall before the clip start', () => {
+    const snapped = getClipRelativeImportMsForStill(
+      { startMs: 1005, endMs: 1200 },
+      { t_ms: 1006 },
+      30,
+    );
+    expect(snapped).toBeCloseTo(28.333, 2);
+  });
+
+  it('clamps back into the clip if no source frame candidate lies inside a tiny clip window', () => {
+    const snapped = getClipRelativeImportMsForStill(
+      { startMs: 1005, endMs: 1010 },
+      { t_ms: 1006 },
+      30,
+    );
+    expect(snapped).toBe(0);
   });
 });
