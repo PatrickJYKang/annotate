@@ -143,6 +143,9 @@ export default function Editor({
   onSaveStatus,
   autoPerspectiveQuad,
   autoPerspectiveTick,
+  backgroundVideoElement,
+  backgroundFrameTick,
+  annotationsLocked,
 }: {
   stillId: string;
   annotationId: string;
@@ -167,6 +170,9 @@ export default function Editor({
   onSaveStatus?: (s: { state: 'idle' | 'saving' | 'saved' | 'error'; at?: string; message?: string }) => void;
   autoPerspectiveQuad?: PerspectiveQuadPoint[] | null;
   autoPerspectiveTick?: number;
+  backgroundVideoElement?: HTMLVideoElement | null;
+  backgroundFrameTick?: number;
+  annotationsLocked?: boolean;
 }) {
   const { projectDir } = useProject();
   const [shapes, setShapes] = useState<Shape[]>([]);
@@ -215,6 +221,8 @@ export default function Editor({
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const bgImage = useImage(imgUrl);
+  const backgroundMedia = backgroundVideoElement || bgImage;
+  const showAnnotations = !annotationsLocked;
   const defaultAnnColor = defaultColor || '#000000';
   const defStrokeW = defaultStrokeWidth ?? 6;
   const defFill = defaultFill || defaultAnnColor;
@@ -339,6 +347,11 @@ export default function Editor({
       tr.getLayer()?.batchDraw();
     }
   }, [selectedId, selectedIds, shapes]);
+
+  useEffect(() => {
+    if (!backgroundVideoElement) return;
+    stageRef.current?.batchDraw();
+  }, [backgroundVideoElement, backgroundFrameTick]);
 
   // Load annotations JSON
   useEffect(() => {
@@ -852,8 +865,20 @@ export default function Editor({
     setShapes(prev => prev.filter((s: any) => !s?._temp && !(typeof s?.id === 'string' && s.id.startsWith('_temp_'))));
   }, []);
 
+  useEffect(() => {
+    if (!annotationsLocked) return;
+    cancelDrawing();
+    setIsSelecting(false);
+    selStartRef.current = null;
+    selCandidateRef.current = null;
+    selCandidateEmptyRef.current = false;
+    setSelRect(null);
+    setTextEdit(null);
+  }, [annotationsLocked, cancelDrawing]);
+
   // Tool interactions
   const onMouseDown = useCallback((e: any) => {
+    if (annotationsLocked) return;
     const p = getPointerPos(); if (!p) return;
     const evt = (e && (e.evt || e)) as any;
     if (evt?.button === 0) {
@@ -911,9 +936,10 @@ export default function Editor({
       startRef.current = hit ? { x: hit.x, y: hit.y } : p;
       shadowAnchorRef.current = hit?.id || null;
     }
-  }, [tool, getPointerPos, isDrawing, cancelDrawing]);
+  }, [annotationsLocked, tool, getPointerPos, isDrawing, cancelDrawing]);
 
   const onClick = useCallback((e: any) => {
+    if (annotationsLocked) return;
     const p = getPointerPos(); if (!p) return;
     const evt = (e && (e.evt || e)) as any;
     if (evt?.button === 2) return;
@@ -1033,9 +1059,10 @@ export default function Editor({
         });
       }
     }
-  }, [tool, getPointerPos, findHighlightHit, beginTextEdit, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp, defFontSz, defTextHl]);
+  }, [annotationsLocked, tool, getPointerPos, findHighlightHit, beginTextEdit, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp, defFontSz, defTextHl]);
 
   const onDblClick = useCallback(() => {
+    if (annotationsLocked) return;
     if (tool !== 'poly') return;
     if (!isTightDblClick()) return;
     const poly = polyTempRef.current;
@@ -1057,9 +1084,10 @@ export default function Editor({
     });
     polyTempRef.current = null;
     polyNearIndexRef.current = -1;
-  }, [tool, isTightDblClick, defaultStrokePattern, defaultAnnColor, defStrokeW]);
+  }, [annotationsLocked, tool, isTightDblClick, defaultStrokePattern, defaultAnnColor, defStrokeW]);
 
   const onMouseMove = useCallback((e: any) => {
+    if (annotationsLocked) return;
     const p = getPointerPos(); if (!p) return;
     const evt = (e && (e.evt || e)) as any;
     const shiftKey = !!evt?.shiftKey;
@@ -1220,9 +1248,10 @@ export default function Editor({
         return next;
       });
     }
-  }, [isDrawing, isSelecting, tool, getPointerPos, homography, getLocalScales, getMidlineDims, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp]);
+  }, [annotationsLocked, isDrawing, isSelecting, tool, getPointerPos, homography, getLocalScales, getMidlineDims, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp]);
 
   const onMouseUp = useCallback((e: any) => {
+    if (annotationsLocked) return;
     const p = getPointerPos();
     const evt = (e && (e.evt || e)) as any;
     const shiftKey = !!evt?.shiftKey;
@@ -1444,10 +1473,11 @@ export default function Editor({
     setIsDrawing(false);
     startRef.current = null;
     shadowAnchorRef.current = null;
-  }, [isDrawing, isSelecting, tool, getPointerPos, selRect, shapes, homography, boxFrac, circFrac, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp, selectedId, selectedIds, getShapeBounds]);
+  }, [annotationsLocked, isDrawing, isSelecting, tool, getPointerPos, selRect, shapes, homography, boxFrac, circFrac, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp, selectedId, selectedIds, getShapeBounds]);
 
   // Arrow & Poly preview while placing
   useEffect(() => {
+    if (annotationsLocked) return;
     const onMove = () => {
       const p = getPointerPos(); if (!p) return;
       if (tool === 'arrow') {
@@ -1517,7 +1547,7 @@ export default function Editor({
     const stage = stageRef.current;
     if (stage) stage.on('mousemove', onMove);
     return () => { if (stage) stage.off('mousemove', onMove); };
-  }, [tool, getPointerPos, findHighlightHit, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp]);
+  }, [annotationsLocked, tool, getPointerPos, findHighlightHit, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp]);
 
   // Clear temp shapes when tool changes
   useEffect(() => {
@@ -1531,6 +1561,7 @@ export default function Editor({
 
   // Selection and basic drag for shapes
   const onShapeMouseDown = useCallback((id: string, e?: any) => {
+    if (annotationsLocked) return;
     if (tool === 'calibrate') return;
     const evt = (e && (e.evt || e)) as any;
     const addKey = !!evt?.shiftKey;
@@ -1572,17 +1603,19 @@ export default function Editor({
     } else {
       setSelectedId(nextOrdered[nextOrdered.length - 1]);
     }
-  }, [tool, selectedId, selectedIds]);
+  }, [annotationsLocked, tool, selectedId, selectedIds]);
 
   const onDragMove = useCallback((id: string, e: any) => {
+    if (annotationsLocked) return;
     if (isSelecting) return;
     const node = e.target;
     const { x, y } = node.position();
     setShapes(prev => prev.map(s => s.id === id ? { ...s, x, y } : s));
-  }, [isSelecting]);
+  }, [annotationsLocked, isSelecting]);
 
   // Transform end handler for rect/circle/text (arrow transforms disabled for now)
   const onTransformEnd = useCallback((s: Shape, e: any) => {
+    if (annotationsLocked) return;
     const node = e.target;
     const scaleX = node.scaleX();
     const scaleY = node.scaleY();
@@ -1615,11 +1648,12 @@ export default function Editor({
       }
       return sp;
     }));
-  }, []);
+  }, [annotationsLocked]);
 
   // Delete selected on Delete/Backspace
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (annotationsLocked) return;
       const t = e.target as HTMLElement | null;
       const isTyping = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
       if (isTyping) return;
@@ -1681,7 +1715,7 @@ export default function Editor({
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [selectedId, selectedIds, shapes, isDrawing, cancelDrawing, defaultStrokePattern, defaultAnnColor]);
+  }, [annotationsLocked, selectedId, selectedIds, shapes, isDrawing, cancelDrawing, defaultStrokePattern, defaultAnnColor]);
 
   const occluderNodes = useMemo(() => {
     return shapes.filter(s => s.type === 'highlight').map(s => {
@@ -1707,7 +1741,7 @@ export default function Editor({
     const isTemp = (s as any)._temp;
     const strokeWidth = s.style?.strokeWidth || 6;
     const dash = dashFromStrokePattern(s.style?.strokePattern, strokeWidth);
-    const common = { x: s.x || 0, y: s.y || 0, rotation: 0, stroke: s.style?.stroke || defaultAnnColor, strokeWidth, dash, listening: !isTemp } as any;
+    const common = { x: s.x || 0, y: s.y || 0, rotation: 0, stroke: s.style?.stroke || defaultAnnColor, strokeWidth, dash, listening: !annotationsLocked && !isTemp } as any;
     if (homography && s.plane) {
       const cen = applyHomography(homography.H, s.plane.cx, s.plane.cy);
       const rx = (s as any).rx ?? 40;
@@ -1722,7 +1756,7 @@ export default function Editor({
           radiusX={Math.max(0.5, rx)}
           radiusY={Math.max(0.5, ry)}
           fill={fill}
-          draggable={tool !== 'calibrate' && !isTemp && !isSelecting}
+          draggable={!annotationsLocked && tool !== 'calibrate' && !isTemp && !isSelecting}
           onMouseDown={(e: any) => onShapeMouseDown(s.id, e)}
           onDragEnd={(e: any) => {
             const node = e.target; const pos = node.position();
@@ -1741,7 +1775,7 @@ export default function Editor({
         radiusX={Math.max(0.5, s.rx || Math.max(0, (s.w || 0) / 2))}
         radiusY={Math.max(0.5, s.ry || Math.max(0, (s.h || 0) / 2))}
         fill={fill}
-        draggable={tool !== 'calibrate' && !isTemp && !isSelecting}
+        draggable={!annotationsLocked && tool !== 'calibrate' && !isTemp && !isSelecting}
         onMouseDown={(e: any) => onShapeMouseDown(s.id, e)}
         onDragMove={(e: any) => onDragMove(s.id, e)}
         hitStrokeWidth={16}
@@ -1767,7 +1801,7 @@ export default function Editor({
         key={s.id}
         x={center.x}
         y={center.y}
-        draggable={tool !== 'calibrate' && !isTemp && !isSelecting}
+        draggable={!annotationsLocked && tool !== 'calibrate' && !isTemp && !isSelecting}
         onMouseDown={(e: any) => onShapeMouseDown(s.id, e)}
         onDragMove={(e: any) => {
           if (!linkedHighlightId) onDragMove(s.id, e);
@@ -1810,7 +1844,7 @@ export default function Editor({
     const isTemp = (s as any)._temp;
     const strokeWidth = s.style?.strokeWidth || (s.type === 'text' ? 1 : 6);
     const dash = dashFromStrokePattern(s.style?.strokePattern, strokeWidth);
-    const common = { x: s.x || 0, y: s.y || 0, rotation: 0, stroke: s.style?.stroke || defaultAnnColor, strokeWidth, dash, listening: !isTemp && !disableNonHighlightHit } as any;
+    const common = { x: s.x || 0, y: s.y || 0, rotation: 0, stroke: s.style?.stroke || defaultAnnColor, strokeWidth, dash, listening: !annotationsLocked && !isTemp && !disableNonHighlightHit } as any;
     if (homography && s.plane && s.type === 'box') {
       const w = s.plane.w || 0; const h = s.plane.h || 0;
       const pts = rectPlaneToImagePoints(homography.H, s.plane.cx, s.plane.cy, w, h);
@@ -1822,7 +1856,7 @@ export default function Editor({
           points={pts}
           closed={true}
           fill={fill}
-          draggable={tool !== 'calibrate' && !isTemp && !isSelecting}
+          draggable={!annotationsLocked && tool !== 'calibrate' && !isTemp && !isSelecting}
           onMouseDown={(e: any) => onShapeMouseDown(s.id, e)}
           onDragEnd={(e: any) => {
             const node = e.target; const pos = node.position();
@@ -1845,7 +1879,7 @@ export default function Editor({
           width={Math.max(0.5, s.w || 0)}
           height={Math.max(0.5, s.h || 0)}
           fill={fill}
-          draggable={tool !== 'calibrate' && !isTemp && !isSelecting}
+          draggable={!annotationsLocked && tool !== 'calibrate' && !isTemp && !isSelecting}
           onMouseDown={(e: any) => onShapeMouseDown(s.id, e)}
           onDragMove={(e: any) => onDragMove(s.id, e)}
           hitStrokeWidth={16}
@@ -1865,7 +1899,7 @@ export default function Editor({
           points={pts}
           closed={true}
           fill={fill}
-          draggable={tool !== 'calibrate' && !isTemp && !isSelecting}
+          draggable={!annotationsLocked && tool !== 'calibrate' && !isTemp && !isSelecting}
           onMouseDown={(e: any) => onShapeMouseDown(s.id, e)}
           onDragEnd={(e: any) => {
             const node = e.target; const pos = node.position();
@@ -1888,7 +1922,7 @@ export default function Editor({
           radiusX={Math.max(0.5, (s as any).rx ?? (s as any).r ?? 0)}
           radiusY={Math.max(0.5, (s as any).ry ?? (s as any).r ?? 0)}
           fill={fill}
-          draggable={tool !== 'calibrate' && !isTemp && !isSelecting}
+          draggable={!annotationsLocked && tool !== 'calibrate' && !isTemp && !isSelecting}
           onMouseDown={(e: any) => onShapeMouseDown(s.id, e)}
           onDragMove={(e: any) => onDragMove(s.id, e)}
           hitStrokeWidth={16}
@@ -1959,7 +1993,7 @@ export default function Editor({
           pointerLength={10}
           pointerWidth={10}
           fill={s.style?.stroke || defaultAnnColor}
-          draggable={tool !== 'calibrate' && !isTemp && !isSelecting}
+          draggable={!annotationsLocked && tool !== 'calibrate' && !isTemp && !isSelecting}
           onMouseDown={(e: any) => onShapeMouseDown(s.id, e)}
           onDragEnd={(e: any) => {
             const node = e.target;
@@ -2012,7 +2046,7 @@ export default function Editor({
           fill={fill}
           lineCap="round"
           lineJoin="round"
-          draggable={tool !== 'calibrate' && !isTemp && !isSelecting}
+          draggable={!annotationsLocked && tool !== 'calibrate' && !isTemp && !isSelecting}
           onMouseDown={(e: any) => onShapeMouseDown(s.id, e)}
           onDragEnd={(e: any) => {
             const node = e.target;
@@ -2054,11 +2088,11 @@ export default function Editor({
         x={s.x || 0}
         y={s.y || 0}
         rotation={s.rotation || 0}
-        listening={!isTemp && !disableNonHighlightHit}
+        listening={!annotationsLocked && !isTemp && !disableNonHighlightHit}
         text={s.text || ''}
         fontSize={fontSize}
         fontFamily={s.style?.fontFamily || 'Inter, system-ui, sans-serif'}
-        draggable={tool !== 'calibrate' && !isSelecting && !(textEdit && textEdit.id === s.id)}
+        draggable={!annotationsLocked && tool !== 'calibrate' && !isSelecting && !(textEdit && textEdit.id === s.id)}
         onMouseDown={(e: any) => onShapeMouseDown(s.id, e)}
         onDragMove={(e: any) => onDragMove(s.id, e)}
         fill={textColor}
@@ -2087,7 +2121,7 @@ export default function Editor({
     const isTemp = (s as any)._temp;
     const strokeWidth = s.style?.strokeWidth || 6;
     const dash = dashFromStrokePattern(s.style?.strokePattern, strokeWidth);
-    const common = { x: s.x || 0, y: s.y || 0, rotation: 0, stroke: s.style?.stroke || defaultAnnColor, strokeWidth, dash, listening: !isTemp && !disableNonHighlightHit } as any;
+    const common = { x: s.x || 0, y: s.y || 0, rotation: 0, stroke: s.style?.stroke || defaultAnnColor, strokeWidth, dash, listening: !annotationsLocked && !isTemp && !disableNonHighlightHit } as any;
     if (s.type === 'arrow') {
       const base = s.points || [];
       const ox = s.x || 0;
@@ -2151,7 +2185,7 @@ export default function Editor({
           pointerLength={10}
           pointerWidth={10}
           fill={s.style?.stroke || defaultAnnColor}
-          draggable={tool !== 'calibrate' && !isTemp && !isSelecting}
+          draggable={!annotationsLocked && tool !== 'calibrate' && !isTemp && !isSelecting}
           onMouseDown={(e: any) => onShapeMouseDown(s.id, e)}
           onDragEnd={(e: any) => {
             const node = e.target;
@@ -2191,13 +2225,13 @@ export default function Editor({
           key={s.id}
           x={ox}
           y={oy}
-          draggable={tool !== 'calibrate' && !isTemp && !isSelecting}
+          draggable={!annotationsLocked && tool !== 'calibrate' && !isTemp && !isSelecting}
           onMouseDown={(e: any) => onShapeMouseDown(s.id, e)}
           stroke={s.style?.stroke || defaultAnnColor}
           strokeWidth={strokeWidth}
           dash={dash}
           fill={s.style?.stroke || defaultAnnColor}
-          listening={!isTemp && !disableNonHighlightHit}
+        listening={!annotationsLocked && !isTemp && !disableNonHighlightHit}
           hitStrokeWidth={16}
           ref={s.id === selectedId ? (node: any) => { selectedNodeRef.current = node; } : undefined}
           onDragEnd={(e: any) => {
@@ -2272,7 +2306,7 @@ export default function Editor({
           fill={fill}
           lineCap="round"
           lineJoin="round"
-          draggable={tool !== 'calibrate' && !isTemp && !isSelecting}
+          draggable={!annotationsLocked && tool !== 'calibrate' && !isTemp && !isSelecting}
           onMouseDown={(e: any) => onShapeMouseDown(s.id, e)}
           onDragEnd={(e: any) => {
             const node = e.target;
@@ -2370,11 +2404,11 @@ export default function Editor({
         }}
       >
         <Layer listening={false}>
-          {bgImage && (
-            <KImage image={bgImage} x={0} y={0} width={imageInfo.width} height={imageInfo.height} />
+          {backgroundMedia && (
+            <KImage image={backgroundMedia as any} x={0} y={0} width={imageInfo.width} height={imageInfo.height} />
           )}
         </Layer>
-        {tool === 'calibrate' && (
+        {tool === 'calibrate' && !annotationsLocked && (
           <Layer listening={false}>
             {(() => {
               const pts = [...calibPoints];
@@ -2393,96 +2427,108 @@ export default function Editor({
             ))}
           </Layer>
         )}
-        <Layer>
-          {shadowNodes}
-        </Layer>
-        <Layer>
-          {otherNodes}
-        </Layer>
-        <Layer>
-          {lineNodes}
-          {occluderNodes}
-        </Layer>
-        <Layer>
-          {highlightNodes}
-        </Layer>
+        {showAnnotations && (
+          <Layer>
+            {shadowNodes}
+          </Layer>
+        )}
+        {showAnnotations && (
+          <Layer>
+            {otherNodes}
+          </Layer>
+        )}
+        {showAnnotations && (
+          <Layer>
+            {lineNodes}
+            {occluderNodes}
+          </Layer>
+        )}
+        {showAnnotations && (
+          <Layer>
+            {highlightNodes}
+          </Layer>
+        )}
         <Layer listening={false}>
-          {foregroundCutout && (
+          {!backgroundVideoElement && foregroundCutout && (
             <KImage image={foregroundCutout} x={0} y={0} width={imageInfo.width} height={imageInfo.height} />
           )}
         </Layer>
-        <Layer>
-          {textNodes}
-        </Layer>
-        <Layer>
-          {selectedIds.length > 0 && selectedIds.map(id => {
-            const s = shapes.find(sh => sh.id === id);
-            if (!s) return null;
-            const b = getShapeBounds(s);
-            return (
-              <KRect
-                key={`selbox_${id}`}
-                x={b.x}
-                y={b.y}
-                width={Math.max(0, b.w)}
-                height={Math.max(0, b.h)}
-                stroke="#60a5fa"
-                dash={[4,4]}
-                strokeWidth={1.5}
-                listening={false}
-              />
-            );
-          })}
-          {selectedId && (() => {
-            const selectedShape = shapes.find((s) => s.id === selectedId);
-            if (!selectedShape || selectedShape.type !== 'lob') return null;
-            const { start, control, end } = resolveLobPoints(selectedShape);
-            return (
-              <>
-                <KLine
-                  points={[start.x, start.y, control.x, control.y, end.x, end.y]}
+        {showAnnotations && (
+          <Layer>
+            {textNodes}
+          </Layer>
+        )}
+        {showAnnotations && (
+          <Layer>
+            {selectedIds.length > 0 && selectedIds.map(id => {
+              const s = shapes.find(sh => sh.id === id);
+              if (!s) return null;
+              const b = getShapeBounds(s);
+              return (
+                <KRect
+                  key={`selbox_${id}`}
+                  x={b.x}
+                  y={b.y}
+                  width={Math.max(0, b.w)}
+                  height={Math.max(0, b.h)}
                   stroke="#60a5fa"
-                  dash={[4, 4]}
+                  dash={[4,4]}
                   strokeWidth={1.5}
                   listening={false}
                 />
-                <KCircle
-                  x={control.x}
-                  y={control.y}
-                  radius={7}
-                  fill="#60a5fa"
-                  stroke="#ffffff"
-                  strokeWidth={1.5}
-                  draggable={tool !== 'calibrate' && !isSelecting}
-                  onDragMove={(e: any) => {
-                    const pos = e.target.position();
-                    setShapes(prev => prev.map((s) => {
-                      if (s.id !== selectedShape.id) return s;
-                      const pts = s.points ? s.points.slice() : [0, 0, 0, 0, 0, 0];
-                      pts[2] = pos.x;
-                      pts[3] = pos.y;
-                      return { ...s, points: pts, x: 0, y: 0 };
-                    }));
-                  }}
-                />
-              </>
-            );
-          })()}
-          {selectedId && (selectedIds.length <= 1) && (
-            <Transformer
-              ref={transformerRef}
-              rotateEnabled={false}
-              anchorSize={10}
-              enabledAnchors={((): any => {
-                const sh = shapes.find(s => s.id === selectedId);
-                if (!sh) return [];
-                if (sh.type === 'arrow' || sh.type === 'lob' || sh.type === 'poly' || sh.type === 'shadow') return [];
-                if (homography && sh.plane && (sh.type === 'box' || sh.type === 'circle' || sh.type === 'highlight')) return [];
-                return undefined;
-              })()}
-            />
-          )}
-        </Layer>
+              );
+            })}
+            {selectedId && (() => {
+              const selectedShape = shapes.find((s) => s.id === selectedId);
+              if (!selectedShape || selectedShape.type !== 'lob') return null;
+              const { start, control, end } = resolveLobPoints(selectedShape);
+              return (
+                <>
+                  <KLine
+                    points={[start.x, start.y, control.x, control.y, end.x, end.y]}
+                    stroke="#60a5fa"
+                    dash={[4, 4]}
+                    strokeWidth={1.5}
+                    listening={false}
+                  />
+                  <KCircle
+                    x={control.x}
+                    y={control.y}
+                    radius={7}
+                    fill="#60a5fa"
+                    stroke="#ffffff"
+                    strokeWidth={1.5}
+                    draggable={!annotationsLocked && tool !== 'calibrate' && !isSelecting}
+                    onDragMove={(e: any) => {
+                      const pos = e.target.position();
+                      setShapes(prev => prev.map((s) => {
+                        if (s.id !== selectedShape.id) return s;
+                        const pts = s.points ? s.points.slice() : [0, 0, 0, 0, 0, 0];
+                        pts[2] = pos.x;
+                        pts[3] = pos.y;
+                        return { ...s, points: pts, x: 0, y: 0 };
+                      }));
+                    }}
+                  />
+                </>
+              );
+            })()}
+            {selectedId && (selectedIds.length <= 1) && !annotationsLocked && (
+              <Transformer
+                ref={transformerRef}
+                rotateEnabled={false}
+                anchorSize={10}
+                enabledAnchors={((): any => {
+                  const sh = shapes.find(s => s.id === selectedId);
+                  if (!sh) return [];
+                  if (sh.type === 'arrow' || sh.type === 'lob' || sh.type === 'poly' || sh.type === 'shadow') return [];
+                  if (homography && sh.plane && (sh.type === 'box' || sh.type === 'circle' || sh.type === 'highlight')) return [];
+                  return undefined;
+                })()}
+              />
+            )}
+          </Layer>
+        )}
       </Stage>
       {ioError && (
         <div className="panel absolute right-2 bottom-2 p-2 min-w-[260px]">
@@ -2493,7 +2539,7 @@ export default function Editor({
           </div>
         </div>
       )}
-      {calibrating && (
+      {calibrating && !annotationsLocked && (
         <div className="panel absolute left-2 top-2 p-2 min-w-[220px]">
           <strong>Define Pitch</strong>
           <div className="status mt-1.5">Click 4 corners: TL, TR, BR, BL</div>
@@ -2509,7 +2555,7 @@ export default function Editor({
           </svg>
         </div>
       )}
-      {(selectedId || (selectedIds && selectedIds.length > 0)) && (
+      {showAnnotations && (selectedId || (selectedIds && selectedIds.length > 0)) && (
         <div className="panel absolute right-2 top-2 p-2 min-w-[220px]">
           <strong>Inspector</strong>
           <div className="status">ID: {(selectedId || selectedIds[0]).slice(0, 8)}</div>
