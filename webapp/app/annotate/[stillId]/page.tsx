@@ -58,7 +58,18 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
   const [autoPerspectiveTick, setAutoPerspectiveTick] = useState(0);
   const [sidecarVideoRef, setSidecarVideoRef] = useState<string | null>(null);
   const [sidecarVideoError, setSidecarVideoError] = useState<string | null>(null);
+  const [sourceVideoUrl, setSourceVideoUrl] = useState<string | null>(null);
+  const [sourceVideoError, setSourceVideoError] = useState<string | null>(null);
+  const [previewTimeMs, setPreviewTimeMs] = useState<number | null>(null);
+  const [previewFrameTick, setPreviewFrameTick] = useState(0);
+  const [previewReady, setPreviewReady] = useState(false);
+  const [videoDurationMs, setVideoDurationMs] = useState<number | null>(null);
   const activeSidecarVideoRef = useRef<string | null>(null);
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const previewRafRef = useRef<number | null>(null);
+  const previewDirectionRef = useRef<-1 | 0 | 1>(0);
+  const previewLastTsRef = useRef<number | null>(null);
+  const lastSyncedPreviewMsRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!saveStatus) return;
@@ -318,6 +329,26 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
     return manifest.videos.find((video) => video.id === still.videoId)?.file || null;
   }, [manifest, still]);
 
+  const annotationTimeMs = still?.t_ms ?? 0;
+  const previewBounds = useMemo(() => {
+    const startMs = Math.max(0, annotationTimeMs - 5000);
+    const unclampedEndMs = annotationTimeMs + 5000;
+    const endMs = videoDurationMs != null ? Math.max(startMs, Math.min(videoDurationMs, unclampedEndMs)) : unclampedEndMs;
+    return { startMs, endMs };
+  }, [annotationTimeMs, videoDurationMs]);
+
+  const clampPreviewMs = useCallback((rawMs: number, durationOverrideMs?: number | null) => {
+    const startMs = Math.max(0, annotationTimeMs - 5000);
+    const unclampedEndMs = annotationTimeMs + 5000;
+    const durationMs = durationOverrideMs ?? videoDurationMs;
+    const endMs = durationMs != null ? Math.max(startMs, Math.min(durationMs, unclampedEndMs)) : unclampedEndMs;
+    return Math.max(startMs, Math.min(endMs, rawMs));
+  }, [annotationTimeMs, videoDurationMs]);
+
+  const previewAtAnnotationFrame = previewTimeMs == null || Math.abs(previewTimeMs - annotationTimeMs) <= 8;
+  const annotationsLocked = !!sourceVideoUrl && previewReady && !previewAtAnnotationFrame;
+  const previewVideoActive = annotationsLocked;
+
   const canAutoCalibrate = !!(projectDir && still && sourceVideoPath && sidecarVideoRef);
 
   useEffect(() => {
@@ -338,10 +369,53 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
     })();
   }, [projectDir, still?.file, still?.width, still?.height, getFileUrlForPath]);
 
+  useEffect(() => {
+    let active = true;
+
+    (async () => {
+      if (!projectDir || !sourceVideoPath) {
+        setSourceVideoUrl(null);
+        setSourceVideoError(null);
+        setPreviewReady(false);
+        setPreviewTimeMs(null);
+        setVideoDurationMs(null);
+        return;
+      }
+
+      try {
+        const url = await getFileUrlForPath(projectDir, sourceVideoPath);
+        if (!active) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        setSourceVideoUrl(url);
+        setSourceVideoError(null);
+        setPreviewReady(false);
+        setPreviewTimeMs(null);
+        setVideoDurationMs(null);
+      } catch (e: any) {
+        if (!active) return;
+        setSourceVideoUrl(null);
+        setSourceVideoError(e?.message || 'Failed to load source video');
+        setPreviewReady(false);
+        setPreviewTimeMs(null);
+        setVideoDurationMs(null);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [projectDir, sourceVideoPath, getFileUrlForPath]);
+
   // Revoke previous object URL when imgUrl changes (prevents revoking the current one too early)
   useEffect(() => {
     return () => { if (imgUrl) URL.revokeObjectURL(imgUrl); };
   }, [imgUrl]);
+
+  useEffect(() => {
+    return () => { if (sourceVideoUrl) URL.revokeObjectURL(sourceVideoUrl); };
+  }, [sourceVideoUrl]);
 
   useEffect(() => {
     let active = true;
@@ -400,6 +474,162 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
       }
     };
   }, []);
+
+  const syncPreviewFrame = useCallback((force = false) => {
+    const video = previewVideoRef.current;
+    if (!video) return;
+    const nextMs = clampPreviewMs(Math.round(video.currentTime * 1000), videoDurationMs);
+    if (!force && lastSyncedPreviewMsRef.current != null && Math.abs(nextMs - lastSyncedPreviewMsRef.current) < 25) {
+      return;
+    }
+    lastSyncedPreviewMsRef.current = nextMs;
+    setPreviewTimeMs(nextMs);
+    setPreviewFrameTick((tick) => tick + 1);
+  }, [clampPreviewMs, videoDurationMs]);
+
+  const stopPreviewPlayback = useCallback((snapToMs?: number | null) => {
+    previewDirectionRef.current = 0;
+    previewLastTsRef.current = null;
+    if (previewRafRef.current != null) {
+      window.cancelAnimationFrame(previewRafRef.current);
+      previewRafRef.current = null;
+    }
+    const video = previewVideoRef.current;
+    if (!video) return;
+    video.pause();
+    if (snapToMs != null) {
+      const clamped = clampPreviewMs(snapToMs, videoDurationMs);
+      if (Math.abs(video.currentTime * 1000 - clamped) > 6) {
+        video.currentTime = clamped / 1000;
+      }
+    }
+    syncPreviewFrame(true);
+  }, [clampPreviewMs, syncPreviewFrame, videoDurationMs]);
+
+  const startPreviewPlayback = useCallback((direction: -1 | 1) => {
+    const video = previewVideoRef.current;
+    if (!video || !previewReady) return;
+    if (previewDirectionRef.current === direction) return;
+    stopPreviewPlayback();
+    previewDirectionRef.current = direction;
+    previewLastTsRef.current = null;
+
+    if (direction > 0) {
+      if (video.currentTime * 1000 >= previewBounds.endMs - 8) {
+        video.currentTime = previewBounds.endMs / 1000;
+        syncPreviewFrame(true);
+        return;
+      }
+      video.playbackRate = 1;
+      void video.play().catch(() => {});
+      const tick = () => {
+        if (previewDirectionRef.current !== 1) return;
+        if (video.currentTime * 1000 >= previewBounds.endMs - 8) {
+          stopPreviewPlayback(previewBounds.endMs);
+          return;
+        }
+        syncPreviewFrame();
+        previewRafRef.current = window.requestAnimationFrame(tick);
+      };
+      previewRafRef.current = window.requestAnimationFrame(tick);
+      return;
+    }
+
+    video.pause();
+    const tick = (ts: number) => {
+      if (previewDirectionRef.current !== -1) return;
+      const prevTs = previewLastTsRef.current ?? ts;
+      previewLastTsRef.current = ts;
+      const deltaMs = Math.max(0, ts - prevTs);
+      const nextMs = clampPreviewMs(video.currentTime * 1000 - deltaMs, videoDurationMs);
+      video.currentTime = nextMs / 1000;
+      syncPreviewFrame();
+      if (nextMs <= previewBounds.startMs + 1) {
+        stopPreviewPlayback(previewBounds.startMs);
+        return;
+      }
+      previewRafRef.current = window.requestAnimationFrame(tick);
+    };
+    previewRafRef.current = window.requestAnimationFrame(tick);
+  }, [clampPreviewMs, previewBounds.endMs, previewBounds.startMs, previewReady, stopPreviewPlayback, syncPreviewFrame, videoDurationMs]);
+
+  const returnToAnnotationFrame = useCallback(() => {
+    stopPreviewPlayback(annotationTimeMs);
+  }, [annotationTimeMs, stopPreviewPlayback]);
+
+  useEffect(() => {
+    const handlePointerRelease = () => {
+      if (previewDirectionRef.current !== 0) {
+        stopPreviewPlayback();
+      }
+    };
+    const handleWindowBlur = () => {
+      if (previewDirectionRef.current !== 0) {
+        stopPreviewPlayback();
+      }
+    };
+    window.addEventListener('pointerup', handlePointerRelease);
+    window.addEventListener('pointercancel', handlePointerRelease);
+    window.addEventListener('blur', handleWindowBlur);
+    return () => {
+      window.removeEventListener('pointerup', handlePointerRelease);
+      window.removeEventListener('pointercancel', handlePointerRelease);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  }, [stopPreviewPlayback]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isTyping = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      if (isTyping) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      if (e.key === ' ') {
+        e.preventDefault();
+        returnToAnnotationFrame();
+        return;
+      }
+
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        startPreviewPlayback(-1);
+        return;
+      }
+
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        startPreviewPlayback(1);
+      }
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const isTyping = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      if (isTyping) return;
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        stopPreviewPlayback();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('keyup', onKeyUp, true);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('keyup', onKeyUp, true);
+    };
+  }, [returnToAnnotationFrame, startPreviewPlayback, stopPreviewPlayback]);
+
+  useEffect(() => {
+    return () => stopPreviewPlayback();
+  }, [stopPreviewPlayback]);
+
+  useEffect(() => {
+    if (!sourceVideoUrl) {
+      stopPreviewPlayback();
+    }
+  }, [sourceVideoUrl, stopPreviewPlayback]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const pageRootRef = useRef<HTMLDivElement | null>(null);
@@ -597,6 +827,23 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
     }
   }, [sidecarVideoRef, still]);
 
+  const handlePreviewVideoLoadedMetadata = useCallback(() => {
+    const video = previewVideoRef.current;
+    if (!video) return;
+    const durationMs = Number.isFinite(video.duration) ? Math.round(video.duration * 1000) : null;
+    setVideoDurationMs(durationMs);
+    setPreviewReady(true);
+    const targetMs = clampPreviewMs(annotationTimeMs, durationMs);
+    video.currentTime = targetMs / 1000;
+    lastSyncedPreviewMsRef.current = targetMs;
+    setPreviewTimeMs(targetMs);
+    setPreviewFrameTick((tick) => tick + 1);
+  }, [annotationTimeMs, clampPreviewMs]);
+
+  const handlePreviewVideoSeeked = useCallback(() => {
+    syncPreviewFrame(true);
+  }, [syncPreviewFrame]);
+
   const toolBtnCls = (t: Tool) =>
     `self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base cursor-pointer ${
       tool === t
@@ -607,6 +854,7 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
   const actionBtnCls =
     'self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base cursor-pointer bg-canvas text-primary disabled:opacity-50 disabled:cursor-not-allowed';
 
+  const annotationControlCls = annotationsLocked ? 'opacity-50 cursor-not-allowed' : '';
   const saveStatusCls =
     saveStatus?.state === 'error' ? 'text-danger'
     : saveStatus?.state === 'saving' ? 'text-warning'
@@ -618,6 +866,19 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
   const hasPattern = ['box', 'circle', 'highlight', 'shadow', 'arrow', 'lob', 'poly'].includes(tool);
   const hasFill = ['box', 'circle', 'highlight', 'shadow', 'poly'].includes(tool);
   const hasFont = tool === 'text';
+  const previewCanStepBackward = previewReady && previewBounds.startMs < annotationTimeMs;
+  const previewCanStepForward = previewReady && previewBounds.endMs > annotationTimeMs;
+  const previewStatus = sourceVideoError
+    ? sourceVideoError
+    : !sourceVideoPath
+      ? 'No source video for this still'
+      : !sourceVideoUrl
+        ? 'Loading source video…'
+        : !previewReady
+          ? 'Preparing video…'
+          : previewAtAnnotationFrame
+            ? 'At annotation frame'
+            : `${previewTimeMs != null && previewTimeMs < annotationTimeMs ? 'Preview -' : 'Preview +'}${(((previewTimeMs ?? annotationTimeMs) - annotationTimeMs) / 1000).toFixed(2).replace('-', '')}s`;
 
   const navbar = (
     <div className="flex items-stretch bg-surface border-b border-border shrink-0">
@@ -706,23 +967,23 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
 
   const toolBar = (
     <div className="flex items-stretch justify-center bg-surface border-b border-border shrink-0">
-      <button onClick={() => setTool('select')} aria-pressed={tool === 'select'} className={toolBtnCls('select')}>Select</button>
-      <button onClick={() => setTool('box')} aria-pressed={tool === 'box'} className={toolBtnCls('box')}>Box</button>
-      <button onClick={() => setTool('circle')} aria-pressed={tool === 'circle'} className={toolBtnCls('circle')}>Circle</button>
-      <button onClick={() => setTool('highlight')} aria-pressed={tool === 'highlight'} className={toolBtnCls('highlight')}>Highlight</button>
-      <button onClick={() => setTool('shadow')} aria-pressed={tool === 'shadow'} className={toolBtnCls('shadow')}>Shadow</button>
-      <button onClick={() => setTool('arrow')} aria-pressed={tool === 'arrow'} className={toolBtnCls('arrow')}>Arrow</button>
-      <button onClick={() => setTool('lob')} aria-pressed={tool === 'lob'} className={toolBtnCls('lob')}>Lob</button>
-      <button onClick={() => setTool('poly')} aria-pressed={tool === 'poly'} className={toolBtnCls('poly')}>Poly</button>
-      <button onClick={() => setTool('text')} aria-pressed={tool === 'text'} className={toolBtnCls('text')}>Text</button>
+      <button onClick={() => setTool('select')} aria-pressed={tool === 'select'} className={`${toolBtnCls('select')} ${annotationControlCls}`} disabled={annotationsLocked}>Select</button>
+      <button onClick={() => setTool('box')} aria-pressed={tool === 'box'} className={`${toolBtnCls('box')} ${annotationControlCls}`} disabled={annotationsLocked}>Box</button>
+      <button onClick={() => setTool('circle')} aria-pressed={tool === 'circle'} className={`${toolBtnCls('circle')} ${annotationControlCls}`} disabled={annotationsLocked}>Circle</button>
+      <button onClick={() => setTool('highlight')} aria-pressed={tool === 'highlight'} className={`${toolBtnCls('highlight')} ${annotationControlCls}`} disabled={annotationsLocked}>Highlight</button>
+      <button onClick={() => setTool('shadow')} aria-pressed={tool === 'shadow'} className={`${toolBtnCls('shadow')} ${annotationControlCls}`} disabled={annotationsLocked}>Shadow</button>
+      <button onClick={() => setTool('arrow')} aria-pressed={tool === 'arrow'} className={`${toolBtnCls('arrow')} ${annotationControlCls}`} disabled={annotationsLocked}>Arrow</button>
+      <button onClick={() => setTool('lob')} aria-pressed={tool === 'lob'} className={`${toolBtnCls('lob')} ${annotationControlCls}`} disabled={annotationsLocked}>Lob</button>
+      <button onClick={() => setTool('poly')} aria-pressed={tool === 'poly'} className={`${toolBtnCls('poly')} ${annotationControlCls}`} disabled={annotationsLocked}>Poly</button>
+      <button onClick={() => setTool('text')} aria-pressed={tool === 'text'} className={`${toolBtnCls('text')} ${annotationControlCls}`} disabled={annotationsLocked}>Text</button>
       <button
         onClick={() => void handleAutoCalibrate()}
-        disabled={!canAutoCalibrate || isComputingHomography}
-        className={actionBtnCls}
+        disabled={annotationsLocked || !canAutoCalibrate || isComputingHomography}
+        className={`${actionBtnCls} ${annotationControlCls}`}
       >
         {isComputingHomography ? 'Calibrating…' : 'Calibrate'}
       </button>
-      <button onClick={() => setTool('calibrate')} aria-pressed={tool === 'calibrate'} className={toolBtnCls('calibrate')}>Manual H</button>
+      <button onClick={() => setTool('calibrate')} aria-pressed={tool === 'calibrate'} className={`${toolBtnCls('calibrate')} ${annotationControlCls}`} disabled={annotationsLocked}>Manual H</button>
       {(homographyStatus || sidecarVideoError) && (
         <div className={`self-stretch flex items-center px-3 border-0 border-l border-solid border-border text-sm ${
           sidecarVideoError ? 'text-warning' : 'text-muted'
@@ -733,19 +994,19 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
       {hasStroke && (
         <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
           <span className="text-muted">Stroke</span>
-          <input type="color" value={defaultColor} onChange={(e) => setDefaultColor(e.target.value || '#000000')} className="w-7 h-7 cursor-pointer" />
+          <input type="color" value={defaultColor} onChange={(e) => setDefaultColor(e.target.value || '#000000')} className="w-7 h-7 cursor-pointer" disabled={annotationsLocked} />
         </div>
       )}
       {hasWidth && (
         <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
           <span className="text-muted">Width</span>
-          <input type="number" min={1} max={16} step={1} value={defaultStrokeWidth} onChange={(e) => setDefaultStrokeWidth(Math.max(1, Math.min(16, Number(e.target.value) || 1)))} className="w-12" />
+          <input type="number" min={1} max={16} step={1} value={defaultStrokeWidth} onChange={(e) => setDefaultStrokeWidth(Math.max(1, Math.min(16, Number(e.target.value) || 1)))} className="w-12" disabled={annotationsLocked} />
         </div>
       )}
       {hasPattern && (
         <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
           <span className="text-muted">Style</span>
-          <select value={strokePattern} onChange={(e) => setStrokePattern((e.target.value as StrokePattern) || 'solid')}>
+          <select value={strokePattern} onChange={(e) => setStrokePattern((e.target.value as StrokePattern) || 'solid')} disabled={annotationsLocked}>
             <option value="solid">Solid</option>
             <option value="dashed">Dashed</option>
             <option value="dotted">Dotted</option>
@@ -756,28 +1017,48 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
       {hasFill && (
         <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
           <span className="text-muted">Fill</span>
-          <input type="color" value={defaultFill} onChange={(e) => setDefaultFill(e.target.value || '#000000')} className="w-7 h-7 cursor-pointer" />
+          <input type="color" value={defaultFill} onChange={(e) => setDefaultFill(e.target.value || '#000000')} className="w-7 h-7 cursor-pointer" disabled={annotationsLocked} />
         </div>
       )}
       {hasFill && (
         <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
           <span className="text-muted">Opacity</span>
-          <input type="range" min={0} max={100} step={1} value={Math.round(defaultFillOpacity * 100)} onChange={(e) => setDefaultFillOpacity(Number(e.target.value) / 100)} className="w-16" />
+          <input type="range" min={0} max={100} step={1} value={Math.round(defaultFillOpacity * 100)} onChange={(e) => setDefaultFillOpacity(Number(e.target.value) / 100)} className="w-16" disabled={annotationsLocked} />
           <span className="text-muted text-xs">{Math.round(defaultFillOpacity * 100)}%</span>
         </div>
       )}
       {hasFont && (
         <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
           <span className="text-muted">Size</span>
-          <input type="number" min={1} max={300} step={1} value={defaultFontSize} onChange={(e) => setDefaultFontSize(Math.max(1, Math.min(300, Number(e.target.value) || 48)))} className="w-14" />
+          <input type="number" min={1} max={300} step={1} value={defaultFontSize} onChange={(e) => setDefaultFontSize(Math.max(1, Math.min(300, Number(e.target.value) || 48)))} className="w-14" disabled={annotationsLocked} />
         </div>
       )}
       {hasFont && (
         <label className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
-          <input type="checkbox" checked={defaultTextHighlight} onChange={(e) => setDefaultTextHighlight(e.target.checked)} />
+          <input type="checkbox" checked={defaultTextHighlight} onChange={(e) => setDefaultTextHighlight(e.target.checked)} disabled={annotationsLocked} />
           <span className="text-muted">Highlight</span>
         </label>
       )}
+    </div>
+  );
+
+  const videoContextBar = (
+    <div className="flex items-stretch bg-surface border-b border-border shrink-0">
+      <div className="flex items-center px-3 text-sm text-muted border-0 border-l border-solid border-border">
+        {previewStatus}
+      </div>
+      <div className="flex items-center px-3 text-xs text-muted border-0 border-l border-solid border-border">
+        Hold {previewCanStepBackward ? '←' : '·'} / {previewCanStepForward ? '→' : '·'} · Space returns
+      </div>
+      {annotationsLocked && (
+        <div className="flex items-center px-3 text-xs text-warning border-0 border-l border-solid border-border">
+          Preview active. Zoom and pan only.
+        </div>
+      )}
+      <span className="flex-1" />
+      <div className="flex items-center px-3 text-xs text-muted border-0 border-l border-solid border-border">
+        Hard stop: {Math.round(previewBounds.startMs / 1000)}s - {Math.round(previewBounds.endMs / 1000)}s
+      </div>
     </div>
   );
 
@@ -826,6 +1107,7 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
       >
         {navbar}
         {toolBar}
+        {videoContextBar}
         {writePermission && writePermission !== 'granted' && (
           <div className="shrink-0 px-3 py-1 text-xs text-warning border-b border-subtle flex items-center gap-2">
             Write access not granted.
@@ -833,6 +1115,22 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
           </div>
         )}
         {error && <div className="shrink-0 px-3 py-1 text-xs text-danger border-b border-subtle">{error}</div>}
+        <video
+          ref={previewVideoRef}
+          src={sourceVideoUrl ?? undefined}
+          muted
+          playsInline
+          preload="auto"
+          className="hidden"
+          onLoadedMetadata={handlePreviewVideoLoadedMetadata}
+          onLoadedData={() => syncPreviewFrame(true)}
+          onSeeked={handlePreviewVideoSeeked}
+          onTimeUpdate={() => syncPreviewFrame()}
+          onError={() => {
+            setSourceVideoError('Failed to load source video');
+            setPreviewReady(false);
+          }}
+        />
         <div
           ref={containerRef}
           onPointerDown={onPointerDown}
@@ -867,6 +1165,9 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
               onSaveStatus={setSaveStatus}
               autoPerspectiveQuad={autoPerspectiveQuad}
               autoPerspectiveTick={autoPerspectiveTick}
+              backgroundVideoElement={previewVideoActive ? previewVideoRef.current : null}
+              backgroundFrameTick={previewFrameTick}
+              annotationsLocked={annotationsLocked}
             />
           )}
         </div>
