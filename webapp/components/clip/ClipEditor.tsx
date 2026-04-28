@@ -129,6 +129,13 @@ type SelectedPitchResizeHandle =
       imageY: number;
     };
 
+type ProxySelectedDrag = {
+  ann: ClipAnnotation;
+  props: InterpolatedKeyframe;
+  start: { x: number; y: number };
+  tMs: number;
+};
+
 const PITCH_LENGTH_M = 105;
 const PITCH_WIDTH_M = 68;
 const PITCH_CENTER_X_M = PITCH_LENGTH_M / 2;
@@ -136,6 +143,7 @@ const CENTER_CIRCLE_RADIUS_M = 9.15;
 const ANALYSIS_LOOP_OPTIONS_MS = [1000, 2000, 4000] as const;
 const SHORT_SHUTTLE_MS = 250;
 const LONG_SHUTTLE_MS = 1000;
+const SELECTED_OVERLAP_DRAG_THRESHOLD = 0.35;
 
 function getTrackingAccentColor(state: "manual" | "tracked" | "correction" | "lost"): string {
   if (state === "tracked") return "#60a5fa";
@@ -255,6 +263,19 @@ function getHighlightImageAnchor(
   return { x: highlight.cx, y: highlight.cy + (highlight.radius * 0.35) };
 }
 
+function getRectOverlapRatio(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number },
+): number {
+  const left = Math.max(a.x, b.x);
+  const right = Math.min(a.x + a.w, b.x + b.w);
+  const top = Math.max(a.y, b.y);
+  const bottom = Math.min(a.y + a.h, b.y + b.h);
+  const intersection = Math.max(0, right - left) * Math.max(0, bottom - top);
+  const smallerArea = Math.min(Math.max(0, a.w) * Math.max(0, a.h), Math.max(0, b.w) * Math.max(0, b.h));
+  return smallerArea > 0 ? intersection / smallerArea : 0;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -322,6 +343,9 @@ export default function ClipEditor({
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [selectedAnnotationIds, setSelectedAnnotationIds] = useState<string[]>([]);
   const [selectedKeyframeKeys, setSelectedKeyframeKeys] = useState<string[]>([]);
+  const proxySelectedDragRef = useRef<ProxySelectedDrag | null>(null);
+  const suppressedProxyDragAnnotationIdRef = useRef<string | null>(null);
+  const [proxySelectedDragOffset, setProxySelectedDragOffset] = useState<{ annId: string; dx: number; dy: number } | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const selStartRef = useRef<{ x: number; y: number } | null>(null);
   const selCandidateRef = useRef<{ x: number; y: number } | null>(null);
@@ -362,6 +386,9 @@ export default function ClipEditor({
       setSelectedAnnotationId(null);
       setSelectedAnnotationIds([]);
       setSelectedKeyframeKeys([]);
+      proxySelectedDragRef.current = null;
+      suppressedProxyDragAnnotationIdRef.current = null;
+      setProxySelectedDragOffset(null);
       setIsSelecting(false);
       selStartRef.current = null;
       selCandidateRef.current = null;
@@ -777,6 +804,12 @@ export default function ClipEditor({
   const canTrack = hasTrackingCapability && hasVideoSource;
   const [isTracking, setIsTracking] = useState(false);
   const [trackError, setTrackError] = useState<string | null>(null);
+  const [batchTrackingProgress, setBatchTrackingProgress] = useState<{
+    done: number;
+    total: number;
+    failed: number;
+    label: string;
+  } | null>(null);
   const retrySidecar = sidecar.retry;
 
   // Promptly refresh sidecar status when the editor mounts.
@@ -1177,9 +1210,10 @@ export default function ClipEditor({
   const extractSeedBbox = useCallback((
     ann: ClipAnnotation,
     interp: InterpolatedKeyframe,
+    seedTMs: number = currentTMsRef.current,
   ): { x: number; y: number; w: number; h: number } | null => {
     if (!isTrackableAnnotationType(ann.type)) return null;
-    const resolvedHomography = resolveUsableHomographyAtTime(homographyFrames, clip.startMs + currentTMsRef.current);
+    const resolvedHomography = resolveUsableHomographyAtTime(homographyFrames, clip.startMs + seedTMs);
     let bounds: { x: number; y: number; w: number; h: number } | null = null;
     if (ann.coordMode === 'pitch' && resolvedHomography) {
       const projected = projectPitchKeyframeToImageShape(interp, resolvedHomography);
@@ -1335,13 +1369,16 @@ export default function ClipEditor({
     mergeMode: 'replace' | 'forward' | 'range' | 'to_correction',
     rangeEndMs?: number,
     mergeStartTMs?: number,
-  ) => {
-    if (!hasVideoSource) return;
+    options: { manageTrackingState?: boolean; clearError?: boolean } = {},
+  ): Promise<boolean> => {
+    if (!hasVideoSource) return false;
+    const manageTrackingState = options.manageTrackingState ?? true;
+    const clearError = options.clearError ?? true;
 
     // Save undo snapshot before modifying
     setUndoSnapshot({ annId: ann.id, keyframes: [...ann.keyframes], source: ann.source });
-    setIsTracking(true);
-    setTrackError(null);
+    if (manageTrackingState) setIsTracking(true);
+    if (clearError) setTrackError(null);
 
     try {
       const result = await requestTracking({
@@ -1423,12 +1460,14 @@ export default function ClipEditor({
         });
       });
       setRetrackRangeEndMs(null);
+      return true;
     } catch (e: any) {
       const msg = (e as TrackingError)?.message || e?.message || 'Tracking failed';
       setTrackError(msg);
       setUndoSnapshot(null); // Clear snapshot on failure
+      return false;
     } finally {
-      setIsTracking(false);
+      if (manageTrackingState) setIsTracking(false);
     }
   }, [hasVideoSource, videoLocator, videoFps, clip.startMs, clipDurationMs, sidecar.baseUrl, homographyFrames]);
 
@@ -1450,7 +1489,7 @@ export default function ClipEditor({
     const interp = interpolateAnnotationAtTime(ann, seedTMs, videoFps, clipDurationMs);
     if (!interp) { setTrackError('No visible annotation at the selected keyframe'); return; }
 
-    const seedBbox = extractSeedBbox(ann, interp);
+    const seedBbox = extractSeedBbox(ann, interp, seedTMs);
     if (!seedBbox) {
       setTrackError(
         ann.coordMode === 'pitch'
@@ -1498,6 +1537,125 @@ export default function ClipEditor({
     currentFrameToleranceMs,
   ]);
 
+  const batchTrackableAnnotations = useMemo(() => {
+    if (selectedAnnotationIds.length < 2) return [] as ClipAnnotation[];
+    const selected = new Set(selectedAnnotationIds);
+    return annotations.filter((annotation) => (
+      selected.has(annotation.id)
+      && isTrackableAnnotationType(annotation.type)
+      && (annotation.coordMode === 'image' || homographyFrames != null)
+    ));
+  }, [annotations, homographyFrames, selectedAnnotationIds]);
+
+  const canBatchTrackSelection = canTrack && batchTrackableAnnotations.length >= 2 && !isPlaying;
+  const batchTrackButtonTitle = !hasTrackingCapability
+    ? 'Tracking unavailable: sidecar not connected or tracking model missing'
+    : !hasVideoSource
+      ? 'Tracking unavailable: no registered video source'
+      : batchTrackableAnnotations.length < 2
+        ? 'Select at least two highlight annotations'
+        : `Track ${batchTrackableAnnotations.length} selected highlights to the playhead`;
+
+  const handleBatchTrackToPlayhead = useCallback(async () => {
+    if (!canBatchTrackSelection) return;
+    const endTMs = currentTMsRef.current;
+    const targets = batchTrackableAnnotations;
+    let failed = 0;
+
+    setIsTracking(true);
+    setTrackError(null);
+    setBatchTrackingProgress({
+      done: 0,
+      total: targets.length,
+      failed: 0,
+      label: `0/${targets.length}`,
+    });
+
+    try {
+      for (let index = 0; index < targets.length; index += 1) {
+        const ann = targets[index];
+        const seedKeyframe = [...ann.keyframes]
+          .filter((keyframe) => (
+            keyframe.tMs < endTMs - currentFrameToleranceMs
+            && keyframe.visible !== false
+          ))
+          .sort((left, right) => left.tMs - right.tMs)
+          .at(-1);
+
+        if (!seedKeyframe) {
+          failed += 1;
+          setBatchTrackingProgress({
+            done: index + 1,
+            total: targets.length,
+            failed,
+            label: `${index + 1}/${targets.length}`,
+          });
+          continue;
+        }
+
+        const seedTMs = seedKeyframe.tMs;
+        const interp = interpolateAnnotationAtTime(ann, seedTMs, videoFps, clipDurationMs);
+        const seedBbox = interp ? extractSeedBbox(ann, interp, seedTMs) : null;
+        if (!seedBbox) {
+          failed += 1;
+          setBatchTrackingProgress({
+            done: index + 1,
+            total: targets.length,
+            failed,
+            label: `${index + 1}/${targets.length}`,
+          });
+          continue;
+        }
+
+        const nextBoundary = ann.keyframes.find((keyframe) => (
+          keyframe.tMs > seedTMs + currentFrameToleranceMs
+          && keyframe.tMs < endTMs - currentFrameToleranceMs
+          && getKeyframeProvenance(ann, keyframe) !== 'tracked'
+          && getKeyframeProvenance(ann, keyframe) !== 'lost'
+        ));
+        const stopTMs = nextBoundary?.tMs ?? endTMs;
+        const seedAbsMs = clip.startMs + seedTMs;
+        const ok = await doTrack(
+          ann,
+          seedBbox,
+          seedAbsMs,
+          seedAbsMs,
+          clip.startMs + stopTMs,
+          nextBoundary ? 'to_correction' : 'range',
+          stopTMs,
+          seedTMs,
+          { manageTrackingState: false, clearError: false },
+        );
+        if (!ok) failed += 1;
+        setBatchTrackingProgress({
+          done: index + 1,
+          total: targets.length,
+          failed,
+          label: `${index + 1}/${targets.length}`,
+        });
+      }
+
+      setTrackError(
+        failed > 0
+          ? `Batch tracking finished with ${failed} failed highlight${failed === 1 ? '' : 's'}`
+          : null,
+      );
+    } finally {
+      setIsTracking(false);
+    }
+  }, [
+    batchTrackableAnnotations,
+    canBatchTrackSelection,
+    clip.startMs,
+    clipDurationMs,
+    currentFrameToleranceMs,
+    doTrack,
+    extractSeedBbox,
+    hasTrackingCapability,
+    hasVideoSource,
+    videoFps,
+  ]);
+
   // Re-track from here: keep keyframes <= currentTMs, re-track forward
   const handleRetrackFromHere = useCallback(async () => {
     if (!hasVideoSource || !selectedAnn) return;
@@ -1507,7 +1665,7 @@ export default function ClipEditor({
     const interp = interpolateAnnotationAtTime(ann, tMs, videoFps, clipDurationMs);
     if (!interp) { setTrackError('No visible annotation at current time'); return; }
 
-    const seedBbox = extractSeedBbox(ann, interp);
+    const seedBbox = extractSeedBbox(ann, interp, tMs);
     if (!seedBbox) { setTrackError('Cannot extract an image-space bbox for re-tracking'); return; }
 
     const seedAbsMs = clip.startMs + tMs;
@@ -1523,7 +1681,7 @@ export default function ClipEditor({
     const interp = interpolateAnnotationAtTime(ann, tMs, videoFps, clipDurationMs);
     if (!interp) { setTrackError('No visible annotation at current time'); return; }
 
-    const seedBbox = extractSeedBbox(ann, interp);
+    const seedBbox = extractSeedBbox(ann, interp, tMs);
     if (!seedBbox) { setTrackError('Cannot extract an image-space bbox for re-tracking'); return; }
 
     const rangeStartMs = Math.min(tMs, retrackRangeEndMs);
@@ -1543,7 +1701,7 @@ export default function ClipEditor({
     const interp = interpolateAnnotationAtTime(ann, tMs, videoFps, clipDurationMs);
     if (!interp) { setTrackError('No visible annotation at current time'); return; }
 
-    const seedBbox = extractSeedBbox(ann, interp);
+    const seedBbox = extractSeedBbox(ann, interp, tMs);
     if (!seedBbox) { setTrackError('Cannot extract an image-space bbox for re-tracking'); return; }
 
     const seedAbsMs = clip.startMs + tMs;
@@ -1811,8 +1969,11 @@ export default function ClipEditor({
     props: InterpolatedShadow,
     tMs: number,
     homographyOverride: number[] | null = currentHomography,
-  ) => {
-    const ref = Array.isArray(ann.vertexRefs) ? resolveHighlightReference(ann.vertexRefs[0], tMs, homographyOverride) : null;
+  ): { x: number; y: number; r: number; rotation: number; spreadDeg: number } | null => {
+    const refs = Array.isArray(ann.vertexRefs) ? ann.vertexRefs : [];
+    const hasAnchor = !!refs[0];
+    const ref = hasAnchor ? resolveHighlightReference(refs[0], tMs, homographyOverride) : null;
+    if (hasAnchor && !ref) return null;
     return {
       x: ref?.x ?? props.x,
       y: ref?.y ?? props.y,
@@ -1827,10 +1988,13 @@ export default function ClipEditor({
     props: InterpolatedArrow,
     tMs: number,
     homographyOverride: number[] | null = currentHomography,
-  ) => {
+  ): { x1: number; y1: number; x2: number; y2: number } | null => {
     const refs = Array.isArray(ann.vertexRefs) ? ann.vertexRefs : [];
-    const startRef = resolveHighlightReference(refs[0], tMs, homographyOverride);
-    const endRef = resolveHighlightReference(refs[1], tMs, homographyOverride);
+    const hasStartAnchor = !!refs[0];
+    const hasEndAnchor = !!refs[1];
+    const startRef = hasStartAnchor ? resolveHighlightReference(refs[0], tMs, homographyOverride) : null;
+    const endRef = hasEndAnchor ? resolveHighlightReference(refs[1], tMs, homographyOverride) : null;
+    if ((hasStartAnchor && !startRef) || (hasEndAnchor && !endRef)) return null;
     let x1 = startRef?.x ?? props.x1;
     let y1 = startRef?.y ?? props.y1;
     let x2 = endRef?.x ?? props.x2;
@@ -1855,10 +2019,13 @@ export default function ClipEditor({
     props: InterpolatedLob,
     tMs: number,
     homographyOverride: number[] | null = currentHomography,
-  ) => {
+  ): { start: { x: number; y: number }; control: { x: number; y: number }; end: { x: number; y: number } } | null => {
     const refs = Array.isArray(ann.vertexRefs) ? ann.vertexRefs : [];
-    const startRef = resolveHighlightReference(refs[0], tMs, homographyOverride);
-    const endRef = resolveHighlightReference(refs[1], tMs, homographyOverride);
+    const hasStartAnchor = !!refs[0];
+    const hasEndAnchor = !!refs[1];
+    const startRef = hasStartAnchor ? resolveHighlightReference(refs[0], tMs, homographyOverride) : null;
+    const endRef = hasEndAnchor ? resolveHighlightReference(refs[1], tMs, homographyOverride) : null;
+    if ((hasStartAnchor && !startRef) || (hasEndAnchor && !endRef)) return null;
     return {
       start: { x: startRef?.x ?? props.x1, y: startRef?.y ?? props.y1 },
       control: { x: props.cx, y: props.cy },
@@ -1874,9 +2041,11 @@ export default function ClipEditor({
   ): [number, number][] => {
     const refs = Array.isArray(ann.vertexRefs) ? ann.vertexRefs : [];
     if (refs.length !== props.points.length) return props.points;
-    return props.points.map(([x, y], index) => {
+    return props.points.flatMap(([x, y], index) => {
+      const hasAnchor = !!refs[index];
       const ref = resolveHighlightReference(refs[index], tMs, homographyOverride);
-      return ref ? [ref.x, ref.y] as [number, number] : [x, y] as [number, number];
+      if (hasAnchor && !ref) return [];
+      return [ref ? [ref.x, ref.y] as [number, number] : [x, y] as [number, number]];
     });
   }, [currentHomography, resolveHighlightReference]);
 
@@ -1992,14 +2161,17 @@ export default function ClipEditor({
       }
       case 'shadow': {
         const shadow = resolveShadowDisplayProps(ann, props as InterpolatedShadow, currentTMsRef.current, homography);
+        if (!shadow) return null;
         return getBoundsForFlatPoints(buildShadowSectorPoints(shadow.x, shadow.y, shadow.r, shadow.rotation, shadow.spreadDeg));
       }
       case 'arrow': {
         const arrow = resolveArrowDisplayProps(ann, props as InterpolatedArrow, currentTMsRef.current, homography);
+        if (!arrow) return null;
         return getBoundsForFlatPoints([arrow.x1, arrow.y1, arrow.x2, arrow.y2]);
       }
       case 'lob': {
         const lob = resolveLobDisplayProps(ann, props as InterpolatedLob, currentTMsRef.current, homography);
+        if (!lob) return null;
         return getBoundsForFlatPoints([lob.start.x, lob.start.y, lob.control.x, lob.control.y, lob.end.x, lob.end.y]);
       }
       case 'text': {
@@ -2009,6 +2181,7 @@ export default function ClipEditor({
       }
       case 'poly': {
         const points = resolvePolyDisplayPoints(ann, props as InterpolatedPoly, currentTMsRef.current, homography);
+        if (points.length < 2) return null;
         return getBoundsForFlatPoints(points.flatMap(([x, y]) => [x, y]));
       }
       case 'highlight': {
@@ -2086,9 +2259,11 @@ export default function ClipEditor({
       if (!selectedSet.has(annotation.id)) return [];
       const interpolatedKeyframe = interpolateAnnotationAtTime(annotation, currentTMs, videoFps, clipDurationMs);
       if (!interpolatedKeyframe) return [];
+      const bounds = getResolvedAnnotationBounds(annotation, interpolatedKeyframe, currentHomography);
+      if (!bounds) return [];
       return [{
         id: annotation.id,
-        bounds: getResolvedAnnotationBounds(annotation, interpolatedKeyframe, currentHomography),
+        bounds,
       }];
     });
   }, [annotations, currentHomography, currentTMs, getResolvedAnnotationBounds, selectedAnnotationIds, videoFps]);
@@ -2247,6 +2422,9 @@ export default function ClipEditor({
         setSelectedKeyframeKeys([]);
         polyTempRef.current = null;
         polyNearIndexRef.current = -1;
+        proxySelectedDragRef.current = null;
+        suppressedProxyDragAnnotationIdRef.current = null;
+        setProxySelectedDragOffset(null);
         setTempShape(null);
       }
       if (
@@ -2417,13 +2595,182 @@ export default function ClipEditor({
     }
   }, [tool, cancelDrawing]);
 
-  // --- Shape mouse down → select ---
+  const applyAnnotationTranslation = useCallback((
+    ann: ClipAnnotation,
+    props: InterpolatedKeyframe,
+    dx: number,
+    dy: number,
+    tMs: number,
+  ) => {
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+
+    switch (props.type) {
+      case 'box': {
+        const b = props as InterpolatedBox;
+        upsertKeyframe(ann.id, tMs, { x: b.x + dx, y: b.y + dy, w: b.w, h: b.h });
+        break;
+      }
+      case 'circle': {
+        const c = props as InterpolatedCircle;
+        upsertKeyframe(ann.id, tMs, { cx: c.cx + dx, cy: c.cy + dy, rx: c.rx, ry: c.ry });
+        break;
+      }
+      case 'shadow': {
+        const s = props as InterpolatedShadow;
+        const shadow = resolveShadowDisplayProps(ann, s, tMs);
+        if (!shadow) return;
+        const refs = (ann.vertexRefs || []).filter(Boolean) as string[];
+        if (refs.length > 0) {
+          moveLinkedHighlights(refs, dx, dy);
+          return;
+        }
+        upsertKeyframe(ann.id, tMs, {
+          x: shadow.x + dx,
+          y: shadow.y + dy,
+          r: shadow.r,
+          rotation: shadow.rotation,
+          spreadDeg: shadow.spreadDeg,
+        });
+        break;
+      }
+      case 'arrow': {
+        const a = resolveArrowDisplayProps(ann, props as InterpolatedArrow, tMs);
+        if (!a) return;
+        upsertKeyframe(ann.id, tMs, { x1: a.x1 + dx, y1: a.y1 + dy, x2: a.x2 + dx, y2: a.y2 + dy });
+        moveLinkedHighlights((ann.vertexRefs || []).filter(Boolean) as string[], dx, dy);
+        break;
+      }
+      case 'lob': {
+        const l = resolveLobDisplayProps(ann, props as InterpolatedLob, tMs);
+        if (!l) return;
+        upsertKeyframe(ann.id, tMs, {
+          x1: l.start.x + dx,
+          y1: l.start.y + dy,
+          cx: l.control.x + dx,
+          cy: l.control.y + dy,
+          x2: l.end.x + dx,
+          y2: l.end.y + dy,
+        });
+        moveLinkedHighlights((ann.vertexRefs || []).filter(Boolean) as string[], dx, dy);
+        break;
+      }
+      case 'text': {
+        const t = props as InterpolatedText;
+        upsertKeyframe(ann.id, tMs, { x: t.x + dx, y: t.y + dy });
+        break;
+      }
+      case 'highlight': {
+        const h = props as InterpolatedHighlight;
+        upsertKeyframe(ann.id, tMs, { cx: h.cx + dx, cy: h.cy + dy, radius: h.radius });
+        break;
+      }
+      case 'poly': {
+        const p = resolvePolyDisplayPoints(ann, props as InterpolatedPoly, tMs);
+        if (p.length < 2) return;
+        upsertKeyframe(ann.id, tMs, { points: p.map(([px, py]) => [px + dx, py + dy] as [number, number]) });
+        moveLinkedHighlights((ann.vertexRefs || []).filter(Boolean) as string[], dx, dy);
+        break;
+      }
+    }
+  }, [moveLinkedHighlights, resolveArrowDisplayProps, resolveLobDisplayProps, resolvePolyDisplayPoints, resolveShadowDisplayProps, upsertKeyframe]);
+
+  // --- Shape mouse down → select, with an overlap override for the active selection ---
   const onShapeMouseDown = useCallback((annId: string, e: any) => {
     if (tool !== 'select') return;
     e.cancelBubble = true;
     const evt = e?.evt as MouseEvent | undefined;
     const addKey = !!evt?.shiftKey;
     const subKey = !!(evt?.metaKey || evt?.ctrlKey);
+    const pointer = getPointerImagePos(e);
+
+    if (
+      pointer
+      && !addKey
+      && !subKey
+      && selectedAnnotationId
+      && selectedAnnotationId !== annId
+      && selectedAnnotationIds.length === 0
+    ) {
+      const selected = annotationsRef.current.find((annotation) => annotation.id === selectedAnnotationId);
+      const hit = annotationsRef.current.find((annotation) => annotation.id === annId);
+      const tMs = currentTMsRef.current;
+      const selectedProps = selected ? interpolateAnnotationAtTime(selected, tMs, videoFps, clipDurationMs) : null;
+      const hitProps = hit ? interpolateAnnotationAtTime(hit, tMs, videoFps, clipDurationMs) : null;
+      const selectedBounds = selected && selectedProps ? getResolvedAnnotationBounds(selected, selectedProps, currentHomography) : null;
+      const hitBounds = hit && hitProps ? getResolvedAnnotationBounds(hit, hitProps, currentHomography) : null;
+      if (
+        selected
+        && selectedProps
+        && selected.coordMode === 'image'
+        && selectedBounds
+        && hitBounds
+        && getRectOverlapRatio(selectedBounds, hitBounds) >= SELECTED_OVERLAP_DRAG_THRESHOLD
+      ) {
+        evt?.preventDefault();
+        suppressedProxyDragAnnotationIdRef.current = annId;
+        const hitNode = e.target;
+        const restoreHitDraggable = typeof hitNode?.draggable === 'function' ? hitNode.draggable() : null;
+        if (typeof hitNode?.stopDrag === 'function') hitNode.stopDrag();
+        if (typeof hitNode?.draggable === 'function') hitNode.draggable(false);
+        proxySelectedDragRef.current = { ann: selected, props: selectedProps, start: pointer, tMs };
+        setProxySelectedDragOffset({ annId: selected.id, dx: 0, dy: 0 });
+
+        const onMove = (moveEvent: MouseEvent) => {
+          const stage = stageRef.current;
+          if (!stage) return;
+          const containerRect = stage.container().getBoundingClientRect();
+          const next = {
+            x: (moveEvent.clientX - containerRect.left) / scale,
+            y: (moveEvent.clientY - containerRect.top) / scale,
+          };
+          const active = proxySelectedDragRef.current;
+          if (!active) return;
+          setProxySelectedDragOffset({
+            annId: active.ann.id,
+            dx: next.x - active.start.x,
+            dy: next.y - active.start.y,
+          });
+        };
+
+        const onUp = (upEvent: MouseEvent) => {
+          const active = proxySelectedDragRef.current;
+          if (active) {
+            const stage = stageRef.current;
+            if (stage) {
+              const containerRect = stage.container().getBoundingClientRect();
+              const end = {
+                x: (upEvent.clientX - containerRect.left) / scale,
+                y: (upEvent.clientY - containerRect.top) / scale,
+              };
+              applyAnnotationTranslation(
+                active.ann,
+                active.props,
+                end.x - active.start.x,
+                end.y - active.start.y,
+                active.tMs,
+              );
+            }
+          }
+          proxySelectedDragRef.current = null;
+          setProxySelectedDragOffset(null);
+          if (restoreHitDraggable !== null && typeof hitNode?.draggable === 'function') {
+            hitNode.draggable(restoreHitDraggable);
+          }
+          window.setTimeout(() => {
+            if (suppressedProxyDragAnnotationIdRef.current === annId) {
+              suppressedProxyDragAnnotationIdRef.current = null;
+            }
+          }, 50);
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+        };
+
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        return;
+      }
+    }
+
     const base = selectedAnnotationIds.length > 0
       ? selectedAnnotationIds
       : (selectedAnnotationId ? [selectedAnnotationId] : []);
@@ -2460,12 +2807,27 @@ export default function ClipEditor({
     } else {
       setSelectedAnnotationId(nextOrdered[nextOrdered.length - 1]);
     }
-  }, [tool, selectedAnnotationId, selectedAnnotationIds]);
+  }, [
+    applyAnnotationTranslation,
+    clipDurationMs,
+    currentHomography,
+    getPointerImagePos,
+    getResolvedAnnotationBounds,
+    scale,
+    selectedAnnotationId,
+    selectedAnnotationIds,
+    tool,
+    videoFps,
+  ]);
 
   // --- Shape drag end → upsert keyframe ---
   const onShapeDragEnd = useCallback((ann: ClipAnnotation, props: InterpolatedKeyframe, e: any) => {
     if (tool !== 'select') return;
     const node = e.target;
+    if (suppressedProxyDragAnnotationIdRef.current === ann.id) {
+      node.position({ x: 0, y: 0 });
+      return;
+    }
     const pos = node.position();
     // Reset node position so React re-render takes over
     node.position({ x: 0, y: 0 });
@@ -2479,87 +2841,61 @@ export default function ClipEditor({
         const b = props as InterpolatedBox;
         const nx = pos.x / scale;
         const ny = pos.y / scale;
-        if (Math.abs(nx - b.x) < 0.5 && Math.abs(ny - b.y) < 0.5) return;
-        upsertKeyframe(ann.id, tMs, { x: nx, y: ny, w: b.w, h: b.h });
+        applyAnnotationTranslation(ann, props, nx - b.x, ny - b.y, tMs);
         break;
       }
       case 'circle': {
         const c = props as InterpolatedCircle;
         const nx = pos.x / scale;
         const ny = pos.y / scale;
-        if (Math.abs(nx - c.cx) < 0.5 && Math.abs(ny - c.cy) < 0.5) return;
-        upsertKeyframe(ann.id, tMs, { cx: nx, cy: ny, rx: c.rx, ry: c.ry });
+        applyAnnotationTranslation(ann, props, nx - c.cx, ny - c.cy, tMs);
         break;
       }
       case 'shadow': {
         const s = props as InterpolatedShadow;
         const shadow = resolveShadowDisplayProps(ann, s, tMs);
+        if (!shadow) return;
         const nx = pos.x / scale;
         const ny = pos.y / scale;
         const dx = nx - shadow.x;
         const dy = ny - shadow.y;
-        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
-        const refs = (ann.vertexRefs || []).filter(Boolean) as string[];
-        if (refs.length > 0) {
-          moveLinkedHighlights(refs, dx, dy);
-          return;
-        }
-        upsertKeyframe(ann.id, tMs, { x: nx, y: ny, r: shadow.r, rotation: shadow.rotation, spreadDeg: shadow.spreadDeg });
+        applyAnnotationTranslation(ann, props, dx, dy, tMs);
         break;
       }
       case 'arrow': {
-        const a = resolveArrowDisplayProps(ann, props as InterpolatedArrow, tMs);
         const dx = pos.x / scale;
         const dy = pos.y / scale;
-        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
-        upsertKeyframe(ann.id, tMs, { x1: a.x1 + dx, y1: a.y1 + dy, x2: a.x2 + dx, y2: a.y2 + dy });
-        moveLinkedHighlights((ann.vertexRefs || []).filter(Boolean) as string[], dx, dy);
+        applyAnnotationTranslation(ann, props, dx, dy, tMs);
         break;
       }
       case 'lob': {
-        const l = resolveLobDisplayProps(ann, props as InterpolatedLob, tMs);
         const dx = pos.x / scale;
         const dy = pos.y / scale;
-        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
-        upsertKeyframe(ann.id, tMs, {
-          x1: l.start.x + dx,
-          y1: l.start.y + dy,
-          cx: l.control.x + dx,
-          cy: l.control.y + dy,
-          x2: l.end.x + dx,
-          y2: l.end.y + dy,
-        });
-        moveLinkedHighlights((ann.vertexRefs || []).filter(Boolean) as string[], dx, dy);
+        applyAnnotationTranslation(ann, props, dx, dy, tMs);
         break;
       }
       case 'text': {
         const t = props as InterpolatedText;
         const nx = pos.x / scale;
         const ny = pos.y / scale;
-        if (Math.abs(nx - t.x) < 0.5 && Math.abs(ny - t.y) < 0.5) return;
-        upsertKeyframe(ann.id, tMs, { x: nx, y: ny });
+        applyAnnotationTranslation(ann, props, nx - t.x, ny - t.y, tMs);
         break;
       }
       case 'highlight': {
         const h = props as InterpolatedHighlight;
         const nx = pos.x / scale;
         const ny = pos.y / scale;
-        if (Math.abs(nx - h.cx) < 0.5 && Math.abs(ny - h.cy) < 0.5) return;
-        upsertKeyframe(ann.id, tMs, { cx: nx, cy: ny, radius: h.radius });
+        applyAnnotationTranslation(ann, props, nx - h.cx, ny - h.cy, tMs);
         break;
       }
       case 'poly': {
-        const p = resolvePolyDisplayPoints(ann, props as InterpolatedPoly, tMs);
         const dx = pos.x / scale;
         const dy = pos.y / scale;
-        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
-        const moved = p.map(([px, py]) => [px + dx, py + dy] as [number, number]);
-        upsertKeyframe(ann.id, tMs, { points: moved });
-        moveLinkedHighlights((ann.vertexRefs || []).filter(Boolean) as string[], dx, dy);
+        applyAnnotationTranslation(ann, props, dx, dy, tMs);
         break;
       }
     }
-  }, [moveLinkedHighlights, resolveArrowDisplayProps, resolveLobDisplayProps, resolvePolyDisplayPoints, resolveShadowDisplayProps, scale, tool, upsertKeyframe]);
+  }, [applyAnnotationTranslation, resolveShadowDisplayProps, scale, tool]);
 
   const onShapeTransformEnd = useCallback((ann: ClipAnnotation, props: InterpolatedKeyframe, e: any) => {
     if (tool !== 'select' || ann.coordMode === 'pitch') return;
@@ -2918,11 +3254,12 @@ export default function ClipEditor({
           && left.y < right.y + right.h
           && left.y + left.h > right.y
         );
-        const hits = annotations.filter((annotation) => {
-          const interpolatedKeyframe = interpolateAnnotationAtTime(annotation, currentTMsRef.current, videoFps, clipDurationMs);
-          if (!interpolatedKeyframe) return false;
-          return intersects(getResolvedAnnotationBounds(annotation, interpolatedKeyframe, currentHomography), rect);
-        }).map((annotation) => annotation.id);
+      const hits = annotations.filter((annotation) => {
+        const interpolatedKeyframe = interpolateAnnotationAtTime(annotation, currentTMsRef.current, videoFps, clipDurationMs);
+        if (!interpolatedKeyframe) return false;
+        const bounds = getResolvedAnnotationBounds(annotation, interpolatedKeyframe, currentHomography);
+        return !!bounds && intersects(bounds, rect);
+      }).map((annotation) => annotation.id);
         const addKey = !!evt?.shiftKey;
         const subKey = !!(evt?.metaKey || evt?.ctrlKey);
         const base = selectedAnnotationIds.length > 0
@@ -3187,6 +3524,9 @@ export default function ClipEditor({
     const scaledDash = dash?.map((segment) => segment * scale);
     const scaledPointerLength = 10 * scale;
     const scaledPointerWidth = 10 * scale;
+    const dragOffset = proxySelectedDragOffset?.annId === ann.id ? proxySelectedDragOffset : null;
+    const dragOffsetX = (dragOffset?.dx ?? 0) * scale;
+    const dragOffsetY = (dragOffset?.dy ?? 0) * scale;
     const selectedRef = ann.id === selectedAnnotationId && selectedAnnCanUseTransformer && props.type !== 'box' && props.type !== 'circle'
       ? (node: any) => { selectedNodeRef.current = node; }
       : undefined;
@@ -3273,8 +3613,8 @@ export default function ClipEditor({
         return (
           <KRect
             key={ann.id}
-            x={b.x * scale}
-            y={b.y * scale}
+            x={(b.x * scale) + dragOffsetX}
+            y={(b.y * scale) + dragOffsetY}
             width={b.w * scale}
             height={b.h * scale}
             stroke={stroke}
@@ -3296,8 +3636,8 @@ export default function ClipEditor({
         return (
           <KEllipse
             key={ann.id}
-            x={c.cx * scale}
-            y={c.cy * scale}
+            x={(c.cx * scale) + dragOffsetX}
+            y={(c.cy * scale) + dragOffsetY}
             radiusX={c.rx * scale}
             radiusY={c.ry * scale}
             stroke={stroke}
@@ -3316,12 +3656,13 @@ export default function ClipEditor({
       }
       case 'shadow': {
         const s = resolveShadowDisplayProps(ann, props as InterpolatedShadow, currentTMsRef.current);
+        if (!s) return null;
         const localPoints = buildShadowSectorPoints(0, 0, s.r, s.rotation, s.spreadDeg).map((value) => value * scale);
         return (
           <KLine
             key={ann.id}
-            x={s.x * scale}
-            y={s.y * scale}
+            x={(s.x * scale) + dragOffsetX}
+            y={(s.y * scale) + dragOffsetY}
             points={localPoints}
             stroke={stroke}
             strokeWidth={scaledStrokeWidth}
@@ -3340,11 +3681,12 @@ export default function ClipEditor({
       }
       case 'arrow': {
         const a = resolveArrowDisplayProps(ann, props as InterpolatedArrow, currentTMsRef.current);
+        if (!a) return null;
         return (
           <KArrow
             key={ann.id}
-            x={0}
-            y={0}
+            x={dragOffsetX}
+            y={dragOffsetY}
             points={[a.x1 * scale, a.y1 * scale, a.x2 * scale, a.y2 * scale]}
             stroke={stroke}
             strokeWidth={scaledStrokeWidth}
@@ -3364,11 +3706,12 @@ export default function ClipEditor({
       }
       case 'lob': {
         const l = resolveLobDisplayProps(ann, props as InterpolatedLob, currentTMsRef.current);
+        if (!l) return null;
         return (
           <KShape
             key={ann.id}
-            x={0}
-            y={0}
+            x={dragOffsetX}
+            y={dragOffsetY}
             stroke={stroke}
             strokeWidth={scaledStrokeWidth}
             dash={scaledDash}
@@ -3403,8 +3746,8 @@ export default function ClipEditor({
         return (
           <KText
             key={ann.id}
-            x={t.x * scale}
-            y={t.y * scale}
+            x={(t.x * scale) + dragOffsetX}
+            y={(t.y * scale) + dragOffsetY}
             text={ann.text || ''}
             fontSize={scaledFontSize}
             fontFamily={fontFamily}
@@ -3431,17 +3774,19 @@ export default function ClipEditor({
       }
       case 'poly': {
         const points = resolvePolyDisplayPoints(ann, props as InterpolatedPoly, currentTMsRef.current);
+        if (points.length < 2) return null;
         const flatPoints = points.flatMap(([x, y]) => [x * scale, y * scale]);
+        const closed = ann.closed !== false && points.length >= 3;
         return (
           <KLine
             key={ann.id}
-            x={0}
-            y={0}
+            x={dragOffsetX}
+            y={dragOffsetY}
             points={flatPoints}
             stroke={stroke}
             strokeWidth={scaledStrokeWidth}
             fill={fillColor}
-            closed={ann.closed !== false}
+            closed={closed}
             dash={scaledDash}
             lineCap="round"
             lineJoin="round"
@@ -3458,8 +3803,8 @@ export default function ClipEditor({
         return (
           <KEllipse
             key={ann.id}
-            x={h.cx * scale}
-            y={h.cy * scale}
+            x={(h.cx * scale) + dragOffsetX}
+            y={(h.cy * scale) + dragOffsetY}
             radiusX={h.radius * scale}
             radiusY={(h.radius * 0.35) * scale}
             stroke={stroke}
@@ -3479,7 +3824,7 @@ export default function ClipEditor({
       default:
         return null;
     }
-  }, [canInteract, currentHomography, onSelectedPitchShapeDragEnd, onShapeDragEnd, onShapeMouseDown, onShapeTransformEnd, resolveAnnotationDisplayStyle, resolveArrowDisplayProps, resolveLobDisplayProps, resolvePolyDisplayPoints, resolveShadowDisplayProps, scale, selectedAnnotationId, selectedAnnCanUseTransformer]);
+  }, [canInteract, currentHomography, onSelectedPitchShapeDragEnd, onShapeDragEnd, onShapeMouseDown, onShapeTransformEnd, proxySelectedDragOffset, resolveAnnotationDisplayStyle, resolveArrowDisplayProps, resolveLobDisplayProps, resolvePolyDisplayPoints, resolveShadowDisplayProps, scale, selectedAnnotationId, selectedAnnCanUseTransformer]);
 
   // --- Export: Canvas 2D annotation renderer ---
   const canExport = sidecar.connected && sidecar.capabilities.includes('export');
@@ -3531,6 +3876,7 @@ export default function ClipEditor({
         }
         case 'shadow': {
           const s = resolveShadowDisplayProps(ann, props as InterpolatedShadow, tMs, currentHomography);
+          if (!s) break;
           const points = buildShadowSectorPoints(s.x, s.y, s.r, s.rotation, s.spreadDeg);
           if (points.length < 4) break;
           ctx.beginPath();
@@ -3546,6 +3892,7 @@ export default function ClipEditor({
         }
         case 'arrow': {
           const a = resolveArrowDisplayProps(ann, props as InterpolatedArrow, tMs, currentHomography);
+          if (!a) break;
           ctx.beginPath();
           ctx.moveTo(a.x1, a.y1);
           ctx.lineTo(a.x2, a.y2);
@@ -3564,6 +3911,7 @@ export default function ClipEditor({
         }
         case 'lob': {
           const l = resolveLobDisplayProps(ann, props as InterpolatedLob, tMs, currentHomography);
+          if (!l) break;
           ctx.beginPath();
           ctx.moveTo(l.start.x, l.start.y);
           ctx.quadraticCurveTo(l.control.x, l.control.y, l.end.x, l.end.y);
@@ -3618,7 +3966,7 @@ export default function ClipEditor({
           for (let j = 1; j < points.length; j++) {
             ctx.lineTo(points[j][0], points[j][1]);
           }
-          if (ann.closed !== false) {
+          if (ann.closed !== false && points.length >= 3) {
             ctx.closePath();
             if (fillColor !== 'transparent') ctx.fill();
           }
@@ -4256,6 +4604,31 @@ export default function ClipEditor({
             >
               {isTracking ? 'Tracking...' : 'Track'}
             </button>
+          )}
+
+          {hasTrackingCapability && selectedAnnotationIds.length >= 2 && (
+            <button
+              onClick={handleBatchTrackToPlayhead}
+              disabled={!canBatchTrackSelection || isTracking}
+              className="px-3 py-0.5 text-sm border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              title={batchTrackButtonTitle}
+            >
+              Batch Track
+            </button>
+          )}
+
+          {batchTrackingProgress && (
+            <div className="flex items-center gap-2 min-w-[9rem]" title={batchTrackingProgress.failed > 0 ? `${batchTrackingProgress.failed} failed` : undefined}>
+              <div className="h-1.5 w-20 bg-black/30 rounded overflow-hidden">
+                <div
+                  className="h-full bg-accent"
+                  style={{
+                    width: `${batchTrackingProgress.total > 0 ? (batchTrackingProgress.done / batchTrackingProgress.total) * 100 : 0}%`,
+                  }}
+                />
+              </div>
+              <span className="text-xs tabular-nums text-muted">{batchTrackingProgress.label}</span>
+            </div>
           )}
 
           {/* Re-track from here */}
