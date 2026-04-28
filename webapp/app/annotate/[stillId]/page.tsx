@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
+import ColorLinkToggle from "../../../components/annotate/ColorLinkToggle";
 import type { Tool, StrokePattern } from "../../../components/annotate/Editor";
 import { useProject } from "../../../lib/state/ProjectContext";
 import {
@@ -40,6 +41,7 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
   const [defaultColor, setDefaultColor] = useState<string>('#000000');
   const [defaultStrokeWidth, setDefaultStrokeWidth] = useState<number>(6);
   const [defaultFill, setDefaultFill] = useState<string>('#000000');
+  const [defaultColorsLinked, setDefaultColorsLinked] = useState(true);
   const [defaultFillOpacity, setDefaultFillOpacity] = useState<number>(0.3);
   const [defaultFontSize, setDefaultFontSize] = useState<number>(48);
   const [defaultTextHighlight, setDefaultTextHighlight] = useState<boolean>(false);
@@ -866,6 +868,21 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
   const hasPattern = ['box', 'circle', 'highlight', 'shadow', 'arrow', 'lob', 'poly'].includes(tool);
   const hasFill = ['box', 'circle', 'highlight', 'shadow', 'poly'].includes(tool);
   const hasFont = tool === 'text';
+  const handleDefaultStrokeColorChange = useCallback((value: string) => {
+    const next = value || '#000000';
+    setDefaultColor(next);
+    if (defaultColorsLinked) setDefaultFill(next);
+  }, [defaultColorsLinked]);
+  const handleDefaultFillColorChange = useCallback((value: string) => {
+    const next = value || '#000000';
+    setDefaultFill(next);
+    if (defaultColorsLinked) setDefaultColor(next);
+  }, [defaultColorsLinked]);
+  const toggleDefaultColorsLinked = useCallback(() => {
+    const next = !defaultColorsLinked;
+    setDefaultColorsLinked(next);
+    if (next) setDefaultFill(defaultColor);
+  }, [defaultColor, defaultColorsLinked]);
   const previewCanStepBackward = previewReady && previewBounds.startMs < annotationTimeMs;
   const previewCanStepForward = previewReady && previewBounds.endMs > annotationTimeMs;
   const previewStatus = sourceVideoError
@@ -991,10 +1008,19 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
           {sidecarVideoError || homographyStatus}
         </div>
       )}
-      {hasStroke && (
+      {hasStroke && hasFill && (
         <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
           <span className="text-muted">Stroke</span>
-          <input type="color" value={defaultColor} onChange={(e) => setDefaultColor(e.target.value || '#000000')} className="w-7 h-7 cursor-pointer" disabled={annotationsLocked} />
+          <input type="color" value={defaultColor} onChange={(e) => handleDefaultStrokeColorChange(e.target.value)} className="w-7 h-7 cursor-pointer" disabled={annotationsLocked} />
+          <ColorLinkToggle linked={defaultColorsLinked} onToggle={toggleDefaultColorsLinked} disabled={annotationsLocked} />
+          <span className="text-muted">Fill</span>
+          <input type="color" value={defaultFill} onChange={(e) => handleDefaultFillColorChange(e.target.value)} className="w-7 h-7 cursor-pointer" disabled={annotationsLocked} />
+        </div>
+      )}
+      {hasStroke && !hasFill && (
+        <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
+          <span className="text-muted">Stroke</span>
+          <input type="color" value={defaultColor} onChange={(e) => handleDefaultStrokeColorChange(e.target.value)} className="w-7 h-7 cursor-pointer" disabled={annotationsLocked} />
         </div>
       )}
       {hasWidth && (
@@ -1012,12 +1038,6 @@ export default function AnnotatePage({ params }: { params: { stillId: string } }
             <option value="dotted">Dotted</option>
             <option value="dashdot">Dash-dot</option>
           </select>
-        </div>
-      )}
-      {hasFill && (
-        <div className="self-stretch flex items-center gap-1.5 px-3 border-0 border-l border-solid border-border text-sm">
-          <span className="text-muted">Fill</span>
-          <input type="color" value={defaultFill} onChange={(e) => setDefaultFill(e.target.value || '#000000')} className="w-7 h-7 cursor-pointer" disabled={annotationsLocked} />
         </div>
       )}
       {hasFill && (

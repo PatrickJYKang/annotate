@@ -26,6 +26,7 @@ import {
   thetaForHorizontalUsingJacobian, thetaForHorizontal,
 } from "../../lib/annotate/homography";
 import type { PerspectiveQuadPoint } from "../../lib/annotate/pitchCalibration";
+import ColorLinkToggle from "./ColorLinkToggle";
 
 export type Tool = 'select' | 'box' | 'circle' | 'shadow' | 'arrow' | 'lob' | 'text' | 'poly' | 'highlight' | 'calibrate';
 
@@ -177,6 +178,7 @@ export default function Editor({
   const { projectDir } = useProject();
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [inspectorColorsLinked, setInspectorColorsLinked] = useState(true);
   const [isDrawing, setIsDrawing] = useState(false);
   const startRef = useRef<{ x: number; y: number } | null>(null);
   const shadowAnchorRef = useRef<string | null>(null);
@@ -2572,14 +2574,60 @@ export default function Editor({
             const anyFill = !!fillSample;
             const textSample = selShapes.find(s => s.type === 'text');
             const anyText = !!textSample;
+            const strokeColor = first?.style?.stroke || defaultAnnColor;
+            const explicitFillColor = fillSample?.style?.fill && fillSample.style.fill !== 'transparent'
+              ? fillSample.style.fill
+              : null;
+            const fillColor = explicitFillColor || fillSample?.style?.stroke || strokeColor;
+            const applyStrokeColor = (v: string) => {
+              setShapes(prev => prev.map(s => {
+                if (!idSet.has(s.id)) return s;
+                const nextStyle = { ...s.style, stroke: v };
+                if (inspectorColorsLinked && isFillCapable(s)) nextStyle.fill = v;
+                return { ...s, style: nextStyle };
+              }));
+            };
+            const applyFillColor = (v: string) => {
+              setShapes(prev => prev.map(s => {
+                if (!idSet.has(s.id)) return s;
+                if (inspectorColorsLinked) {
+                  const nextStyle = { ...s.style, stroke: v };
+                  if (isFillCapable(s)) nextStyle.fill = v;
+                  return { ...s, style: nextStyle };
+                }
+                if (!isFillCapable(s)) return s;
+                return { ...s, style: { ...s.style, fill: v } };
+              }));
+            };
+            const toggleInspectorColorsLinked = () => {
+              const next = !inspectorColorsLinked;
+              setInspectorColorsLinked(next);
+              if (next) {
+                setShapes(prev => prev.map(s => {
+                  if (!idSet.has(s.id)) return s;
+                  if (!isFillCapable(s)) return s;
+                  return { ...s, style: { ...s.style, fill: strokeColor } };
+                }));
+              }
+            };
 
             return (
               <div className="grid grid-cols-2 gap-1.5 mt-2">
-                <label className="status">Stroke</label>
-                <input type="color" onChange={(e) => {
-                  const v = e.target.value;
-                  setShapes(prev => prev.map(s => idSet.has(s.id) ? { ...s, style: { ...s.style, stroke: v } } : s));
-                }} value={first?.style?.stroke || defaultAnnColor} />
+                {anyFill ? (
+                  <>
+                    <label className="status">Colors</label>
+                    <div className="flex items-center gap-1">
+                      <input type="color" title="Stroke" onChange={(e) => applyStrokeColor(e.target.value)} value={strokeColor} />
+                      <ColorLinkToggle linked={inspectorColorsLinked} onToggle={toggleInspectorColorsLinked} />
+                      <input type="color" title="Fill" onChange={(e) => applyFillColor(e.target.value)} value={fillColor} />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <label className="status">Stroke</label>
+                    <input type="color" onChange={(e) => applyStrokeColor(e.target.value)} value={strokeColor} />
+                  </>
+                )}
 
                 <label className="status">Width</label>
                 <input type="number" min={1} max={16} step={1} onChange={(e) => {
@@ -2607,16 +2655,6 @@ export default function Editor({
 
                 {anyFill && (
                   <>
-                    <label className="status">Fill</label>
-                    <input type="color" onChange={(e) => {
-                      const v = e.target.value;
-                      setShapes(prev => prev.map(s => {
-                        if (!idSet.has(s.id)) return s;
-                        if (!isFillCapable(s)) return s;
-                        return { ...s, style: { ...s.style, fill: v } };
-                      }));
-                    }} value={fillSample?.style?.fill || fillSample?.style?.stroke || defaultAnnColor} />
-
                     <label className="status">Fill Opacity</label>
                     <input type="range" min={0} max={100} step={1} onChange={(e) => {
                       const v = Math.max(0, Math.min(100, Number(e.target.value) || 0)) / 100;
