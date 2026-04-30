@@ -50,6 +50,8 @@ function filterAnnotations(annotations: AnnotationsV1, visibleIds: Set<string>):
   };
 }
 
+const fullscreenImageClassName = "relative z-10 w-full h-full object-contain";
+
 export default function PresentationCanvas({
   presentationId = null,
   state,
@@ -778,13 +780,13 @@ export default function PresentationCanvas({
     );
   } else if (state.mode === 'still') {
     slideContent = activeStillUrl ? (
-      <img src={activeStillUrl} alt="Presentation slide" className="relative z-10 max-w-full max-h-full object-contain" />
+      <img src={activeStillUrl} alt="Presentation slide" className={fullscreenImageClassName} />
     ) : (
       <div className="relative z-10 text-sm text-muted">Still image unavailable</div>
     );
   } else if (isSimpleTransitionPlayback) {
     slideContent = transitionBackdropUrl ? (
-      <img src={transitionBackdropUrl} alt="Transition backdrop" className="relative z-10 max-w-full max-h-full object-contain" />
+      <img src={transitionBackdropUrl} alt="Transition backdrop" className={fullscreenImageClassName} />
     ) : (
       <div className="relative z-10 text-sm text-muted">Transition backdrop unavailable</div>
     );

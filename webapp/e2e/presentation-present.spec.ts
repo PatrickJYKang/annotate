@@ -54,6 +54,20 @@ test('presents without separate prepare controls and upgrades to exact transitio
   await expect(page.getByText('Present mode')).toBeVisible();
   await expect(page.getByText('Exact playback active')).toBeVisible({ timeout: 30000 });
   await expect(page.getByRole('button', { name: 'Marks' })).toBeDisabled();
+  await expect(page.locator('img[alt="Presentation slide"]')).toBeVisible();
+  const stillSummary = await page.evaluate(() => {
+    const image = document.querySelector('img[alt="Presentation slide"]') as HTMLImageElement | null;
+    const imageRect = image?.getBoundingClientRect();
+    const parentRect = image?.parentElement?.getBoundingClientRect();
+    return {
+      imageRect: imageRect ? { width: imageRect.width, height: imageRect.height } : null,
+      parentRect: parentRect ? { width: parentRect.width, height: parentRect.height } : null,
+    };
+  });
+  expect(stillSummary.imageRect?.width ?? 0, JSON.stringify(stillSummary, null, 2))
+    .toBeGreaterThanOrEqual((stillSummary.parentRect?.width ?? 0) - 2);
+  expect(stillSummary.imageRect?.height ?? 0, JSON.stringify(stillSummary, null, 2))
+    .toBeGreaterThanOrEqual((stillSummary.parentRect?.height ?? 0) - 2);
   await page.getByRole('button', { name: 'Next' }).click();
   await expect(page.getByText('Zoom')).toHaveCount(0);
 
