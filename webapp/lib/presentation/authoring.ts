@@ -47,6 +47,12 @@ export type ChronologicalStillGroup = {
   stills: ChronologicalStillAsset[];
 };
 
+export type ChronologicalMarkGroup = {
+  videoId: string;
+  videoLabel: string;
+  marks: PresentationAssetMark[];
+};
+
 export type ClipCenteredStillGroup = {
   clip: Clip;
   videoLabel: string;
@@ -232,6 +238,36 @@ export function buildPresentationAssetIndex(
   };
 }
 
+export function buildChronologicalMarkGroups(
+  manifest: ProjectManifestV1,
+): ChronologicalMarkGroup[] {
+  const videoLabelById = new Map(manifest.videos.map((video) => [video.id, video.label] as const));
+  const videoOrderById = new Map(manifest.videos.map((video, index) => [video.id, index] as const));
+  const grouped = new Map<string, PresentationAssetMark[]>();
+
+  for (const asset of buildMarkAssets(manifest)) {
+    const bucket = grouped.get(asset.mark.videoId);
+    if (bucket) bucket.push(asset);
+    else grouped.set(asset.mark.videoId, [asset]);
+  }
+
+  return Array.from(grouped.entries())
+    .sort(([videoIdA], [videoIdB]) => {
+      const orderA = videoOrderById.get(videoIdA) ?? Number.MAX_SAFE_INTEGER;
+      const orderB = videoOrderById.get(videoIdB) ?? Number.MAX_SAFE_INTEGER;
+      if (orderA !== orderB) return orderA - orderB;
+      return videoIdA.localeCompare(videoIdB);
+    })
+    .map(([videoId, marks]) => ({
+      videoId,
+      videoLabel: videoLabelById.get(videoId) || videoId,
+      marks: marks.slice().sort((a, b) => {
+        if (a.mark.t_ms !== b.mark.t_ms) return a.mark.t_ms - b.mark.t_ms;
+        return a.mark.id.localeCompare(b.mark.id);
+      }),
+    }));
+}
+
 export function buildChronologicalStillGroups(
   manifest: ProjectManifestV1,
 ): ChronologicalStillGroup[] {
@@ -319,11 +355,22 @@ export function insertSlideAfterSelection(
   const insertIndex = selectedSlideIndex >= 0
     ? Math.min(presentation.slides.length, selectedSlideIndex + 1)
     : presentation.slides.length;
+  return insertSlideAtIndex(manifest, presentation, insertIndex, slide);
+}
+
+export function insertSlideAtIndex(
+  manifest: ProjectManifestV1,
+  presentation: Presentation,
+  insertIndex: number,
+  slide: PresentationSlide,
+): { presentation: Presentation; insertedIndex: number } {
+  const safeIndex = Number.isFinite(insertIndex) ? Math.floor(insertIndex) : presentation.slides.length;
+  const normalizedIndex = Math.max(0, Math.min(presentation.slides.length, safeIndex));
   const nextSlides = presentation.slides.slice();
-  nextSlides.splice(insertIndex, 0, slide);
+  nextSlides.splice(normalizedIndex, 0, slide);
   return {
     presentation: withUpdatedPresentation(manifest, presentation, nextSlides),
-    insertedIndex: insertIndex,
+    insertedIndex: normalizedIndex,
   };
 }
 

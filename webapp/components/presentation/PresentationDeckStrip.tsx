@@ -2,6 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { Presentation } from '../../lib/types/presentation';
+import {
+  decodePresentationAssetDragPayload,
+  PRESENTATION_ASSET_DRAG_MIME,
+  type PresentationAssetDragPayload,
+} from '../../lib/presentation/drag';
 
 export interface PresentationDeckStripProps {
   presentation: Presentation;
@@ -9,6 +14,7 @@ export interface PresentationDeckStripProps {
   thumbnailUrlByStillId: Record<string, string>;
   onSelectSlide: (slideIndex: number) => void;
   onReorderSlide?: (fromIndex: number, toIndex: number) => void;
+  onInsertAsset?: (asset: PresentationAssetDragPayload, insertIndex: number) => void;
   onDeleteSlide?: (slideIndex: number) => void;
 }
 
@@ -18,9 +24,11 @@ export default function PresentationDeckStrip({
   thumbnailUrlByStillId,
   onSelectSlide,
   onReorderSlide,
+  onInsertAsset,
   onDeleteSlide,
 }: PresentationDeckStripProps) {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [assetDropIndex, setAssetDropIndex] = useState<number | null>(null);
   const selectedCardRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
@@ -32,12 +40,22 @@ export default function PresentationDeckStrip({
     });
   }, [selectedSlideIndex]);
 
+  const canDropAsset = (event: React.DragEvent) => !!onInsertAsset && event.dataTransfer.types.includes(PRESENTATION_ASSET_DRAG_MIME);
+
+  const handleAssetDrop = (event: React.DragEvent, insertIndex: number) => {
+    if (!onInsertAsset) return;
+    const payload = decodePresentationAssetDragPayload(event.dataTransfer.getData(PRESENTATION_ASSET_DRAG_MIME));
+    if (!payload) return;
+    event.preventDefault();
+    onInsertAsset(payload, insertIndex);
+    setAssetDropIndex(null);
+  };
+
   return (
     <div className="shrink-0 border-t border-subtle bg-surface">
       <div className="flex items-center justify-between gap-4 px-4 py-2 border-b border-subtle">
         <div>
           <div className="text-xs uppercase tracking-wide text-muted">Deck</div>
-          <div className="text-sm text-muted mt-1">Drag to reorder slides and use the transition chips to understand playback flow.</div>
         </div>
         <div className="text-xs text-muted">{presentation.slides.length} slides</div>
       </div>
@@ -58,20 +76,32 @@ export default function PresentationDeckStrip({
                   e.dataTransfer.effectAllowed = 'move';
                 }}
                 onDragOver={(e) => {
-                  if (!onReorderSlide) return;
-                  if (e.dataTransfer.types.includes('application/x-presentation-slide-index')) {
+                  if (canDropAsset(e)) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'copy';
+                    return;
+                  }
+                  if (onReorderSlide && e.dataTransfer.types.includes('application/x-presentation-slide-index')) {
                     e.preventDefault();
                     e.dataTransfer.dropEffect = 'move';
                   }
                 }}
-                onDragEnter={() => {
-                  if (!onReorderSlide) return;
-                  setDragOverIndex(index);
+                onDragEnter={(e) => {
+                  if (canDropAsset(e)) {
+                    setAssetDropIndex(index);
+                    return;
+                  }
+                  if (onReorderSlide) setDragOverIndex(index);
                 }}
                 onDragLeave={() => {
                   if (dragOverIndex === index) setDragOverIndex(null);
+                  if (assetDropIndex === index) setAssetDropIndex(null);
                 }}
                 onDrop={(e) => {
+                  if (canDropAsset(e)) {
+                    handleAssetDrop(e, index);
+                    return;
+                  }
                   if (!onReorderSlide) return;
                   const raw = e.dataTransfer.getData('application/x-presentation-slide-index');
                   const fromIndex = Number(raw);
@@ -81,11 +111,16 @@ export default function PresentationDeckStrip({
                   }
                   setDragOverIndex(null);
                 }}
-                onDragEnd={() => setDragOverIndex(null)}
+                onDragEnd={() => {
+                  setDragOverIndex(null);
+                  setAssetDropIndex(null);
+                }}
                 onClick={() => onSelectSlide(index)}
                 className={`group relative w-[208px] shrink-0 text-left border overflow-hidden transition-colors ${
                   isSelected
                     ? 'border-accent bg-selected'
+                    : assetDropIndex === index
+                      ? 'border-info bg-hover'
                     : dragOverIndex === index
                       ? 'border-info bg-hover'
                       : 'border-subtle bg-canvas hover:bg-hover'
@@ -175,9 +210,27 @@ export default function PresentationDeckStrip({
             </div>
           );
         })}
-        {presentation.slides.length === 0 && (
-          <div className="text-sm text-muted px-1 py-2">No slides yet.</div>
-        )}
+        <div
+          data-testid="presentation-deck-drop-end"
+          onDragOver={(e) => {
+            if (!canDropAsset(e)) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+          }}
+          onDragEnter={(e) => {
+            if (!canDropAsset(e)) return;
+            setAssetDropIndex(presentation.slides.length);
+          }}
+          onDragLeave={() => {
+            if (assetDropIndex === presentation.slides.length) setAssetDropIndex(null);
+          }}
+          onDrop={(e) => handleAssetDrop(e, presentation.slides.length)}
+          className={`w-[152px] shrink-0 border border-dashed px-4 py-3 text-sm text-muted flex items-center justify-center transition-colors ${
+            assetDropIndex === presentation.slides.length ? 'border-info bg-hover text-accent' : 'border-subtle bg-canvas'
+          }`}
+        >
+          {presentation.slides.length === 0 ? 'Drop source here' : 'Drop at end'}
+        </div>
       </div>
       </div>
     </div>

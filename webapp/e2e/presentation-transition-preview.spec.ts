@@ -2,7 +2,7 @@ import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { installDirectoryPickerFixture } from './support/fsAccessFixture';
-import { activatePresentationMarkRow } from './support/presentationHelpers';
+import { activatePresentationMarkRow, dragPresentationMarkToDeck } from './support/presentationHelpers';
 
 test('match_video transition preview becomes playable after exact clip generation', async ({ page }, testInfo) => {
   const browserConsoleMessages: string[] = [];
@@ -39,14 +39,14 @@ test('match_video transition preview becomes playable after exact clip generatio
   await expect(page.getByRole('button', { name: 'Prepare' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Present degraded' })).toHaveCount(0);
 
-  await activatePresentationMarkRow(page, /0:00\.400 Untagged/);
-  await page.getByRole('button', { name: 'Create still + add' }).first().click();
-  await expect(page.getByText('1 videos · 2 marks · 1 stills · 0 clips')).toBeVisible();
+  await activatePresentationMarkRow(page, /0:00\.400/);
+  await dragPresentationMarkToDeck(page, /0:00\.400/);
+  await expect(page.getByText('2 marks · 1 stills · 0 clips')).toBeVisible();
   await page.getByRole('button', { name: /Slide 2/i }).click();
 
-  await activatePresentationMarkRow(page, /0:01\.200 Untagged/);
-  await page.getByRole('button', { name: 'Create still + add' }).first().click();
-  await expect(page.getByText('1 videos · 2 marks · 2 stills · 0 clips')).toBeVisible();
+  await activatePresentationMarkRow(page, /0:01\.200/);
+  await dragPresentationMarkToDeck(page, /0:01\.200/);
+  await expect(page.getByText('2 marks · 2 stills · 0 clips')).toBeVisible();
 
   await page.getByRole('button', { name: /Slide 2/i }).click();
   await page.locator('select').last().selectOption('match_video');

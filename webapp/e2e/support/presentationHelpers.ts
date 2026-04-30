@@ -11,3 +11,9 @@ export async function activatePresentationMarkRow(page: Page, pattern: RegExp): 
     element.click();
   });
 }
+
+export async function dragPresentationMarkToDeck(page: Page, pattern: RegExp): Promise<void> {
+  const row = presentationMarkRow(page, pattern);
+  await row.scrollIntoViewIfNeeded();
+  await row.dragTo(page.getByTestId('presentation-deck-drop-end'));
+}

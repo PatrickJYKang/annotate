@@ -83,9 +83,11 @@ import {
   createStillSlide,
   createTitleSlide,
   insertSlideAfterSelection,
+  insertSlideAtIndex,
   moveSlide,
   removeSlideAtIndex,
 } from '../../lib/presentation/authoring';
+import type { PresentationAssetDragPayload } from '../../lib/presentation/drag';
 import { findCanonicalStillForMark, findStillAtTimestamp } from '../../lib/utils/projectIntegrity';
 import PresentationCanvas from './PresentationCanvas';
 import PresentationDeckStrip from './PresentationDeckStrip';
@@ -838,8 +840,10 @@ export default function PresentationAuthoringEditor({
     }, immediate);
   }, [draftPresentation, selectedSlideIndex, queuePersist]);
 
-  const insertStillSlide = useCallback((stillId: string) => {
-    const result = insertSlideAfterSelection(workingManifest, draftPresentation, selectedSlideIndex, createStillSlide(stillId));
+  const insertStillSlide = useCallback((stillId: string, insertIndex?: number) => {
+    const result = typeof insertIndex === 'number'
+      ? insertSlideAtIndex(workingManifest, draftPresentation, insertIndex, createStillSlide(stillId))
+      : insertSlideAfterSelection(workingManifest, draftPresentation, selectedSlideIndex, createStillSlide(stillId));
     queuePersist(result.presentation, true);
     showSlide(result.insertedIndex);
     const still = workingManifest.stills.find((entry) => entry.id === stillId);
@@ -847,8 +851,10 @@ export default function PresentationAuthoringEditor({
     setToast('Still slide added');
   }, [workingManifest, draftPresentation, selectedSlideIndex, queuePersist, showSlide]);
 
-  const insertClipSlide = useCallback((clipId: string) => {
-    const result = insertSlideAfterSelection(workingManifest, draftPresentation, selectedSlideIndex, createClipSlide(clipId));
+  const insertClipSlide = useCallback((clipId: string, insertIndex?: number) => {
+    const result = typeof insertIndex === 'number'
+      ? insertSlideAtIndex(workingManifest, draftPresentation, insertIndex, createClipSlide(clipId))
+      : insertSlideAfterSelection(workingManifest, draftPresentation, selectedSlideIndex, createClipSlide(clipId));
     queuePersist(result.presentation, true);
     showSlide(result.insertedIndex);
     setSelectedMarkId(null);
@@ -890,15 +896,15 @@ export default function PresentationAuthoringEditor({
     }, true);
   }, [draftPresentation, selectedSlideIndex, queuePersist]);
 
-  const createStillForMark = useCallback(async (mark: ProjectManifestV1['marks'][number]) => {
+  const createStillForMark = useCallback(async (mark: ProjectManifestV1['marks'][number], insertIndex?: number) => {
     const canonicalStill = findCanonicalStillForMark(workingManifest, mark.id);
     if (canonicalStill) {
-      insertStillSlide(canonicalStill.id);
+      insertStillSlide(canonicalStill.id, insertIndex);
       return;
     }
     const exactStill = findStillAtTimestamp(workingManifest.stills, mark.videoId, mark.t_ms);
     if (exactStill) {
-      insertStillSlide(exactStill.id);
+      insertStillSlide(exactStill.id, insertIndex);
       return;
     }
     const videoEntry = workingManifest.videos.find((video) => video.id === mark.videoId);
@@ -939,7 +945,9 @@ export default function PresentationAuthoringEditor({
       await writeManifest(projectDir, nextManifest);
       setWorkingManifest(nextManifest);
       setManifest(nextManifest);
-      const result = insertSlideAfterSelection(nextManifest, draftPresentation, selectedSlideIndex, createStillSlide(stillId));
+      const result = typeof insertIndex === 'number'
+        ? insertSlideAtIndex(nextManifest, draftPresentation, insertIndex, createStillSlide(stillId))
+        : insertSlideAfterSelection(nextManifest, draftPresentation, selectedSlideIndex, createStillSlide(stillId));
       queuePersist(result.presentation, true);
       showSlide(result.insertedIndex);
       setSelectedMarkId(mark.id);
@@ -950,6 +958,23 @@ export default function PresentationAuthoringEditor({
       setCaptureBusyMarkId(null);
     }
   }, [workingManifest, projectDir, getFileForPath, captureFrameAtMark, nextStillNumber, writeBlobToFile, createThumbnailBlob, setManifest, draftPresentation, selectedSlideIndex, queuePersist, showSlide, insertStillSlide]);
+
+  const insertDraggedAsset = useCallback((asset: PresentationAssetDragPayload, insertIndex: number) => {
+    if (asset.kind === 'still') {
+      insertStillSlide(asset.stillId, insertIndex);
+      return;
+    }
+    if (asset.kind === 'clip') {
+      insertClipSlide(asset.clipId, insertIndex);
+      return;
+    }
+    const mark = workingManifest.marks.find((entry) => entry.id === asset.markId);
+    if (!mark) {
+      setToast(`Mark not found: ${asset.markId}`);
+      return;
+    }
+    void createStillForMark(mark, insertIndex);
+  }, [createStillForMark, insertClipSlide, insertStillSlide, workingManifest.marks]);
 
   const transitionCanUseMatchVideo = useMemo(() => {
     if (selectedSlideIndex < 0 || selectedSlideIndex >= draftPresentation.slides.length - 1) return false;
@@ -1818,9 +1843,6 @@ export default function PresentationAuthoringEditor({
               selectedClipId={selectedClipId}
               clips={clips}
               onPreviewMark={previewMark}
-              onInsertStill={insertStillSlide}
-              onInsertClip={insertClipSlide}
-              onCreateStillForMark={createStillForMark}
             />
 
             <div className="flex-1 min-w-0 min-h-0 flex flex-col p-4 gap-4 bg-canvas overflow-hidden">
@@ -1894,6 +1916,7 @@ export default function PresentationAuthoringEditor({
             thumbnailUrlByStillId={thumbnailUrlByStillId}
             onSelectSlide={showSlide}
             onReorderSlide={reorderSlide}
+            onInsertAsset={insertDraggedAsset}
             onDeleteSlide={(slideIndex) => {
               const next = removeSlideAtIndex(workingManifest, draftPresentation, slideIndex);
               queuePersist(next, true);

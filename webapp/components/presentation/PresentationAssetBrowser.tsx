@@ -7,12 +7,17 @@ import type { TaggingSchema } from '../../lib/tagging/schema';
 import { ensureTaggingSelection } from '../../lib/tagging/schema';
 import type {
   ClipCenteredStillGroup,
-  ChronologicalStillGroup,
+  ChronologicalMarkGroup,
   PresentationAssetIndex,
   PresentationAssetMark,
   PresentationAssetTreeNode,
 } from '../../lib/presentation/authoring';
-import { buildChronologicalStillGroups, buildClipCenteredStillGroups } from '../../lib/presentation/authoring';
+import { buildChronologicalMarkGroups, buildClipCenteredStillGroups } from '../../lib/presentation/authoring';
+import {
+  encodePresentationAssetDragPayload,
+  PRESENTATION_ASSET_DRAG_MIME,
+  type PresentationAssetDragPayload,
+} from '../../lib/presentation/drag';
 
 export interface PresentationAssetBrowserProps {
   schema: TaggingSchema | null;
@@ -25,9 +30,6 @@ export interface PresentationAssetBrowserProps {
   mode?: 'authoring' | 'retrieval';
   compact?: boolean;
   onPreviewMark: (mark: ProjectManifestV1['marks'][number]) => void;
-  onInsertStill?: (stillId: string) => void;
-  onInsertClip?: (clipId: string) => void;
-  onCreateStillForMark?: (mark: ProjectManifestV1['marks'][number]) => void;
 }
 
 function formatTimestamp(ms: number): string {
@@ -45,116 +47,147 @@ function formatTimestamp(ms: number): string {
   return `${mm}:${String(ss).padStart(2, '0')}.${String(mss).padStart(3, '0')}`;
 }
 
-function MarkAssetRow({
+const badgeCls = "text-[10px] leading-4 px-[5px] rounded-lg bg-subtle text-secondary font-semibold shrink-0";
+const chevronCls = "inline-block w-3.5 text-center text-[10px] text-muted shrink-0 transition-transform duration-150 ease-in-out";
+const collapsibleOpen = "grid grid-rows-[1fr] overflow-hidden transition-[grid-template-rows] duration-200 ease-in-out";
+const collapsibleClosed = "grid grid-rows-[0fr] overflow-hidden transition-[grid-template-rows] duration-200 ease-in-out";
+
+function startAssetDrag(event: React.DragEvent, payload: PresentationAssetDragPayload) {
+  event.dataTransfer.setData(PRESENTATION_ASSET_DRAG_MIME, encodePresentationAssetDragPayload(payload));
+  event.dataTransfer.effectAllowed = 'copy';
+}
+
+function SourceRow({
+  label,
+  selected,
+  payload,
+  onClick,
+  disabledClick = false,
+}: {
+  label: string;
+  selected?: boolean;
+  payload?: PresentationAssetDragPayload;
+  onClick?: () => void;
+  disabledClick?: boolean;
+}) {
+  return (
+    <button
+      data-presentation-asset-kind={payload?.kind}
+      data-presentation-asset-id={payload ? ('stillId' in payload ? payload.stillId : 'clipId' in payload ? payload.clipId : payload.markId) : undefined}
+      draggable={!!payload}
+      onDragStart={payload ? (event) => startAssetDrag(event, payload) : undefined}
+      onClick={disabledClick ? undefined : onClick}
+      className={`block w-full text-left px-2 py-0.5 m-0 border-0 text-xs font-mono transition-[background,color] duration-[120ms] ease ${
+        payload ? 'cursor-grab active:cursor-grabbing' : disabledClick ? 'cursor-default' : 'cursor-pointer'
+      } ${selected ? 'text-accent bg-selected' : 'text-secondary bg-transparent hover:bg-hover'}`}
+      title={payload ? 'Drag to the deck timeline to add' : undefined}
+    >
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function FolderHeader({
+  label,
+  count,
+  isOpen,
+  onToggle,
+  dimmed,
+  color,
+}: {
+  label: string;
+  count: number;
+  isOpen: boolean;
+  onToggle: () => void;
+  dimmed?: boolean;
+  color?: string;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      className={`flex items-center gap-1 w-full text-left px-1 py-[3px] m-0 cursor-pointer text-sm font-medium border border-transparent transition-[opacity,background,border-color] duration-[120ms] ease ${
+        dimmed ? 'opacity-70' : 'opacity-100'
+      }`}
+      style={{ color: color ?? (dimmed ? '#64748b' : '#e2e8f0') }}
+    >
+      <span className={chevronCls} style={{ transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)' }}>▾</span>
+      <span className="flex-1 truncate">{label}</span>
+      {count > 0 && <span className={badgeCls}>{count}</span>}
+    </button>
+  );
+}
+
+function MarkAssetRows({
   asset,
   selectedMarkId,
   selectedStillId,
   mode,
   onPreviewMark,
-  onInsertStill,
-  onCreateStillForMark,
 }: {
   asset: PresentationAssetMark;
   selectedMarkId: string | null;
   selectedStillId: string | null;
   mode: 'authoring' | 'retrieval';
   onPreviewMark: (mark: ProjectManifestV1['marks'][number]) => void;
-  onInsertStill?: (stillId: string) => void;
-  onCreateStillForMark?: (mark: ProjectManifestV1['marks'][number]) => void;
 }) {
-  const selection = ensureTaggingSelection(asset.mark.tags);
+  const linkedStills = asset.linkedStills.slice().sort((a, b) => a.t_ms - b.t_ms);
+  const existingStill = asset.canonicalStill ?? linkedStills[0] ?? null;
+  const dragPayload: PresentationAssetDragPayload | undefined = mode !== 'authoring'
+    ? undefined
+    : existingStill
+      ? { kind: 'still', stillId: existingStill.id }
+      : { kind: 'mark', markId: asset.mark.id };
+
   return (
-    <div className="border-t border-subtle first:border-t-0">
-      <button
+    <div>
+      <SourceRow
+        label={formatTimestamp(asset.mark.t_ms)}
+        selected={selectedMarkId === asset.mark.id || selectedStillId === existingStill?.id}
+        payload={dragPayload}
         onClick={() => onPreviewMark(asset.mark)}
-        className={`w-full text-left px-3 py-2 ${selectedMarkId === asset.mark.id ? 'bg-selected' : 'bg-transparent hover:bg-hover'}`}
-      >
-        <div className="text-sm font-medium">{formatTimestamp(asset.mark.t_ms)}</div>
-        <div className="text-xs text-muted mt-1">
-          {selection.primary || 'Untagged'} · {asset.linkedStills.length} linked stills
-        </div>
-      </button>
-      {mode === 'authoring' && (
-        <div className="px-3 pb-3 flex flex-col gap-2">
-        {asset.linkedStills.length > 0 ? (
-          asset.linkedStills
-            .slice()
-            .sort((a, b) => a.t_ms - b.t_ms)
-            .map((still) => {
-              const isCanonical = asset.canonicalStill?.id === still.id;
-              return (
-                <div key={still.id} className={`rounded border px-2 py-2 ${selectedStillId === still.id ? 'border-accent bg-selected' : 'border-subtle bg-canvas'}`}>
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium truncate">{still.id}</div>
-                      <div className="text-[11px] text-muted mt-1">
-                        {formatTimestamp(still.t_ms)}{isCanonical ? ' · canonical' : ''}
-                      </div>
-                    </div>
-                    {onInsertStill && <button onClick={() => onInsertStill(still.id)} className="px-2 py-1 text-xs cursor-pointer">Add</button>}
-                  </div>
-                </div>
-              );
-            })
-        ) : (
-          <div className="rounded border border-dashed border-subtle px-3 py-2 text-xs text-muted flex items-center gap-2">
-            <span className="flex-1">No linked still yet for this mark.</span>
-            {onCreateStillForMark && <button onClick={() => onCreateStillForMark(asset.mark)} className="px-2 py-1 text-xs cursor-pointer">Create still + add</button>}
-          </div>
-        )}
-        </div>
-      )}
+      />
     </div>
   );
 }
 
-function ChronologicalStillSection({
+function ChronologicalMarkSection({
   group,
+  selectedMarkId,
   selectedStillId,
-  onInsertStill,
+  mode,
   onPreviewMark,
 }: {
-  group: ChronologicalStillGroup;
+  group: ChronologicalMarkGroup;
+  selectedMarkId: string | null;
   selectedStillId: string | null;
-  onInsertStill?: (stillId: string) => void;
+  mode: 'authoring' | 'retrieval';
   onPreviewMark: (mark: ProjectManifestV1['marks'][number]) => void;
 }) {
+  const [open, setOpen] = useState(group.marks.length > 0);
   return (
-    <div className="border border-subtle rounded overflow-hidden">
-      <div className="px-3 py-2 bg-canvas flex items-center gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium truncate">{group.videoLabel}</div>
-          <div className="text-[11px] text-muted mt-1">{group.stills.length} stills</div>
+    <div>
+      <FolderHeader
+        label={group.videoLabel}
+        count={group.marks.length}
+        isOpen={open}
+        onToggle={() => setOpen((prev) => !prev)}
+        dimmed={group.marks.length === 0}
+      />
+      <div className={open ? collapsibleOpen : collapsibleClosed}>
+        <div className="min-h-0">
+          {group.marks.map((asset) => (
+            <div key={asset.mark.id} className="ml-[18px]">
+              <MarkAssetRows
+                asset={asset}
+                selectedMarkId={selectedMarkId}
+                selectedStillId={selectedStillId}
+                mode={mode}
+                onPreviewMark={onPreviewMark}
+              />
+            </div>
+          ))}
         </div>
       </div>
-      {group.stills.map((entry) => (
-        <div
-          key={entry.still.id}
-          className={`px-3 py-2 border-t border-subtle first:border-t-0 ${selectedStillId === entry.still.id ? 'bg-selected' : 'bg-transparent'}`}
-        >
-          <div className="flex items-center gap-2">
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium">{formatTimestamp(entry.still.t_ms)}</div>
-              <div className="text-[11px] text-muted mt-1 flex flex-wrap gap-x-2 gap-y-1">
-                <span>{entry.still.id}</span>
-                {entry.primaryTag && <span>{entry.primaryTag}</span>}
-                {entry.canonicalForSourceMark && <span>canonical</span>}
-                {!entry.sourceMark && <span>no source mark</span>}
-              </div>
-            </div>
-            {entry.sourceMark && (
-              <button onClick={() => onPreviewMark(entry.sourceMark!)} className="px-2 py-1 text-xs cursor-pointer">
-                Mark
-              </button>
-            )}
-            {onInsertStill && (
-              <button onClick={() => onInsertStill(entry.still.id)} className="px-2 py-1 text-xs cursor-pointer">
-                Add
-              </button>
-            )}
-          </div>
-        </div>
-      ))}
     </div>
   );
 }
@@ -163,65 +196,51 @@ function ClipCenteredSection({
   group,
   selectedStillId,
   selectedClipId,
-  onInsertStill,
-  onInsertClip,
   onPreviewMark,
 }: {
   group: ClipCenteredStillGroup;
   selectedStillId: string | null;
   selectedClipId: string | null;
-  onInsertStill?: (stillId: string) => void;
-  onInsertClip?: (clipId: string) => void;
   onPreviewMark: (mark: ProjectManifestV1['marks'][number]) => void;
 }) {
+  const [open, setOpen] = useState(true);
   return (
-    <div className="border border-subtle rounded overflow-hidden">
-      <div className={`px-3 py-2 bg-canvas flex items-center gap-2 ${selectedClipId === group.clip.id ? 'bg-selected' : ''}`}>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium truncate">{group.clip.id}</div>
-          <div className="text-[11px] text-muted mt-1">
-            {group.videoLabel} · {formatTimestamp(group.clip.startMs)} → {formatTimestamp(group.clip.endMs)} · {group.stills.length} stills
-          </div>
-        </div>
-        {onInsertClip && (
-          <button onClick={() => onInsertClip(group.clip.id)} className="px-2 py-1 text-xs cursor-pointer">
-            Add clip
-          </button>
-        )}
+    <div>
+      <FolderHeader
+        label={group.clip.id}
+        count={group.stills.length}
+        isOpen={open}
+        onToggle={() => setOpen((prev) => !prev)}
+        dimmed={false}
+        color={selectedClipId === group.clip.id ? '#e5e7eb' : undefined}
+      />
+      <div className="ml-[18px]">
+        <SourceRow
+          label={`${formatTimestamp(group.clip.startMs)} → ${formatTimestamp(group.clip.endMs)}`}
+          selected={selectedClipId === group.clip.id}
+          payload={{ kind: 'clip', clipId: group.clip.id }}
+          disabledClick
+        />
       </div>
-      {group.stills.length > 0 ? (
-        group.stills.map((entry) => (
-          <div
-            key={entry.still.id}
-            className={`px-3 py-2 border-t border-subtle first:border-t-0 ${selectedStillId === entry.still.id ? 'bg-selected' : 'bg-transparent'}`}
-          >
-            <div className="flex items-center gap-2">
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium">{formatTimestamp(entry.still.t_ms)}</div>
-                <div className="text-[11px] text-muted mt-1 flex flex-wrap gap-x-2 gap-y-1">
-                  <span>{entry.still.id}</span>
-                  {entry.primaryTag && <span>{entry.primaryTag}</span>}
-                  {entry.canonicalForSourceMark && <span>canonical</span>}
-                </div>
+      <div className={open ? collapsibleOpen : collapsibleClosed}>
+        <div className="min-h-0">
+          {group.stills.length > 0 ? (
+            group.stills.map((entry) => (
+              <div key={entry.still.id} className="ml-[18px]">
+                <SourceRow
+                  label={formatTimestamp(entry.still.t_ms)}
+                  selected={selectedStillId === entry.still.id}
+                  payload={{ kind: 'still', stillId: entry.still.id }}
+                  onClick={entry.sourceMark ? () => onPreviewMark(entry.sourceMark!) : undefined}
+                  disabledClick={!entry.sourceMark}
+                />
               </div>
-              {entry.sourceMark && (
-                <button onClick={() => onPreviewMark(entry.sourceMark!)} className="px-2 py-1 text-xs cursor-pointer">
-                  Mark
-                </button>
-              )}
-              {onInsertStill && (
-                <button onClick={() => onInsertStill(entry.still.id)} className="px-2 py-1 text-xs cursor-pointer">
-                  Add still
-                </button>
-              )}
-            </div>
-          </div>
-        ))
-      ) : (
-        <div className="px-3 py-2 text-xs text-muted border-t border-subtle">
-          No stills fall inside this clip yet.
+            ))
+          ) : (
+            <div className="ml-[18px] px-2 py-1 text-xs text-muted">No stills inside this clip yet.</div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -232,60 +251,89 @@ function TreeNodeSection({
   selectedStillId,
   mode,
   onPreviewMark,
-  onInsertStill,
-  onCreateStillForMark,
+  depth = 0,
 }: {
   node: PresentationAssetTreeNode;
   selectedMarkId: string | null;
   selectedStillId: string | null;
   mode: 'authoring' | 'retrieval';
   onPreviewMark: (mark: ProjectManifestV1['marks'][number]) => void;
-  onInsertStill?: (stillId: string) => void;
-  onCreateStillForMark?: (mark: ProjectManifestV1['marks'][number]) => void;
+  depth?: number;
 }) {
   const [open, setOpen] = useState(node.markCount > 0);
   return (
-    <div className="border border-subtle rounded overflow-hidden">
-      <button onClick={() => setOpen((prev) => !prev)} className="w-full text-left px-3 py-2 bg-canvas flex items-center gap-2">
-        <span className="text-xs text-muted">{open ? '▾' : '▸'}</span>
-        <span className="flex-1 text-sm font-medium">{node.label}</span>
-        <span className="text-[10px] px-1.5 py-0.5 rounded bg-subtle text-secondary">{node.markCount}</span>
-      </button>
-      {open && (
-        <div>
+    <div style={{ marginLeft: depth > 0 ? 12 : 0 }}>
+      <FolderHeader
+        label={node.label}
+        count={node.markCount}
+        isOpen={open}
+        onToggle={() => setOpen((prev) => !prev)}
+        dimmed={node.markCount === 0}
+      />
+      <div className={open ? collapsibleOpen : collapsibleClosed}>
+        <div className="min-h-0">
           {node.marks.map((asset) => (
-            <MarkAssetRow
-              key={asset.mark.id}
-              asset={asset}
+            <div key={asset.mark.id} className="ml-[18px]">
+              <MarkAssetRows
+                asset={asset}
+                selectedMarkId={selectedMarkId}
+                selectedStillId={selectedStillId}
+                mode={mode}
+                onPreviewMark={onPreviewMark}
+              />
+            </div>
+          ))}
+          {node.children.map((child) => (
+            <TreeNodeSection
+              key={child.id}
+              node={child}
               selectedMarkId={selectedMarkId}
               selectedStillId={selectedStillId}
               mode={mode}
               onPreviewMark={onPreviewMark}
-              onInsertStill={onInsertStill}
-              onCreateStillForMark={onCreateStillForMark}
+              depth={depth + 1}
             />
           ))}
-          {node.children.length > 0 && (
-            <div className="px-2 py-2 flex flex-col gap-2 bg-surface">
-              {node.children.map((child) => (
-                <TreeNodeSection
-                  key={child.id}
-                  node={child}
-                  selectedMarkId={selectedMarkId}
-                  selectedStillId={selectedStillId}
-                  mode={mode}
-                  onPreviewMark={onPreviewMark}
-                  onInsertStill={onInsertStill}
-                  onCreateStillForMark={onCreateStillForMark}
-                />
-              ))}
-            </div>
-          )}
           {node.markCount === 0 && (
-            <div className="px-3 py-2 text-xs text-muted">No marks in this branch.</div>
+            <div className="ml-[18px] px-2 py-1 text-xs text-muted">No marks in this branch.</div>
           )}
         </div>
-      )}
+      </div>
+    </div>
+  );
+}
+
+function ClipListSection({
+  clips,
+  selectedClipId,
+}: {
+  clips: Clip[];
+  selectedClipId: string | null;
+}) {
+  const [open, setOpen] = useState(clips.length > 0);
+  return (
+    <div>
+      <FolderHeader
+        label="Clips"
+        count={clips.length}
+        isOpen={open}
+        onToggle={() => setOpen((prev) => !prev)}
+        dimmed={clips.length === 0}
+      />
+      <div className={open ? collapsibleOpen : collapsibleClosed}>
+        <div className="min-h-0">
+          {clips.map((clip) => (
+            <div key={clip.id} className="ml-[18px]">
+              <SourceRow
+                label={`${formatTimestamp(clip.startMs)} → ${formatTimestamp(clip.endMs)}`}
+                selected={selectedClipId === clip.id}
+                payload={{ kind: 'clip', clipId: clip.id }}
+                disabledClick
+              />
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -301,198 +349,210 @@ export default function PresentationAssetBrowser({
   mode = 'authoring',
   compact = false,
   onPreviewMark,
-  onInsertStill,
-  onInsertClip,
-  onCreateStillForMark,
 }: PresentationAssetBrowserProps) {
   const [viewMode, setViewMode] = useState<'tagged' | 'chronological' | 'clip_centered'>('tagged');
+  const [openBuckets, setOpenBuckets] = useState<Set<string>>(() => new Set(['untagged', 'unknown', 'missing']));
+  const toggleBucket = (bucket: string) => {
+    setOpenBuckets((prev) => {
+      const next = new Set(prev);
+      if (next.has(bucket)) next.delete(bucket);
+      else next.add(bucket);
+      return next;
+    });
+  };
   const unknownWithLabels = useMemo(() => {
     return assetIndex.unknown.map((asset) => ({
       asset,
       primary: ensureTaggingSelection(asset.mark.tags).primary,
     }));
   }, [assetIndex.unknown]);
-  const chronologicalStillGroups = useMemo(() => buildChronologicalStillGroups(manifest), [manifest]);
+  const chronologicalMarkGroups = useMemo(() => buildChronologicalMarkGroups(manifest), [manifest]);
   const clipCenteredGroups = useMemo(() => buildClipCenteredStillGroups(manifest, clips), [manifest, clips]);
   const showChronological = mode === 'authoring' && viewMode === 'chronological';
   const showClipCentered = mode === 'authoring' && viewMode === 'clip_centered';
 
   return (
-    <div className={`${compact ? 'w-[320px]' : 'w-[360px] shrink-0 border-r'} min-h-0 border-subtle bg-surface p-4 overflow-y-auto flex flex-col gap-4`}>
-      <div>
-        <div className="text-xs uppercase tracking-wide text-muted">{mode === 'retrieval' ? 'Mark retrieval' : 'Asset browser'}</div>
-        <div className="text-sm text-muted mt-2">
-          {mode === 'retrieval'
-            ? 'Compact mark browser for ad hoc retrieval during presenting.'
-            : 'Mark-first browser with linked still insertion and repair buckets.'}
+    <div className={`${compact ? 'w-[320px]' : 'w-[360px] shrink-0 border-r'} min-h-0 border-subtle bg-surface flex flex-col overflow-hidden`}>
+      <div className="shrink-0 px-3 py-2 border-b border-subtle">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs uppercase tracking-wide text-muted">{mode === 'retrieval' ? 'Mark retrieval' : 'Sources'}</div>
+          {mode === 'authoring' && (
+            <div className="text-[11px] text-muted">
+              {manifest.marks.length} marks · {manifest.stills.length} stills · {clips.length} clips
+            </div>
+          )}
+        </div>
+        <div className="text-[11px] text-muted mt-1">
+          {mode === 'retrieval' ? 'Click a mark to retrieve video.' : 'Click to seek marks. Drag sources to the deck.'}
         </div>
       </div>
 
-      {!compact && (
-        <div className="border border-subtle rounded p-3">
-          <div className="text-xs uppercase tracking-wide text-muted">Project context</div>
-          <div className="text-sm mt-2">{manifest.name}</div>
-          <div className="text-sm text-muted mt-1">{manifest.videos.length} videos · {manifest.marks.length} marks · {manifest.stills.length} stills · {clips.length} clips</div>
-          <div className="text-sm text-muted mt-1">Tagging schema: {schema ? `v${schema.version}` : 'missing'}</div>
-        </div>
-      )}
-
       {mode === 'authoring' && (
-        <div className="border border-subtle rounded p-2 flex items-center gap-2">
-          <div className="text-xs uppercase tracking-wide text-muted px-1">Browse</div>
-          <button
-            onClick={() => setViewMode('tagged')}
-            className={`px-2 py-1 text-xs border rounded ${viewMode === 'tagged' ? 'bg-selected border-accent' : 'border-subtle bg-canvas'}`}
-          >
-            Tag buckets
-          </button>
-          <button
-            onClick={() => setViewMode('chronological')}
-            className={`px-2 py-1 text-xs border rounded ${viewMode === 'chronological' ? 'bg-selected border-accent' : 'border-subtle bg-canvas'}`}
-          >
-            Chronological
-          </button>
-          <button
-            onClick={() => setViewMode('clip_centered')}
-            className={`px-2 py-1 text-xs border rounded ${viewMode === 'clip_centered' ? 'bg-selected border-accent' : 'border-subtle bg-canvas'}`}
-          >
-            Clip centered
-          </button>
-        </div>
-      )}
-
-      {mode === 'authoring' && clips.length > 0 && (
-        <div className="border border-subtle rounded overflow-hidden">
-          <div className="px-3 py-2 bg-canvas text-sm font-medium">Clips</div>
-          {clips.map((clip) => (
-            <div key={clip.id} className={`px-3 py-2 border-t border-subtle first:border-t-0 ${selectedClipId === clip.id ? 'bg-selected' : 'bg-transparent'}`}>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate">{clip.id}</div>
-                  <div className="text-[11px] text-muted mt-1">{clip.videoId} · {formatTimestamp(clip.startMs)} → {formatTimestamp(clip.endMs)}</div>
-                </div>
-                {onInsertClip && <button onClick={() => onInsertClip(clip.id)} className="px-2 py-1 text-xs cursor-pointer">Add</button>}
-              </div>
-            </div>
+        <div className="shrink-0 flex items-center gap-1 px-2 py-2 border-b border-subtle">
+          <span className="text-xs uppercase tracking-wide text-muted px-1">Browse</span>
+          {([
+            ['tagged', 'Tags'],
+            ['chronological', 'Time'],
+            ['clip_centered', 'Clips'],
+          ] as const).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setViewMode(id)}
+              className={`px-2 py-1 text-xs border-0 ${viewMode === id ? 'bg-selected text-accent' : 'bg-transparent text-secondary hover:bg-hover'}`}
+            >
+              {label}
+            </button>
           ))}
         </div>
       )}
-      {showChronological ? (
-        chronologicalStillGroups.length > 0 ? (
-          <div className="flex flex-col gap-3">
-            {chronologicalStillGroups.map((group) => (
-              <ChronologicalStillSection
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-1 py-2 text-sm">
+        {mode === 'authoring' && clips.length > 0 && !showClipCentered && (
+          <div className="mb-2 border-b border-subtle pb-2">
+            <ClipListSection clips={clips} selectedClipId={selectedClipId} />
+          </div>
+        )}
+
+        {showChronological ? (
+          chronologicalMarkGroups.length > 0 ? (
+            chronologicalMarkGroups.map((group) => (
+              <ChronologicalMarkSection
                 key={group.videoId}
                 group={group}
+                selectedMarkId={selectedMarkId}
                 selectedStillId={selectedStillId}
-                onInsertStill={onInsertStill}
+                mode={mode}
                 onPreviewMark={onPreviewMark}
               />
-            ))}
-          </div>
-        ) : (
-          <div className="text-sm text-muted">No stills available yet.</div>
-        )
-      ) : showClipCentered ? (
-        clipCenteredGroups.length > 0 ? (
-          <div className="flex flex-col gap-3">
-            {clipCenteredGroups.map((group) => (
+            ))
+          ) : (
+            <div className="px-2 py-1 text-sm text-muted">No marks available yet.</div>
+          )
+        ) : showClipCentered ? (
+          clipCenteredGroups.length > 0 ? (
+            clipCenteredGroups.map((group) => (
               <ClipCenteredSection
                 key={group.clip.id}
                 group={group}
                 selectedStillId={selectedStillId}
                 selectedClipId={selectedClipId}
-                onInsertStill={onInsertStill}
-                onInsertClip={onInsertClip}
                 onPreviewMark={onPreviewMark}
               />
-            ))}
-          </div>
-        ) : (
-          <div className="text-sm text-muted">No clips available yet.</div>
-        )
-      ) : (
-        <>
-          <div className="border border-subtle rounded overflow-hidden">
-            <div className="px-3 py-2 bg-canvas text-sm font-medium">Untagged</div>
-            {assetIndex.untagged.length > 0 ? (
-              assetIndex.untagged.map((asset) => (
-                <MarkAssetRow
-                  key={asset.mark.id}
-                  asset={asset}
-                  selectedMarkId={selectedMarkId}
-                  selectedStillId={selectedStillId}
-                  mode={mode}
-                  onPreviewMark={onPreviewMark}
-                  onInsertStill={onInsertStill}
-                  onCreateStillForMark={onCreateStillForMark}
-                />
-              ))
-            ) : (
-              <div className="px-3 py-2 text-xs text-muted">No untagged marks.</div>
-            )}
-          </div>
-
-          {schema ? (
-            <div className="flex flex-col gap-3">
-              {assetIndex.tree.map((node) => (
-                <TreeNodeSection
-                  key={node.id}
-                  node={node}
-                  selectedMarkId={selectedMarkId}
-                  selectedStillId={selectedStillId}
-                  mode={mode}
-                  onPreviewMark={onPreviewMark}
-                  onInsertStill={onInsertStill}
-                  onCreateStillForMark={onCreateStillForMark}
-                />
-              ))}
-            </div>
+            ))
           ) : (
-            <div className="text-sm text-muted">No tagging schema loaded. Only repair buckets are available.</div>
-          )}
+            <div className="px-2 py-1 text-sm text-muted">No clips available yet.</div>
+          )
+        ) : (
+          <>
+            <div className="border-b border-subtle pb-2">
+              <FolderHeader
+                label="Untagged"
+                count={assetIndex.untagged.length}
+                isOpen={openBuckets.has('untagged')}
+                onToggle={() => toggleBucket('untagged')}
+                dimmed={assetIndex.untagged.length === 0}
+              />
+              <div className={openBuckets.has('untagged') ? collapsibleOpen : collapsibleClosed}>
+                <div className="min-h-0">
+                  {assetIndex.untagged.length > 0 ? (
+                    assetIndex.untagged.map((asset) => (
+                      <div key={asset.mark.id} className="ml-[18px]">
+                        <MarkAssetRows
+                          asset={asset}
+                          selectedMarkId={selectedMarkId}
+                          selectedStillId={selectedStillId}
+                          mode={mode}
+                          onPreviewMark={onPreviewMark}
+                        />
+                      </div>
+                    ))
+                  ) : (
+                    <div className="ml-[18px] px-2 py-1 text-xs text-muted">No untagged marks.</div>
+                  )}
+                </div>
+              </div>
+            </div>
 
-          <div className="border border-subtle rounded overflow-hidden">
-            <div className="px-3 py-2 bg-canvas text-sm font-medium">Unknown tag</div>
-            {unknownWithLabels.length > 0 ? (
-              unknownWithLabels.map(({ asset, primary }) => (
-                <div key={asset.mark.id}>
-                  <MarkAssetRow
-                    asset={asset}
+            {schema ? (
+              <div className="py-2">
+                {assetIndex.tree.map((node) => (
+                  <TreeNodeSection
+                    key={node.id}
+                    node={node}
                     selectedMarkId={selectedMarkId}
                     selectedStillId={selectedStillId}
                     mode={mode}
                     onPreviewMark={onPreviewMark}
-                    onInsertStill={onInsertStill}
-                    onCreateStillForMark={onCreateStillForMark}
                   />
-                  {primary && <div className="px-3 pb-3 text-[11px] text-warning">Unknown primary tag: {primary}</div>}
-                </div>
-              ))
+                ))}
+              </div>
             ) : (
-              <div className="px-3 py-2 text-xs text-muted">No marks with unknown tags.</div>
+              <div className="px-2 py-2 text-sm text-muted">No tagging schema loaded. Only repair buckets are available.</div>
             )}
-          </div>
 
-          {mode === 'authoring' && (
-            <div className="border border-subtle rounded overflow-hidden">
-              <div className="px-3 py-2 bg-canvas text-sm font-medium">Missing source mark</div>
-              {assetIndex.missingSourceMark.length > 0 ? (
-                assetIndex.missingSourceMark.map((still) => (
-                  <div key={still.id} className="px-3 py-2 border-t border-subtle first:border-t-0">
-                    <div className="text-sm font-medium">{still.id}</div>
-                    <div className="text-xs text-muted mt-1">
-                      {still.videoId} · {formatTimestamp(still.t_ms)} · {still.sourceMarkId || 'unresolved'}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="px-3 py-2 text-xs text-muted">No missing-source-mark stills.</div>
-              )}
+            <div className="border-t border-subtle pt-2">
+              <FolderHeader
+                label="Unknown tag"
+                count={unknownWithLabels.length}
+                isOpen={openBuckets.has('unknown')}
+                onToggle={() => toggleBucket('unknown')}
+                dimmed={unknownWithLabels.length === 0}
+                color={unknownWithLabels.length > 0 ? '#f59e0b' : undefined}
+              />
+              <div className={openBuckets.has('unknown') ? collapsibleOpen : collapsibleClosed}>
+                <div className="min-h-0">
+                  {unknownWithLabels.length > 0 ? (
+                    unknownWithLabels.map(({ asset, primary }) => (
+                      <div key={asset.mark.id} className="ml-[18px]">
+                        <MarkAssetRows
+                          asset={asset}
+                          selectedMarkId={selectedMarkId}
+                          selectedStillId={selectedStillId}
+                          mode={mode}
+                          onPreviewMark={onPreviewMark}
+                        />
+                        {primary && <div className="px-2 pb-1 text-[11px] text-warning">Unknown primary tag: {primary}</div>}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="ml-[18px] px-2 py-1 text-xs text-muted">No marks with unknown tags.</div>
+                  )}
+                </div>
+              </div>
             </div>
-          )}
-        </>
-      )}
+
+            {mode === 'authoring' && (
+              <div className="border-t border-subtle mt-2 pt-2">
+                <FolderHeader
+                  label="Missing source mark"
+                  count={assetIndex.missingSourceMark.length}
+                  isOpen={openBuckets.has('missing')}
+                  onToggle={() => toggleBucket('missing')}
+                  dimmed={assetIndex.missingSourceMark.length === 0}
+                />
+                <div className={openBuckets.has('missing') ? collapsibleOpen : collapsibleClosed}>
+                  <div className="min-h-0">
+                    {assetIndex.missingSourceMark.length > 0 ? (
+                      assetIndex.missingSourceMark.map((still) => (
+                        <div key={still.id} className="ml-[18px]">
+                          <SourceRow
+                            label={formatTimestamp(still.t_ms)}
+                            selected={selectedStillId === still.id}
+                            payload={{ kind: 'still', stillId: still.id }}
+                            disabledClick
+                          />
+                        </div>
+                      ))
+                    ) : (
+                      <div className="ml-[18px] px-2 py-1 text-xs text-muted">No missing-source-mark stills.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

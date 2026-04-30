@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { installDirectoryPickerFixture } from './support/fsAccessFixture';
-import { activatePresentationMarkRow } from './support/presentationHelpers';
+import { activatePresentationMarkRow, dragPresentationMarkToDeck, presentationMarkRow } from './support/presentationHelpers';
 
 async function readManifestFromFixture(page: Page) {
   return await page.evaluate(async () => {
@@ -25,13 +25,17 @@ test('presentation mark materialization reuses an existing still instead of crea
   await page.getByRole('button', { name: 'Presentations' }).click();
   await page.getByRole('button', { name: 'Open' }).click();
 
-  await activatePresentationMarkRow(page, /0:00\.400 Untagged/);
-  await page.getByRole('button', { name: 'Create still + add' }).first().click();
-  await expect(page.getByText('1 videos · 2 marks · 1 stills · 0 clips')).toBeVisible();
+  await page.getByRole('button', { name: 'Time' }).click();
+  await expect(presentationMarkRow(page, /0:00\.400/)).toBeVisible();
+  await expect(presentationMarkRow(page, /0:01\.200/)).toBeVisible();
 
-  await activatePresentationMarkRow(page, /0:00\.400 Untagged/);
-  await page.getByRole('button', { name: 'Create still + add' }).first().click();
-  await expect(page.getByText('1 videos · 2 marks · 1 stills · 0 clips')).toBeVisible();
+  await activatePresentationMarkRow(page, /0:00\.400/);
+  await dragPresentationMarkToDeck(page, /0:00\.400/);
+  await expect(page.getByText('2 marks · 1 stills · 0 clips')).toBeVisible();
+
+  await activatePresentationMarkRow(page, /0:00\.400/);
+  await dragPresentationMarkToDeck(page, /0:00\.400/);
+  await expect(page.getByText('2 marks · 1 stills · 0 clips')).toBeVisible();
 
   const manifest = await readManifestFromFixture(page);
   expect(manifest.stills).toHaveLength(1);

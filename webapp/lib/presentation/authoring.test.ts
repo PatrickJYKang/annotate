@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildChronologicalStillGroups, buildClipCenteredStillGroups } from './authoring';
+import { buildChronologicalMarkGroups, buildChronologicalStillGroups, buildClipCenteredStillGroups } from './authoring';
 import type { ProjectManifestV1 } from '../types/project';
 import type { Clip } from '../types/clip';
 
@@ -16,6 +16,7 @@ function buildManifest(): ProjectManifestV1 {
     marks: [
       { id: 'mark-1', videoId: 'video-a', t_ms: 6000, tags: { primary: 'build_up', facets: {} } },
       { id: 'mark-2', videoId: 'video-a', t_ms: 2000, tags: { primary: 'press', facets: {} } },
+      { id: 'mark-3', videoId: 'video-a', t_ms: 4000, tags: { primary: 'build_up', facets: {} } },
     ],
     stills: [
       { id: 'still-3', videoId: 'video-a', t_ms: 6000, file: 'stills/003.png', sourceMarkId: 'mark-1' },
@@ -28,6 +29,17 @@ function buildManifest(): ProjectManifestV1 {
     thumbnails: [],
   };
 }
+
+describe('buildChronologicalMarkGroups', () => {
+  it('groups marks by video and includes marks before they have stills', () => {
+    const groups = buildChronologicalMarkGroups(buildManifest());
+
+    expect(groups.map((group) => group.videoId)).toEqual(['video-a']);
+    expect(groups[0]?.videoLabel).toBe('Video A');
+    expect(groups[0]?.marks.map((asset) => asset.mark.id)).toEqual(['mark-2', 'mark-3', 'mark-1']);
+    expect(groups[0]?.marks.find((asset) => asset.mark.id === 'mark-3')?.canonicalStill).toBeNull();
+  });
+});
 
 describe('buildChronologicalStillGroups', () => {
   it('groups stills by video in manifest order and sorts each group chronologically', () => {
