@@ -122,6 +122,17 @@ async function readClipFromFixture(page: Page) {
   }, CLIP_ID);
 }
 
+async function expectButtonInViewport(page: Page, name: string | RegExp, exact = false) {
+  const button = page.getByRole('button', { name, exact }).first();
+  await expect(button).toBeVisible();
+  const box = await button.boundingBox();
+  const viewport = page.viewportSize();
+  expect(box, `Expected ${String(name)} to have a layout box`).not.toBeNull();
+  expect(viewport, 'Expected viewport size to be available').not.toBeNull();
+  expect(box!.x, `Expected ${String(name)} not to be clipped off the left edge`).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width, `Expected ${String(name)} not to be clipped off the right edge`).toBeLessThanOrEqual(viewport!.width);
+}
+
 function summarizePrimaryAnnotation(clip: any) {
   const annotation = clip.annotations?.[0] ?? null;
   return {
@@ -138,7 +149,7 @@ test('clip editor supports major authoring flows end to end', async ({ page }) =
   const fixturePath = path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project.matchproj');
   const trackRequests = await installMockSidecar(page);
   await installDirectoryPickerFixture(page, fixturePath);
-  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.setViewportSize({ width: 1120, height: 1000 });
 
   await page.goto(`/clip/${CLIP_ID}`);
   await page.getByRole('button', { name: 'Open Project Folder' }).click();
@@ -195,6 +206,9 @@ test('clip editor supports major authoring flows end to end', async ({ page }) =
 
   await page.getByRole('button', { name: 'Track' }).click();
   await expect(page.getByText(/^source: corrected$/)).toBeVisible();
+  await expectButtonInViewport(page, 'Track', true);
+  await expectButtonInViewport(page, /Re-track/);
+  await expectButtonInViewport(page, 'Mark Range End', true);
 
   await expect.poll(async () => {
     const clip = await readClipFromFixture(page);

@@ -4503,7 +4503,7 @@ export default function ClipEditor({
       {/* Transport bar */}
       <div className="shrink-0 bg-surface border-t border-border">
         {/* Controls */}
-        <div className="flex items-center gap-2 px-3 py-1.5">
+        <div className="flex flex-wrap items-center gap-2 px-3 py-1.5">
           <button
             onClick={() => shuttleByMs(-LONG_SHUTTLE_MS)}
             className="px-2 py-0.5 text-sm border-0 cursor-pointer"
@@ -4788,46 +4788,46 @@ export default function ClipEditor({
             </button>
           )}
 
-          <div className="flex-1" />
+          <div className="ml-auto flex min-w-0 items-center justify-end gap-2">
+            {/* Track error */}
+            {trackError && (
+              <span className="max-w-[14rem] truncate text-xs text-red-400" title={trackError}>
+                {trackError}
+              </span>
+            )}
 
-          {/* Track error */}
-          {trackError && (
-            <span className="text-xs text-red-400 mr-2 max-w-[200px] truncate" title={trackError}>
-              {trackError}
+            {analysisLoopRange && (
+              <span className="shrink-0 text-xs text-amber-300 font-mono tabular-nums" title="Active local analysis loop">
+                Loop {formatTime(analysisLoopRange.startMs)}-{formatTime(analysisLoopRange.endMs)}
+              </span>
+            )}
+
+            <span className="shrink-0 text-xs text-muted font-mono tabular-nums">
+              {formatTime(currentTMs)} / {formatTime(clipDurationMs)}
             </span>
-          )}
 
-          {analysisLoopRange && (
-            <span className="text-xs text-amber-300 mr-2 font-mono tabular-nums" title="Active local analysis loop">
-              Loop {formatTime(analysisLoopRange.startMs)}-{formatTime(analysisLoopRange.endMs)}
+            <span className="shrink-0 text-xs text-muted">
+              {annotations.length} ann · {interpolated.length} visible
             </span>
-          )}
 
-          <span className="text-xs text-muted font-mono tabular-nums">
-            {formatTime(currentTMs)} / {formatTime(clipDurationMs)}
-          </span>
+            {saveStatus !== 'idle' && (
+              <span className={`shrink-0 text-xs ${saveStatus === 'error' ? 'text-red-400' : 'text-muted'}`}>
+                {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save error'}
+              </span>
+            )}
 
-          <span className="text-xs text-muted ml-2">
-            {annotations.length} ann · {interpolated.length} visible
-          </span>
-
-          {saveStatus !== 'idle' && (
-            <span className={`text-xs ml-2 ${saveStatus === 'error' ? 'text-red-400' : 'text-muted'}`}>
-              {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save error'}
-            </span>
-          )}
-
-          {/* Sidecar status dot */}
-          <span
-            className="ml-2 inline-block w-2 h-2 shrink-0"
-            style={{
-              backgroundColor: sidecar.connected ? '#22c55e' : '#6b7280',
-              borderRadius: '50%',
-            }}
-            title={sidecar.connected
-              ? `Sidecar connected (${sidecar.capabilities.join(', ')})`
-              : 'Sidecar not connected'}
-          />
+            {/* Sidecar status dot */}
+            <span
+              className="inline-block w-2 h-2 shrink-0"
+              style={{
+                backgroundColor: sidecar.connected ? '#22c55e' : '#6b7280',
+                borderRadius: '50%',
+              }}
+              title={sidecar.connected
+                ? `Sidecar connected (${sidecar.capabilities.join(', ')})`
+                : 'Sidecar not connected'}
+            />
+          </div>
         </div>
       </div>
 

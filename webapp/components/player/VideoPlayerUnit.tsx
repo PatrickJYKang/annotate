@@ -350,6 +350,31 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
     }
   }, [zoom, pps, basePps]);
 
+  const getTimelineZoomAnchorSeconds = useCallback(() => {
+    const selectedMark = selectedMarkId
+      ? (marks || []).find((mark) => mark.id === selectedMarkId)
+      : null;
+    const rawAnchor = selectedMark
+      ? selectedMark.t_ms / 1000
+      : videoRef.current?.currentTime ?? current;
+    return Math.max(0, Math.min(duration || 0, rawAnchor));
+  }, [current, duration, marks, selectedMarkId]);
+
+  const handleZoomSliderChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const nextZoom = Math.max(1, Math.min(100, parseFloat(e.target.value) || 1));
+    const el = timelineContainerRef.current;
+    const anchorSeconds = getTimelineZoomAnchorSeconds();
+    setZoom(nextZoom);
+    if (!el || containerWidth <= 0 || duration <= 0) return;
+    requestAnimationFrame(() => {
+      const nextPps = (containerWidth / duration) * nextZoom;
+      const maxScrollLeft = Math.max(0, duration * nextPps - containerWidth);
+      const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, anchorSeconds * nextPps - containerWidth / 2));
+      el.scrollLeft = nextScrollLeft;
+      setTlScrollLeft(nextScrollLeft);
+    });
+  }, [containerWidth, duration, getTimelineZoomAnchorSeconds]);
+
   // Click on track lane to seek
   const handleLaneMouseDown = useCallback((e: React.MouseEvent) => {
     if (locked) return;
@@ -496,7 +521,7 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
               max={100}
               step={0.1}
               value={zoom}
-              onChange={(e) => setZoom(parseFloat(e.target.value))}
+              onChange={handleZoomSliderChange}
               className="w-20 accent-[#3b82f6]"
             />
             <span className="text-[10px] text-muted font-mono w-8">×{zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)}</span>
