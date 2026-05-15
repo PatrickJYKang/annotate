@@ -8,7 +8,6 @@ import { writeManifest } from "../../lib/fs/projectFolder";
 import MatchDetailsForm from "../../components/metadata/MatchDetailsForm";
 import TeamPanel from "../../components/metadata/TeamPanel";
 import FootballDataImporter from "../../components/metadata/FootballDataImporter";
-import PeriodEditor from "../../components/metadata/PeriodEditor";
 
 const DEBOUNCE_MS = 800;
 
@@ -131,14 +130,6 @@ export default function MetadataPage() {
           onChange={(t) => persist({ ...info, awayTeam: t })}
         />
       </div>
-
-      {/* Periods */}
-      <PeriodEditor
-        periods={info.periods}
-        videos={manifest.videos}
-        onChange={(periods) => persist({ ...info, periods })}
-        projectDir={projectDir}
-      />
 
       {/* Notes */}
       <div className="panel mt-3">

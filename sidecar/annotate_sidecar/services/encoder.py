@@ -172,3 +172,64 @@ def encode_exact_motion_segment(
         out.stat().st_size if out.exists() else "missing",
     )
     return str(out.resolve())
+
+
+def normalize_video_fps(
+    video_path: str,
+    output_path: str,
+    fps: float = 30.0,
+    width: int = 1920,
+    height: int = 1080,
+) -> str:
+    """Transcode a source video to the project's constant frame rate and resolution."""
+    if not check_ffmpeg():
+        raise FileNotFoundError(
+            "ffmpeg not found on PATH. Install ffmpeg to enable video import normalization."
+        )
+    if fps <= 0:
+        raise ValueError("fps must be positive")
+    if width <= 0 or height <= 0:
+        raise ValueError("width and height must be positive")
+
+    source = Path(video_path)
+    if not source.is_file():
+        raise FileNotFoundError(f"Video not found: {video_path}")
+
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i", str(source),
+        "-map", "0:v:0",
+        "-map", "0:a:0?",
+        "-vf", (
+            f"fps={fps},"
+            f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,"
+            "setsar=1"
+        ),
+        "-r", str(fps),
+        "-fps_mode", "cfr",
+        "-c:v", "libx264",
+        "-crf", "18",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-movflags", "+faststart",
+        str(out),
+    ]
+
+    _run_ffmpeg(cmd, label="video import normalization", timeout=1800)
+
+    logger.info(
+        "Normalized video %s → %s at %.3f fps, %dx%d (%s bytes)",
+        source,
+        out,
+        fps,
+        width,
+        height,
+        out.stat().st_size if out.exists() else "missing",
+    )
+    return str(out.resolve())

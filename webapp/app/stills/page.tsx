@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useProject } from "../../lib/state/ProjectContext";
 import { buildDefaultAnnotationPath, listAnnotationEntriesForStill } from "../../lib/fs/annotationStorage";
 import type { ProjectManifestV1 } from "../../lib/types/project";
+import { getProjectFps } from "../../lib/types/project";
 import type { Clip } from "../../lib/types/clip";
 import { CLIP_SCHEMA_VERSION } from "../../lib/types/clip";
 import { readManifest, reindexAnnotations, writeManifest } from "../../lib/fs/projectFolder";
@@ -69,7 +70,7 @@ export default function StillsPage() {
     );
   }, [manifest, clips]);
 
-  const videoFps = useMemo(() => (manifest?.videos.find(v => v.id === selectedVideoId)?.fps) || 30, [manifest, selectedVideoId]);
+  const videoFps = useMemo(() => getProjectFps(manifest), [manifest]);
   const selectedVideo = useMemo(
     () => manifest?.videos.find((video) => video.id === selectedVideoId) ?? null,
     [manifest, selectedVideoId],
@@ -470,6 +471,19 @@ export default function StillsPage() {
     setError(null);
   }, []);
 
+  const seekToStill = useCallback((stillId: string, tMs: number) => {
+    const sourceMarkId = manifest?.stills.find(still => still.id === stillId)?.sourceMarkId ?? null;
+    const sourceMark = sourceMarkId
+      ? manifest?.marks.find(mark => mark.id === sourceMarkId && mark.videoId === selectedVideoId) ?? null
+      : null;
+    const exactMark = manifest && selectedVideoId
+      ? findMarkAtTimestamp(manifest.marks, selectedVideoId, tMs)
+      : null;
+    playerRef.current?.seekMs(tMs);
+    setSelectedMarkId(sourceMark?.id ?? exactMark?.id ?? null);
+    setSeekMs(tMs);
+  }, [manifest, selectedVideoId]);
+
   
 
   const generateHere = useCallback(async () => {
@@ -488,11 +502,8 @@ export default function StillsPage() {
         setToast('A still already exists at this exact timestamp.');
         return;
       }
-      const selectedSourceMark = selectedMarkId
-        ? base.marks.find((mark) => mark.id === selectedMarkId && mark.videoId === selectedVideoId) ?? null
-        : null;
       const exactSourceMark = findMarkAtTimestamp(base.marks, selectedVideoId, t_ms);
-      const sourceMark = selectedSourceMark ?? exactSourceMark;
+      const sourceMark = exactSourceMark;
       const sourceMarkId = sourceMark?.id ?? ((globalThis.crypto && 'randomUUID' in globalThis.crypto)
         ? (globalThis.crypto as any).randomUUID()
         : `mark_${Date.now()}_${Math.random().toString(36).slice(2,8)}`);
@@ -525,7 +536,7 @@ export default function StillsPage() {
     } finally {
       setBusy(false);
     }
-  }, [projectDir, manifest, selectedVideoId, playerRef, captureToBlob, createThumbnailBlob, nextStillNumber, writeBlobToFile, setManifest, selectedMarkId]);
+  }, [projectDir, manifest, selectedVideoId, playerRef, captureToBlob, createThumbnailBlob, nextStillNumber, writeBlobToFile, setManifest]);
 
   const exportAll = useCallback(async () => {
     if (!projectDir || !manifest) return;
@@ -693,8 +704,17 @@ export default function StillsPage() {
               {thumbs.map(t => (
                 <div
                   key={t.id}
-                  className="panel relative overflow-hidden"
+                  className="panel relative overflow-hidden cursor-pointer focus-visible:outline focus-visible:outline-1 focus-visible:outline-focus"
                   style={{ padding: 0 }}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => seekToStill(t.id, t.t_ms)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+                      event.preventDefault();
+                      seekToStill(t.id, t.t_ms);
+                    }
+                  }}
                   onMouseEnter={() => setHoveredThumbId(t.id)}
                   onMouseLeave={() => setHoveredThumbId(prev => (prev === t.id ? null : prev))}
                 >
@@ -702,7 +722,8 @@ export default function StillsPage() {
                   <div className="px-1.5 py-1 text-xs text-muted">{formatTimeNoMs(t.t_ms)}</div>
                   <div className={`absolute top-0 bottom-0 right-0 flex flex-col border-l border-border transition-[transform,opacity] duration-[120ms] ease w-9 ${hoveredThumbId === t.id ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'}`}>
                     <button
-                      onClick={() => {
+                      onClick={(event) => {
+                        event.stopPropagation();
                         const w = window.open(`/annotate/${t.id}`, '_blank');
                         if (w && projectDir) {
                           const origin = window.location.origin;
@@ -722,7 +743,10 @@ export default function StillsPage() {
                       ✏
                     </button>
                     <button
-                      onClick={() => deleteStill(t.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void deleteStill(t.id);
+                      }}
                       title="Delete still"
                       className="flex-1 flex items-center justify-center bg-raised hover:bg-[#991b1b] border-0 text-sm text-danger cursor-pointer"
                     >

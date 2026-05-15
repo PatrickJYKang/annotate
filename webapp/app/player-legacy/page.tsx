@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useProject } from "../../lib/state/ProjectContext";
 import type { ProjectManifestV1 } from "../../lib/types/project";
+import { getProjectFps } from "../../lib/types/project";
 import { writeManifest } from "../../lib/fs/projectFolder";
 import VideoPlayerUnit, { VideoPlayerHandle } from "../../components/player/VideoPlayerUnit";
 import TaggingMenu, { TaggingMenuCloseReason } from "../../components/tagging/TaggingMenu";
@@ -297,7 +298,7 @@ export default function PlayerPage() {
             <VideoPlayerUnit
               ref={playerRef}
               src={videoUrl}
-              fps={(manifest?.videos.find(v => v.id === selectedVideoId)?.fps) || 30}
+              fps={getProjectFps(manifest)}
               marks={marksForVideo.map(m => ({ id: m.id, t_ms: m.t_ms, tags: m.tags }))}
               onAddMark={addMarkAt}
               externalSeekMs={seekMs}

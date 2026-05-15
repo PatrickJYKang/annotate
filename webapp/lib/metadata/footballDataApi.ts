@@ -300,7 +300,6 @@ export function mapMatchToMatchInfo(apiMatch: ApiMatchDetail): MatchInfo {
     referee,
     score,
     substitutions,
-    periods: [],
     notes: null,
   };
 }

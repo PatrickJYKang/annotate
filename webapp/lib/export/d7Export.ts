@@ -1,5 +1,6 @@
 import type { ProjectManifestV1 } from '../types/project';
-import { createEmptyAnnotations, readMergedAnnotationsForStill } from '../fs/annotationStorage';
+import { getProjectFps } from '../types/project';
+import { createEmptyAnnotations, readPrimaryAnnotationDocumentForStill } from '../fs/annotationStorage';
 import { selectionToTagList } from '../tagging/schema';
 import { writeManifest } from '../fs/projectFolder';
 import type { AnnotationsV1, ExportShape } from './d7Render';
@@ -43,7 +44,8 @@ export async function exportD7All(args: {
       const stillFile = await readFileFromPath(projectDir, st.file);
       const bmp = await createImageBitmap(stillFile);
       try {
-        const ann = await readMergedAnnotationsForStill(projectDir, manifest, st)
+        const primaryAnnotation = await readPrimaryAnnotationDocumentForStill(projectDir, manifest, st);
+        const ann = primaryAnnotation?.document
           ?? createEmptyAnnotations({ ...st, width: bmp.width, height: bmp.height });
         const outName = baseName(st.file);
         const annotatedPath = `reports/annotated/${outName}`;
@@ -158,7 +160,7 @@ function countAnnotations(shapes: ExportShape[]) {
 
 function findTagsAndVideoLabel(manifest: ProjectManifestV1, videoId: string, t_ms: number) {
   const video = (manifest.videos || []).find(v => v.id === videoId);
-  const fps = video?.fps || 30;
+  const fps = getProjectFps(manifest);
   const tolMs = Math.round((1000 / (fps || 30)) * 2);
   let best: { t_ms: number; tags: string[] } | null = null;
   for (const m of manifest.marks || []) {

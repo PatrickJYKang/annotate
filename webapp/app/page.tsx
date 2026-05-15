@@ -2,12 +2,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { flushSync, createPortal } from "react-dom";
 import type { ProjectManifestV1 } from "../lib/types/project";
+import { getProjectFps, getProjectResolution } from "../lib/types/project";
 import { useProject } from "../lib/state/ProjectContext";
 import { useRouter } from "next/navigation";
 import { ensureProjectFolderStructure, validateProjectFolderStructure, writeManifest } from "../lib/fs/projectFolder";
 import { uniqueFileName } from "../lib/fs/utils";
 import { extractVideoMetadata } from "../lib/media/metadata";
 import { readTaggingSchema, writeDefaultTaggingSchema } from "../lib/tagging/schema";
+import { normalizeVideoImport } from "../lib/clip/sidecarClient";
+import ProjectSetupScreen, { type ProjectSetupValues } from "../components/project/ProjectSetupScreen";
 
 function useToast() {
   const [msg, setMsg] = useState<string | null>(null);
@@ -30,6 +33,17 @@ function formatDuration(ms: number): string {
   return `${sec}s`;
 }
 
+function normalizedVideoFileName(name: string): string {
+  const dot = name.lastIndexOf('.');
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  return `${base || 'video'}.mp4`;
+}
+
+function projectFolderName(projectName: string): string {
+  const safe = projectName.trim().replace(/[/:\\]/g, "-") || "Untitled Project";
+  return safe.toLowerCase().endsWith(".matchproj") ? safe : `${safe}.matchproj`;
+}
+
 export default function Page() {
   const router = useRouter();
   const { projectDir, setProjectDir, manifest, setManifest, selectedVideoId, setSelectedVideoId, setTaggingSchema } = useProject();
@@ -40,6 +54,8 @@ export default function Page() {
   const [uploadLabel, setUploadLabel] = useState("");
   const [showStillLoading, setShowStillLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
   const { msg, show } = useToast();
 
   useEffect(() => {
@@ -64,30 +80,43 @@ export default function Page() {
     }
   }, []);
 
-  const handleCreate = useCallback(async () => {
+  const handleCreate = useCallback(() => {
+    setSetupOpen(true);
+  }, []);
+
+  const createProjectFromSetup = useCallback(async (values: ProjectSetupValues) => {
     try {
       if (!fsSupported) {
         show("This feature requires Chromium (File System Access API).");
         return;
       }
-      // Pick parent folder
+      setCreatingProject(true);
       const parent: FileSystemDirectoryHandle = await (window as any).showDirectoryPicker({ mode: "readwrite" });
-      let name = prompt("Name your project folder", "MyMatch");
-      if (!name) return;
-      if (!name.toLowerCase().endsWith(".matchproj")) name = name + ".matchproj";
+      const name = projectFolderName(values.name);
       const project = await parent.getDirectoryHandle(name, { create: true });
       await ensurePermission(project);
-      const mf = await ensureProjectFolderStructure(project, name.replace(/\.matchproj$/i, ""));
+      const baseManifest = await ensureProjectFolderStructure(project, name.replace(/\.matchproj$/i, ""));
+      const mf: ProjectManifestV1 = {
+        ...baseManifest,
+        name: values.name.trim(),
+        fps: values.fps,
+        resolution: values.resolution,
+        matchInfo: values.matchInfo,
+      };
+      await writeManifest(project, mf);
       const schema = await readTaggingSchema(project);
       setProjectDir(project);
       setManifest(mf);
       setTaggingSchema(schema);
+      setSetupOpen(false);
       show("Project created");
     } catch (e: any) {
       if (e?.name === "AbortError") return;
       show(e?.message || "Failed to create project");
+    } finally {
+      setCreatingProject(false);
     }
-  }, [fsSupported, ensurePermission, show]);
+  }, [fsSupported, ensurePermission, setManifest, setProjectDir, setTaggingSchema, show]);
 
   const handleOpen = useCallback(async () => {
     try {
@@ -143,10 +172,11 @@ export default function Page() {
   }, [setProjectDir, setManifest, setSelectedVideoId, setTaggingSchema]);
 
   const addVideosToManifest = useCallback((mf: ProjectManifestV1, entries: { name: string; relPath: string; meta: { durationMs?: number; width?: number; height?: number; fps?: number } }[]) => {
+    const projectFps = getProjectFps(mf);
     const next = { ...mf, videos: [...mf.videos] };
     for (const e of entries) {
       const id = (globalThis.crypto && "randomUUID" in globalThis.crypto) ? (globalThis.crypto as any).randomUUID() : `vid_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      next.videos.push({ id, label: e.name, file: e.relPath, durationMs: e.meta.durationMs, width: e.meta.width, height: e.meta.height, fps: e.meta.fps });
+      next.videos.push({ id, label: e.name, file: e.relPath, durationMs: e.meta.durationMs, width: e.meta.width, height: e.meta.height, fps: projectFps });
     }
     return next;
   }, []);
@@ -161,8 +191,8 @@ export default function Page() {
         show("No supported videos to import");
         return;
       }
-      const totalBytes = candidates.reduce((acc, f) => acc + (f.size || 0), 0);
-      let writtenBytes = 0;
+      const projectFps = getProjectFps(manifest);
+      const projectResolution = getProjectResolution(manifest);
       flushSync(() => {
         setUploading(true);
         setUploadProgress(0);
@@ -171,36 +201,28 @@ export default function Page() {
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
       overlayStart = performance.now();
       const added: { name: string; relPath: string; meta: { durationMs?: number; width?: number; height?: number; fps?: number } }[] = [];
-      for (const file of candidates) {
-        setUploadLabel(file.name);
-        const name = await uniqueFileName(mediaDir, file.name);
+      for (let index = 0; index < candidates.length; index++) {
+        const file = candidates[index];
+        const baseProgress = (index / candidates.length) * 100;
+        setUploadLabel(`Converting ${file.name} to ${projectFps}fps ${projectResolution.width}x${projectResolution.height}...`);
+        setUploadProgress(baseProgress);
+        const normalizedBlob = await normalizeVideoImport(file, projectFps, projectResolution);
+        setUploadProgress(baseProgress + (50 / candidates.length));
+
+        const name = await uniqueFileName(mediaDir, normalizedVideoFileName(file.name));
+        setUploadLabel(`Saving ${name}…`);
         const fh = await mediaDir.getFileHandle(name, { create: true });
         const ws = await fh.createWritable();
-        const reader = file.stream().getReader();
-        let lastPaint = performance.now();
-        let lastPct = -1;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value) {
-            await ws.write(value);
-            writtenBytes += value.byteLength || 0;
-            if (totalBytes > 0) {
-              const pct = Math.min(100, (writtenBytes / totalBytes) * 100);
-              const now = performance.now();
-              if (pct - lastPct >= 1 || now - lastPaint >= 50) {
-                setUploadProgress(pct);
-                lastPct = pct;
-                lastPaint = now;
-                // Let the browser paint occasionally
-                await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-              }
-            }
-          }
-        }
+        await ws.write(normalizedBlob);
         await ws.close();
-        const meta = await extractVideoMetadata(file);
+        const normalizedFile = new File([normalizedBlob], name, { type: 'video/mp4' });
+        const meta = await extractVideoMetadata(normalizedFile);
+        meta.fps = projectFps;
+        meta.width = projectResolution.width;
+        meta.height = projectResolution.height;
         added.push({ name, relPath: `media/${name}`, meta });
+        setUploadProgress(((index + 1) / candidates.length) * 100);
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
       }
       if (added.length > 0) {
         const next = addVideosToManifest(manifest, added);
@@ -279,6 +301,15 @@ export default function Page() {
 
   return (
     <div className="fullbleed">
+      {setupOpen && !projectDir && (
+        <ProjectSetupScreen
+          fsSupported={fsSupported}
+          busy={creatingProject}
+          onCreate={createProjectFromSetup}
+          onCancel={() => setSetupOpen(false)}
+        />
+      )}
+
       {/* === Empty state — no project open === */}
       {!projectDir ? (
         <div className="fixed inset-0 z-10 bg-canvas flex items-center justify-center">
@@ -337,6 +368,11 @@ export default function Page() {
                 <div className="text-sm text-muted uppercase tracking-wide">Stills</div>
                 <div className="text-base text-accent font-semibold">{manifest.stills.length}</div>
               </div>
+            </div>
+            <div className="text-sm text-muted">
+              Project FPS: <span className="text-accent font-semibold">{getProjectFps(manifest)}</span>
+              <span className="mx-1">·</span>
+              Resolution: <span className="text-accent font-semibold">{getProjectResolution(manifest).width}×{getProjectResolution(manifest).height}</span>
             </div>
 
             <div className="flex flex-col gap-1">

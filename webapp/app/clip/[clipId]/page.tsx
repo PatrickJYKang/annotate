@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useProject } from "../../../lib/state/ProjectContext";
 import { validateProjectFolderStructure } from "../../../lib/fs/projectFolder";
 import { readClip, resolveMarkPinning } from "../../../lib/fs/clipStorage";
+import { getProjectFps } from "../../../lib/types/project";
 import type { Clip } from "../../../lib/types/clip";
 import type { ClipTool } from "../../../components/clip/ClipEditor";
 import { SidecarProvider } from "../../../lib/state/SidecarContext";
@@ -184,7 +185,7 @@ export default function ClipPage({ params }: { params: { clipId: string } }) {
 
   const videoFps = useMemo(() => {
     if (!manifest || !clip) return 30;
-    return manifest.videos.find(v => v.id === clip.videoId)?.fps || 30;
+    return getProjectFps(manifest);
   }, [manifest, clip]);
 
   const videoPath = useMemo(() => {

@@ -4839,6 +4839,7 @@ export default function ClipEditor({
           videoEl={videoRef.current}
           videoFps={videoFps}
           sidecarBaseUrl={sidecar.baseUrl}
+          projectDir={projectDir}
           onClose={() => setShowExportModal(false)}
           renderAnnotationsToCanvas={renderAnnotationsToCanvas}
         />

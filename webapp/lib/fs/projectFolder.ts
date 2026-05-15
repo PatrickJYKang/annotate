@@ -1,4 +1,4 @@
-import { ProjectManifestV1, defaultProjectManifest } from '../types/project';
+import { ProjectManifestV1, defaultProjectManifest, ensureProjectFps } from '../types/project';
 import { scanAnnotationEntries } from './annotationStorage';
 import { writeDefaultTaggingSchema } from '../tagging/schema';
 import { isBlockingManifestIssue, repairManifestIntegrity, summarizeManifestRepairIssues } from '../utils/projectIntegrity';
@@ -40,7 +40,7 @@ export async function readManifest(projectDir: FileSystemDirectoryHandle): Promi
   const text = await file.text();
   try {
     const json = JSON.parse(text);
-    if (json && json.schema === 'project.v1') return json as ProjectManifestV1;
+    if (json && json.schema === 'project.v1') return ensureProjectFps(json as ProjectManifestV1);
     return null;
   } catch {
     return null;

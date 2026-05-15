@@ -13,6 +13,7 @@ from fastapi import APIRouter
 
 from ..config import get_tracking_defaults
 from ..services.calibration.service import CalibrationService
+from ..services.encoder import check_ffmpeg
 
 router = APIRouter()
 logger = logging.getLogger("annotate_sidecar.health")
@@ -36,6 +37,7 @@ def _check_capabilities() -> dict:
     ellipse = _check_model_importable("ellipse")
     opencv = _check_model_importable("cv2")
     pnlcalib = _calibration_service.available
+    ffmpeg = check_ffmpeg()
 
     capabilities = []
     if yolo and supervision and opencv:
@@ -46,7 +48,9 @@ def _check_capabilities() -> dict:
         capabilities.append("homography")
     if opencv:
         capabilities.append("frame_extraction")
+    if ffmpeg:
         capabilities.append("export")
+        capabilities.append("video_normalization")
 
     return {
         "status": "ok",

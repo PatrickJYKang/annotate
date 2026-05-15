@@ -13,6 +13,8 @@ export interface ProjectManifestV1 {
   schema: 'project.v1';
   name: string;
   created: string; // ISO date
+  fps?: number;
+  resolution?: ProjectResolution;
   videos: { id: string; label: string; file: string; durationMs?: number; width?: number; height?: number; fps?: number }[];
   marks: { id: string; videoId: string; t_ms: number; tags?: TaggingSelection | string[] }[];
   stills: { id: string; videoId: string; t_ms: number; file: string; width?: number; height?: number; sourceMarkId?: string | null }[];
@@ -21,6 +23,44 @@ export interface ProjectManifestV1 {
   thumbnails: string[];
   matchInfo?: MatchInfo;
 }
+
+export type ProjectResolution = {
+  width: number;
+  height: number;
+};
+
+export const PROJECT_DEFAULT_FPS = 30;
+export const PROJECT_DEFAULT_RESOLUTION: ProjectResolution = { width: 1920, height: 1080 };
+
+export function getProjectFps(manifest?: Pick<ProjectManifestV1, 'fps'> | null): number {
+  const fps = manifest?.fps;
+  return typeof fps === 'number' && Number.isFinite(fps) && fps > 0 ? fps : PROJECT_DEFAULT_FPS;
+}
+
+export function getProjectResolution(manifest?: Pick<ProjectManifestV1, 'resolution'> | null): ProjectResolution {
+  const width = manifest?.resolution?.width;
+  const height = manifest?.resolution?.height;
+  return {
+    width: typeof width === 'number' && Number.isFinite(width) && width > 0 ? Math.round(width) : PROJECT_DEFAULT_RESOLUTION.width,
+    height: typeof height === 'number' && Number.isFinite(height) && height > 0 ? Math.round(height) : PROJECT_DEFAULT_RESOLUTION.height,
+  };
+}
+
+export function ensureProjectMediaSettings(manifest: ProjectManifestV1): ProjectManifestV1 {
+  const fps = getProjectFps(manifest);
+  const resolution = getProjectResolution(manifest);
+  let changed = manifest.fps !== fps
+    || manifest.resolution?.width !== resolution.width
+    || manifest.resolution?.height !== resolution.height;
+  const videos = manifest.videos.map((video) => {
+    if (video.fps === fps && video.width === resolution.width && video.height === resolution.height) return video;
+    changed = true;
+    return { ...video, fps, width: resolution.width, height: resolution.height };
+  });
+  return changed ? { ...manifest, fps, resolution, videos } : manifest;
+}
+
+export const ensureProjectFps = ensureProjectMediaSettings;
 
 // --- Match metadata types ---
 
@@ -45,9 +85,6 @@ export interface MatchInfo {
 
   // --- Substitutions (optional) ---
   substitutions: Substitution[];
-
-  // --- Periods / half boundaries ---
-  periods: MatchPeriod[];
 
   // --- Free-form notes ---
   notes: string | null;
@@ -77,14 +114,6 @@ export interface Substitution {
   playerIn: string;                  // PlayerEntry.id
 }
 
-export interface MatchPeriod {
-  id: string;                        // UUID
-  label: string;                     // "1st Half", "2nd Half", "Extra Time 1", etc.
-  videoId: string;                   // which video this period belongs to
-  startMs: number | null;            // video-relative timestamp
-  endMs: number | null;              // video-relative timestamp
-}
-
 export function defaultMatchInfo(): MatchInfo {
   return {
     homeTeam: { name: null, coach: null, formation: null, players: [] },
@@ -98,7 +127,6 @@ export function defaultMatchInfo(): MatchInfo {
     referee: null,
     score: null,
     substitutions: [],
-    periods: [],
     notes: null,
   };
 }
@@ -108,6 +136,8 @@ export function defaultProjectManifest(name: string): ProjectManifestV1 {
     schema: 'project.v1',
     name,
     created: new Date().toISOString(),
+    fps: PROJECT_DEFAULT_FPS,
+    resolution: PROJECT_DEFAULT_RESOLUTION,
     videos: [],
     marks: [],
     stills: [],

@@ -4,7 +4,8 @@ Date: 2025-10-08
 
 Historical note:
 - This file is an original planning document, not the source of truth for the current implementation.
-- For current runtime behavior, use `README.md` and `technical_document.md`.
+- For current runtime behavior, use `README.md`, `technical_document.md`, and `sidecar/README.md`.
+- The body below intentionally preserves the original MVP assumptions, including items that are now superseded by clips, presentations, sidecar CV, and the current test setup.
 
 ## 0) Targets and Browser Support
 
@@ -21,7 +22,7 @@ Historical note:
 
 ## 1) MVP Scope and Non‑Goals
 
--- **In Scope**
+- **In Scope**
   - **Project folder container** (`*.matchproj/`) with `project.json`, `media/`, `stills/`, `annotations/`, `thumbnails/`, `reports/`.
   - **Video import** via File Picker and Drag & Drop; open/save directly to the chosen project folder.
   - **Playback + marking** with hotkeys (J/K/L, `M` to mark; 1–9 quick tags).

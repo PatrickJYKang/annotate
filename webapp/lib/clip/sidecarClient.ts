@@ -193,6 +193,32 @@ export async function unregisterVideoRef(
   await fetch(`${baseUrl}/video/${videoRef}`, { method: 'DELETE' }).catch(() => {});
 }
 
+export async function normalizeVideoImport(
+  file: File,
+  fps: number,
+  resolution?: { width: number; height: number },
+  baseUrl: string = SIDECAR_BASE_URL,
+): Promise<Blob> {
+  const form = new FormData();
+  form.append('file', file, file.name || 'video');
+  form.append('fps', String(fps));
+  if (resolution) {
+    form.append('width', String(resolution.width));
+    form.append('height', String(resolution.height));
+  }
+
+  const res = await fetch(`${baseUrl}/video/normalize`, {
+    method: 'POST',
+    body: form,
+  });
+
+  if (!res.ok) {
+    throw new Error(await buildErrorMessageFromResponse(res, `Video normalization failed (${res.status})`));
+  }
+
+  return await res.blob();
+}
+
 // ---------------------------------------------------------------------------
 // Tracking
 // ---------------------------------------------------------------------------
@@ -339,6 +365,17 @@ export async function encodeExport(
     throw new Error(await buildErrorMessageFromResponse(res, `Export encode failed (${res.status})`));
   }
   return await res.json();
+}
+
+export async function downloadExportFile(
+  sessionId: string,
+  baseUrl: string = SIDECAR_BASE_URL,
+): Promise<Blob> {
+  const res = await fetch(`${baseUrl}/export/${sessionId}/file`);
+  if (!res.ok) {
+    throw new Error(await buildErrorMessageFromResponse(res, `Export download failed (${res.status})`));
+  }
+  return await res.blob();
 }
 
 export async function requestExactMotionEncode(

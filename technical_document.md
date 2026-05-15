@@ -17,12 +17,12 @@ The as-built workflow is:
 8. Build presentations (deck-like sequences of analysis slides from stills and clips).
 9. Export annotated PNGs, reports, and clip MP4s into the project folder.
 
-The optional Python sidecar provides ML-powered features: object tracking (YOLO + ByteTrack), person segmentation (YOLO + MobileSAM), pitch homography estimation (vendored Narya), and video encoding (ffmpeg). The webapp gracefully degrades when the sidecar is unavailable.
+The optional Python sidecar provides ML-powered features: object tracking (YOLO + vendored trackers OC-SORT), person segmentation (YOLO + MobileSAM), pitch homography estimation (vendored trackers PnLCalib provider), and video encoding (ffmpeg). The webapp gracefully degrades when the sidecar is unavailable.
 
 ### Current scope note
-- The repository still contains a substantial **clip system** and several **CV-on-clips / sidecar-assisted workflows** (tracking, homography, segmentation, occlusion, clip export).
-- Those clip/CV workflows are **currently on hold as active development tracks**. They remain documented here because they exist in the codebase, but they should be treated as paused work until revisited.
-- The **current active area of work** is **video loading for presentations**, especially original-video serving, exact-motion transition media, and the supporting resolver / preparation plumbing around derived media.
+- The repository contains an active **clip system** with keyframed annotations, highlight tracking, pitch homography, still-annotation import, occlusion, and clip export.
+- Presentations are also active: the editor builds decks from stills, clips, and title cards, and present mode uses exact-motion media for match-video transitions and clip playback.
+- The Python sidecar is optional but live for local CV/media workflows. When unavailable, manual still/clip/presentation authoring remains usable and sidecar-backed controls are hidden or disabled.
 
 This document describes the **current implementation** (routes, on-disk formats, runtime behavior). If something here disagrees with the code, the code is authoritative.
 
@@ -163,13 +163,15 @@ This document describes the **current implementation** (routes, on-disk formats,
   - Connect to the project directory handle (via `postMessage` from `/stills` or restore from IndexedDB).
   - Load the still image from `stills/...`.
   - Supports **multiple annotation documents** per still. The URL query parameter selects which annotation document to edit (defaults to `annotations/<stillId>.json`). New annotation sets can be created inline, and the editor remounts per selected document.
-  - Provide editing tools and autosave to the selected annotation document path.
+  - Provide editing tools (select, box, circle, highlight, shadow, arrow, lob, poly, text) and autosave to the selected annotation document path.
+  - Use the sidecar-backed **Calibrate** action to apply a PnLCalib homography for the still when the source video is available; **Manual H** remains the manual quad fallback.
+  - Support a keyboard-only video preview around the still: hold `ArrowLeft` / `ArrowRight` to play backward/forward up to five seconds from the annotation timestamp, and press `Space` to return to the annotation frame.
+  - Hide annotations and lock editing while the preview is away from the annotation frame; zoom/pan remain available.
   - Supports renaming and deleting non-default annotation sets.
 
 ### `/clip/[clipId]` – Clip editor
 - File: `webapp/app/clip/[clipId]/page.tsx`
-- Scope note: this route and its supporting code remain in the repository, but clip authoring and CV-on-clips work are currently on hold.
-- Layout: full-bleed, navbar + toolbar + ClipEditor. Navbar shows "Close" button, clip time range, annotation count, sidecar video error (if any), and FPS. Toolbar provides annotation tools (select, box, circle, arrow, text, highlight) and stroke settings (color picker, width selector).
+- Layout: full-bleed, navbar + toolbar + ClipEditor. Navbar shows "Close" button, clip time range, annotation count, sidecar video error (if any), and FPS. Toolbar provides annotation tools (select, box, circle, shadow, arrow, lob, poly, text, highlight) and stroke settings (color picker, width selector).
 - Responsibilities:
   - Auto-restore project handle from IndexedDB or receive via `postMessage`.
   - Load clip JSON from `clips/clip-<clipId>.json`, resolve mark pinning against current marks.
@@ -369,8 +371,8 @@ Export expects this schema (`webapp/lib/export/d7Export.ts`), and the editor wri
 ```
 
 Shape model (high-level):
-- Supported types: `box`, `circle`, `arrow`, `text`, `poly`, `highlight`.
-- Shapes support a `style` object with stroke/fill/strokeWidth/strokePattern/font.
+- Supported types: `box`, `circle`, `shadow`, `arrow`, `lob`, `text`, `poly`, `highlight`.
+- Shapes support a `style` object with stroke/fill/fillOpacity/strokeWidth/strokePattern/font/textHighlight. The editor UI keeps stroke and fill colours linked by default for fill-capable shapes, with an explicit unlink toggle.
 - Some tools can use perspective-aware placement via a calibrated quad:
   - `perspective.quad` defines a homography from a unit square plane to image space.
   - Shapes may include a `plane` property storing plane-space geometry.
@@ -436,7 +438,7 @@ The `VideoPlayerUnit` component (`webapp/components/player/VideoPlayerUnit.tsx`)
 - **Timecode ruler**: horizontal ruler with major/minor tick marks and time labels. Ticks adapt to zoom level (>30 min visible → 5 min/1 min; 5–30 min → 1 min/15 s; 1–5 min → 15 s/5 s; 15 s–1 min → 5 s/1 s; <15 s → 1 s/0.25 s).
 - **Track lane**: `h-8 bg-raised` strip showing mark pips (3px wide, full lane height; yellow `#fbbf24` = default, orange `#f97316` = selected) and a 2px red playhead line. Clicking the lane seeks; clicking a pip selects the mark and seeks to it. Tooltips on hover show timestamp and label.
 - **Zoom**: internal state (1× to 100×). Controls: range slider in the transport bar + Ctrl/⌘+Scroll on the timeline area. Zoom anchors on the mouse cursor position. `pps = (containerWidth / duration) * zoom`; total timeline width scales accordingly with `overflow-x: auto`.
-- **Horizontal scroll**: mouse wheel on the timeline scrolls horizontally (vertical delta mapped to horizontal). Ctrl+wheel zooms instead. During playback, auto-scrolls to keep the playhead visible (~33% from left edge). When paused, free scroll; selecting an off-screen mark auto-scrolls to it.
+- **Horizontal scroll**: mouse wheel on the timeline scrolls horizontally (vertical delta mapped to horizontal). Ctrl+wheel zooms instead. During playback, auto-scrolls to keep the playhead visible (~33% from left edge). When paused, free scroll; selecting an off-screen mark auto-scrolls to it, and the zoom slider anchors around the selected mark or current playhead.
 - **Transport bar**: square, space-filling buttons matching the navbar pattern (skip back, step back, play/pause, step forward, skip forward, add mark, fullscreen). Monospace timecode readout (`HH:MM:SS.mmm`). Zoom slider at right end.
 - **Imperative API** (`VideoPlayerHandle`): `playPause`, `stepFrame`, `nudgeSmall`, `nudgeLarge`, `seekMs`, `getCurrentTimeMs`, `addMark`, `getVideoElement`. Used by the parent page for keyboard shortcuts.
 
@@ -691,7 +693,7 @@ The app uses **Tailwind CSS v4** (build-time only, via `@tailwindcss/postcss`). 
 
 ### Design tokens (`@theme` in `globals.css`)
 - **Colours**: `canvas` (#0f172a), `surface` (#0b1220), `raised` (#1f2937), `hover` (#111827), `selected` (#334155), `accent` (#e5e7eb), `accent-hover` (#cbd5e1), `on-accent` (#0f172a), `subtle` (#1e293b), `border` (#334155), `focus` (#e5e7eb), `muted` (#64748b), `secondary` (#9ca3af), `danger` (#ef4444), `success` (#34d399), `warning` (#fbbf24), `info` (#93c5fd).
-- **Fonts**: `--font-sans` (Helvetica Neue, Helvetica, Arial, sans-serif), `--font-mono` (SF Mono, Cascadia Code, Fira Code, Menlo, monospace).
+- **UI fonts**: `--font-sans` (Helvetica Neue, Helvetica, Arial, sans-serif), `--font-mono` (SF Mono, Cascadia Code, Fira Code, Menlo, monospace). Annotation text shapes store their own `fontFamily` and are rendered from shape style.
 - **Text sizes**: `xs` (11px), `sm` (13px), `base` (15px), `lg` (18px), `xl` (22px).
 - **Border radius**: all radius tokens (`--radius` through `--radius-3xl`) set to `0px` — everything is square. `--radius-full` remains `9999px` for pills/badges.
 
@@ -699,7 +701,7 @@ The app uses **Tailwind CSS v4** (build-time only, via `@tailwindcss/postcss`). 
 1. **Square and blocked-out** — zero border-radius everywhere.
 2. **Space-filling** — buttons stretch to fill their container height (`self-stretch`); inputs fill available width.
 3. **Dark + monochrome** — colour reserved only for semantic meaning (danger, success, warning).
-4. **Helvetica** font family everywhere; monospace only for timestamps and code.
+4. **Helvetica** for app UI; monospace only for timestamps and code. Canvas annotation text uses the per-shape `fontFamily`.
 5. **Keyboard-friendly** — visible square focus rings (1px solid, monochrome).
 
 ### Base layer (`@layer base`)
@@ -749,12 +751,10 @@ Previously, components used duplicated inline style constant objects (`INPUT_STY
 
 ## 13) Clips system
 
-Design doc: `plans/post-mvp/clips/clips-feature.md`.
-
-Scope note: the clip system below is still implemented in the repository, but clip authoring and clip-oriented CV work are currently on hold. It remains documented here as as-built code, not as the current active delivery focus.
+Design docs: `plans/post-mvp/clips/clips-feature.md`, `plans/post-mvp/clips/clips-roadmap.md`, and `plans/post-mvp/clips/tracking-correction-architecture.md`.
 
 ### Core concept
-A **clip** is a reference to a time range within a project video (not a copy of the video data). Clips carry their own keyframed, trackable annotations that animate over the clip's duration. Clips are independent from stills — stills capture a single frame; clips capture a segment with temporal annotation behavior.
+A **clip** is a reference to a time range within a project video (not a copy of the video data). Clips carry their own keyframed, trackable annotations that animate over the clip's duration. Stills remain independent saved assets, but their relationship to clips is derived from video/time bounds: stills inside a clip range are treated as clip-related media and can be imported onto the corresponding clip frame.
 
 ### Data model
 Defined in `webapp/lib/types/clip.ts`. Schema version: `CLIP_SCHEMA_VERSION = 1`.
@@ -773,9 +773,9 @@ interface Clip {
 ```
 
 **Annotations** (`ClipAnnotation`):
-- `id`, `type` (`'box' | 'circle' | 'arrow' | 'text' | 'poly' | 'highlight'`), `keyframes` (sorted by `tMs`), `style` (`ClipAnnotationStyle`), `source` (`'manual' | 'auto' | 'corrected'`), `coordMode` (`'image' | 'pitch'`), optional `text`.
+- `id`, `type` (`'box' | 'circle' | 'shadow' | 'arrow' | 'lob' | 'text' | 'poly' | 'highlight'`), `keyframes` (sorted by `tMs`), optional `visibilityKeyframes`, `style` (`ClipAnnotationStyle`), `source` (`'manual' | 'auto' | 'corrected'`), `coordMode` (`'image' | 'pitch'`), optional `text`, optional `trackingAnchorId`, optional `vertexRefs`, and optional `closed` for polygons.
 
-**Keyframes** — per-type interfaces (`BoxKeyframe`, `CircleKeyframe`, `ArrowKeyframe`, `TextKeyframe`, `PolyKeyframe`, `HighlightKeyframe`), all sharing a base `{ tMs: number; visible?: boolean }`. Keyframe timestamps are **clip-relative** (0 = clip start).
+**Keyframes** — per-type interfaces (`BoxKeyframe`, `BoxQuadKeyframe`, `CircleKeyframe`, `ShadowKeyframe`, `ArrowKeyframe`, `LobKeyframe`, `TextKeyframe`, `PolyKeyframe`, `HighlightKeyframe`), all sharing a base `{ tMs: number; visible?: boolean; provenance?: 'manual' | 'tracked' | 'lost' | 'correction' }`. Keyframe timestamps are **clip-relative** (0 = clip start). Visibility keyframes are separate manual show/hide events (`{ tMs, action: 'show' | 'hide' }`) and cannot overlap position keyframes.
 
 **Style** (`ClipAnnotationStyle`): `stroke`, `fill`, `fillOpacity`, `strokeWidth`, `strokePattern` (`'solid' | 'dashed' | 'dotted' | 'dashdot'`), `fontSize`, `fontFamily`, `textHighlight`.
 
@@ -798,7 +798,7 @@ File: `webapp/lib/clip/interpolation.ts`.
 File: `webapp/lib/clip/bboxConvert.ts`.
 
 Converts sidecar tracking bboxes `{ x, y, w, h }` to typed `ClipKeyframe[]`:
-- `bboxToBox`, `bboxToCircle`, `bboxToHighlight`, `bboxToArrow` — per-type geometry converters.
+- `bboxToBox`, `bboxToCircle`, `bboxToHighlight`, `bboxToArrow` — per-type geometry converters. In current UI flows, tracking is highlight-driven and highlight geometry is foot-anchored.
 - `convertTrackingKeyframes(rawKeyframes, annotationType, clipStartMs)` — batch converts sidecar results (absolute ms) to clip-relative keyframes.
 
 ### Storage
@@ -812,12 +812,13 @@ File: `webapp/lib/fs/clipStorage.ts`.
 - Route: `/clip/[clipId]` → `ClipEditor` component (dynamically imported, SSR disabled).
 - Wrapped in `SidecarProvider` for ML feature discovery.
 - Video file registered with sidecar via `POST /video/register` for tracking/segmentation/homography.
-- Features: video playback synced to clip range, annotation rendering via Konva, keyframe editing, timeline strip, auto-save.
-- ML features (conditional on sidecar): Track (YOLO + ByteTrack), Re-track (user correction loop), Compute Homography, Occlusion toggle, Export to MP4.
+- Features: video playback synced to clip range, annotation rendering via Konva, keyframe editing, draggable/zoomable timeline strip, show/hide keyframes, still-annotation import, batch tracking, and auto-save.
+- ML features (conditional on sidecar): Track / Batch Track / Re-track (YOLO + vendored trackers OC-SORT), Compute Homography (vendored trackers PnLCalib provider), Occlusion toggle, Export to MP4.
 
 ### Coordinate modes
-- `image` (default): pixel coordinates relative to the video frame.
+- `image`: pixel coordinates relative to the video frame.
 - `pitch`: coordinates on a normalized pitch plane, projected to image space via homography. Requires a computed homography matrix for the clip's time range.
+- The clip editor defaults to **Draw: Pitch** when homography is loaded/generated, but only pitch-grounded tools (`box`, `circle`) create pitch-space annotations; tactical tools and tracking anchors stay image-space and can follow highlight anchors through `trackingAnchorId` / `vertexRefs`.
 
 ### Export
 Frontend-driven pipeline:
@@ -841,7 +842,7 @@ Files:
 Design doc: `plans/post-mvp/presentations/presentations-feature.md`.
 
 ### Core concept
-A **presentation** is a deck-like sequence of analysis slides assembled from existing project assets (stills, clips, title cards). Presentations are a narrative composition tool — separate from asset creation. The asset browser is **mark-first and tag-tree driven**: marks are organized by the tagging schema tree, and each mark links to its canonical still via `sourceMarkId`.
+A **presentation** is a deck-like sequence of analysis slides assembled from existing project assets (stills, clips, title cards). Presentations are a narrative composition tool — separate from asset creation. The asset browser is **mark-first**: tag view groups marks by schema, time view groups marks chronologically by video, and clip view groups clips with their in-range stills. Marks without stills remain visible and can be dragged to the deck, materializing a still when needed.
 
 ### Data model
 Defined in `webapp/lib/types/presentation.ts`. Schema version: `PRESENTATION_SCHEMA_VERSION = 1`.
@@ -866,7 +867,7 @@ interface Presentation {
 
 **Transitions** (`PresentationTransition`):
 - `{ mode: 'cut' }` — instant switch.
-- `{ mode: 'match_video', hideAnnotationsDuringPlayback?, playbackRate?, startOffsetMs?, endOffsetMs? }` — plays the source video between two consecutive still slides that share the same `videoId` and have chronologically ordered timestamps.
+- `{ mode: 'match_video', hideAnnotationsDuringPlayback, playbackRate?, startOffsetMs?, endOffsetMs? }` — plays the source video between two consecutive still slides that share the same `videoId` and have chronologically ordered timestamps. Migration defaults `hideAnnotationsDuringPlayback` to `true` when old files omit it.
 
 ### Storage
 File: `webapp/lib/fs/presentationStorage.ts`.
@@ -879,17 +880,19 @@ File: `webapp/lib/fs/presentationStorage.ts`.
 File: `webapp/lib/presentation/authoring.ts`.
 
 - **Asset index** (`buildPresentationAssetIndex`): builds a tag-tree-driven index of marks with their linked stills. Groups marks by `tags.primary` into schema tree nodes; untagged and unknown-tag marks collected separately. Also identifies stills with missing `sourceMarkId`.
+- **Chronological browsing** (`buildChronologicalMarkGroups`): groups marks by source video and sorts them by timestamp, including marks that do not yet have stills.
+- **Clip-centered browsing** (`buildClipCenteredStillGroups`): groups in-bounds stills under clips using the derived still/clip time relationship.
 - **Slide creation**: `createStillSlide(stillId)`, `createClipSlide(clipId)`, `createTitleSlide(template)`.
 - **Transition sync** (`synchronizeTransitions`): when slides are reordered/inserted/removed, preserves existing transitions by edge identity (`fromSlide.id::toSlide.id`); fills gaps with auto-detected defaults (cut, or match_video if same video within 5s).
-- **Deck operations**: `insertSlideAfterSelection`, `removeSlideAtIndex`, `moveSlide`.
+- **Deck operations**: `insertSlideAtIndex`, `insertSlideAfterSelection`, `removeSlideAtIndex`, `moveSlide`.
 
 ### Presentation editor
 - Route: `/presentation/[presentationId]` → `PresentationAuthoringEditor` component.
-- Layout: asset browser (tag tree + mark list), canvas (still/video preview with annotation overlay), inspector (slide properties, annotation set selection, transition settings), deck strip (sortable slide thumbnails).
+- Layout: asset browser (tag/time/clip source browser), canvas (still/video preview with annotation overlay), inspector (slide properties, annotation set selection, transition settings), deck strip (sortable slide thumbnails and drag-to-insert drop targets).
 - **Edit mode**: author slides, adjust transitions, configure annotation visibility and timing.
 - **Present mode**: full-screen sequential playback. `match_video` transitions play pre-cut exact-motion clips and then advance directly to the next slide.
 - **Annotation rendering**: reuses the still annotation rendering path. Still slides render merged annotations from selected annotation sets, with optional per-set enter/exit timing.
-- **Derived media**: presentation playback now uses structured playback assets for original source video and exact-motion transition media. See §17 (Derived media).
+- **Derived media**: presentation playback now uses structured playback assets for original source video plus exact-motion transition and clip-slide media. See §17 (Derived media).
 - Auto-save on slide/transition changes.
 
 ### Annotation set support on still slides
@@ -912,15 +915,16 @@ Files:
 The sidecar (`sidecar/annotate_sidecar/`) is a local **FastAPI** HTTP server that provides ML-powered features. It runs alongside the Next.js frontend on `http://127.0.0.1:8321` (configurable via `--port`). The webapp discovers sidecar capabilities at runtime and adjusts the UI accordingly — all sidecar features are optional.
 
 Current scope note:
-- Sidecar-backed **clip/CV workflows** (`/track`, `/segment`, `/homography`, occlusion, clip export) remain in the codebase but are currently on hold as active workstreams.
-- The **active sidecar-related work** is the **video-loading / derived-media path** for presentations, specifically exact-motion transition media.
+- Sidecar-backed **clip/CV workflows** (`/track`, `/segment`, `/homography`, occlusion, clip export) are live optional local workflows.
+- The sidecar also backs the **video-loading / derived-media path** for presentations, specifically exact-motion transition and clip media.
 
 ### Requirements
 - Python 3.10–3.12 (TensorFlow does not support 3.13+).
 - ffmpeg (for export encoding).
 - Dependencies installed via `sidecar/requirements.txt`.
 - MobileSAM installed separately (`pip install git+https://github.com/ChaoningZhang/MobileSAM.git`).
-- Narya vendored at `annotate_sidecar/vendor/narya/` (MIT license).
+- Tracking uses vendored trackers OC-SORT primitives under `annotate_sidecar/vendor/trackers/`.
+- Homography uses the vendored trackers `PnLCalibProvider`, with an accessible upstream PnLCalib checkout + weights via `sidecar/third_party/pnlcalib`, `../trackers/third_party/pnlcalib`, or `ANNOTATE_PNLCALIB_ROOT`.
 
 ### Architecture
 ```text
@@ -938,12 +942,12 @@ annotate_sidecar/
     derived_media.py       # POST /derived-media/exact-motion
   services/
     frame_extractor.py     # cv2.VideoCapture → frames
-    tracker.py             # YOLO + ByteTrack
+    tracker.py             # YOLO + vendored trackers OC-SORT adapter
     segmenter.py           # YOLO + MobileSAM
-    homography_estimator.py  # Narya wrapper
+    calibration/           # PnLCalib-backed homography provider adapter
     encoder.py             # ffmpeg MP4 encoding
-  vendor/narya/            # Vendored Narya (MIT)
-  models/                  # Downloaded weights (gitignored)
+  vendor/trackers/         # Vendored trackers primitives (OC-SORT + PnLCalib)
+  models/                  # Optional local model cache (gitignored)
 ```
 
 ### API endpoints
@@ -953,10 +957,10 @@ annotate_sidecar/
 | `GET` | `/health` | Status + model availability + capabilities list |
 | `POST` | `/video/register` | Upload video file → `videoRef` (temp registry) |
 | `DELETE` | `/video/{videoRef}` | Unregister temp video |
-| `POST` | `/track` | Object tracking (YOLO + ByteTrack): `videoRef`, time range, seed bbox → keyframes |
+| `POST` | `/track` | Object tracking (YOLO + vendored trackers OC-SORT): `videoRef`, time range, seed bbox → keyframes |
+| `GET` | `/track/debug/{artifact}` | Download a saved tracking debug MP4 artifact |
 | `POST` | `/segment` | Person segmentation (YOLO + MobileSAM): `videoRef`, frame ms → base64 PNG alpha mask |
-| `POST` | `/homography` | Pitch homography (Narya): `videoRef`, time range → per-frame 3×3 matrices |
-| `POST` | `/homography/manual-track` | Homography tracking from seed matrix |
+| `POST` | `/homography` | Pitch homography (vendored trackers PnLCalib provider): `videoRef`, time range → per-frame 3×3 matrices |
 | `POST` | `/export/start` | Begin export session → `sessionId` |
 | `POST` | `/export/frame` | Submit rendered frame (base64 JPEG) |
 | `POST` | `/export/encode` | Encode frames → MP4 (ffmpeg, libx264, CRF 18) |
@@ -979,7 +983,7 @@ When the sidecar is unavailable:
 
 ### Hardware support
 - **CPU-only**: all features work (slower tracking/segmentation).
-- **CUDA GPU**: accelerates YOLO, MobileSAM, and Narya.
+- **CUDA GPU**: accelerates YOLO, MobileSAM, and PnLCalib.
 - **Apple Silicon**: supported via MPS (Metal Performance Shaders) for PyTorch.
 
 ### Homography cache
@@ -1038,10 +1042,10 @@ Design doc: `plans/post-mvp/presentation-derived-media/derived-media-serving.md`
 
 ### Overview
 Derived media are sidecar-encoded video assets used by presentations for smooth playback. The active implementation is now intentionally narrow:
-- **Exact-motion assets**: precise transition clips generated for `match_video` preview and present playback, stored per presentation.
+- **Exact-motion assets**: precise transition clips and clip-slide playback clips generated for preview/present workflows, stored per presentation.
 
 Current implementation note:
-- Transition preview and present playback wait for exact-motion assets and then play those generated clips directly.
+- Transition preview, present playback, and clip slides wait for exact-motion assets and then play those generated clips directly.
 - Retrieval stays on direct original-video loading and does not route through a proxy layer.
 
 ### Storage layout
@@ -1052,7 +1056,7 @@ Under `derived-media/` in the project directory:
 - `presentations/<presentationId>/motion-assets/*.mp4` — encoded motion asset files.
 
 ### Asset lifecycle
-1. **Queueing**: transition preview and present playback queue missing/stale exact-motion assets for playable `match_video` edges.
+1. **Queueing**: transition preview, present playback, and clip slides queue missing/stale exact-motion assets for playable `match_video` edges and clip-slide requirements.
 2. **Execution**: exact-motion jobs register the source video, request `POST /derived-media/exact-motion`, write the result as a `.pending` file, verify currentness, then promote via `promoteExactMotionJobIfCurrent()`.
 3. **Index management**: asset indices track status (`ready`, `stale`, `missing`, `failed`, `queued`, `running`). Reconciliation runs on load to sync index with on-disk files and job queue state.
 4. **Startup cleanup**: `cleanupPendingExactMotionFilesForActiveJobs()` removes interrupted `.pending` files on presentation load.
@@ -1060,7 +1064,7 @@ Under `derived-media/` in the project directory:
 ### Playback asset resolver
 File: `webapp/lib/presentation/playbackAssetResolver.ts`.
 
-The resolver layer maps video IDs to structured `PlaybackAsset` objects with workflow metadata (original or exact motion). Transition workflows resolve exact-motion assets; retrieval resolves original video.
+The resolver layer maps video IDs and motion requirements to structured `PlaybackAsset` objects with workflow metadata (original or exact motion). Transition and clip-slide workflows resolve exact-motion assets; retrieval resolves original video.
 
 ### Preparation status
 File: `webapp/lib/presentation/presentPreparation.ts`.
@@ -1079,22 +1083,41 @@ Files:
 
 ## 18) Testing
 
-The project uses **Vitest** for unit tests (`vitest: ^4.0.18` dev dependency). Scripts:
-- `npm run test` — single run.
-- `npm run test:watch` — watch mode.
+The project uses **Vitest** for unit/component-level tests (`vitest: ^4.0.18`) and **Playwright** for browser flows. Root scripts delegate into `webapp/`:
+- `npm run test` — Vitest single run. `webapp/vitest.config.ts` excludes `e2e/**`.
+- `npm run test:e2e` — Playwright browser flows under `webapp/e2e`.
+- `npm run test:e2e:headed` — headed Playwright run.
+- `npm run playwright:install` — install the Chromium browser used by Playwright.
 
 Existing test files:
+- `webapp/components/annotate/saveTick.test.ts` — manual-save tick consumption.
+- `webapp/components/annotate/tacticalGeometry.test.ts` — lob and shadow tactical geometry helpers.
+- `webapp/lib/annotate/pitchCalibration.test.ts` — pitch calibration projection helpers.
+- `webapp/lib/fs/annotationStorage.test.ts` — annotation document storage and indexing.
 - `webapp/lib/metadata/teamsheetParser.test.ts` — CSV and plain-text teamsheet parsing (headers, aliases, delimiters, captain markers, position hints, fallback).
 - `webapp/lib/metadata/timeDisplay.test.ts` — `formatRawTime` and `formatMatchTimestamp` (period boundaries, fallback, custom labels).
 - `webapp/lib/fs/clipStorage.test.ts` — clip schema migration, mark pinning resolution, CRUD operations.
 - `webapp/lib/clip/interpolation.test.ts` — linear/cubic interpolation, clamping, visibility, bracket search, per-type interpolators.
 - `webapp/lib/clip/bboxConvert.test.ts` — bbox-to-geometry conversion and batch tracking keyframe conversion.
+- `webapp/lib/clip/editorState.test.ts` — tracked keyframe merging and correction-state helpers.
+- `webapp/lib/clip/frameMath.test.ts` — frame snapping/stepping helpers.
+- `webapp/lib/clip/homographyInterpolation.test.ts` — homography lookup/interpolation.
+- `webapp/lib/clip/pitchProjection.test.ts` — image/pitch projection helpers.
 - `webapp/lib/clip/sidecarClient.test.ts` — sidecar API client tests.
+- `webapp/lib/clip/stillImport.test.ts` — still annotation import into clip keyframes.
+- `webapp/lib/clip/stillRelationship.test.ts` — derived still/clip time-bound relationships.
+- `webapp/lib/clip/trackingState.test.ts` — tracking provenance, gaps, and visibility state.
 - `webapp/lib/clip/videoLocator.test.ts` — video locator utility tests.
 - `webapp/lib/fs/presentationStorage.test.ts` — presentation schema migration, CRUD, transition normalization, rename, duplicate.
 - `webapp/lib/fs/derivedMediaStorage.test.ts` — derived media queue reads vs startup cleanup behavior for pending files.
+- `webapp/lib/presentation/authoring.test.ts` — presentation asset grouping and deck authoring helpers.
 - `webapp/lib/presentation/derivedMediaServing.test.ts` — derived media serving/resolver tests.
 - `webapp/lib/utils/projectIntegrity.test.ts` — manifest repair, duplicate mark detection, sourceMarkId backfill, canonical still selection.
+
+Existing Playwright specs:
+- `webapp/e2e/home.spec.ts` — app bootstrap/homepage smoke flow.
+- `webapp/e2e/clip-editor.spec.ts`, `clip-homography.spec.ts`, `clip-occlusion.spec.ts`, `clip-save-reload.spec.ts` — clip editor browser coverage.
+- `webapp/e2e/presentation-*.spec.ts` — presentation authoring, retrieval, transitions, clip slides, present mode, and domain flows.
 
 ---
 

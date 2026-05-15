@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ..services.encoder import check_ffmpeg, encode_frames
@@ -26,6 +27,7 @@ logger = logging.getLogger("annotate_sidecar.routes.export")
 
 # Active export sessions: sessionId → temp directory path
 _sessions: dict[str, str] = {}
+_outputs: dict[str, str] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -141,8 +143,23 @@ async def export_encode(req: ExportEncodeRequest):
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+    _outputs[req.sessionId] = result_path
     logger.info("Export session %s encoded → %s", req.sessionId, result_path)
     return {"outputPath": result_path}
+
+
+@router.get("/{session_id}/file")
+async def export_file(session_id: str):
+    """Return the encoded MP4 for a completed export session."""
+    output_path = _outputs.get(session_id)
+    if not output_path:
+        raise HTTPException(status_code=404, detail=f"No encoded export for session: {session_id}")
+
+    artifact = Path(output_path)
+    if not artifact.exists():
+        raise HTTPException(status_code=404, detail=f"Export file missing for session: {session_id}")
+
+    return FileResponse(str(artifact), media_type="video/mp4", filename=artifact.name)
 
 
 @router.delete("/{session_id}")
@@ -155,6 +172,7 @@ async def export_cleanup(session_id: str):
     tmp_dir = _sessions.pop(session_id, None)
     if not tmp_dir:
         raise HTTPException(status_code=404, detail=f"Unknown session: {session_id}")
+    _outputs.pop(session_id, None)
 
     try:
         shutil.rmtree(tmp_dir, ignore_errors=True)

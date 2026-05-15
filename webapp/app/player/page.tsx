@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useProject } from "../../lib/state/ProjectContext";
 import type { ProjectManifestV1 } from "../../lib/types/project";
+import { getProjectFps } from "../../lib/types/project";
 import { writeManifest } from "../../lib/fs/projectFolder";
 import VideoPlayerUnit, { VideoPlayerHandle } from "../../components/player/VideoPlayerUnit";
 import TaggingMenu, { TaggingMenuCloseReason } from "../../components/tagging/TaggingMenu";
@@ -12,7 +13,6 @@ import {
   ensureTaggingSelection,
   TaggingSelection,
 } from "../../lib/tagging/schema";
-import { formatMatchTimestamp } from "../../lib/metadata/timeDisplay";
 import { findMarkAtTimestamp } from "../../lib/utils/projectIntegrity";
 
 export default function PlayerPage() {
@@ -33,6 +33,7 @@ export default function PlayerPage() {
   const manifestRef = useRef<ProjectManifestV1 | null>(null);
   const selectedVideoIdRef = useRef<string | null>(null);
   const selectedMarkIdRef = useRef<string | null>(null);
+  const resumeAfterTagConfirmRef = useRef(false);
 
   useEffect(() => { manifestRef.current = manifest; }, [manifest]);
   useEffect(() => { selectedVideoIdRef.current = selectedVideoId; }, [selectedVideoId]);
@@ -168,9 +169,17 @@ export default function PlayerPage() {
     openTagMenuForMarkById(markId, { x: event.clientX, y: event.clientY });
   }, [openTagMenuForMarkById]);
 
+  const pauseForMarkTagging = useCallback(() => {
+    const video = playerRef.current?.getVideoElement();
+    const shouldResume = Boolean(video && !video.paused && !video.ended);
+    resumeAfterTagConfirmRef.current = shouldResume;
+    if (shouldResume) video?.pause();
+  }, []);
+
   const addMarkAt = useCallback(async (t_ms: number) => {
     const vid = selectedVideoIdRef.current;
     if (!vid) return;
+    pauseForMarkTagging();
     const existing = manifestRef.current ? findMarkAtTimestamp(manifestRef.current.marks, vid, t_ms) : null;
     if (existing) {
       setSelectedMarkIdSafe(existing.id);
@@ -188,7 +197,7 @@ export default function PlayerPage() {
       setSelectedMarkIdSafe(id);
       openTagMenuForMarkById(id);
     }
-  }, [mutateManifestExclusive, setSelectedMarkIdSafe, pushUndo, openTagMenuForMarkById]);
+  }, [mutateManifestExclusive, setSelectedMarkIdSafe, pushUndo, openTagMenuForMarkById, pauseForMarkTagging]);
 
   const deleteSelectedMark = useCallback(async () => {
     const target = selectedMarkIdRef.current;
@@ -247,12 +256,20 @@ export default function PlayerPage() {
   }, [mutateManifestExclusive, pushUndo]);
 
   const handleTagMenuClose = useCallback(async (selection: TaggingSelection, reason: TaggingMenuCloseReason) => {
+    const shouldResume = resumeAfterTagConfirmRef.current;
+    resumeAfterTagConfirmRef.current = false;
     setTagMenuOpen(false);
     setTagMenuAnchor(null);
-    if (reason === "confirm" && tagMenuMarkId) {
-      await saveTaggingSelection(tagMenuMarkId, selection);
+    try {
+      if (reason === "confirm" && tagMenuMarkId) {
+        await saveTaggingSelection(tagMenuMarkId, selection);
+      }
+    } finally {
+      setTagMenuMarkId(null);
+      if (shouldResume) {
+        await playerRef.current?.getVideoElement()?.play().catch(() => {});
+      }
     }
-    setTagMenuMarkId(null);
   }, [saveTaggingSelection, tagMenuMarkId]);
 
   // Global keyboard shortcuts for the entire page
@@ -344,7 +361,7 @@ export default function PlayerPage() {
             <VideoPlayerUnit
               ref={playerRef}
               src={videoUrl}
-              fps={(manifest?.videos.find(v => v.id === selectedVideoId)?.fps) || 30}
+              fps={getProjectFps(manifest)}
               marks={marksForVideo.map(m => ({ id: m.id, t_ms: m.t_ms, tags: m.tags }))}
               onAddMark={addMarkAt}
               externalSeekMs={seekMs}
@@ -366,11 +383,6 @@ export default function PlayerPage() {
                 onSelectMark={handleTreeSelectMark}
                 onContextMenu={openTagMenuForMark}
                 onDropMarkOnNode={handleDropMarkOnNode}
-                formatTimestamp={
-                  manifest?.matchInfo?.periods && selectedVideoId
-                    ? (ms: number) => formatMatchTimestamp(ms, selectedVideoId, manifest.matchInfo!.periods).display
-                    : undefined
-                }
               />
             ) : (
               <div className="p-3 text-muted text-sm">

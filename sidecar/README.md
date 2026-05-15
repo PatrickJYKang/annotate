@@ -69,7 +69,7 @@ Relative `videoPath` values are rejected.
 | Method   | Path               | Description                          |
 |----------|---------------------|--------------------------------------|
 | `GET`    | `/health`           | Sidecar status & model availability  |
-| `POST`   | `/track`            | Object tracking (annotate adapter + vendored trackers OC-SORT core) |
+| `POST`   | `/track`            | Object tracking (annotate adapter + vendored trackers OC-SORT core; optional debug artifact) |
 | `GET`    | `/track/debug/{artifact}` | Download a saved tracking debug MP4 artifact |
 | `POST`   | `/homography`       | Pitch homography (annotate range adapter + vendored trackers PnLCalib provider) |
 | `POST`   | `/segment`          | Person segmentation (YOLO + MobileSAM) |
@@ -105,7 +105,7 @@ annotate_sidecar/
     encoder.py             # ffmpeg MP4 encoding
   vendor/
     trackers/              # Vendored trackers primitives (OC-SORT + PnLCalib)
-  models/                # Downloaded model weights (gitignored)
+  models/                  # Optional local model cache (gitignored)
 ```
 
 ## Tracking defaults
@@ -118,7 +118,7 @@ Current ownership stance:
 
 - `annotate` sidecar owns the practical app defaults and override policy
 - vendored trackers core owns lower-level implementation details
-- `/track` request fields (`fps`, `classes`, `confThreshold`, `iouThreshold`) act as request-level overrides
+- `/track` request fields (`fps`, `classes`, `confThreshold`, `iouThreshold`, `debugVideo`) act as request-level overrides
 
 Current app-facing tracking semantics:
 
@@ -166,7 +166,7 @@ Current clip-side coexistence rule:
 
 - **CPU-only** works for all features. Tracking and segmentation are
   slower but functional.
-- **CUDA GPU** accelerates YOLO, MobileSAM, and Narya significantly.
+- **CUDA GPU** accelerates YOLO, MobileSAM, and PnLCalib significantly.
   PyTorch auto-detects CUDA if available.
 - **Apple Silicon** is supported via MPS (Metal Performance Shaders)
   for PyTorch operations.
@@ -192,8 +192,8 @@ dev server on any port.
   downloads `yolov8n.pt` (~6MB). Check internet connectivity.
 - **Need to inspect tracker behavior frame-by-frame** — `/track` can optionally
   emit a saved annotated MP4 and expose it through `/track/debug/{artifact}`.
-  The normal UI path currently leaves this disabled, but the route support is
-  kept for debugging hard tracking cases.
+  Use the `debugVideo` request field to control artifact generation; the route
+  returns `debugVideoUrl` when an artifact is produced.
 - **MobileSAM weights download fails** — Weights (~10MB) are auto-downloaded
   to `~/.cache/annotate-sidecar/` on first `/segment` call. Check internet
   connectivity and write permissions.

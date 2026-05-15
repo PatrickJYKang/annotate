@@ -7,6 +7,7 @@ import {
   startExport,
   sendExportFrame,
   encodeExport,
+  downloadExportFile,
   cleanupExport,
 } from "../../lib/clip/sidecarClient";
 
@@ -20,6 +21,7 @@ export interface ExportModalProps {
   videoEl: HTMLVideoElement;
   videoFps: number;
   sidecarBaseUrl: string;
+  projectDir?: FileSystemDirectoryHandle;
   onClose: () => void;
   renderAnnotationsToCanvas: (
     canvas: HTMLCanvasElement,
@@ -41,10 +43,11 @@ export default function ExportModal({
   videoEl,
   videoFps,
   sidecarBaseUrl,
+  projectDir,
   onClose,
   renderAnnotationsToCanvas,
 }: ExportModalProps) {
-  const [fps, setFps] = useState(Math.min(30, videoFps));
+  const [fps, setFps] = useState(videoFps > 0 ? videoFps : 30);
   const [state, setState] = useState<ExportState>('idle');
   const [progress, setProgress] = useState(0);
   const [totalFrames, setTotalFrames] = useState(0);
@@ -57,6 +60,38 @@ export default function ExportModal({
   const clipDurationMs = clip.endMs - clip.startMs;
   const width = videoEl.videoWidth || 1920;
   const height = videoEl.videoHeight || 1080;
+
+  const buildExportFileName = useCallback(() => {
+    const now = new Date();
+    const stamp = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, '0'),
+      String(now.getDate()).padStart(2, '0'),
+      '-',
+      String(now.getHours()).padStart(2, '0'),
+      String(now.getMinutes()).padStart(2, '0'),
+      String(now.getSeconds()).padStart(2, '0'),
+    ].join('');
+    const safeClipId = clip.id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 12) || 'clip';
+    return `clip_${safeClipId}_${stamp}.mp4`;
+  }, [clip.id]);
+
+  const writeExportToProject = useCallback(async (blob: Blob) => {
+    if (!projectDir) {
+      throw new Error('Project folder handle unavailable. Reopen the project folder before exporting.');
+    }
+
+    const fileName = buildExportFileName();
+    const exportsDir = await projectDir.getDirectoryHandle('exports', { create: true });
+    const fileHandle = await exportsDir.getFileHandle(fileName, { create: true });
+    const writable = await fileHandle.createWritable();
+    try {
+      await writable.write(blob);
+    } finally {
+      await writable.close();
+    }
+    return `exports/${fileName}`;
+  }, [buildExportFileName, projectDir]);
 
   const handleExport = useCallback(async () => {
     abortRef.current = false;
@@ -140,8 +175,10 @@ export default function ExportModal({
 
       // 3. Encode
       setState('encoding');
-      const encodeResult = await encodeExport(sessionId, fps, undefined, sidecarBaseUrl);
-      setOutputPath(encodeResult.outputPath);
+      await encodeExport(sessionId, fps, undefined, sidecarBaseUrl);
+      const exportedVideo = await downloadExportFile(sessionId, sidecarBaseUrl);
+      const projectOutputPath = await writeExportToProject(exportedVideo);
+      setOutputPath(projectOutputPath);
       setState('done');
 
     } catch (err: any) {
@@ -181,7 +218,7 @@ export default function ExportModal({
         }
       }
     }
-  }, [clip, videoEl, fps, width, height, clipDurationMs, sidecarBaseUrl, renderAnnotationsToCanvas]);
+  }, [clip, videoEl, fps, width, height, clipDurationMs, sidecarBaseUrl, renderAnnotationsToCanvas, writeExportToProject]);
 
   const handleCancel = useCallback(() => {
     abortRef.current = true;
@@ -222,11 +259,18 @@ export default function ExportModal({
             <div className="mb-3 text-sm text-muted">
               Resolution: {width} × {height}<br />
               Duration: {(clipDurationMs / 1000).toFixed(1)}s<br />
-              Frames: {Math.ceil((clipDurationMs / 1000) * fps)}
+              Frames: {Math.ceil((clipDurationMs / 1000) * fps)}<br />
+              Output: project folder / exports/
             </div>
+            {!projectDir && (
+              <div className="mb-3 text-sm text-red-400">
+                Project folder handle unavailable. Reopen the project before exporting.
+              </div>
+            )}
             <div className="flex gap-2">
               <button
                 onClick={handleExport}
+                disabled={!projectDir}
                 className="flex-1 px-4 py-2 text-sm bg-[#10b981] text-surface border-0 cursor-pointer"
               >
                 Export
