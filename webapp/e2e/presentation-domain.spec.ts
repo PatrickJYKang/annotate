@@ -15,7 +15,7 @@ async function readManifestFromFixture(page: Page) {
 test('presentation mark materialization reuses an existing still instead of creating a duplicate', async ({ page }) => {
   await installDirectoryPickerFixture(
     page,
-    path.resolve(process.cwd(), 'e2e/fixtures/retrieval-project.matchproj'),
+    path.resolve(process.cwd(), 'e2e/fixtures/retrieval-project'),
   );
 
   await page.goto('/');

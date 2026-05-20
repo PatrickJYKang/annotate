@@ -146,7 +146,7 @@ function summarizePrimaryAnnotation(clip: any) {
 }
 
 test('clip editor supports major authoring flows end to end', async ({ page }) => {
-  const fixturePath = path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project.matchproj');
+  const fixturePath = path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project');
   const trackRequests = await installMockSidecar(page);
   await installDirectoryPickerFixture(page, fixturePath);
   await page.setViewportSize({ width: 1120, height: 1000 });

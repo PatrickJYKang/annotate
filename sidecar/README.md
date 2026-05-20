@@ -30,16 +30,19 @@ python3.12 -m venv .venv
 source .venv/bin/activate   # macOS/Linux
 # .venv\Scripts\activate    # Windows
 
-# Install core dependencies
-pip install -r requirements.txt
+# Install pinned pre-release dependencies
+pip install -r requirements.lock.txt
 
 # Optional: install MobileSAM for person segmentation
 pip install git+https://github.com/ChaoningZhang/MobileSAM.git
 ```
 
-> **Note:** tracking now depends on `supervision`, and homography now depends on
+> **Note:** `requirements.lock.txt` pins the 0.1 pre-release environment. Use
+> `requirements.txt` only when intentionally refreshing dependency versions.
+>
+> Tracking now depends on `supervision`, and homography now depends on
 > `lsq-ellipse` plus an accessible `PnLCalib` checkout + weights. Those Python
-> dependencies are included in `requirements.txt`; the upstream `PnLCalib`
+> dependencies are included in `requirements.lock.txt`; the upstream `PnLCalib`
 > assets are discovered from either:
 > - `sidecar/third_party/pnlcalib`
 > - a sibling checkout at `../trackers/third_party/pnlcalib`
@@ -76,9 +79,11 @@ Relative `videoPath` values are rejected.
 | `POST`   | `/export/start`     | Begin export session                 |
 | `POST`   | `/export/frame`     | Submit rendered frame (base64 JPEG)  |
 | `POST`   | `/export/encode`    | Encode frames to MP4 (ffmpeg)        |
+| `GET`    | `/export/{sessionId}/file` | Download encoded export MP4 before cleanup |
 | `DELETE` | `/export/{id}`      | Clean up export session              |
 | `POST`   | `/derived-media/exact-motion` | Encode exact video segment for presentation playback |
 | `POST`   | `/video/register`   | Upload video file and get `videoRef` |
+| `POST`   | `/video/normalize`  | Transcode uploaded video to project FPS/resolution |
 | `DELETE` | `/video/{videoRef}` | Unregister a temporary uploaded video |
 
 ## Architecture

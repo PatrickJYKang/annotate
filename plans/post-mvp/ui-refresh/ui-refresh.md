@@ -12,7 +12,7 @@
 
 | Route | Purpose | Key observations |
 |---|---|---|
-| `/` (Home) | Project CRUD, video list | Plain `.panel` cards; `.toolbar` row of unstyled buttons; `<ul>` video list with button items; dev-only `.matchproj` notice |
+| `/` (Home) | Project CRUD, video list | Plain `.panel` cards; `.toolbar` row of unstyled buttons; `<ul>` video list with button items; dev-only project-folder notice |
 | `/player` | Video + tagging | Full-bleed two-pane layout; heavy inline `style={}` on every div; 300 px fixed tag-tree sidebar; monospace timestamp buttons; status-bar hotkey legend |
 | `/stills` | Still capture + thumbnails | Thumbnail grid; mark list; export progress bar; same inline-style pattern |
 | `/metadata` | Match info editing | Form inputs, team-grid panels, period editor, textarea; some CSS classes + lots of inline |
@@ -177,7 +177,7 @@ Work in thin vertical slices so the app is always in a working state.
 - [ ] Video list: replace `<ul>` + floating `<button>` items with full-width block rows; each row shows label, duration, resolution as secondary text
 - [ ] Empty state: larger text (`text-lg`), centred
 - [ ] "Set up match info": full-width block row, not a small floating button
-- [ ] Gate `.matchproj` dev notice behind `process.env.NODE_ENV === 'development'`
+- [ ] Gate project-folder dev notice behind `process.env.NODE_ENV === 'development'`
 - [ ] Upload overlay: square container, larger text labels, square progress bar
 
 ### §3 — Modals (`FootballDataImporter`, `TeamsheetImporter`)

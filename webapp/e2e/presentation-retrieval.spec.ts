@@ -24,7 +24,7 @@ test('opens a presentation and retrieves a mark without proxy playback', async (
 
   await installDirectoryPickerFixture(
     page,
-    path.resolve(process.cwd(), 'e2e/fixtures/retrieval-project.matchproj'),
+    path.resolve(process.cwd(), 'e2e/fixtures/retrieval-project'),
   );
 
   await page.goto('/');

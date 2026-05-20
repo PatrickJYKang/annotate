@@ -17,7 +17,7 @@
 │ toolbar: [Create] [Open] [Import] [Save] [Close]│
 ├─────────────────────────────────────────────────┤
 │ panel: "Chromium required" (conditional)         │
-│ panel: ".matchproj dev notice" (dev only)        │
+│ panel: project-folder dev notice (dev only)      │
 ├─────────────────────────────────────────────────┤
 │ panel: "Current Project"                         │
 │   status: Folder name                            │
@@ -166,7 +166,7 @@ No new component files needed — this is a single-page restructure.
 - [ ] Add a panel card with title, two stacked CTA buttons, muted status
 - [ ] Remove the toolbar entirely from the empty state
 - [ ] Move "Chromium required" warning into the card as muted status text
-- [ ] Remove `.matchproj` dev notice (it served its purpose)
+- [ ] Remove project-folder dev notice (it served its purpose)
 
 ### 4.2  Dashboard layout
 - [ ] Wrap the project-open view in a two-column flex layout

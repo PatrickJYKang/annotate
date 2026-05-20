@@ -17,7 +17,7 @@ async function readClipFromFixture(page: Page) {
 test('clip editor persists imported annotations across reload', async ({ page }) => {
   await installDirectoryPickerFixture(
     page,
-    path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project.matchproj'),
+    path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project'),
   );
 
   await page.goto(`/clip/${CLIP_ID}`);

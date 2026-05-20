@@ -25,7 +25,7 @@ test('match_video transition preview becomes playable after exact clip generatio
 
   await installDirectoryPickerFixture(
     page,
-    path.resolve(process.cwd(), 'e2e/fixtures/retrieval-project.matchproj'),
+    path.resolve(process.cwd(), 'e2e/fixtures/retrieval-project'),
   );
 
   await page.goto('/');

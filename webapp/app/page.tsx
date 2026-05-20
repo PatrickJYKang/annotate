@@ -40,8 +40,7 @@ function normalizedVideoFileName(name: string): string {
 }
 
 function projectFolderName(projectName: string): string {
-  const safe = projectName.trim().replace(/[/:\\]/g, "-") || "Untitled Project";
-  return safe.toLowerCase().endsWith(".matchproj") ? safe : `${safe}.matchproj`;
+  return projectName.trim().replace(/[/:\\]/g, "-") || "Untitled Project";
 }
 
 export default function Page() {
@@ -95,7 +94,7 @@ export default function Page() {
       const name = projectFolderName(values.name);
       const project = await parent.getDirectoryHandle(name, { create: true });
       await ensurePermission(project);
-      const baseManifest = await ensureProjectFolderStructure(project, name.replace(/\.matchproj$/i, ""));
+      const baseManifest = await ensureProjectFolderStructure(project, name);
       const mf: ProjectManifestV1 = {
         ...baseManifest,
         name: values.name.trim(),

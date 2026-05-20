@@ -7,7 +7,7 @@ const CLIP_ID = 'clip-playwright-1';
 test('presentation authoring treats clips as first-class assets and supports clip-centered browsing', async ({ page }) => {
   await installDirectoryPickerFixture(
     page,
-    path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project.matchproj'),
+    path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project'),
   );
 
   await page.goto('/');

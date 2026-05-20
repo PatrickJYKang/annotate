@@ -5,13 +5,13 @@ Status: In Progress
 Target: Chromium desktop only
 
 ## Goals
-- Create/Open/Save a `*.matchproj/` project folder using the File System Access API.
+- Create/Open/Save a project folder using the File System Access API.
 - Initialize folder structure: `project.json`, `media/`, `stills/`, `annotations/`, `thumbnails/`, `reports/`, `clips/`.
 - Auto-save writes directly into the folder; manual “Save Now” available.
 - `project.json` (schema `project.v1`) stores project metadata and lists.
 
 ## Acceptance Criteria
-- "Create Project Folder…" prompts for parent location and project name; enforces `.matchproj` suffix.
+- "Create Project Folder…" prompts for parent location and project name.
 - "Open Project Folder…" loads an existing folder and reads `project.json`.
 - First open initializes structure if missing and saves a valid `project.json`.
 - "Save Now" writes `project.json` and shows a non-blocking "Project saved" notification.
@@ -19,7 +19,7 @@ Target: Chromium desktop only
 
 ## UX Copy (from technical document)
 - Buttons: "Create Project Folder…", "Open Project Folder…", "Save Now", "Close Project".
-- Dialogs: “Choose a project folder”, “Name your project folder”. Suffix prompt for `.matchproj` when missing.
+- Dialogs: “Choose a project folder”, “Name your project folder”.
 - Notifications: “Project saved”, “Some items are missing” (with Relink), “Unsupported format”.
 
 ## Tasks
@@ -32,7 +32,7 @@ Target: Chromium desktop only
 
 ## Technical Notes
 - Use `window.showDirectoryPicker({ mode: 'readwrite' })` for open/create parent selection.
-- For creation, prompt for name; create subdirectory `<name>.matchproj` under chosen parent via `getDirectoryHandle(name, { create: true })`.
+- For creation, prompt for name; create a subdirectory under the chosen parent via `getDirectoryHandle(name, { create: true })`.
 - Write files with `createWritable()`; flush on `close()`.
 - Store only in-memory handle for D1; recent projects can be added later.
 

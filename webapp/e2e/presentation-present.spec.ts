@@ -18,7 +18,7 @@ test('presents without separate prepare controls and upgrades to exact transitio
 
   await installDirectoryPickerFixture(
     page,
-    path.resolve(process.cwd(), 'e2e/fixtures/retrieval-project.matchproj'),
+    path.resolve(process.cwd(), 'e2e/fixtures/retrieval-project'),
   );
 
   await page.goto('/');

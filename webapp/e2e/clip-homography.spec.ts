@@ -105,7 +105,7 @@ async function installMockHomographySidecar(page: Page): Promise<void> {
 test('clip editor supports cached homography and pitch-space authoring', async ({ page }) => {
   await installDirectoryPickerFixture(
     page,
-    path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project.matchproj'),
+    path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project'),
   );
   await installMockHomographySidecar(page);
 
@@ -117,10 +117,9 @@ test('clip editor supports cached homography and pitch-space authoring', async (
   await expect(computeHomographyButton).toBeEnabled();
   await computeHomographyButton.click();
   await expect(page.getByRole('button', { name: 'Recompute H' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Draw: Image' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Draw: Pitch' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Box' }).click();
-  await page.getByRole('button', { name: 'Draw: Image' }).click();
   await expect(page.getByRole('button', { name: 'Draw: Pitch' })).toBeVisible();
 
   const stageSurface = page.locator('[data-testid="clip-stage"] canvas').last();

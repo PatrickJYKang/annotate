@@ -92,7 +92,7 @@ export async function reindexAnnotations(projectDir: FileSystemDirectoryHandle, 
 async function ensureManifest(projectDir: FileSystemDirectoryHandle, projectName?: string): Promise<ProjectManifestV1> {
   const existing = await readManifest(projectDir);
   if (existing) return existing;
-  const name = projectName || projectDir.name.replace(/\.matchproj$/i, '');
+  const name = projectName || projectDir.name;
   const mf = defaultProjectManifest(name || 'Untitled Project');
   await writeManifest(projectDir, mf);
   return mf;

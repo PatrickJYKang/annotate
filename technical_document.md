@@ -9,7 +9,7 @@ The as-built workflow is:
 
 1. Create/open a project folder on disk (Chromium File System Access API).
 2. Import videos into the project.
-3. Enter match metadata (teams, teamsheets, period boundaries).
+3. Enter match metadata (teams and teamsheets).
 4. Tag moments ("marks") while watching video.
 5. Generate still PNGs + thumbnails.
 6. Annotate stills with a Konva-based editor (supports multiple annotation documents per still).
@@ -79,7 +79,7 @@ This document describes the **current implementation** (routes, on-disk formats,
 - Annotation editor: `webapp/components/annotate/Editor.tsx`
 - Annotation storage: `webapp/lib/fs/annotationStorage.ts`
 - Metadata page: `webapp/app/metadata/page.tsx`
-- Metadata components: `webapp/components/metadata/` (MatchDetailsForm, TeamPanel, TeamsheetImporter, PeriodEditor, FootballDataImporter)
+- Metadata components: `webapp/components/metadata/` (MatchDetailsForm, TeamPanel, TeamsheetImporter, FootballDataImporter)
 - Metadata utilities: `webapp/lib/metadata/` (teamsheetParser, timeDisplay, footballDataApi)
 - API proxy: `webapp/app/api/football-data/route.ts`
 - Clip types: `webapp/lib/types/clip.ts`
@@ -125,7 +125,6 @@ This document describes the **current implementation** (routes, on-disk formats,
   - Edit home/away team panels (name, coach, formation, inline editable player table).
   - Import teamsheets from CSV/TSV/TXT files or pasted text.
   - Import match metadata from football-data.org API (search → preview → selective import).
-  - Edit period boundaries (1st Half, 2nd Half, etc.) with a mini video scrubber and "Set" buttons.
   - Free-form notes field.
   - Debounced auto-save of `matchInfo` to `project.json` (800ms).
 
@@ -136,7 +135,6 @@ This document describes the **current implementation** (routes, on-disk formats,
   - Load video bytes from the project folder and play them via `<video>`.
   - Create marks at timestamps (`t_ms`); adding a mark auto-opens the `TaggingMenu`.
   - Display marks organised into collapsible folders mirroring the `primary_tree` schema, via the `TagFolderTree` component.
-  - Display period-aware timestamps (e.g. "1H 34:12") when period boundaries are set; falls back to raw video time otherwise.
   - Tag marks via a hierarchical tagging menu (right-click a mark to open `TaggingMenu`); schema is passed as a prop from `ProjectContext`.
   - Re-tag marks by dragging them onto a folder in the tree (sets `primary` to the target node ID, clears facets).
   - Undo/redo for mark and tag edits (⌘Z / ⌘⇧Z), with a 50-entry stack.
@@ -223,13 +221,11 @@ This document describes the **current implementation** (routes, on-disk formats,
 
 A project is a user-selected directory containing `project.json` plus a fixed set of subdirectories.
 
-The `.matchproj` suffix is currently a naming convention used by the UI (not a filesystem requirement).
-
 ### Required structure
 Created/validated by `webapp/lib/fs/projectFolder.ts`.
 
 ```text
-MyMatch.matchproj/
+MyMatch/
   project.json
   tagging-schema.yaml
   media/
@@ -383,7 +379,7 @@ Shape model (high-level):
 
 ### 6.1 Create/open project
 - Create:
-  - UI prompts for a folder name (adds `.matchproj` suffix if missing).
+  - UI prompts for a project name, then creates a matching project folder.
   - Writes required subdirectories, `project.json`, and `tagging-schema.yaml` (default template).
   - Reads the schema back and stores it in `ProjectContext.taggingSchema`.
 - Open:
@@ -613,7 +609,7 @@ Helper functions:
 - File: `webapp/components/tagging/TagFolderTree.tsx`
 - A scrollable collapsible tree view that mirrors the schema's `primary_tree`.
 - Props: `schema`, `marks`, `selectedMarkId`, `onSelectMark`, `onContextMenu`, optional `onDropMarkOnNode`, optional `formatTimestamp`.
-- The optional `formatTimestamp` prop overrides the default raw-time formatter (used by the player page to inject period-aware timestamps via `formatMatchTimestamp`).
+- The optional `formatTimestamp` prop overrides the default raw-time formatter for custom mark labels.
 - Pure presentation + interaction; no data fetching or schema loading.
 - Builds a mark index by matching each mark's `tags.primary` to schema node IDs.
 - Special buckets: **Untagged** (`primary = null`) and **Unknown tag** (primary not in schema, displayed with raw ID in amber).
@@ -630,7 +626,6 @@ Helper functions:
 - Adding a mark via `M` auto-opens `TaggingMenu` (centered on viewport) after the mark is created.
 - Drag-and-drop a mark onto a folder header sets `mark.tags = { primary: nodeId, facets: {} }` (undo-aware).
 - On confirm, the selection is saved to `mark.tags` as a `TaggingSelection` object.
-- When period boundaries are set in `matchInfo.periods`, the player passes a `formatTimestamp` callback (using `formatMatchTimestamp`) to `TagFolderTree` so mark times display as e.g. "1H 34:12".
 - When no schema is loaded, the right pane shows a placeholder message.
 
 ---
@@ -644,7 +639,7 @@ Design doc: `plans/post-mvp/metadata/match-metadata-screen.md`.
 - Full-bleed layout with a navbar (space-filling buttons, border separators). Left: "← Back to project", "Import match metadata". Right: "Save now", "Player →".
 - Reads `matchInfo` from `ProjectContext.manifest`; initialises with `defaultMatchInfo()` if absent.
 - Uses debounced auto-save (800ms) via `writeManifest`. Flushes on unmount and before navigation.
-- Sections: Match details form, Home/Away team panels (side-by-side responsive grid), Period editor, Notes textarea.
+- Sections: Match details form, Home/Away team panels (side-by-side responsive grid), Notes textarea.
 - "Import match metadata" navbar button opens `FootballDataImporter` modal.
 
 ### Components
@@ -652,15 +647,12 @@ Design doc: `plans/post-mvp/metadata/match-metadata-screen.md`.
 - **`TeamPanel`** (`webapp/components/metadata/TeamPanel.tsx`) — team name, coach, formation fields + inline editable player table (number, name, position, captain checkbox, substitute checkbox, remove button). Validates duplicate shirt numbers (red highlight). "Import teamsheet" button opens `TeamsheetImporter` modal. "+ Add player" appends a blank row.
 - **`TeamsheetImporter`** (`webapp/components/metadata/TeamsheetImporter.tsx`) — modal with file picker (`.csv`, `.tsv`, `.txt`) and paste textarea. Parses input, shows editable preview table, confirm to replace team’s player array.
 - **`FootballDataImporter`** (`webapp/components/metadata/FootballDataImporter.tsx`) — modal for importing from football-data.org API v4. Three search modes: by competition + season + matchday, by stage (cups), or by direct match ID. API key input persisted to `localStorage` (key: `football_data_api_key`). Flow: search → results table → detail preview with section toggles (match details, home team, away team, substitutions) → selective confirm. Handles rate-limiting (429), lineups-not-yet-available warning for scheduled matches.
-- **`PeriodEditor`** (`webapp/components/metadata/PeriodEditor.tsx`) — mini video scrubber (`<video controls>`) + period table with editable label, start/end timestamps, "Set" buttons that capture current video time. Auto-creates default "1st Half" / "2nd Half" periods on mount if none exist. Add/remove period rows.
-
 ### Utilities
 - **`teamsheetParser.ts`** (`webapp/lib/metadata/teamsheetParser.ts`)
   - `parseTeamsheetCSV(text)` — auto-detects delimiter (comma, tab, semicolon), flexible header alias matching (number/name/position/captain/substitute), falls back to first-two-columns heuristic if no headers match.
   - `parseTeamsheetPlainText(text)` — parses `<number> <name>` / `<number>. <name>` / `#<number> <name>` formats. Strips trailing `(C)` captain marker and `(GK)` / `[CB]` position hints.
 - **`timeDisplay.ts`** (`webapp/lib/metadata/timeDisplay.ts`)
   - `formatRawTime(ms)` — raw video time as `mm:ss.mmm` or `h:mm:ss.mmm`.
-  - `formatMatchTimestamp(videoTimeMs, videoId, periods)` — returns `{ display, periodAware }`. Matches timestamp to a period with complete boundaries and formats as `"1H 34:12"`, `"2H 07:40"`, `"ET1 05:00"`, etc. Falls back to raw time when no matching period is found. Short label mapping: "1st Half" → "1H", "2nd Half" → "2H", "Extra Time 1" → "ET1", "Extra Time 2" → "ET2"; unknown labels used as-is.
 - **`footballDataApi.ts`** (`webapp/lib/metadata/footballDataApi.ts`)
   - API client for football-data.org v4 (via the `/api/football-data` proxy route).
   - Search: `searchMatchesByCompetition`, `searchMatchesByStage`, `fetchMatch`.
@@ -956,6 +948,7 @@ annotate_sidecar/
 |--------|------|-------------|
 | `GET` | `/health` | Status + model availability + capabilities list |
 | `POST` | `/video/register` | Upload video file → `videoRef` (temp registry) |
+| `POST` | `/video/normalize` | Transcode upload to project FPS/resolution → MP4 blob |
 | `DELETE` | `/video/{videoRef}` | Unregister temp video |
 | `POST` | `/track` | Object tracking (YOLO + vendored trackers OC-SORT): `videoRef`, time range, seed bbox → keyframes |
 | `GET` | `/track/debug/{artifact}` | Download a saved tracking debug MP4 artifact |
@@ -964,6 +957,7 @@ annotate_sidecar/
 | `POST` | `/export/start` | Begin export session → `sessionId` |
 | `POST` | `/export/frame` | Submit rendered frame (base64 JPEG) |
 | `POST` | `/export/encode` | Encode frames → MP4 (ffmpeg, libx264, CRF 18) |
+| `GET` | `/export/{sessionId}/file` | Download encoded export MP4 before cleanup |
 | `DELETE` | `/export/{sessionId}` | Clean up export session |
 | `POST` | `/derived-media/exact-motion` | Encode exact video segment → MP4 blob |
 
@@ -1095,7 +1089,7 @@ Existing test files:
 - `webapp/lib/annotate/pitchCalibration.test.ts` — pitch calibration projection helpers.
 - `webapp/lib/fs/annotationStorage.test.ts` — annotation document storage and indexing.
 - `webapp/lib/metadata/teamsheetParser.test.ts` — CSV and plain-text teamsheet parsing (headers, aliases, delimiters, captain markers, position hints, fallback).
-- `webapp/lib/metadata/timeDisplay.test.ts` — `formatRawTime` and `formatMatchTimestamp` (period boundaries, fallback, custom labels).
+- `webapp/lib/metadata/timeDisplay.test.ts` — raw timestamp formatting.
 - `webapp/lib/fs/clipStorage.test.ts` — clip schema migration, mark pinning resolution, CRUD operations.
 - `webapp/lib/clip/interpolation.test.ts` — linear/cubic interpolation, clamping, visibility, bracket search, per-type interpolators.
 - `webapp/lib/clip/bboxConvert.test.ts` — bbox-to-geometry conversion and batch tracking keyframe conversion.

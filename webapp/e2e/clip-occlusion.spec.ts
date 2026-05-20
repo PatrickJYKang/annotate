@@ -83,7 +83,7 @@ async function installMockSegmentationSidecar(page: Page): Promise<{ getSegmentC
 test('occlusion behaves as a paused-frame workflow in the clip editor', async ({ page }) => {
   await installDirectoryPickerFixture(
     page,
-    path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project.matchproj'),
+    path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project'),
   );
   const mockSidecar = await installMockSegmentationSidecar(page);
 

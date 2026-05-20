@@ -23,7 +23,7 @@ Historical note:
 ## 1) MVP Scope and Non‑Goals
 
 - **In Scope**
-  - **Project folder container** (`*.matchproj/`) with `project.json`, `media/`, `stills/`, `annotations/`, `thumbnails/`, `reports/`.
+  - **Project folder container** with `project.json`, `media/`, `stills/`, `annotations/`, `thumbnails/`, `reports/`.
   - **Video import** via File Picker and Drag & Drop; open/save directly to the chosen project folder.
   - **Playback + marking** with hotkeys (J/K/L, `M` to mark; 1–9 quick tags).
   - **Frame extraction** to PNG via Canvas from `<video>`; **ffmpeg.wasm** fallback for VFR/unsupported codecs.
@@ -41,7 +41,7 @@ Historical note:
 ## 2) Deliverables and Acceptance Criteria
 
 - **D1: Project container (folder)**
-  - Create/Open/Save a `*.matchproj/` folder. Auto-save writes directly into this folder.
+  - Create/Open/Save a project folder. Auto-save writes directly into this folder.
   - `project.json` contains project metadata and schema version.
 
 - **D2: Import + metadata**
@@ -87,7 +87,7 @@ Historical note:
 
 - **M1 – Data model + storage (1–2 days)**
   - Define TypeScript types for Project, Video, Mark, Still, AnnotationRef.
-  - Folder IO helpers for `*.matchproj/` (open/create/save) and minimal local index.
+  - Folder IO helpers for project folders (open/create/save) and minimal local index.
 
 - **M2 – Import + metadata (1–2 days)**
   - File Picker + drag-drop. Copy/refer videos under `media/` within the project folder.
