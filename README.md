@@ -1,4 +1,6 @@
-# Football Analysis Annotator
+# annotate
+
+We have released [**our first stable pre-release**](https://github.com/PatrickJYKang/annotate/releases/tag/v0.1.0-pre.1) 🎉 Massively grateful to everyone who has supported this project to get it to this stage.
 
 A web application for football match analysis across marks, stills, clips, and presentations. Built with **Next.js 14 (App Router)**, **React 18**, **TypeScript**, and **Konva** for canvas-based annotation.
 
