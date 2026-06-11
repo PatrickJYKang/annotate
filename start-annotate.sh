@@ -159,6 +159,7 @@ main() {
   command -v curl >/dev/null 2>&1 || die "curl was not found."
   [[ -f "$ROOT_DIR/package.json" ]] || die "Could not find package.json in $ROOT_DIR."
   [[ -d "$ROOT_DIR/webapp/node_modules" ]] || die "Web dependencies are missing. Run ./install.sh from $ROOT_DIR."
+  [[ -x "$ROOT_DIR/sidecar/.venv/bin/python" ]] || die "Python sidecar environment is missing. Run ./install.sh from $ROOT_DIR."
   finish_progress_line
 
   if url_ready "$APP_URL"; then

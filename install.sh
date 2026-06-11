@@ -3,12 +3,10 @@
 set -euo pipefail
 
 ANNOTATE_VERSION="0.1 pre-release"
-DEFAULT_REF="v0.1.0-pre.1"
+DEFAULT_REF="v0.1.0-pre.2"
 REPO_URL="${ANNOTATE_REPO_URL:-https://github.com/PatrickJYKang/annotate.git}"
 REF="${ANNOTATE_REF:-$DEFAULT_REF}"
 DEFAULT_INSTALL_DIR="${HOME}/Documents/annotate"
-TOTAL_STEPS=10
-CURRENT_STEP=0
 INSTALL_DIR=""
 SELF_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 LOG_FILE="${ANNOTATE_INSTALL_LOG:-${TMPDIR:-/tmp}/annotate-install-$(date +%Y%m%d-%H%M%S).log}"
@@ -16,10 +14,11 @@ VERBOSE_INSTALL="${ANNOTATE_VERBOSE_INSTALL:-0}"
 RUN_TESTS="${ANNOTATE_RUN_TESTS:-0}"
 BREW_UPDATE="${ANNOTATE_BREW_UPDATE:-0}"
 
+# Overall progress. Percentages are weighted by how long each phase actually
+# takes (dependency installs dominate wall-clock time), not by step count.
 progress() {
-  local label="$1"
-  CURRENT_STEP=$((CURRENT_STEP + 1))
-  local percent=$((CURRENT_STEP * 100 / TOTAL_STEPS))
+  local percent="$1"
+  local label="$2"
   local width=32
   local filled=$((percent * width / 100))
   local empty=$((width - filled))
@@ -29,6 +28,15 @@ progress() {
   for ((i = 0; i < filled; i += 1)); do bar="${bar}#"; done
   for ((i = 0; i < empty; i += 1)); do bar="${bar}-"; done
   printf "\n[%s] %3d%% %s\n" "$bar" "$percent" "$label"
+}
+
+fmt_elapsed() {
+  local total="$1"
+  if ((total >= 60)); then
+    printf "%dm %02ds" $((total / 60)) $((total % 60))
+  else
+    printf "%ds" "$total"
+  fi
 }
 
 warn() {
@@ -51,6 +59,7 @@ run_logged() {
   local i=0
   local pid
   local status
+  local start_seconds
 
   mkdir -p "$(dirname "$LOG_FILE")"
   {
@@ -77,21 +86,104 @@ run_logged() {
 
   "$@" >>"$LOG_FILE" 2>&1 &
   pid=$!
+  start_seconds=$SECONDS
 
   while kill -0 "$pid" 2>/dev/null; do
     local frame="${spinner:$((i % ${#spinner})):1}"
     i=$((i + 1))
-    printf "\r\033[K  %s... %s (log: %s)" "$label" "$frame" "$LOG_FILE"
+    printf "\r\033[K  %s... %s (%s) (log: %s)" "$label" "$frame" "$(fmt_elapsed $((SECONDS - start_seconds)))" "$LOG_FILE"
     sleep 0.5
   done
 
-  if wait "$pid"; then
-    printf "\r\033[K  %s... done (log: %s)\n" "$label" "$LOG_FILE"
+  status=0
+  wait "$pid" || status=$?
+  if [[ "$status" -eq 0 ]]; then
+    printf "\r\033[K  %s... done (%s)\n" "$label" "$(fmt_elapsed $((SECONDS - start_seconds)))"
     return 0
   fi
 
-  status=$?
-  printf "\r\033[K  %s... failed (log: %s)\n" "$label" "$LOG_FILE" >&2
+  printf "\r\033[K  %s... failed after %s (log: %s)\n" "$label" "$(fmt_elapsed $((SECONDS - start_seconds)))" "$LOG_FILE" >&2
+  die "$label failed with exit code $status."
+}
+
+# Like run_logged, but renders a real progress bar for pip installs by counting
+# "Collecting <package>" lines in the log against the expected package total.
+# Once pip switches to its install phase the bar holds at 95% ("finalizing").
+run_pip_logged() {
+  local label="$1"
+  local total_packages="$2"
+  shift 2
+  local spinner='|/-\'
+  local i=0
+  local pid
+  local status
+  local start_seconds
+  local log_offset
+  local collected
+  local percent
+  local suffix
+  local width=24
+  local filled
+  local empty
+  local bar
+  local j
+
+  if ((total_packages < 1)); then
+    total_packages=1
+  fi
+
+  if [[ "$VERBOSE_INSTALL" == "1" ]]; then
+    run_logged "$label" "$@"
+    return
+  fi
+
+  mkdir -p "$(dirname "$LOG_FILE")"
+  {
+    printf "\n[%s] %s\n" "$(date)" "$label"
+    printf "Command:"
+    printf " %q" "$@"
+    printf "\n"
+  } >>"$LOG_FILE"
+
+  log_offset=$(wc -l < "$LOG_FILE")
+  "$@" >>"$LOG_FILE" 2>&1 &
+  pid=$!
+  start_seconds=$SECONDS
+
+  while kill -0 "$pid" 2>/dev/null; do
+    collected=$(tail -n "+$((log_offset + 1))" "$LOG_FILE" 2>/dev/null | grep -c '^Collecting ' || true)
+    if ((collected > total_packages)); then
+      collected=$total_packages
+    fi
+    percent=$((collected * 90 / total_packages))
+    suffix=""
+    if tail -n "+$((log_offset + 1))" "$LOG_FILE" 2>/dev/null | grep -q '^Installing collected packages'; then
+      percent=95
+      suffix=", finalizing"
+    fi
+
+    filled=$((percent * width / 100))
+    empty=$((width - filled))
+    bar=""
+    for ((j = 0; j < filled; j += 1)); do bar="${bar}#"; done
+    for ((j = 0; j < empty; j += 1)); do bar="${bar}-"; done
+
+    local frame="${spinner:$((i % ${#spinner})):1}"
+    i=$((i + 1))
+    printf "\r\033[K  %s [%s] %3d%% (%d/%d packages%s, %s) %s" \
+      "$label" "$bar" "$percent" "$collected" "$total_packages" "$suffix" \
+      "$(fmt_elapsed $((SECONDS - start_seconds)))" "$frame"
+    sleep 0.5
+  done
+
+  status=0
+  wait "$pid" || status=$?
+  if [[ "$status" -eq 0 ]]; then
+    printf "\r\033[K  %s... done (%s)\n" "$label" "$(fmt_elapsed $((SECONDS - start_seconds)))"
+    return 0
+  fi
+
+  printf "\r\033[K  %s... failed after %s (log: %s)\n" "$label" "$(fmt_elapsed $((SECONDS - start_seconds)))" "$LOG_FILE" >&2
   die "$label failed with exit code $status."
 }
 
@@ -421,6 +513,7 @@ install_sidecar_dependencies() {
   local requirements_file
   local stamp_file
   local requirements_hash
+  local total_packages
   python_bin="$(find_python_bin || true)"
   [[ -n "$python_bin" ]] || die "python3 was not found. Install Python 3, then rerun this installer."
   requirements_file="$INSTALL_DIR/sidecar/requirements.lock.txt"
@@ -433,9 +526,12 @@ install_sidecar_dependencies() {
     return
   fi
 
+  total_packages=$(grep -c '==' "$requirements_file" || true)
+  printf "This is the slowest step: it downloads PyTorch, TensorFlow, and OpenCV wheels (2+ GB on first install).\n"
+
   run_logged "Creating Python sidecar environment" "$python_bin" -m venv "$INSTALL_DIR/sidecar/.venv"
   run_logged "Installing locked Python packaging tools" "$INSTALL_DIR/sidecar/.venv/bin/python" -m pip install --disable-pip-version-check --progress-bar off --upgrade pip==26.0.1 setuptools==82.0.0 wheel==0.46.3
-  run_logged "Installing locked Python sidecar dependencies" "$INSTALL_DIR/sidecar/.venv/bin/python" -m pip install --disable-pip-version-check --progress-bar off -r "$requirements_file"
+  run_pip_logged "Installing locked Python sidecar dependencies" "$total_packages" "$INSTALL_DIR/sidecar/.venv/bin/python" -m pip install --disable-pip-version-check --progress-bar off -r "$requirements_file"
   printf "%s" "$requirements_hash" > "$stamp_file"
 }
 
@@ -455,7 +551,7 @@ write_shell_launcher() {
 #!/usr/bin/env bash
 export ANNOTATE_APP_DIR="$INSTALL_DIR"
 export ANNOTATE_VERSION="$ANNOTATE_VERSION"
-exec "$INSTALL_DIR/Annotate.command"
+exec "$INSTALL_DIR/start-annotate.sh"
 EOF
   chmod +x "$output_path"
 }
@@ -466,7 +562,7 @@ write_macos_command_launcher() {
 #!/usr/bin/env bash
 export ANNOTATE_APP_DIR="$INSTALL_DIR"
 export ANNOTATE_VERSION="$ANNOTATE_VERSION"
-exec "$INSTALL_DIR/app.sh"
+exec "$INSTALL_DIR/start-annotate.sh"
 EOF
   chmod +x "$output_path"
 }
@@ -479,7 +575,7 @@ Type=Application
 Name=Annotate 0.1
 Comment=Launch Football Analysis Annotator 0.1 pre-release
 Terminal=true
-Exec=bash -lc 'export ANNOTATE_APP_DIR="$INSTALL_DIR"; export ANNOTATE_VERSION="$ANNOTATE_VERSION"; exec "$INSTALL_DIR/app.sh"'
+Exec=bash -lc 'export ANNOTATE_APP_DIR="$INSTALL_DIR"; export ANNOTATE_VERSION="$ANNOTATE_VERSION"; exec "$INSTALL_DIR/start-annotate.sh"'
 EOF
   chmod +x "$output_path"
 }
@@ -488,24 +584,24 @@ create_desktop_launchers() {
   local desktop_dir="${HOME}/Desktop"
   mkdir -p "$desktop_dir"
 
-  write_shell_launcher "$desktop_dir/app.sh"
+  write_shell_launcher "$desktop_dir/start-annotate.sh"
 
   case "$(uname -s)" in
     Darwin)
       write_macos_command_launcher "$desktop_dir/Annotate.command"
       printf "Created launchers:\n"
       printf "  %s\n" "$desktop_dir/Annotate.command"
-      printf "  %s\n" "$desktop_dir/app.sh"
+      printf "  %s\n" "$desktop_dir/start-annotate.sh"
       ;;
     Linux)
       write_linux_desktop_launcher "$desktop_dir/Annotate.desktop"
       printf "Created launchers:\n"
       printf "  %s\n" "$desktop_dir/Annotate.desktop"
-      printf "  %s\n" "$desktop_dir/app.sh"
+      printf "  %s\n" "$desktop_dir/start-annotate.sh"
       ;;
     *)
       printf "Created launcher:\n"
-      printf "  %s\n" "$desktop_dir/app.sh"
+      printf "  %s\n" "$desktop_dir/start-annotate.sh"
       ;;
   esac
 }
@@ -536,37 +632,41 @@ main() {
   printf "Run install-time tests: %s\n" "$RUN_TESTS"
   printf "Run Homebrew update: %s\n" "$BREW_UPDATE"
 
-  progress "Installing prerequisites"
+  progress 2 "Installing prerequisites"
   ensure_prerequisites
 
-  progress "Choosing install folder"
+  progress 16 "Choosing install folder"
   prompt_install_dir
 
-  progress "Cloning or updating Annotate"
+  progress 18 "Cloning or updating Annotate"
   clone_or_update_repo
 
-  progress "Installing Node dependencies"
+  progress 26 "Installing Node dependencies"
   install_node_dependencies
 
-  progress "Creating Python sidecar environment"
+  progress 42 "Creating Python sidecar environment"
   install_sidecar_dependencies
 
-  progress "Running tests"
+  progress 92 "Running tests"
   run_tests
 
-  progress "Creating desktop launchers"
+  progress 95 "Creating desktop launchers"
   create_desktop_launchers
 
-  progress "Checking launcher script"
-  bash -n "$INSTALL_DIR/app.sh"
+  progress 97 "Checking launcher script"
+  bash -n "$INSTALL_DIR/start-annotate.sh"
 
-  progress "Cleaning installer"
+  progress 99 "Cleaning installer"
   maybe_remove_standalone_installer
 
-  progress "Done"
+  progress 100 "Done"
   printf "\nInstall complete.\n"
   printf "Double-click Annotate.command on your Desktop, or run:\n"
-  printf "  %s/app.sh\n" "$INSTALL_DIR"
+  printf "  %s/start-annotate.sh\n" "$INSTALL_DIR"
 }
 
-main "$@"
+# Test hook: set ANNOTATE_INSTALL_NO_MAIN=1 to source this file without
+# running the installer (used to exercise individual functions).
+if [[ "${ANNOTATE_INSTALL_NO_MAIN:-0}" != "1" ]]; then
+  main "$@"
+fi

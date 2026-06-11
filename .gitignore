@@ -27,6 +27,9 @@ Pods/
 !**/exports/.gitkeep
 sidecar/yolov8n.pt
 
+# Launcher runtime logs (written by start-annotate.sh)
+.runtime/
+
 # Python
 __pycache__/
 *.pyc
