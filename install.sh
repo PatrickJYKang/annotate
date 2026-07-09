@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ANNOTATE_VERSION="0.1 pre-release"
-DEFAULT_REF="v0.1.0-pre.2"
+DEFAULT_REF="v0.1.0-pre.3"
 REPO_URL="${ANNOTATE_REPO_URL:-https://github.com/PatrickJYKang/annotate.git}"
 REF="${ANNOTATE_REF:-$DEFAULT_REF}"
 DEFAULT_INSTALL_DIR="${HOME}/Documents/annotate"

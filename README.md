@@ -20,7 +20,7 @@ The installer bootstraps missing prerequisites where it can, clones Annotate, in
 
 Requires a Chromium-based browser. If Chrome, Edge, Brave, Arc, or Chromium is missing, the installer stops and asks you to install Chrome from <https://www.google.com/chrome/>. The launcher also refuses to fall back silently to a non-Chromium browser.
 
-The installer defaults to the pinned Git release ref `v0.1.0-pre.2`. It only installs missing system packages, skips Homebrew updates unless `ANNOTATE_BREW_UPDATE=1` is set, skips install-time tests unless `ANNOTATE_RUN_TESTS=1` is set, and skips repeat dependency installs when lockfiles have not changed. Terminal output is compact by default; set `ANNOTATE_VERBOSE_INSTALL=1` to stream full dependency logs while testing. Node dependencies install from `package-lock.json` via `npm ci`; sidecar dependencies install from `sidecar/requirements.lock.txt`.
+The installer defaults to the pinned Git release ref `v0.1.0-pre.3`. It only installs missing system packages, skips Homebrew updates unless `ANNOTATE_BREW_UPDATE=1` is set, skips install-time tests unless `ANNOTATE_RUN_TESTS=1` is set, and skips repeat dependency installs when lockfiles have not changed. Terminal output is compact by default; set `ANNOTATE_VERBOSE_INSTALL=1` to stream full dependency logs while testing. Node dependencies install from `package-lock.json` via `npm ci`; sidecar dependencies install from `sidecar/requirements.lock.txt`.
 
 If the installer fails after cloning the repo, you can run the app manually from the install folder:
 
@@ -35,7 +35,7 @@ npm run dev
 If the installer fails before cloning, install Git, Node.js 18.17+, Python 3.10+ or 3.12, ffmpeg, and a Chromium-based browser first, then clone the release tag and run the same commands:
 
 ```bash
-git clone --branch v0.1.0-pre.2 --single-branch https://github.com/PatrickJYKang/annotate.git ~/Documents/annotate
+git clone --branch v0.1.0-pre.3 --single-branch https://github.com/PatrickJYKang/annotate.git ~/Documents/annotate
 ```
 
 For development from an existing checkout:
