@@ -78,6 +78,7 @@ This document describes the **current implementation** (routes, on-disk formats,
 - Stills export: `webapp/lib/export/d7Export.ts`, `webapp/lib/export/d7Render.ts`
 - Annotation editor: `webapp/components/annotate/Editor.tsx`
 - Annotation storage: `webapp/lib/fs/annotationStorage.ts`
+- Quick-annotate session helpers: `webapp/lib/annotate/quickSession.ts`
 - Metadata page: `webapp/app/metadata/page.tsx`
 - Metadata components: `webapp/components/metadata/` (MatchDetailsForm, TeamPanel, TeamsheetImporter, FootballDataImporter)
 - Metadata utilities: `webapp/lib/metadata/` (teamsheetParser, timeDisplay, footballDataApi)
@@ -106,7 +107,7 @@ This document describes the **current implementation** (routes, on-disk formats,
 ### `/` – Project + import
 - File: `webapp/app/page.tsx`
 - Layout: full-bleed, two-state design.
-  - **Empty state** (no project open): viewport-centered card with title, two large CTA buttons ("Create New Project", "Open Existing Project"), and a Chromium-required warning if the File System Access API is unavailable.
+  - **Empty state** (no project open): viewport-centered card with title, two large CTA buttons ("Create New Project", "Open Existing Project"), a divider with a "Quick Annotate a Still…" option (image file picker that stashes the file and routes to `/quick-annotate`), and a Chromium-required warning if the File System Access API is unavailable.
   - **Dashboard** (project open): two-column layout.
     - **Left sidebar** (320px fixed): project name, created date, stat counts (videos / marks / stills), action buttons (Match Info, Import Video, Save Now), and a "Close Project" button separated by a divider at the bottom.
     - **Right area** (flex-grow): video list heading with count, selectable video rows (label, duration, resolution; selected row highlighted with `bg-selected` and left accent border; clicking navigates to `/player`), and a dashed-border drop zone for drag-and-drop video import.
@@ -116,6 +117,21 @@ This document describes the **current implementation** (routes, on-disk formats,
   - Import video files into `media/` (streaming copy via file picker or drag-and-drop onto the drop zone).
   - Choose a video to work on (sets `selectedVideoId` then routes to `/player`).
   - "Set up match info →" / "Edit match info" button in the sidebar links to `/metadata`.
+
+### `/quick-annotate` – Standalone still annotation
+- File: `webapp/app/quick-annotate/page.tsx`
+- Session helpers: `webapp/lib/annotate/quickSession.ts`
+- Annotate a single uploaded image with the full annotation editor and export the annotated PNG — no project required.
+- Two-state design:
+  - **Picker state** (no image chosen): centered card with a "Choose Image…" button (plain `<input type="file">`) and drag-and-drop support.
+  - **Editor state**: navbar (Back, New Image…, filename, save status, Export PNG) + the same tool/style toolbar as `/annotate/[stillId]` (minus occlusion and annotation sets) + Fit / 100% / wheel-zoom / middle-click pan.
+- Implementation:
+  - The page wraps its subtree in a **nested `ProjectProvider`** and connects an **origin-private file system (OPFS)** directory (`quick-annotate/` via `navigator.storage.getDirectory()`) as the editor's project directory. The unmodified `Editor` component loads/saves annotation documents against it; app-wide project state is untouched.
+  - The still ID is a deterministic hash of the image file's name, size, and mtime (`quick_<hash>`), so re-opening the same image restores its annotations from OPFS.
+  - The splash screen hands the chosen file to the page via an in-memory module stash (`stashQuickAnnotateFile` / `takeQuickAnnotateFile`); on a direct visit or reload the page offers its own picker.
+  - **Export PNG** bumps the editor's manual save tick, waits for the save to settle, reads the saved `annotations.v1` document from OPFS, renders it onto the native-resolution image with `renderAnnotatedPng` (the same renderer as project exports), and downloads `<name>-annotated.png`.
+  - **Calibrate** (PnLCalib auto-calibration) works on the lone image: the page registers the image file via `/video/register` and calls `/homography` over `[0ms, 100ms]` — `cv2.VideoCapture` opens a registered still as a single-frame source — then projects pitch bounds to a perspective quad and applies it through the editor's `autoPerspectiveQuad` props. Requires the sidecar with PnLCalib assets; failures surface as a toast. "Manual H" remains available without the sidecar.
+  - Image dimensions are decoded with `createImageBitmap(file)` rather than an `<img src=objectURL>` probe (a Strict Mode revoke race in the probe approach produced spurious decode errors).
 
 ### `/metadata` – Match metadata
 - File: `webapp/app/metadata/page.tsx`
@@ -302,11 +318,10 @@ export interface ProjectManifestV1 {
 ### Match metadata types
 Also defined in `webapp/lib/types/project.ts`:
 
-- **`MatchInfo`** — top-level match metadata: `homeTeam`, `awayTeam` (both `TeamInfo`), `date`, `kickoffTime`, `competition`, `season`, `round`, `venue`, `referee`, `score`, `substitutions` (`Substitution[]`), `periods` (`MatchPeriod[]`), `notes`.
+- **`MatchInfo`** — top-level match metadata: `homeTeam`, `awayTeam` (both `TeamInfo`), `date`, `kickoffTime`, `competition`, `season`, `round`, `venue`, `referee`, `score`, `substitutions` (`Substitution[]`), `notes`.
 - **`TeamInfo`** — `name`, `coach`, `formation`, `players` (`PlayerEntry[]`).
 - **`PlayerEntry`** — `id` (UUID), `number`, `name`, `position`, optional `isCaptain`, `isSubstitute`.
 - **`Substitution`** — `id`, `team` (`"home" | "away"`), `minute`, `playerOut` (PlayerEntry ID), `playerIn` (PlayerEntry ID).
-- **`MatchPeriod`** — `id`, `label` (e.g. "1st Half"), `videoId`, `startMs`, `endMs`.
 - **`defaultMatchInfo()`** — returns a blank `MatchInfo` with empty arrays and null fields.
 - **`defaultProjectManifest(name)`** — returns a blank `ProjectManifestV1`.
 
@@ -1087,6 +1102,7 @@ Existing test files:
 - `webapp/components/annotate/saveTick.test.ts` — manual-save tick consumption.
 - `webapp/components/annotate/tacticalGeometry.test.ts` — lob and shadow tactical geometry helpers.
 - `webapp/lib/annotate/pitchCalibration.test.ts` — pitch calibration projection helpers.
+- `webapp/lib/annotate/quickSession.test.ts` — quick-annotate session helpers (file stash handoff, deterministic still IDs, export naming).
 - `webapp/lib/fs/annotationStorage.test.ts` — annotation document storage and indexing.
 - `webapp/lib/metadata/teamsheetParser.test.ts` — CSV and plain-text teamsheet parsing (headers, aliases, delimiters, captain markers, position hints, fallback).
 - `webapp/lib/metadata/timeDisplay.test.ts` — raw timestamp formatting.

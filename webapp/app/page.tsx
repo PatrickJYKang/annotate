@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync, createPortal } from "react-dom";
 import type { ProjectManifestV1 } from "../lib/types/project";
 import { getProjectFps, getProjectResolution } from "../lib/types/project";
@@ -10,6 +10,7 @@ import { uniqueFileName } from "../lib/fs/utils";
 import { extractVideoMetadata } from "../lib/media/metadata";
 import { readTaggingSchema, writeDefaultTaggingSchema } from "../lib/tagging/schema";
 import { normalizeVideoImport } from "../lib/clip/sidecarClient";
+import { stashQuickAnnotateFile } from "../lib/annotate/quickSession";
 import ProjectSetupScreen, { type ProjectSetupValues } from "../components/project/ProjectSetupScreen";
 
 function useToast() {
@@ -82,6 +83,16 @@ export default function Page() {
   const handleCreate = useCallback(() => {
     setSetupOpen(true);
   }, []);
+
+  const quickAnnotateInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleQuickAnnotateFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    stashQuickAnnotateFile(f);
+    router.push('/quick-annotate');
+  }, [router]);
 
   const createProjectFromSetup = useCallback(async (values: ProjectSetupValues) => {
     try {
@@ -324,6 +335,21 @@ export default function Page() {
               <button onClick={handleOpen} className="w-full py-5 text-lg font-bold text-accent">
                 Open Existing Project
               </button>
+            </div>
+            <div className="w-full flex flex-col gap-2 border-t border-subtle pt-6">
+              <input
+                ref={quickAnnotateInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleQuickAnnotateFile}
+              />
+              <button onClick={() => quickAnnotateInputRef.current?.click()} className="w-full py-4 text-base font-bold">
+                Quick Annotate a Still…
+              </button>
+              <div className="text-sm text-muted text-center">
+                Upload an image, annotate it, and export the result — no project needed.
+              </div>
             </div>
             {!fsSupported && (
               <div className="text-sm text-danger text-center">

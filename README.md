@@ -60,6 +60,7 @@ From the repo root, `npm run dev` now launches both the Next.js webapp and the P
 
 ## Key features
 - **Project folders** on disk with a `project.json` manifest and automatic integrity repair
+- **Quick annotate** — upload a single image from the splash screen, annotate it with the full editor, and export the annotated PNG; no project needed
 - **Video import** and playback with frame-level stepping and an **editor-style zoomable timeline** (timecode ruler, mark pips, playhead, 1×–100× zoom)
 - **Match metadata** — teams, teamsheets (CSV/TSV/paste import), football-data.org API import
 - **Marks** at timestamps with a hierarchical **tagging system** (primary path + facet traits, driven by per-project `tagging-schema.yaml`)
