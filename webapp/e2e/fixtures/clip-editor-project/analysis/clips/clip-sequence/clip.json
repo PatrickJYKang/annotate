@@ -1,0 +1,60 @@
+{
+  "schema": "clip.v2",
+  "id": "clip-sequence",
+  "videoId": "video-main",
+  "label": "Press broken through midfield",
+  "startFrame": 5,
+  "endFrame": 45,
+  "tags": {
+    "primary": "offensive.open_play.pass",
+    "facets": { "pass.type": "through_ball", "outcome.pass": "progression" }
+  },
+  "pins": [
+    {
+      "id": "pin-shape",
+      "frame": 15,
+      "label": "Shape before pass",
+      "annotations": [
+        { "id": "ann-shape", "file": "annotations/ann-shape.json", "role": "default" }
+      ]
+    },
+    {
+      "id": "pin-release",
+      "frame": 32,
+      "label": "Release moment",
+      "annotations": [
+        { "id": "ann-release", "file": "annotations/ann-release.json", "role": "default" }
+      ]
+    }
+  ],
+  "annotations": [
+    {
+      "id": "tracked-player",
+      "type": "highlight",
+      "coordMode": "image",
+      "source": "auto",
+      "style": { "stroke": "#ffffff", "fill": "#ffffff", "fillOpacity": 0.2, "strokeWidth": 6 },
+      "keyframes": [
+        { "frame": 8, "cx": 180, "cy": 250, "radius": 22, "provenance": "manual" },
+        { "frame": 20, "cx": 260, "cy": 242, "radius": 22, "provenance": "tracked" },
+        { "frame": 38, "cx": 390, "cy": 230, "radius": 22, "provenance": "correction" }
+      ],
+      "visibilityKeyframes": [
+        { "frame": 40, "action": "hide" },
+        { "frame": 43, "action": "show" }
+      ]
+    },
+    {
+      "id": "manual-arrow",
+      "type": "arrow",
+      "coordMode": "image",
+      "source": "manual",
+      "trackingAnchorId": "tracked-player",
+      "vertexRefs": ["tracked-player", null],
+      "style": { "stroke": "#ffd166", "strokeWidth": 5 },
+      "keyframes": [
+        { "frame": 15, "x1": 220, "y1": 245, "x2": 420, "y2": 190, "provenance": "manual" }
+      ]
+    }
+  ]
+}

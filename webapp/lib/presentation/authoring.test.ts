@@ -1,108 +1,84 @@
 import { describe, expect, it } from 'vitest';
-
-import { buildChronologicalMarkGroups, buildChronologicalStillGroups, buildClipCenteredStillGroups } from './authoring';
-import type { ProjectManifestV1 } from '../types/project';
+import { frameBoundary, videoFrame } from '../clip/frameMath';
+import type { TaggingBoard } from '../tagging/board';
 import type { Clip } from '../types/clip';
+import { createDefaultPresentation } from '../types/presentation';
+import type { ProjectManifest } from '../types/project';
+import {
+  buildPresentationAssetIndex,
+  createClipSlide,
+  createPinSlide,
+  insertSlide,
+  moveSlide,
+  validateMatchVideoEdge,
+} from './authoring';
 
-function buildManifest(): ProjectManifestV1 {
+const manifest: ProjectManifest = {
+  schema: 'project.v2',
+  name: 'Test',
+  created: '2026-07-11T00:00:00.000Z',
+  videos: [{
+    id: 'video-a', label: 'Match', file: 'media/match.mp4', fps: 25,
+    frameCount: frameBoundary(200), frameCountSource: 'normalize', width: 640, height: 360,
+  }],
+};
+
+const board: TaggingBoard = {
+  schema: 'tagging-board.v1',
+  defaults: { leadSeconds: 0.4, lagSeconds: 0.4, mode: 'instant' },
+  groups: [{ id: 'attack', label: 'Attack', buttons: [{ id: 'attack.pass', label: 'Pass' }] }],
+  facets: [],
+};
+
+function clip(id: string, primary: string | null, start: number, pinFrame = start + 5): Clip {
   return {
-    schema: 'project.v1',
-    name: 'Test project',
-    created: new Date().toISOString(),
-    videos: [
-      { id: 'video-b', label: 'Video B', file: 'videos/b.mp4' },
-      { id: 'video-a', label: 'Video A', file: 'videos/a.mp4' },
-    ],
-    marks: [
-      { id: 'mark-1', videoId: 'video-a', t_ms: 6000, tags: { primary: 'build_up', facets: {} } },
-      { id: 'mark-2', videoId: 'video-a', t_ms: 2000, tags: { primary: 'press', facets: {} } },
-      { id: 'mark-3', videoId: 'video-a', t_ms: 4000, tags: { primary: 'build_up', facets: {} } },
-    ],
-    stills: [
-      { id: 'still-3', videoId: 'video-a', t_ms: 6000, file: 'stills/003.png', sourceMarkId: 'mark-1' },
-      { id: 'still-2', videoId: 'video-a', t_ms: 2000, file: 'stills/002.png', sourceMarkId: 'mark-2' },
-      { id: 'still-1', videoId: 'video-b', t_ms: 1000, file: 'stills/001.png' },
-      { id: 'still-4', videoId: 'video-a', t_ms: 6000, file: 'stills/004.png', sourceMarkId: 'mark-1' },
-    ],
-    annotations: [],
-    reports: [],
-    thumbnails: [],
+    schema: 'clip.v2', id, videoId: 'video-a', startFrame: videoFrame(start),
+    endFrame: frameBoundary(start + 20), tags: { primary, facets: {} }, annotations: [],
+    pins: [{ id: `pin-${id}`, frame: videoFrame(pinFrame), annotations: [] }],
   };
 }
 
-describe('buildChronologicalMarkGroups', () => {
-  it('groups marks by video and includes marks before they have stills', () => {
-    const groups = buildChronologicalMarkGroups(buildManifest());
-
-    expect(groups.map((group) => group.videoId)).toEqual(['video-a']);
-    expect(groups[0]?.videoLabel).toBe('Video A');
-    expect(groups[0]?.marks.map((asset) => asset.mark.id)).toEqual(['mark-2', 'mark-3', 'mark-1']);
-    expect(groups[0]?.marks.find((asset) => asset.mark.id === 'mark-3')?.canonicalStill).toBeNull();
-  });
-});
-
-describe('buildChronologicalStillGroups', () => {
-  it('groups stills by video in manifest order and sorts each group chronologically', () => {
-    const groups = buildChronologicalStillGroups(buildManifest());
-
-    expect(groups.map((group) => group.videoId)).toEqual(['video-b', 'video-a']);
-    expect(groups[0]?.videoLabel).toBe('Video B');
-    expect(groups[1]?.stills.map((entry) => entry.still.id)).toEqual(['still-2', 'still-3', 'still-4']);
+describe('v2 presentation authoring', () => {
+  it('groups clip-first assets by the board and preserves chronology', () => {
+    const known = clip('known', 'attack.pass', 30);
+    const untagged = clip('untagged', null, 10);
+    const unknown = clip('unknown', 'old.tag', 20);
+    const index = buildPresentationAssetIndex(board, manifest, [known, unknown, untagged]);
+    expect(index.groups[0]?.buttons[0]?.clips.map((entry) => entry.clip.id)).toEqual(['known']);
+    expect(index.untagged.map((entry) => entry.clip.id)).toEqual(['untagged']);
+    expect(index.unknown.map((entry) => entry.clip.id)).toEqual(['unknown']);
+    expect(index.chronological.map((entry) => entry.clip.id)).toEqual(['untagged', 'unknown', 'known']);
   });
 
-  it('preserves source-mark context for chronological rows', () => {
-    const groups = buildChronologicalStillGroups(buildManifest());
-    const videoA = groups.find((group) => group.videoId === 'video-a');
-    const canonical = videoA?.stills.find((entry) => entry.still.id === 'still-3');
-    const nonCanonical = videoA?.stills.find((entry) => entry.still.id === 'still-4');
-    const unlinked = groups.find((group) => group.videoId === 'video-b')?.stills[0];
-
-    expect(canonical?.sourceMark?.id).toBe('mark-1');
-    expect(canonical?.canonicalForSourceMark).toBe(true);
-    expect(canonical?.primaryTag).toBe('build_up');
-    expect(nonCanonical?.canonicalForSourceMark).toBe(false);
-    expect(unlinked?.sourceMark).toBeNull();
-    expect(unlinked?.primaryTag).toBeNull();
-  });
-});
-
-describe('buildClipCenteredStillGroups', () => {
-  const clips: Clip[] = [
-    {
-      schema: 1,
-      id: 'clip-a',
-      videoId: 'video-a',
-      startMs: 1500,
-      endMs: 6500,
-      annotations: [],
-    },
-    {
-      schema: 1,
-      id: 'clip-b',
-      videoId: 'video-b',
-      startMs: 500,
-      endMs: 1500,
-      annotations: [],
-    },
-  ];
-
-  it('groups stills under clips using the derived in-bounds relationship', () => {
-    const groups = buildClipCenteredStillGroups(buildManifest(), clips);
-
-    expect(groups.map((group) => group.clip.id)).toEqual(['clip-b', 'clip-a']);
-    expect(groups[0]?.stills.map((entry) => entry.still.id)).toEqual(['still-1']);
-    expect(groups[1]?.stills.map((entry) => entry.still.id)).toEqual(['still-2', 'still-3', 'still-4']);
+  it('keeps transition identity attached to an unchanged slide edge', () => {
+    let presentation = createDefaultPresentation('Deck', 'deck', new Date('2026-07-11T00:00:00.000Z'));
+    presentation = insertSlide(presentation, createClipSlide('a', 'slide-a'));
+    presentation = insertSlide(presentation, createClipSlide('b', 'slide-b'));
+    presentation = insertSlide(presentation, createClipSlide('c', 'slide-c'));
+    presentation = {
+      ...presentation,
+      transitions: [{ mode: 'cut' }, { mode: 'match_video', hideAnnotationsDuringPlayback: true }],
+    };
+    const moved = moveSlide(presentation, 0, 2);
+    expect(moved.slides.map((slide) => slide.id)).toEqual(['slide-b', 'slide-c', 'slide-a']);
+    expect(moved.transitions).toEqual([
+      { mode: 'match_video', hideAnnotationsDuringPlayback: true },
+      { mode: 'cut' },
+    ]);
   });
 
-  it('preserves source-mark context for clip-centered still rows', () => {
-    const groups = buildClipCenteredStillGroups(buildManifest(), clips);
-    const clipA = groups.find((group) => group.clip.id === 'clip-a');
-    const canonical = clipA?.stills.find((entry) => entry.still.id === 'still-3');
-    const nonCanonical = clipA?.stills.find((entry) => entry.still.id === 'still-4');
-
-    expect(canonical?.sourceMark?.id).toBe('mark-1');
-    expect(canonical?.canonicalForSourceMark).toBe(true);
-    expect(canonical?.primaryTag).toBe('build_up');
-    expect(nonCanonical?.canonicalForSourceMark).toBe(false);
+  it('validates forward same-video pin transitions and frame offsets', () => {
+    const first = clip('first', 'attack.pass', 10, 20);
+    const second = clip('second', 'attack.pass', 40, 60);
+    const from = createPinSlide(first.id, first.pins[0]!.id, 'from');
+    const to = createPinSlide(second.id, second.pins[0]!.id, 'to');
+    const valid = validateMatchVideoEdge(from, to, {
+      mode: 'match_video', hideAnnotationsDuringPlayback: true,
+      startOffsetFrames: 2, endOffsetFrames: -3,
+    }, [first, second], manifest);
+    expect(valid).toMatchObject({ ok: true, range: { startFrame: 22, endFrame: 57 } });
+    expect(validateMatchVideoEdge(to, from, {
+      mode: 'match_video', hideAnnotationsDuringPlayback: true,
+    }, [first, second], manifest)).toMatchObject({ ok: false });
   });
 });

@@ -1,0 +1,10 @@
+{
+  "schema": "clip.v2",
+  "id": "clip-second",
+  "videoId": "video-main",
+  "startFrame": 20,
+  "endFrame": 48,
+  "tags": { "primary": "defensive.open_play.transition", "facets": { "transition.turnover_height": "high" } },
+  "pins": [{ "id": "pin-shared-b", "frame": 25, "annotations": [] }],
+  "annotations": []
+}

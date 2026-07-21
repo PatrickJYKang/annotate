@@ -2,9 +2,17 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Rect as KRect, Circle as KCircle, Arrow as KArrow, Text as KText, Image as KImage, Transformer, Line as KLine, Ellipse as KEllipse, Shape as KShape } from "react-konva";
-import { useProject } from "../../lib/state/ProjectContext";
 import { writeAnnotationDocument } from "../../lib/fs/annotationStorage";
-import type { AnnotationsV1 } from "../../lib/export/d7Render";
+import {
+  annotationAnchorKey,
+  annotationAnchorsEqual,
+  parseAnnotationDocument,
+  serializeAnnotationDocument,
+  type AnnotationAnchor,
+  type AnnotationDocument,
+  type AnnotationPayload,
+} from "../../lib/annotate/documentPayload";
+import type { VideoFrame } from "../../lib/clip/frameMath";
 import { computePersonForegroundCutout } from "../../lib/segmentation/personSegmentation";
 import { computeEdgeForegroundCutout } from "../../lib/segmentation/edgeSegmentation";
 import { makeId, hexToRgba, contrastStrokeForHex, dashFromStrokePattern } from "../../lib/annotate/shapeRendering";
@@ -26,7 +34,9 @@ import {
   thetaForHorizontalUsingJacobian, thetaForHorizontal,
 } from "../../lib/annotate/homography";
 import type { PerspectiveQuadPoint } from "../../lib/annotate/pitchCalibration";
+import { buildHomographyGrid } from "../../lib/annotate/homographyOverlay";
 import ColorLinkToggle from "./ColorLinkToggle";
+import { useT } from "../../lib/i18n";
 
 export type Tool = 'select' | 'box' | 'circle' | 'shadow' | 'arrow' | 'lob' | 'text' | 'poly' | 'highlight' | 'calibrate';
 
@@ -60,6 +70,8 @@ export type Shape = {
     textHighlight?: boolean;
   };
 };
+
+export type EditorPersistDocument = (document: AnnotationDocument) => Promise<void>;
 
 function useImage(url: string | null) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
@@ -122,6 +134,7 @@ async function writeBackup(entry: any): Promise<void> {
 
 export default function Editor({
   stillId,
+  anchor,
   annotationId,
   annotationFilePath,
   annotationLabel,
@@ -142,13 +155,20 @@ export default function Editor({
   onRequestToolChange,
   saveTick,
   onSaveStatus,
+  onReady,
   autoPerspectiveQuad,
   autoPerspectiveTick,
+  clearPerspectiveTick,
+  showHomography,
+  onHomographyAvailabilityChange,
   backgroundVideoElement,
   backgroundFrameTick,
   annotationsLocked,
+  projectDir,
+  persistDocument,
 }: {
-  stillId: string;
+  stillId?: string;
+  anchor?: AnnotationAnchor;
   annotationId: string;
   annotationFilePath: string;
   annotationLabel?: string;
@@ -169,13 +189,45 @@ export default function Editor({
   onRequestToolChange?: (t: Tool) => void;
   saveTick?: number;
   onSaveStatus?: (s: { state: 'idle' | 'saving' | 'saved' | 'error'; at?: string; message?: string }) => void;
+  onReady?: () => void;
   autoPerspectiveQuad?: PerspectiveQuadPoint[] | null;
   autoPerspectiveTick?: number;
+  clearPerspectiveTick?: number;
+  showHomography?: boolean;
+  onHomographyAvailabilityChange?: (available: boolean) => void;
   backgroundVideoElement?: HTMLVideoElement | null;
   backgroundFrameTick?: number;
   annotationsLocked?: boolean;
+  projectDir?: FileSystemDirectoryHandle | null;
+  persistDocument?: EditorPersistDocument;
 }) {
-  const { projectDir } = useProject();
+  const t = useT();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
+  const anchorKind = anchor?.kind;
+  const anchorStillId = anchor?.kind === 'still' ? anchor.stillId : undefined;
+  const anchorClipId = anchor?.kind === 'pin' ? anchor.clipId : undefined;
+  const anchorPinId = anchor?.kind === 'pin' ? anchor.pinId : undefined;
+  const anchorFrame = anchor?.kind === 'pin' ? anchor.frame : undefined;
+  const resolvedAnchor = useMemo<AnnotationAnchor>(() => anchorKind === 'pin'
+    ? {
+        kind: 'pin',
+        clipId: anchorClipId ?? '',
+        pinId: anchorPinId ?? '',
+        frame: anchorFrame ?? 0 as VideoFrame,
+      }
+    : {
+        kind: 'still',
+        stillId: anchorStillId ?? stillId ?? '',
+      }, [anchorClipId, anchorFrame, anchorKind, anchorPinId, anchorStillId, stillId]);
+  if (resolvedAnchor.kind === 'still' && !resolvedAnchor.stillId) {
+    throw new Error('Editor requires stillId or an explicit annotation anchor.');
+  }
+  if (resolvedAnchor.kind === 'pin' && (!resolvedAnchor.clipId || !resolvedAnchor.pinId)) {
+    throw new Error('Editor pin anchors require clipId and pinId.');
+  }
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [inspectorColorsLinked, setInspectorColorsLinked] = useState(true);
@@ -218,6 +270,7 @@ export default function Editor({
   const loadGenRef = useRef(0);
   const shapesRef = useRef<Shape[]>([]);
   const lastAutoPerspectiveTickRef = useRef<number>(0);
+  const lastClearPerspectiveTickRef = useRef<number>(0);
 
   const [textEdit, setTextEdit] = useState<null | { id: string; value: string; orig: string; isNew: boolean }>(null);
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -231,14 +284,14 @@ export default function Editor({
   const defFillOp = defaultFillOpacity ?? 0.3;
   const defFontSz = defaultFontSize ?? 48;
   const defTextHl = defaultTextHighlight ?? false;
-  const backupDocKey = `${stillId}::${annotationId}`;
+  const backupDocKey = annotationAnchorKey(resolvedAnchor, annotationId);
 
   const [foregroundCutout, setForegroundCutout] = useState<HTMLCanvasElement | null>(null);
   const foregroundGenRef = useRef(0);
 
   const effectiveOcclusionMethod: 'edge' | 'ml' = occlusionMethod || 'edge';
 
-  function clearPerspectiveState() {
+  const clearPerspectiveState = useCallback(() => {
     perspectiveRef.current = null;
     lastNonNullPerspectiveRef.current = null;
     setPerspective(null);
@@ -248,9 +301,9 @@ export default function Editor({
     setHlFrac(null);
     setBoxFrac(null);
     setCircFrac(null);
-  }
+  }, []);
 
-  function applyPerspectiveQuadState(quad: PerspectiveQuadPoint[]) {
+  const applyPerspectiveQuadState = useCallback((quad: PerspectiveQuadPoint[]) => {
     const nextPerspective = { quad };
     perspectiveRef.current = nextPerspective;
     lastNonNullPerspectiveRef.current = nextPerspective;
@@ -269,7 +322,7 @@ export default function Editor({
     setHlFrac({ rx: 15 / widthMid, ry: 12 / heightMid });
     setBoxFrac({ w: 80 / widthMid, h: 48 / heightMid });
     setCircFrac({ rx: 24 / widthMid, ry: 16 / heightMid });
-  }
+  }, []);
 
   useEffect(() => {
     if (!enableForegroundOcclusion) {
@@ -365,7 +418,7 @@ export default function Editor({
       try {
         const anyHandle: any = projectDir as any;
         const q = await (anyHandle?.queryPermission ? anyHandle.queryPermission({ mode: 'read' }) : 'granted');
-        if (q !== 'granted') { setIoError('Folder permission not granted'); return; }
+        if (q !== 'granted') { setIoError(tRef.current('error.folderPermission')); return; }
         let text = '';
         let file: File | null = null;
         try {
@@ -394,17 +447,30 @@ export default function Editor({
         }
 
         if (text && !json) {
-          setIoError('Invalid annotations JSON. Refusing to overwrite.');
+          setIoError(tRef.current('error.annotationInvalidJson'));
           return;
         }
-        if (json?.schema && json.schema !== 'annotations.v1') {
-          setIoError(`Unsupported annotations schema: ${String(json.schema)}. Refusing to overwrite.`);
-          return;
+        let parsedDocument: ReturnType<typeof parseAnnotationDocument> | null = null;
+        if (json) {
+          try {
+            parsedDocument = parseAnnotationDocument(json);
+          } catch (error) {
+            setIoError(tRef.current('error.annotationParse', {
+              error: error instanceof Error ? error.message : String(error),
+            }));
+            return;
+          }
+          if (!annotationAnchorsEqual(parsedDocument.anchor, resolvedAnchor)) {
+            setIoError(tRef.current('error.annotationAnchor'));
+            return;
+          }
         }
 
         if (token !== loadGenRef.current) return;
 
-        const loaded: Shape[] = Array.isArray(json?.shapes) ? json.shapes.filter((s: any) => !s?._temp && !(typeof s?.id === 'string' && s.id.startsWith('_temp_'))) : [];
+        const loaded: Shape[] = Array.isArray(parsedDocument?.payload.shapes)
+          ? parsedDocument.payload.shapes.filter((s: any) => !s?._temp && !(typeof s?.id === 'string' && s.id.startsWith('_temp_')))
+          : [];
         const normalized: Shape[] = loaded.map((s) => {
           const stroke = s.style?.stroke || defaultAnnColor;
           const strokeWidth = s.style?.strokeWidth ?? (s.type === 'text' ? 1 : 6);
@@ -417,16 +483,19 @@ export default function Editor({
         setShapes(normalized);
         lastFinalRef.current = normalized;
 
-        const quad = Array.isArray(json?.perspective?.quad) ? json.perspective.quad as { x: number; y: number }[] : null;
-        const baselineBody: AnnotationsV1 = {
-          schema: 'annotations.v1',
-          annotationId,
-          label: typeof json?.label === 'string' ? json.label : annotationLabel,
-          stillId,
-          image: { file: imageInfo.file, width: imageInfo.width, height: imageInfo.height },
+        const quad = Array.isArray(parsedDocument?.payload.perspective?.quad)
+          ? parsedDocument.payload.perspective.quad as { x: number; y: number }[]
+          : null;
+        const baselinePayload: AnnotationPayload = {
+          image: { width: imageInfo.width, height: imageInfo.height },
           shapes: normalized,
           perspective: (quad && quad.length === 4) ? { quad } : undefined,
         };
+        const baselineBody = serializeAnnotationDocument(baselinePayload, resolvedAnchor, {
+          annotationId,
+          label: parsedDocument?.label ?? annotationLabel,
+          imageFile: imageInfo.file,
+        });
         lastSavedHashRef.current = hashString(JSON.stringify(baselineBody, null, 2));
         setIoError(null);
         if (token !== loadGenRef.current) return;
@@ -453,12 +522,13 @@ export default function Editor({
 
         if (token !== loadGenRef.current) return;
         hasLoadedRef.current = true;
+        onReady?.();
       } catch (e) {
         if (token !== loadGenRef.current) return;
         setIoError((e as any)?.message || String(e));
       }
     })();
-  }, [projectDir, stillId, annotationId, annotationFilePath, annotationLabel, backupDocKey, defaultAnnColor, imageInfo.file, imageInfo.width, imageInfo.height]);
+  }, [annotationFilePath, annotationId, annotationLabel, applyPerspectiveQuadState, backupDocKey, clearPerspectiveState, defaultAnnColor, imageInfo.file, imageInfo.height, imageInfo.width, onReady, projectDir, resolvedAnchor]);
 
   useEffect(() => {
     perspectiveRef.current = perspective;
@@ -485,6 +555,17 @@ export default function Editor({
     const { H, Hinv } = computeHomographyFromUnitSquareToQuad(perspective.quad);
     return { H, Hinv };
   }, [perspective]);
+
+  const homographyGrid = useMemo(
+    () => showHomography && homography
+      ? buildHomographyGrid(homography.H, { width: 1, height: 1 })
+      : [],
+    [homography, showHomography],
+  );
+
+  useEffect(() => {
+    onHomographyAvailabilityChange?.(!!homography);
+  }, [homography, onHomographyAvailabilityChange]);
 
   const shapesById = useMemo(() => {
     const m = new Map<string, Shape>();
@@ -583,7 +664,7 @@ export default function Editor({
     }
     const fs = s.style?.fontSize || 48;
     return { x: s.x, y: s.y, w: 100, h: fs };
-  }, [getHighlightCenter, homography, resolveLobPoints, resolveShadowCenter]);
+  }, [homography, resolveLobPoints, resolveShadowCenter]);
 
   const isTightDblClick = useCallback(() => {
     const h = clickHistoryRef.current;
@@ -654,15 +735,16 @@ export default function Editor({
       const livePerspective = perspectiveRef.current;
       const writePerspective = livePerspective || lastNonNullPerspectiveRef.current;
       const finalShapes = Array.isArray(liveShapes) ? liveShapes.filter((s: any) => !s?._temp && !(typeof s?.id === 'string' && s.id.startsWith('_temp_'))) : [];
-      const body: AnnotationsV1 = {
-        schema: 'annotations.v1',
-        annotationId,
-        label: annotationLabel,
-        stillId,
-        image: { file: imageInfo.file, width: imageInfo.width, height: imageInfo.height },
+      const payload: AnnotationPayload = {
+        image: { width: imageInfo.width, height: imageInfo.height },
         shapes: finalShapes,
         perspective: writePerspective ? { quad: writePerspective.quad } : undefined,
       };
+      const body = serializeAnnotationDocument(payload, resolvedAnchor, {
+        annotationId,
+        label: annotationLabel,
+        imageFile: imageInfo.file,
+      });
       const text = JSON.stringify(body, null, 2);
       const contentHash = hashString(text);
       if (lastSavedHashRef.current && lastSavedHashRef.current === contentHash) {
@@ -676,32 +758,46 @@ export default function Editor({
         const anyHandle: any = projectDir as any;
         const q = await (anyHandle?.queryPermission ? anyHandle.queryPermission({ mode: 'readwrite' }) : 'granted');
         if (q !== 'granted' || !hasLoadedRef.current) {
-          setIoError('Write permission not granted for project folder.');
+          setIoError(tRef.current('error.writePermission'));
           setIsSaving(false);
-          await writeBackup({ docKey: backupDocKey, stillId, annotationId, schema: 'annotations.v1', updatedAt: new Date().toISOString(), contentHash, data: body });
+          await writeBackup({ docKey: backupDocKey, anchor: resolvedAnchor, annotationId, schema: body.schema, updatedAt: new Date().toISOString(), contentHash, data: body });
           if (onSaveStatus) onSaveStatus({ state: 'error', at: new Date().toISOString(), message: 'permission' });
           return;
         }
         try {
-          await writeAnnotationDocument(projectDir, annotationFilePath, body);
+          if (persistDocument) {
+            await persistDocument(body);
+          } else {
+            if (resolvedAnchor.kind === 'pin') {
+              throw new Error('Pin annotations require an injected clip-locked persistence adapter.');
+            }
+            await writeAnnotationDocument(projectDir, annotationFilePath, body);
+          }
           lastSavedHashRef.current = contentHash;
           setIsSaving(false);
-          await writeBackup({ docKey: backupDocKey, stillId, annotationId, schema: 'annotations.v1', updatedAt: new Date().toISOString(), contentHash, data: body });
+          await writeBackup({ docKey: backupDocKey, anchor: resolvedAnchor, annotationId, schema: body.schema, updatedAt: new Date().toISOString(), contentHash, data: body });
           try {
             const bc = new BroadcastChannel('annotate-events');
-            bc.postMessage({ type: 'annotation-saved', stillId, annotationId, file: annotationFilePath, lastModified: new Date().toISOString() });
+            bc.postMessage({
+              type: 'annotation-saved',
+              anchor: resolvedAnchor,
+              stillId: resolvedAnchor.kind === 'still' ? resolvedAnchor.stillId : undefined,
+              annotationId,
+              file: annotationFilePath,
+              lastModified: new Date().toISOString(),
+            });
             bc.close();
           } catch {}
           if (onSaveStatus) onSaveStatus({ state: 'saved', at: new Date().toISOString() });
         } catch (e: any) {
           setIsSaving(false);
           setIoError(e?.message || String(e));
-          await writeBackup({ docKey: backupDocKey, stillId, annotationId, schema: 'annotations.v1', updatedAt: new Date().toISOString(), contentHash, data: body });
+          await writeBackup({ docKey: backupDocKey, anchor: resolvedAnchor, annotationId, schema: body.schema, updatedAt: new Date().toISOString(), contentHash, data: body });
           if (onSaveStatus) onSaveStatus({ state: 'error', at: new Date().toISOString(), message: e?.message || String(e) });
         }
       };
       const navAny: any = navigator as any;
-      if (navAny?.locks?.request) {
+      if (!persistDocument && navAny?.locks?.request) {
         await navAny.locks.request(`save-${backupDocKey}`, { mode: 'exclusive' }, async () => { await doWrite(); });
       } else {
         if (isSaving) return;
@@ -711,7 +807,7 @@ export default function Editor({
       setIoError(e?.message || String(e));
       if (onSaveStatus) onSaveStatus({ state: 'error', at: new Date().toISOString(), message: e?.message || String(e) });
     }
-  }, [projectDir, stillId, annotationId, annotationFilePath, annotationLabel, backupDocKey, imageInfo, onSaveStatus, isSaving]);
+  }, [projectDir, annotationId, annotationFilePath, annotationLabel, backupDocKey, imageInfo, onSaveStatus, isSaving, persistDocument, resolvedAnchor]);
 
   // Debounced save wrapper
   const requestSave = useCallback(() => {
@@ -727,7 +823,15 @@ export default function Editor({
     applyPerspectiveQuadState(autoPerspectiveQuad);
     requestSave();
     if (onRequestToolChange) Promise.resolve().then(() => onRequestToolChange('select'));
-  }, [autoPerspectiveQuad, autoPerspectiveTick, onRequestToolChange, requestSave]);
+  }, [applyPerspectiveQuadState, autoPerspectiveQuad, autoPerspectiveTick, onRequestToolChange, requestSave]);
+
+  useEffect(() => {
+    if (!clearPerspectiveTick || clearPerspectiveTick === lastClearPerspectiveTickRef.current) return;
+    lastClearPerspectiveTickRef.current = clearPerspectiveTick;
+    clearPerspectiveState();
+    requestSave();
+    onRequestToolChange?.('select');
+  }, [clearPerspectiveState, clearPerspectiveTick, onRequestToolChange, requestSave]);
 
   // Manual Save: when parent bumps saveTick, run an immediate save
   useEffect(() => {
@@ -938,7 +1042,7 @@ export default function Editor({
       startRef.current = hit ? { x: hit.x, y: hit.y } : p;
       shadowAnchorRef.current = hit?.id || null;
     }
-  }, [annotationsLocked, tool, getPointerPos, isDrawing, cancelDrawing]);
+  }, [annotationsLocked, applyPerspectiveQuadState, cancelDrawing, findHighlightHit, getPointerPos, isDrawing, onRequestToolChange, requestSave, tool]);
 
   const onClick = useCallback((e: any) => {
     if (annotationsLocked) return;
@@ -1061,7 +1165,7 @@ export default function Editor({
         });
       }
     }
-  }, [annotationsLocked, tool, getPointerPos, findHighlightHit, beginTextEdit, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp, defFontSz, defTextHl]);
+  }, [annotationsLocked, tool, getPointerPos, findHighlightHit, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp, defFontSz, defTextHl]);
 
   const onDblClick = useCallback(() => {
     if (annotationsLocked) return;
@@ -1475,7 +1579,7 @@ export default function Editor({
     setIsDrawing(false);
     startRef.current = null;
     shadowAnchorRef.current = null;
-  }, [annotationsLocked, isDrawing, isSelecting, tool, getPointerPos, selRect, shapes, homography, boxFrac, circFrac, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp, selectedId, selectedIds, getShapeBounds]);
+  }, [annotationsLocked, isDrawing, tool, getPointerPos, shapes, homography, boxFrac, circFrac, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp, selectedId, selectedIds, getLocalScales, getMidlineDims, getShapeBounds]);
 
   // Arrow & Poly preview while placing
   useEffect(() => {
@@ -2410,6 +2514,19 @@ export default function Editor({
             <KImage image={backgroundMedia as any} x={0} y={0} width={imageInfo.width} height={imageInfo.height} />
           )}
         </Layer>
+        {homographyGrid.length > 0 && (
+          <Layer listening={false}>
+            {homographyGrid.map((line, index) => (
+              <KLine
+                key={`homography-grid-${index}`}
+                points={line.flatMap((point) => [point.x, point.y])}
+                stroke="#38bdf8"
+                strokeWidth={1.5 / Math.max(stageScale, 0.05)}
+                opacity={0.82}
+              />
+            ))}
+          </Layer>
+        )}
         {tool === 'calibrate' && !annotationsLocked && (
           <Layer listening={false}>
             {(() => {
@@ -2534,19 +2651,18 @@ export default function Editor({
       </Stage>
       {ioError && (
         <div className="panel absolute right-2 bottom-2 p-2 min-w-[260px]">
-          <strong>Save Error</strong>
+          <strong>{t('annotation.saveError')}</strong>
           <div className="status mt-1.5">{ioError}</div>
           <div className="toolbar mt-2 flex gap-2">
-            <button onClick={() => { setIoError(null); void performSave(); }}>Retry Save</button>
+            <button onClick={() => { setIoError(null); void performSave(); }}>{t('annotation.retrySave')}</button>
           </div>
         </div>
       )}
       {calibrating && !annotationsLocked && (
         <div className="panel absolute left-2 top-2 p-2 min-w-[220px]">
-          <strong>Define Pitch</strong>
-          <div className="status mt-1.5">Click 4 corners: TL, TR, BR, BL</div>
+          <strong>{t('annotation.definePitch')}</strong>
           <div className="toolbar mt-2">
-            <button onClick={() => setCalibPoints([])}>Reset</button>
+            <button onClick={() => setCalibPoints([])}>{t('annotation.reset')}</button>
           </div>
         </div>
       )}
@@ -2559,7 +2675,7 @@ export default function Editor({
       )}
       {showAnnotations && (selectedId || (selectedIds && selectedIds.length > 0)) && (
         <div className="panel absolute right-2 top-2 p-2 min-w-[220px]">
-          <strong>Inspector</strong>
+          <strong>{t('annotation.inspector')}</strong>
           <div className="status">ID: {(selectedId || selectedIds[0]).slice(0, 8)}</div>
           {(() => {
             const idSet = (selectedIds && selectedIds.length > 0) ? new Set(selectedIds) : new Set(selectedId ? [selectedId] : []);
@@ -2615,27 +2731,27 @@ export default function Editor({
               <div className="grid grid-cols-2 gap-1.5 mt-2">
                 {anyFill ? (
                   <>
-                    <label className="status">Colors</label>
+                    <label className="status">{t('annotation.colors')}</label>
                     <div className="flex items-center gap-1">
-                      <input type="color" title="Stroke" onChange={(e) => applyStrokeColor(e.target.value)} value={strokeColor} />
+                      <input type="color" title={t('annotation.stroke')} onChange={(e) => applyStrokeColor(e.target.value)} value={strokeColor} />
                       <ColorLinkToggle linked={inspectorColorsLinked} onToggle={toggleInspectorColorsLinked} />
-                      <input type="color" title="Fill" onChange={(e) => applyFillColor(e.target.value)} value={fillColor} />
+                      <input type="color" title={t('annotation.fill')} onChange={(e) => applyFillColor(e.target.value)} value={fillColor} />
                     </div>
                   </>
                 ) : (
                   <>
-                    <label className="status">Stroke</label>
+                    <label className="status">{t('annotation.stroke')}</label>
                     <input type="color" onChange={(e) => applyStrokeColor(e.target.value)} value={strokeColor} />
                   </>
                 )}
 
-                <label className="status">Width</label>
+                <label className="status">{t('annotation.width')}</label>
                 <input type="number" min={1} max={16} step={1} onChange={(e) => {
                   const v = Math.max(1, Math.min(16, Number(e.target.value) || 1));
                   setShapes(prev => prev.map(s => idSet.has(s.id) ? { ...s, style: { ...s.style, strokeWidth: v } } : s));
                 }} value={(first?.style?.strokeWidth ?? 4)} />
 
-                <label className="status">Style</label>
+                <label className="status">{t('annotation.style')}</label>
                 <select value={(() => {
                   const pats = new Set(shapes.filter(s => idSet.has(s.id)).map(s => s.style?.strokePattern || 'solid'));
                   return pats.size === 1 ? Array.from(pats)[0] : 'solid';
@@ -2647,15 +2763,15 @@ export default function Editor({
                     return { ...s, style: { ...s.style, strokePattern: v } };
                   }));
                 }}>
-                  <option value="solid">Solid</option>
-                  <option value="dashed">Dashed</option>
-                  <option value="dotted">Dotted</option>
-                  <option value="dashdot">Dash-dot</option>
+                  <option value="solid">{t('annotation.patternSolid')}</option>
+                  <option value="dashed">{t('annotation.patternDashed')}</option>
+                  <option value="dotted">{t('annotation.patternDotted')}</option>
+                  <option value="dashdot">{t('annotation.patternDashdot')}</option>
                 </select>
 
                 {anyFill && (
                   <>
-                    <label className="status">Fill Opacity</label>
+                    <label className="status">{t('annotation.fillOpacity')}</label>
                     <input type="range" min={0} max={100} step={1} onChange={(e) => {
                       const v = Math.max(0, Math.min(100, Number(e.target.value) || 0)) / 100;
                       setShapes(prev => prev.map(s => {
@@ -2669,7 +2785,7 @@ export default function Editor({
 
                 {anyText && (
                   <>
-                    <label className="status">Font</label>
+                    <label className="status">{t('annotation.font')}</label>
                     <input type="number" min={1} max={300} step={1} onChange={(e) => {
                       const v = Math.max(1, Math.min(300, Number(e.target.value) || 48));
                       setShapes(prev => prev.map(s => {
@@ -2679,7 +2795,7 @@ export default function Editor({
                       }));
                     }} value={textSample?.style?.fontSize || 48} />
 
-                    <label className="status">Highlight</label>
+                    <label className="status">{t('annotation.textHighlight')}</label>
                     <input type="checkbox" onChange={(e) => {
                       const v = !!e.target.checked;
                       setShapes(prev => prev.map(s => {
@@ -2696,13 +2812,13 @@ export default function Editor({
 
                 {selShapes.length === 1 && first?.type === 'shadow' && (
                   <>
-                    <label className="status">Radius</label>
+                    <label className="status">{t('annotation.radius')}</label>
                     <input type="number" min={1} max={2000} step={1} onChange={(e) => {
                       const v = Math.max(1, Number(e.target.value) || DEFAULT_SHADOW_RADIUS);
                       setShapes(prev => prev.map(s => s.id === first.id ? { ...s, r: v } : s));
                     }} value={Math.round(first.r || DEFAULT_SHADOW_RADIUS)} />
 
-                    <label className="status">Spread</label>
+                    <label className="status">{t('annotation.spread')}</label>
                     <input type="range" min={5} max={180} step={1} onChange={(e) => {
                       const v = Math.max(5, Math.min(180, Number(e.target.value) || DEFAULT_SHADOW_SPREAD_DEG));
                       setShapes(prev => prev.map(s => s.id === first.id ? { ...s, spreadDeg: v } : s));

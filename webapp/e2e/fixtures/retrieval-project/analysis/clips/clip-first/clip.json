@@ -1,0 +1,10 @@
+{
+  "schema": "clip.v2",
+  "id": "clip-first",
+  "videoId": "video-main",
+  "startFrame": 5,
+  "endFrame": 35,
+  "tags": { "primary": "offensive.open_play.transition", "facets": { "outcome.general": "goal" } },
+  "pins": [{ "id": "pin-shared-a", "frame": 25, "annotations": [] }],
+  "annotations": []
+}

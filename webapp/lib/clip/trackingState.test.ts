@@ -1,181 +1,83 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from 'vitest';
 
-import type { ClipAnnotation } from "../types/clip";
+import type { ClipAnnotation } from '../types/clip';
+import { frameBoundary, videoFrame } from './frameMath';
 import {
   countCorrectionKeyframes,
-  getDerivedHiddenGapSpans,
-  getCurrentKeyframeAtTime,
-  getCurrentVisibilityKeyframeAtTime,
+  getCurrentKeyframe,
+  getCurrentVisibilityKeyframe,
   getFrameTrackingState,
   getHiddenSpans,
-  getKeyframeProvenance,
-  getLossSpans,
-  getManualVisibilitySpans,
   getNextCorrectionKeyframe,
-  getTrackingGapThresholdMs,
-  getVisibilityActionAtTime,
-  isAnnotationVisibleAtTime,
-  isTimeWithinHiddenSpan,
-} from "./trackingState";
+  getVisibilityAction,
+  isAnnotationVisible,
+  isFrameWithinHiddenSpan,
+} from './trackingState';
 
-describe("trackingState", () => {
-  const trackedAnnotation: ClipAnnotation = {
-    id: "ann-1",
-    type: "box",
-    coordMode: "image",
-    source: "corrected",
+function trackedAnnotation(): ClipAnnotation {
+  return {
+    id: 'tracked',
+    type: 'highlight',
+    coordMode: 'image',
+    source: 'corrected',
     style: {},
     keyframes: [
-      { tMs: 0, x: 10, y: 10, w: 20, h: 20, provenance: "tracked" },
-      { tMs: 100, x: 12, y: 12, w: 20, h: 20, provenance: "correction" },
-      { tMs: 200, x: 14, y: 14, w: 20, h: 20, provenance: "tracked" },
-      { tMs: 300, x: 0, y: 0, w: 0, h: 0, visible: false, provenance: "lost" },
-      { tMs: 450, x: 20, y: 20, w: 20, h: 20, provenance: "tracked" },
+      { frame: videoFrame(10), cx: 10, cy: 10, radius: 5, provenance: 'tracked' },
+      { frame: videoFrame(20), cx: 20, cy: 10, radius: 5, provenance: 'lost', visible: false },
+      { frame: videoFrame(30), cx: 30, cy: 10, radius: 5, provenance: 'correction' },
+      { frame: videoFrame(40), cx: 40, cy: 10, radius: 5, provenance: 'tracked' },
+    ],
+    visibilityKeyframes: [
+      { frame: videoFrame(42), action: 'hide' },
+      { frame: videoFrame(46), action: 'show' },
     ],
   };
+}
 
-  it("returns explicit provenance when present", () => {
-    expect(getKeyframeProvenance(trackedAnnotation, trackedAnnotation.keyframes[1])).toBe("correction");
-    expect(getKeyframeProvenance(trackedAnnotation, trackedAnnotation.keyframes[3])).toBe("lost");
+describe('frame-native tracking state', () => {
+  it('resolves exact keyframes and correction boundaries', () => {
+    const annotation = trackedAnnotation();
+    expect(getCurrentKeyframe(annotation, videoFrame(30))?.frame).toBe(30);
+    expect(getNextCorrectionKeyframe(annotation, videoFrame(10))?.frame).toBe(30);
+    expect(countCorrectionKeyframes(annotation)).toBe(1);
+    expect(getFrameTrackingState(annotation, videoFrame(10), frameBoundary(50))).toBe('tracked');
+    expect(getFrameTrackingState(annotation, videoFrame(20), frameBoundary(50))).toBe('lost');
+    expect(getFrameTrackingState(annotation, videoFrame(30), frameBoundary(50))).toBe('correction');
   });
 
-  it("falls back to annotation source when provenance is missing", () => {
-    expect(getKeyframeProvenance(
-      { source: "manual" },
-      {},
-    )).toBe("manual");
-    expect(getKeyframeProvenance(
-      { source: "auto" },
-      {},
-    )).toBe("tracked");
-  });
-
-  it("counts correction points", () => {
-    expect(countCorrectionKeyframes(trackedAnnotation)).toBe(1);
-  });
-
-  it("derives lost spans from lost keyframes", () => {
-    expect(getLossSpans(trackedAnnotation, 600)).toEqual([{ startMs: 300, endMs: 450 }]);
-  });
-
-  it("uses a conservative tracked-gap threshold", () => {
-    expect(getTrackingGapThresholdMs(30)).toBeCloseTo(200, 5);
-    expect(getTrackingGapThresholdMs(5)).toBeCloseTo(250, 5);
-  });
-
-  it("derives hidden spans for long tracked gaps but not short ones", () => {
-    const longGap: ClipAnnotation = {
-      id: "ann-long",
-      type: "box",
-      coordMode: "image",
-      source: "corrected",
-      style: {},
-      keyframes: [
-        { tMs: 0, x: 0, y: 0, w: 10, h: 10, provenance: "tracked" },
-        { tMs: 400, x: 40, y: 40, w: 10, h: 10, provenance: "tracked" },
-      ],
-    };
-    const shortGap: ClipAnnotation = {
-      ...longGap,
-      id: "ann-short",
-      keyframes: [
-        { tMs: 0, x: 0, y: 0, w: 10, h: 10, provenance: "tracked" },
-        { tMs: 150, x: 15, y: 15, w: 10, h: 10, provenance: "tracked" },
-      ],
-    };
-
-    expect(getDerivedHiddenGapSpans(longGap, 30)).toEqual([{ startMs: 0, endMs: 400 }]);
-    expect(getDerivedHiddenGapSpans(shortGap, 30)).toEqual([]);
-  });
-
-  it("combines explicit loss and derived hidden spans", () => {
-    const annotation: ClipAnnotation = {
-      id: "ann-hidden",
-      type: "box",
-      coordMode: "image",
-      source: "corrected",
-      style: {},
-      keyframes: [
-        { tMs: 0, x: 0, y: 0, w: 10, h: 10, provenance: "tracked" },
-        { tMs: 400, x: 40, y: 40, w: 10, h: 10, provenance: "tracked" },
-        { tMs: 600, x: 0, y: 0, w: 0, h: 0, visible: false, provenance: "lost" },
-        { tMs: 800, x: 80, y: 80, w: 10, h: 10, provenance: "correction" },
-      ],
-    };
-
-    expect(getHiddenSpans(annotation, 1000, 30)).toEqual([
-      { startMs: 0, endMs: 400 },
-      { startMs: 600, endMs: 800 },
+  it('merges lost, sparse, and manual visibility spans on one frame axis', () => {
+    const annotation = trackedAnnotation();
+    const spans = getHiddenSpans(annotation, frameBoundary(50));
+    expect(spans).toEqual([
+      { startFrame: 20, endFrame: 40 },
+      { startFrame: 42, endFrame: 46 },
     ]);
-    expect(isTimeWithinHiddenSpan(getHiddenSpans(annotation, 1000, 30), 200)).toBe(true);
-    expect(isTimeWithinHiddenSpan(getHiddenSpans(annotation, 1000, 30), 800)).toBe(false);
+    expect(isFrameWithinHiddenSpan(spans, videoFrame(25))).toBe(true);
+    expect(isFrameWithinHiddenSpan(spans, videoFrame(35))).toBe(true);
+    expect(isFrameWithinHiddenSpan(spans, videoFrame(41))).toBe(false);
   });
 
-  it("derives manual hidden spans from show/hide visibility keyframes", () => {
+  it('applies show and hide events independently of geometry keyframes', () => {
+    const annotation = trackedAnnotation();
+    expect(getCurrentVisibilityKeyframe(annotation, videoFrame(42))?.action).toBe('hide');
+    expect(getVisibilityAction(annotation, videoFrame(41))).toBeNull();
+    expect(getVisibilityAction(annotation, videoFrame(44))).toBe('hide');
+    expect(isAnnotationVisible(annotation, videoFrame(44))).toBe(false);
+    expect(isAnnotationVisible(annotation, videoFrame(46))).toBe(true);
+  });
+
+  it('treats a long tracked interval as lost while allowing short intervals', () => {
     const annotation: ClipAnnotation = {
-      id: "ann-manual-hidden",
-      type: "box",
-      coordMode: "image",
-      source: "manual",
-      style: {},
+      ...trackedAnnotation(),
       keyframes: [
-        { tMs: 0, x: 0, y: 0, w: 10, h: 10, provenance: "manual" },
-        { tMs: 1000, x: 100, y: 100, w: 10, h: 10, provenance: "manual" },
+        { frame: videoFrame(0), cx: 0, cy: 0, radius: 5, provenance: 'tracked' },
+        { frame: videoFrame(5), cx: 5, cy: 0, radius: 5, provenance: 'tracked' },
+        { frame: videoFrame(20), cx: 20, cy: 0, radius: 5, provenance: 'correction' },
       ],
-      visibilityKeyframes: [
-        { tMs: 200, action: "hide" },
-        { tMs: 500, action: "show" },
-        { tMs: 700, action: "hide" },
-      ],
+      visibilityKeyframes: [],
     };
-
-    expect(getManualVisibilitySpans(annotation, 1000)).toEqual([
-      { startMs: 200, endMs: 500 },
-      { startMs: 700, endMs: 1000 },
-    ]);
-    expect(getHiddenSpans(annotation, 1000, 30)).toEqual([
-      { startMs: 200, endMs: 500 },
-      { startMs: 700, endMs: 1000 },
-    ]);
-    expect(getCurrentVisibilityKeyframeAtTime(annotation, 201, 2)?.action).toBe("hide");
-    expect(getVisibilityActionAtTime(annotation, 650)).toBe("show");
-    expect(getVisibilityActionAtTime(annotation, 900)).toBe("hide");
-    expect(isAnnotationVisibleAtTime(annotation, 150)).toBe(true);
-    expect(isAnnotationVisibleAtTime(annotation, 300)).toBe(false);
-    expect(isAnnotationVisibleAtTime(annotation, 550)).toBe(true);
-  });
-
-  it("finds current keyed frame with tolerance", () => {
-    expect(getCurrentKeyframeAtTime(trackedAnnotation, 102, 4)?.tMs).toBe(100);
-    expect(getCurrentKeyframeAtTime(trackedAnnotation, 107, 4)).toBeNull();
-  });
-
-  it("derives current frame state across tracked, correction, and lost spans", () => {
-    expect(getFrameTrackingState(trackedAnnotation, 0, 1)).toBe("tracked");
-    expect(getFrameTrackingState(trackedAnnotation, 100, 1)).toBe("correction");
-    expect(getFrameTrackingState(trackedAnnotation, 160, 1)).toBe("correction");
-    expect(getFrameTrackingState(trackedAnnotation, 320, 1)).toBe("lost");
-  });
-
-  it("treats a long tracked gap before a correction point as hidden until the correction", () => {
-    const annotation: ClipAnnotation = {
-      id: "ann-correction-gap",
-      type: "box",
-      coordMode: "image",
-      source: "corrected",
-      style: {},
-      keyframes: [
-        { tMs: 100, x: 10, y: 10, w: 10, h: 10, provenance: "tracked" },
-        { tMs: 700, x: 70, y: 70, w: 10, h: 10, provenance: "correction" },
-      ],
-    };
-
-    expect(getFrameTrackingState(annotation, 400, 1, 900, 30)).toBe("lost");
-    expect(getFrameTrackingState(annotation, 700, 1, 900, 30)).toBe("correction");
-  });
-
-  it("finds the next correction point after the current frame", () => {
-    expect(getNextCorrectionKeyframe(trackedAnnotation, 0, 1)?.tMs).toBe(100);
-    expect(getNextCorrectionKeyframe(trackedAnnotation, 100, 1)).toBeNull();
+    expect(getFrameTrackingState(annotation, videoFrame(3), frameBoundary(30))).toBe('tracked');
+    expect(getFrameTrackingState(annotation, videoFrame(12), frameBoundary(30))).toBe('lost');
+    expect(getFrameTrackingState(annotation, videoFrame(20), frameBoundary(30))).toBe('correction');
   });
 });

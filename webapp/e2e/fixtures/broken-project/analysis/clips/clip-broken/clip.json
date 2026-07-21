@@ -1,0 +1,18 @@
+{
+  "schema": "clip.v2",
+  "id": "clip-broken",
+  "videoId": "video-missing",
+  "startFrame": 5,
+  "endFrame": 40,
+  "tags": { "primary": null, "facets": {} },
+  "pins": [
+    {
+      "id": "pin-broken",
+      "frame": 20,
+      "annotations": [
+        { "id": "ann-broken", "file": "annotations/ann-broken.json", "role": "default" }
+      ]
+    }
+  ],
+  "annotations": []
+}

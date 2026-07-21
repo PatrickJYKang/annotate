@@ -39,6 +39,7 @@ export default defineConfig({
       PORT: String(webPort),
       SIDECAR_PORT: String(sidecarPort),
       NEXT_PUBLIC_SIDECAR_URL: sidecarUrl,
+      NEXT_DIST_DIR: '.next-playwright',
     },
     url: baseUrl,
     reuseExistingServer: !isCI,

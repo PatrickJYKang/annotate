@@ -1,38 +1,17 @@
 {
-  "schema": "project.v1",
-  "name": "Playwright Clip Fixture",
-  "created": "2026-03-31T00:00:00.000Z",
+  "schema": "project.v2",
+  "name": "Clip editor fixture",
+  "created": "2026-07-11T00:00:00.000Z",
   "videos": [
     {
-      "id": "video-playwright-1",
-      "label": "Retrieval Sample",
+      "id": "video-main",
+      "label": "Retrieval sample",
       "file": "media/retrieval-sample.mp4",
-      "durationMs": 2000,
-      "width": 640,
-      "height": 360,
-      "fps": 25
-    }
-  ],
-  "marks": [],
-  "stills": [
-    {
-      "id": "still-playwright-1",
-      "videoId": "video-playwright-1",
-      "t_ms": 400,
-      "file": "stills/still-playwright-1.png",
+      "fps": 25,
+      "frameCount": 50,
+      "frameCountSource": "probe",
       "width": 640,
       "height": 360
     }
-  ],
-  "annotations": [
-    {
-      "stillId": "still-playwright-1",
-      "file": "annotations/still-playwright-1.json",
-      "id": "default",
-      "label": "Default annotations",
-      "role": "default"
-    }
-  ],
-  "reports": [],
-  "thumbnails": []
+  ]
 }

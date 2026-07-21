@@ -76,7 +76,7 @@ export async function installDirectoryPickerFixture(page: Page, fixturePath: str
     throw new Error(`Fixture path is not a directory: ${absoluteFixturePath}`);
   }
 
-  await page.addInitScript(({ root, fixtureStorageKey }: { root: SerializedFixtureDirectory; fixtureStorageKey: string }) => {
+  await page.context().addInitScript(({ root, fixtureStorageKey }: { root: SerializedFixtureDirectory; fixtureStorageKey: string }) => {
     type BrowserFixtureDirectory = {
       kind: 'directory';
       name: string;
@@ -127,11 +127,12 @@ export async function installDirectoryPickerFixture(page: Page, fixturePath: str
       throw new Error(`Unsupported writable payload: ${String(value)}`);
     };
 
-    const notFoundError = (message: string) => {
+    const namedError = (name: string, message: string) => {
       const error = new Error(message) as Error & { name: string };
-      error.name = 'NotFoundError';
+      error.name = name;
       return error;
     };
+    const notFoundError = (message: string) => namedError('NotFoundError', message);
 
     const hydrateEntry = (entry: SerializedFixtureEntry): BrowserFixtureEntry => {
       if (entry.kind === 'file') {
@@ -313,9 +314,16 @@ export async function installDirectoryPickerFixture(page: Page, fixturePath: str
         throw notFoundError(`File not found: ${name}`);
       }
 
-      async removeEntry(name: string): Promise<void> {
-        if (!this.directoryNode.entries.has(name)) {
+      async removeEntry(name: string, options?: { recursive?: boolean }): Promise<void> {
+        const existing = this.directoryNode.entries.get(name);
+        if (!existing) {
           throw notFoundError(`Entry not found: ${name}`);
+        }
+        if (existing.kind === 'directory' && existing.entries.size > 0 && !options?.recursive) {
+          throw namedError(
+            'InvalidModificationError',
+            `Directory is not empty; removeEntry(${name}) requires recursive: true`,
+          );
         }
         this.directoryNode.entries.delete(name);
         persistFixture();
@@ -406,4 +414,109 @@ export async function installDirectoryPickerFixture(page: Page, fixturePath: str
     });
     (window as Window & { __playwrightProjectHandle?: FileSystemDirectoryHandle }).__playwrightProjectHandle = projectHandle;
   }, { root: serializedRoot, fixtureStorageKey: storageKey });
+}
+
+export async function installOpfsDirectoryPickerFixture(page: Page, fixturePath: string): Promise<void> {
+  const absoluteFixturePath = path.isAbsolute(fixturePath)
+    ? fixturePath
+    : path.resolve(fixturePath);
+  const storageKey = `playwright-opfs-fixture:${absoluteFixturePath}`;
+  const permissionKey = `playwright-opfs-permission:${absoluteFixturePath}`;
+  const serializedRoot = await serializeFixtureEntry(absoluteFixturePath);
+  if (serializedRoot.kind !== 'directory') {
+    throw new Error(`Fixture path is not a directory: ${absoluteFixturePath}`);
+  }
+
+  await page.context().addInitScript(({ root, fixtureStorageKey, fixturePermissionKey }: {
+    root: SerializedFixtureDirectory;
+    fixtureStorageKey: string;
+    fixturePermissionKey: string;
+  }) => {
+    const decodeBase64 = (value: string): Uint8Array => {
+      const binary = atob(value);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+      return bytes;
+    };
+
+    const populate = async (
+      directory: FileSystemDirectoryHandle,
+      entries: SerializedFixtureEntry[],
+    ): Promise<void> => {
+      for (const entry of entries) {
+        if (entry.kind === 'directory') {
+          const child = await directory.getDirectoryHandle(entry.name, { create: true });
+          await populate(child, entry.entries);
+        } else {
+          const file = await directory.getFileHandle(entry.name, { create: true });
+          const writable = await file.createWritable();
+          const decoded = decodeBase64(entry.base64);
+          const bytes = new ArrayBuffer(decoded.byteLength);
+          new Uint8Array(bytes).set(decoded);
+          await writable.write(bytes);
+          await writable.close();
+        }
+      }
+    };
+
+    const projectHandle = (async () => {
+      const storage = navigator.storage as StorageManager & {
+        getDirectory: () => Promise<FileSystemDirectoryHandle>;
+      };
+      const opfsRoot = await storage.getDirectory();
+      const project = await opfsRoot.getDirectoryHandle(root.name, { create: true });
+      if (localStorage.getItem(fixtureStorageKey) !== 'ready') {
+        for await (const [name] of project.entries()) {
+          await project.removeEntry(name, { recursive: true });
+        }
+        await populate(project, root.entries);
+        localStorage.setItem(fixtureStorageKey, 'ready');
+      }
+      const prototype = Object.getPrototypeOf(project) as Record<string, unknown> | null;
+      if (prototype) {
+        const permission = async (): Promise<PermissionState> => (
+          localStorage.getItem(fixturePermissionKey) === 'denied' ? 'denied' : 'granted'
+        );
+        try {
+          Object.defineProperty(prototype, 'queryPermission', {
+            configurable: true,
+            value: permission,
+          });
+          Object.defineProperty(prototype, 'requestPermission', {
+            configurable: true,
+            value: permission,
+          });
+        } catch {
+          Object.defineProperty(project, 'queryPermission', { configurable: true, value: permission });
+          Object.defineProperty(project, 'requestPermission', { configurable: true, value: permission });
+        }
+      }
+      return project;
+    })();
+
+    Object.defineProperty(window, 'showDirectoryPicker', {
+      configurable: true,
+      value: async () => projectHandle,
+    });
+    void projectHandle.then((handle) => {
+      (window as Window & { __playwrightProjectHandle?: FileSystemDirectoryHandle })
+        .__playwrightProjectHandle = handle;
+    });
+  }, { root: serializedRoot, fixtureStorageKey: storageKey, fixturePermissionKey: permissionKey });
+}
+
+export async function setOpfsProjectPermission(
+  page: Page,
+  fixturePath: string,
+  state: 'granted' | 'denied',
+): Promise<void> {
+  const absoluteFixturePath = path.isAbsolute(fixturePath)
+    ? fixturePath
+    : path.resolve(fixturePath);
+  await page.evaluate(({ key, permission }) => {
+    localStorage.setItem(key, permission);
+  }, {
+    key: `playwright-opfs-permission:${absoluteFixturePath}`,
+    permission: state,
+  });
 }

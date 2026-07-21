@@ -1,198 +1,118 @@
-// ---------------------------------------------------------------------------
-// Clip storage — read/write/list/delete clip JSON files in clips/ directory
-// Uses the File System Access API (same pattern as projectFolder.ts)
-// ---------------------------------------------------------------------------
+import {
+  isSafeClipIdSegment,
+  parseClip,
+  type Clip,
+} from '../types/clip';
+import {
+  getDirectoryPath,
+  isNotFoundError,
+  readTextFile,
+  writeJsonFile,
+} from './fsAccess';
 
-import type { Clip, ClipAnnotation, ClipKeyframe } from '../types/clip';
-import { CLIP_SCHEMA_VERSION } from '../types/clip';
+export type StorageReadErrorCode = 'not-found' | 'invalid-json' | 'invalid-document' | 'io-error';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+export interface StorageReadError {
+  code: StorageReadErrorCode;
+  message: string;
+}
+export type ClipReadResult =
+  | { ok: true; clip: Clip }
+  | { ok: false; clipId: string; error: StorageReadError };
 
-async function getOrCreateDir(parent: FileSystemDirectoryHandle, name: string) {
-  return await parent.getDirectoryHandle(name, { create: true });
+export interface ClipListResult {
+  clips: Clip[];
+  errors: { clipId: string; error: StorageReadError }[];
 }
 
-function clipFileName(clipId: string): string {
-  return `clip-${clipId}.json`;
+export const CLIPS_PATH = ['analysis', 'clips'] as const;
+
+export function clipFolderPath(clipId: string): string[] {
+  if (!isSafeClipIdSegment(clipId)) throw new Error(`Unsafe clip id: ${JSON.stringify(clipId)}`);
+  return [...CLIPS_PATH, clipId];
 }
 
-function clipIdFromFileName(name: string): string | null {
-  const match = name.match(/^clip-(.+)\.json$/);
-  return match ? match[1] : null;
+export function clipDocumentPath(clipId: string): string[] {
+  return [...clipFolderPath(clipId), 'clip.json'];
 }
 
-// ---------------------------------------------------------------------------
-// Schema migration
-// ---------------------------------------------------------------------------
-
-export function migrateClipSchema(raw: unknown): Clip {
-  if (typeof raw !== 'object' || raw === null) {
-    throw new Error('Invalid clip data: not an object');
-  }
-
-  const obj = raw as Record<string, unknown>;
-
-  if (typeof obj.schema !== 'number') {
-    throw new Error('Invalid clip data: missing or invalid schema version');
-  }
-
-  if (obj.schema > CLIP_SCHEMA_VERSION) {
-    throw new Error(
-      `Clip schema version ${obj.schema} is newer than supported version ${CLIP_SCHEMA_VERSION}. ` +
-      `Please update the application.`
-    );
-  }
-
-  // Version 1 — current, validate required fields
-  if (obj.schema === 1) {
-    if (typeof obj.id !== 'string' || !obj.id) {
-      throw new Error('Invalid clip data: missing id');
-    }
-    if (typeof obj.videoId !== 'string' || !obj.videoId) {
-      throw new Error('Invalid clip data: missing videoId');
-    }
-    if (typeof obj.startMs !== 'number' || typeof obj.endMs !== 'number') {
-      throw new Error('Invalid clip data: missing startMs or endMs');
-    }
-    if (obj.startMs >= obj.endMs) {
-      throw new Error('Invalid clip data: startMs must be less than endMs');
-    }
-    if (!Array.isArray(obj.annotations)) {
-      throw new Error('Invalid clip data: annotations must be an array');
-    }
-    return obj as unknown as Clip;
-  }
-
-  // Future: handle migrations from older versions here
-  // e.g. if (obj.schema === 0) { ... migrate to 1 ... }
-
-  throw new Error(`Unknown clip schema version: ${obj.schema}`);
+function failure(clipId: string, code: StorageReadErrorCode, message: string): ClipReadResult {
+  return { ok: false, clipId, error: { code, message } };
 }
-
-// ---------------------------------------------------------------------------
-// Mark pinning resolution
-// ---------------------------------------------------------------------------
-
-export function resolveMarkPinning(
-  clip: Clip,
-  marks: { id: string; t_ms: number }[]
-): Clip {
-  const result = { ...clip };
-
-  if (result.startMarkId) {
-    const mark = marks.find(m => m.id === result.startMarkId);
-    if (mark) {
-      result.startMs = mark.t_ms;
-    } else {
-      result.startMarkId = null;
-    }
-  }
-
-  if (result.endMarkId) {
-    const mark = marks.find(m => m.id === result.endMarkId);
-    if (mark) {
-      result.endMs = mark.t_ms;
-    } else {
-      result.endMarkId = null;
-    }
-  }
-
-  return result;
-}
-
-// ---------------------------------------------------------------------------
-// CRUD operations
-// ---------------------------------------------------------------------------
 
 export async function readClip(
   projectDir: FileSystemDirectoryHandle,
-  clipId: string
-): Promise<Clip | null> {
-  let clipsDir: FileSystemDirectoryHandle;
+  clipId: string,
+): Promise<ClipReadResult> {
+  let source: string;
   try {
-    clipsDir = await projectDir.getDirectoryHandle('clips', { create: false });
-  } catch {
-    return null;
+    source = await readTextFile(projectDir, clipDocumentPath(clipId));
+  } catch (error) {
+    if (isNotFoundError(error)) return failure(clipId, 'not-found', `Clip "${clipId}" was not found.`);
+    return failure(clipId, 'io-error', error instanceof Error ? error.message : String(error));
   }
-
-  let fh: FileSystemFileHandle;
+  let raw: unknown;
   try {
-    fh = await clipsDir.getFileHandle(clipFileName(clipId), { create: false });
-  } catch {
-    return null;
+    raw = JSON.parse(source);
+  } catch (error) {
+    return failure(
+      clipId,
+      'invalid-json',
+      `Clip "${clipId}" is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
-
-  const file = await fh.getFile();
-  const text = await file.text();
-
   try {
-    const raw = JSON.parse(text);
-    return migrateClipSchema(raw);
-  } catch {
-    return null;
+    return { ok: true, clip: parseClip(raw, { folderId: clipId }) };
+  } catch (error) {
+    return failure(clipId, 'invalid-document', error instanceof Error ? error.message : String(error));
   }
 }
 
 export async function writeClip(
   projectDir: FileSystemDirectoryHandle,
-  clip: Clip
+  clip: Clip,
 ): Promise<void> {
-  const clipsDir = await getOrCreateDir(projectDir, 'clips');
-  const fh = await clipsDir.getFileHandle(clipFileName(clip.id), { create: true });
-  const ws = await fh.createWritable();
-  await ws.write(JSON.stringify(clip, null, 2));
-  await ws.close();
-}
-
-export async function deleteClip(
-  projectDir: FileSystemDirectoryHandle,
-  clipId: string
-): Promise<void> {
-  let clipsDir: FileSystemDirectoryHandle;
-  try {
-    clipsDir = await projectDir.getDirectoryHandle('clips', { create: false });
-  } catch {
-    return; // clips dir doesn't exist, nothing to delete
-  }
-
-  try {
-    await clipsDir.removeEntry(clipFileName(clipId));
-  } catch {
-    // file doesn't exist, that's fine
-  }
+  const parsed = parseClip(clip, { folderId: clip.id });
+  await getDirectoryPath(projectDir, clipFolderPath(parsed.id), true);
+  await writeJsonFile(projectDir, clipDocumentPath(parsed.id), parsed);
 }
 
 export async function listClips(
-  projectDir: FileSystemDirectoryHandle
-): Promise<Clip[]> {
-  let clipsDir: FileSystemDirectoryHandle;
+  projectDir: FileSystemDirectoryHandle,
+): Promise<ClipListResult> {
+  let clipsDirectory: FileSystemDirectoryHandle;
   try {
-    clipsDir = await projectDir.getDirectoryHandle('clips', { create: false });
-  } catch {
-    return [];
+    clipsDirectory = await getDirectoryPath(projectDir, CLIPS_PATH, false);
+  } catch (error) {
+    return {
+      clips: [],
+      errors: [{
+        clipId: '*',
+        error: {
+          code: isNotFoundError(error) ? 'not-found' : 'io-error',
+          message: isNotFoundError(error)
+            ? 'Missing analysis/clips directory.'
+            : error instanceof Error ? error.message : String(error),
+        },
+      }],
+    };
   }
 
   const clips: Clip[] = [];
-
-  for await (const [name, handle] of clipsDir.entries()) {
-    if ((handle as any).kind !== 'file') continue;
-    if (!name.endsWith('.json')) continue;
-    if (!clipIdFromFileName(name)) continue;
-
-    try {
-      const file = await (handle as FileSystemFileHandle).getFile();
-      const text = await file.text();
-      const raw = JSON.parse(text);
-      const clip = migrateClipSchema(raw);
-      clips.push(clip);
-    } catch {
-      // skip invalid files
-      console.warn(`Skipping invalid clip file: ${name}`);
+  const errors: ClipListResult['errors'] = [];
+  for await (const [name, handle] of clipsDirectory.entries()) {
+    if (handle.kind !== 'directory') continue;
+    if (!isSafeClipIdSegment(name)) {
+      errors.push({
+        clipId: name,
+        error: { code: 'invalid-document', message: `Unsafe clip folder id: ${JSON.stringify(name)}` },
+      });
+      continue;
     }
+    const result = await readClip(projectDir, name);
+    if (result.ok) clips.push(result.clip);
+    else errors.push({ clipId: result.clipId, error: result.error });
   }
-
-  clips.sort((a, b) => a.startMs - b.startMs);
-  return clips;
+  clips.sort((left, right) => left.startFrame - right.startFrame || left.id.localeCompare(right.id));
+  return { clips, errors };
 }

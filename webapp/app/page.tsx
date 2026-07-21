@@ -1,494 +1,496 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { flushSync, createPortal } from "react-dom";
-import type { ProjectManifestV1 } from "../lib/types/project";
-import { getProjectFps, getProjectResolution } from "../lib/types/project";
-import { useProject } from "../lib/state/ProjectContext";
-import { useRouter } from "next/navigation";
-import { ensureProjectFolderStructure, validateProjectFolderStructure, writeManifest } from "../lib/fs/projectFolder";
-import { uniqueFileName } from "../lib/fs/utils";
-import { extractVideoMetadata } from "../lib/media/metadata";
-import { readTaggingSchema, writeDefaultTaggingSchema } from "../lib/tagging/schema";
-import { normalizeVideoImport } from "../lib/clip/sidecarClient";
-import { stashQuickAnnotateFile } from "../lib/annotate/quickSession";
-import ProjectSetupScreen, { type ProjectSetupValues } from "../components/project/ProjectSetupScreen";
 
-function useToast() {
-  const [msg, setMsg] = useState<string | null>(null);
-  useEffect(() => {
-    if (!msg) return;
-    const t = setTimeout(() => setMsg(null), 2400);
-    return () => clearTimeout(t);
-  }, [msg]);
-  return { msg, show: setMsg } as const;
-}
-
-function pad2(n: number) { return n < 10 ? `0${n}` : `${n}`; }
-function formatDuration(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  if (h > 0) return `${h}h ${pad2(m)}m`;
-  if (m > 0) return `${m}:${pad2(sec)}`;
-  return `${sec}s`;
-}
-
-function normalizedVideoFileName(name: string): string {
-  const dot = name.lastIndexOf('.');
-  const base = dot > 0 ? name.slice(0, dot) : name;
-  return `${base || 'video'}.mp4`;
-}
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  Panel,
+  PanelResizeHandle,
+  Panels,
+} from '../components/panels/Panels';
+import PresentationLibrary from '../components/presentation/PresentationLibrary';
+import ProjectSetupScreen, {
+  type ProjectSetupValues,
+} from '../components/project/ProjectSetupScreen';
+import { createProject, writeProjectManifest } from '../lib/fs/projectFolder';
+import { emptyTrash } from '../lib/fs/trash';
+import { importVideoIntoProject } from '../lib/fs/videoImport';
+import {
+  exportAllClips,
+  type ClipExportFailure,
+  type ClipExportProgress,
+} from '../lib/export/clipExport';
+import type { VideoNormalizationProgress } from '../lib/clip/sidecarClient';
+import { useProject } from '../lib/state/ProjectContext';
+import type { ProjectIntegrityIssue } from '../lib/utils/projectIntegrity';
+import { useLocale, useT, type Translate } from '../lib/i18n';
 
 function projectFolderName(projectName: string): string {
-  return projectName.trim().replace(/[/:\\]/g, "-") || "Untitled Project";
+  return projectName.trim().replace(/[/:\\]/g, '-') || 'Untitled Project';
 }
 
-export default function Page() {
+async function ensureReadWritePermission(handle: FileSystemDirectoryHandle, deniedMessage: string): Promise<void> {
+  const current = handle.queryPermission
+    ? await handle.queryPermission({ mode: 'readwrite' })
+    : 'granted';
+  if (current === 'granted') return;
+  const requested = handle.requestPermission
+    ? await handle.requestPermission({ mode: 'readwrite' })
+    : 'denied';
+  if (requested !== 'granted') throw new Error(deniedMessage);
+}
+
+function IntegrityIssue({ issue }: { issue: ProjectIntegrityIssue }) {
+  const t = useT();
+  return (
+    <li className="border-t border-border py-2 first:border-t-0" data-integrity-code={issue.code}>
+      <div className="flex items-baseline justify-between gap-3">
+        <strong className={issue.severity === 'error' ? 'text-danger' : 'text-warning'}>
+          {issue.code}
+        </strong>
+        <span className="font-mono text-xs text-muted">{issue.path}</span>
+      </div>
+      <p className="mb-0 mt-1 text-sm text-secondary">{t(`integrity.${issue.code}`)}</p>
+    </li>
+  );
+}
+
+function exportProgressLabel(
+  progress: ClipExportProgress,
+  t: Translate,
+  formatNumber: (value: number) => string,
+): string {
+  if (progress.phase === 'rendering') {
+    return t('export.rendering', {
+      clip: progress.clipLabel ?? '',
+      frame: formatNumber(progress.frame ?? 0),
+      annotation: progress.annotationLabel ?? '',
+    });
+  }
+  if (progress.phase === 'rendered') {
+    return t('export.rendered', {
+      done: formatNumber(progress.annotationDone ?? 0),
+      total: formatNumber(progress.annotationTotal ?? 0),
+    });
+  }
+  if (progress.phase === 'writing') return t('export.writing', { file: progress.file ?? '' });
+  return progress.failures
+    ? t('export.completeFailures', { count: formatNumber(progress.failures) })
+    : t('export.complete');
+}
+
+export default function HomePage() {
   const router = useRouter();
-  const { projectDir, setProjectDir, manifest, setManifest, selectedVideoId, setSelectedVideoId, setTaggingSchema } = useProject();
+  const { t, formatNumber } = useLocale();
+  const {
+    projectDir,
+    manifest,
+    board,
+    integrityReport,
+    selectedVideoId,
+    setSelectedVideoId,
+    isRestoring,
+    restoreError,
+    openProject,
+    closeProject,
+    refreshIntegrity,
+  } = useProject();
   const [mounted, setMounted] = useState(false);
   const [fsSupported, setFsSupported] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-  const [uploadLabel, setUploadLabel] = useState("");
-  const [showStillLoading, setShowStillLoading] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
-  const [creatingProject, setCreatingProject] = useState(false);
-  const { msg, show } = useToast();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportProgress, setExportProgress] = useState<ClipExportProgress | null>(null);
+  const [exportFailures, setExportFailures] = useState<ClipExportFailure[]>([]);
+  const [normalizationProgress, setNormalizationProgress] = useState<VideoNormalizationProgress | null>(null);
+  const importAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setMounted(true);
-    setFsSupported(typeof window !== "undefined" && typeof (window as any).showDirectoryPicker === "function");
+    setFsSupported(
+      typeof window !== 'undefined'
+      && typeof (window as Window & { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function',
+    );
   }, []);
 
-  useEffect(() => {
-    if (!uploading || typeof uploadProgress !== 'number' || uploadProgress < 99) {
-      setShowStillLoading(false);
-      return;
-    }
-    const id = setTimeout(() => setShowStillLoading(true), 2000);
-    return () => clearTimeout(id);
-  }, [uploading, uploadProgress]);
-
-  const ensurePermission = useCallback(async (dir: FileSystemDirectoryHandle) => {
-    // Request readwrite permission if needed
-    if ((await dir.queryPermission({ mode: "readwrite" })) !== "granted") {
-      const res = await dir.requestPermission({ mode: "readwrite" });
-      if (res !== "granted") throw new Error("Permission denied");
-    }
-  }, []);
-
-  const handleCreate = useCallback(() => {
-    setSetupOpen(true);
-  }, []);
-
-  const quickAnnotateInputRef = useRef<HTMLInputElement | null>(null);
-
-  const handleQuickAnnotateFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    e.target.value = "";
-    if (!f) return;
-    stashQuickAnnotateFile(f);
-    router.push('/quick-annotate');
-  }, [router]);
-
-  const createProjectFromSetup = useCallback(async (values: ProjectSetupValues) => {
+  const run = useCallback(async (operation: () => Promise<void>) => {
+    setBusy(true);
+    setMessage(null);
     try {
-      if (!fsSupported) {
-        show("This feature requires Chromium (File System Access API).");
-        return;
+      await operation();
+    } catch (error) {
+      if ((error as { name?: string })?.name !== 'AbortError') {
+        setMessage(error instanceof Error ? error.message : String(error));
       }
-      setCreatingProject(true);
-      const parent: FileSystemDirectoryHandle = await (window as any).showDirectoryPicker({ mode: "readwrite" });
-      const name = projectFolderName(values.name);
-      const project = await parent.getDirectoryHandle(name, { create: true });
-      await ensurePermission(project);
-      const baseManifest = await ensureProjectFolderStructure(project, name);
-      const mf: ProjectManifestV1 = {
-        ...baseManifest,
-        name: values.name.trim(),
-        fps: values.fps,
-        resolution: values.resolution,
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const createFromSetup = useCallback(async (values: ProjectSetupValues) => {
+    await run(async () => {
+      if (!fsSupported) throw new Error(t('project.chromiumRequired'));
+      const parent = await (window as Window & {
+        showDirectoryPicker: (options: { mode: 'readwrite' }) => Promise<FileSystemDirectoryHandle>;
+      }).showDirectoryPicker({ mode: 'readwrite' });
+      await ensureReadWritePermission(parent, t('project.permissionDenied'));
+      const project = await parent.getDirectoryHandle(projectFolderName(values.name), { create: true });
+      await ensureReadWritePermission(project, t('project.permissionDenied'));
+      await createProject(project, {
+        name: values.name,
         matchInfo: values.matchInfo,
-      };
-      await writeManifest(project, mf);
-      const schema = await readTaggingSchema(project);
-      setProjectDir(project);
-      setManifest(mf);
-      setTaggingSchema(schema);
+      });
+      await openProject(project);
       setSetupOpen(false);
-      show("Project created");
-    } catch (e: any) {
-      if (e?.name === "AbortError") return;
-      show(e?.message || "Failed to create project");
-    } finally {
-      setCreatingProject(false);
-    }
-  }, [fsSupported, ensurePermission, setManifest, setProjectDir, setTaggingSchema, show]);
+      setMessage(t('project.created'));
+    });
+  }, [fsSupported, openProject, run, t]);
 
-  const handleOpen = useCallback(async () => {
-    try {
-      if (!fsSupported) {
-        show("This feature requires Chromium (File System Access API).");
-        return;
-      }
-      const dir: FileSystemDirectoryHandle = await (window as any).showDirectoryPicker({ mode: "readwrite" });
-      await ensurePermission(dir);
-      const v = await validateProjectFolderStructure(dir);
-      if (!v.ok) {
-        throw new Error(`Not a valid project folder: ${v.reason}`);
-      }
-      const mf = v.manifest;
-      let schema = await readTaggingSchema(dir);
-      if (!schema) {
-        const addDefault = confirm(
-          "This project does not have a tagging schema.\nAdd the default schema?"
-        );
-        if (addDefault) {
-          try {
-            schema = await writeDefaultTaggingSchema(dir);
-          } catch (e2: any) {
-            show(e2?.message || "Failed to write default schema");
-          }
-        }
-      }
-      setProjectDir(dir);
-      setManifest(mf);
-      setTaggingSchema(schema);
-      show("Project opened");
-    } catch (e: any) {
-      if (e?.name === "AbortError") return;
-      show(e?.message || "Failed to open project");
-    }
-  }, [fsSupported, ensurePermission, show]);
+  const openExisting = useCallback(async () => {
+    await run(async () => {
+      if (!fsSupported) throw new Error(t('project.chromiumRequired'));
+      const project = await (window as Window & {
+        showDirectoryPicker: (options: { mode: 'readwrite' }) => Promise<FileSystemDirectoryHandle>;
+      }).showDirectoryPicker({ mode: 'readwrite' });
+      await ensureReadWritePermission(project, t('project.permissionDenied'));
+      await openProject(project);
+      setMessage(t('project.opened'));
+    });
+  }, [fsSupported, openProject, run, t]);
 
-  const handleSaveNow = useCallback(async () => {
-    if (!projectDir || !manifest) return;
-    try {
-      await writeManifest(projectDir, manifest);
-      show("Project saved");
-    } catch (e: any) {
-      show(e?.message || "Failed to save project");
-    }
-  }, [projectDir, manifest, show]);
-
-  const handleClose = useCallback(() => {
-    setProjectDir(null);
-    setManifest(null);
-    setSelectedVideoId(null);
-    setTaggingSchema(null);
-  }, [setProjectDir, setManifest, setSelectedVideoId, setTaggingSchema]);
-
-  const addVideosToManifest = useCallback((mf: ProjectManifestV1, entries: { name: string; relPath: string; meta: { durationMs?: number; width?: number; height?: number; fps?: number } }[]) => {
-    const projectFps = getProjectFps(mf);
-    const next = { ...mf, videos: [...mf.videos] };
-    for (const e of entries) {
-      const id = (globalThis.crypto && "randomUUID" in globalThis.crypto) ? (globalThis.crypto as any).randomUUID() : `vid_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      next.videos.push({ id, label: e.name, file: e.relPath, durationMs: e.meta.durationMs, width: e.meta.width, height: e.meta.height, fps: projectFps });
-    }
-    return next;
-  }, []);
-
-  const importFiles = useCallback(async (files: File[]) => {
-    if (!projectDir || !manifest) return;
-    let overlayStart = 0;
-    try {
-      const mediaDir = await projectDir.getDirectoryHandle("media", { create: true });
-      const candidates = files.filter(f => f.type.startsWith("video/") || /\.(mp4|mov|webm|mkv|avi)$/i.test(f.name));
-      if (candidates.length === 0) {
-        show("No supported videos to import");
-        return;
-      }
-      const projectFps = getProjectFps(manifest);
-      const projectResolution = getProjectResolution(manifest);
-      flushSync(() => {
-        setUploading(true);
-        setUploadProgress(0);
+  const importVideo = useCallback(async () => {
+    await run(async () => {
+      if (!projectDir || !manifest) throw new Error(t('project.noOpen'));
+      const picker = (window as Window & {
+        showOpenFilePicker?: (options: unknown) => Promise<FileSystemFileHandle[]>;
+      }).showOpenFilePicker;
+      if (!picker) throw new Error(t('project.chromiumRequired'));
+      const handles = await picker({
+        multiple: false,
+        types: [{
+          description: t('project.importDescription'),
+          accept: { 'video/*': ['.mp4', '.mov', '.webm', '.mkv', '.avi'] },
+        }],
       });
-      // Allow the overlay to render before heavy IO
-      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-      overlayStart = performance.now();
-      const added: { name: string; relPath: string; meta: { durationMs?: number; width?: number; height?: number; fps?: number } }[] = [];
-      for (let index = 0; index < candidates.length; index++) {
-        const file = candidates[index];
-        const baseProgress = (index / candidates.length) * 100;
-        setUploadLabel(`Converting ${file.name} to ${projectFps}fps ${projectResolution.width}x${projectResolution.height}...`);
-        setUploadProgress(baseProgress);
-        const normalizedBlob = await normalizeVideoImport(file, projectFps, projectResolution);
-        setUploadProgress(baseProgress + (50 / candidates.length));
+      const source = await handles[0]?.getFile();
+      if (!source) return;
+      setMessage(t('project.normalizing', { name: source.name }));
+      setNormalizationProgress({ phase: 'uploading', progress: 0 });
+      const controller = new AbortController();
+      importAbortRef.current = controller;
+      try {
+        await importVideoIntoProject(projectDir, manifest, source, {
+          onProgress: setNormalizationProgress,
+          signal: controller.signal,
+        });
+        await openProject(projectDir, false);
+        setMessage(t('project.imported', { name: source.name }));
+      } finally {
+        importAbortRef.current = null;
+        setNormalizationProgress(null);
+      }
+    });
+  }, [manifest, openProject, projectDir, run, t]);
 
-        const name = await uniqueFileName(mediaDir, normalizedVideoFileName(file.name));
-        setUploadLabel(`Saving ${name}…`);
-        const fh = await mediaDir.getFileHandle(name, { create: true });
-        const ws = await fh.createWritable();
-        await ws.write(normalizedBlob);
-        await ws.close();
-        const normalizedFile = new File([normalizedBlob], name, { type: 'video/mp4' });
-        const meta = await extractVideoMetadata(normalizedFile);
-        meta.fps = projectFps;
-        meta.width = projectResolution.width;
-        meta.height = projectResolution.height;
-        added.push({ name, relPath: `media/${name}`, meta });
-        setUploadProgress(((index + 1) / candidates.length) * 100);
-        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
-      }
-      if (added.length > 0) {
-        const next = addVideosToManifest(manifest, added);
-        setManifest(next);
-        await writeManifest(projectDir, next);
-        show(`Imported ${added.length} video${added.length > 1 ? "s" : ""}`);
-      } else {
-        show("No supported videos to import");
-      }
-    } catch (e: any) {
-      show(e?.message || "Import failed");
-    } finally {
-      const elapsed = performance.now() - overlayStart;
-      const MIN_DISPLAY = 600; // ms
-      if (elapsed < MIN_DISPLAY) {
-        await new Promise<void>(r => setTimeout(r, MIN_DISPLAY - elapsed));
-      }
-      setUploading(false);
-      setUploadProgress(null);
-      setUploadLabel("");
-    }
-  }, [projectDir, manifest, addVideosToManifest, show]);
-
-  const handleImportClick = useCallback(async () => {
-    try {
+  const saveNow = useCallback(async () => {
+    await run(async () => {
       if (!projectDir || !manifest) return;
-      const picker: any[] = await (window as any).showOpenFilePicker({
-        multiple: true,
-        types: [
-          {
-            description: "Videos",
-            accept: { "video/*": [".mp4", ".mov", ".webm", ".mkv", ".avi"] },
-          },
-        ],
+      await writeProjectManifest(projectDir, manifest);
+      await refreshIntegrity();
+      setMessage(t('project.saved'));
+    });
+  }, [manifest, projectDir, refreshIntegrity, run, t]);
+
+  const clearTrash = useCallback(async () => {
+    await run(async () => {
+      if (!projectDir) return;
+      const result = await emptyTrash(projectDir);
+      await refreshIntegrity();
+      setMessage(result.removedOperationIds.length === 1
+        ? t('project.trashEmptiedOne')
+        : result.removedOperationIds.length > 1
+          ? t('project.trashEmptiedMany', { count: formatNumber(result.removedOperationIds.length) })
+          : t('project.trashAlreadyEmpty'));
+    });
+  }, [formatNumber, projectDir, refreshIntegrity, run, t]);
+
+  const exportReport = useCallback(async () => {
+    if (!projectDir || !manifest || !board || !integrityReport) return;
+    setExportBusy(true);
+    setExportFailures([]);
+    setMessage(null);
+    try {
+      const result = await exportAllClips({
+        projectDir,
+        manifest,
+        clips: integrityReport.clips,
+        board,
+        onProgress: setExportProgress,
       });
-      const files: File[] = [];
-      for (const h of picker) {
-        try { files.push(await h.getFile()); } catch {}
-      }
-      if (files.length) await importFiles(files);
-    } catch (e: any) {
-      if (e?.name === "AbortError") return;
-      show(e?.message || "Picker failed");
+      setExportFailures(result.failures);
+      setMessage(result.failures.length
+        ? t('project.exportedWithFailures', { count: formatNumber(result.failures.length) })
+        : t('project.exported'));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setExportBusy(false);
     }
-  }, [projectDir, manifest, importFiles, show]);
+  }, [board, formatNumber, integrityReport, manifest, projectDir, t]);
 
-  const onDragOver = useCallback((e: React.DragEvent) => {
-    if (!projectDir) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-    setDragOver(true);
-  }, [projectDir]);
+  const openPlayer = useCallback((videoId?: string) => {
+    const target = videoId ?? selectedVideoId ?? manifest?.videos[0]?.id;
+    if (!target) return;
+    setSelectedVideoId(target);
+    router.push('/player');
+  }, [manifest?.videos, router, selectedVideoId, setSelectedVideoId]);
 
-  const onDragLeave = useCallback((e: React.DragEvent) => {
-    setDragOver(false);
-  }, []);
-
-  const onDrop = useCallback(async (e: React.DragEvent) => {
-    if (!projectDir) return;
-    e.preventDefault();
-    setDragOver(false);
-    const files: File[] = [];
-    for (const item of Array.from(e.dataTransfer.items)) {
-      if (item.kind === "file") {
-        const file = item.getAsFile();
-        if (file) files.push(file);
-      }
-    }
-    if (files.length) await importFiles(files);
-  }, [projectDir, importFiles]);
-
-  if (!mounted) {
-    // Avoid SSR/CSR mismatch by rendering nothing until mounted
-    return null;
+  if (!mounted || isRestoring) {
+    return (
+      <div className="flex flex-1 items-center justify-center text-sm text-secondary">
+        {t('project.restore')}
+      </div>
+    );
   }
 
+  if (!projectDir || !manifest) {
+    return (
+      <div className="fullbleed flex min-h-full flex-1 items-center justify-center p-5">
+        {setupOpen && (
+          <ProjectSetupScreen
+            fsSupported={fsSupported}
+            busy={busy}
+            onCreate={createFromSetup}
+            onCancel={() => setSetupOpen(false)}
+          />
+        )}
+        <section className="w-full max-w-[420px] border border-border bg-surface" aria-label={t('project.workspaceLabel')}>
+          <header className="border-b border-border px-5 py-4">
+            <h2 className="m-0 text-lg font-semibold">{t('project.openChooser')}</h2>
+          </header>
+          <div className="grid grid-cols-2 gap-2 p-5 max-sm:grid-cols-1">
+            <button className="button-primary" disabled={busy || !fsSupported} onClick={() => setSetupOpen(true)}>
+              {t('project.create')}
+            </button>
+            <button disabled={busy || !fsSupported} onClick={() => void openExisting()}>
+              {t('project.open')}
+            </button>
+          </div>
+          {!fsSupported && (
+            <p className="m-0 border-t border-border px-5 py-3 text-xs text-danger">{t('project.chromiumRequired')}</p>
+          )}
+          {(message || restoreError) && (
+            <p role="alert" className="m-0 border-t border-border bg-raised px-5 py-3 text-xs text-warning">
+              {message ?? restoreError}
+            </p>
+          )}
+        </section>
+      </div>
+    );
+  }
+
+  const issues = integrityReport?.issues ?? [];
+  const errorCount = issues.filter((issue) => issue.severity === 'error').length;
+  const warningCount = issues.length - errorCount;
+  const clips = integrityReport?.clips ?? [];
+  const presentations = integrityReport?.presentations ?? [];
+  const matchInfo = manifest.matchInfo;
+  const matchLabel = matchInfo?.homeTeam.name || matchInfo?.awayTeam.name
+    ? t('project.matchVersus', {
+      home: matchInfo.homeTeam.name ?? t('metadata.home'),
+      away: matchInfo.awayTeam.name ?? t('metadata.away'),
+    })
+    : t('project.matchUnset');
+
   return (
-    <div className="fullbleed">
-      {setupOpen && !projectDir && (
-        <ProjectSetupScreen
-          fsSupported={fsSupported}
-          busy={creatingProject}
-          onCreate={createProjectFromSetup}
-          onCancel={() => setSetupOpen(false)}
-        />
-      )}
-
-      {/* === Empty state — no project open === */}
-      {!projectDir ? (
-        <div className="fixed inset-0 z-10 bg-canvas flex items-center justify-center">
-          <div className="panel max-w-lg w-full p-10 flex flex-col items-center gap-8">
-            <div className="text-center">
-              <h2 className="text-2xl font-bold">Football Analysis Annotator</h2>
-              <p className="text-base text-muted mt-3">Open or create a project folder to get started.</p>
-            </div>
-            <div className="w-full flex flex-col gap-3">
-              <button onClick={handleCreate} className="w-full py-5 text-lg font-bold text-accent">
-                Create New Project
-              </button>
-              <button onClick={handleOpen} className="w-full py-5 text-lg font-bold text-accent">
-                Open Existing Project
-              </button>
-            </div>
-            <div className="w-full flex flex-col gap-2 border-t border-subtle pt-6">
-              <input
-                ref={quickAnnotateInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleQuickAnnotateFile}
-              />
-              <button onClick={() => quickAnnotateInputRef.current?.click()} className="w-full py-4 text-base font-bold">
-                Quick Annotate a Still…
-              </button>
-              <div className="text-sm text-muted text-center">
-                Upload an image, annotate it, and export the result — no project needed.
-              </div>
-            </div>
-            {!fsSupported && (
-              <div className="text-sm text-danger text-center">
-                Chromium required. Use Chrome, Edge, or Opera.
-              </div>
-            )}
-          </div>
+    <main className="fullbleed flex min-h-0 flex-1 overflow-hidden bg-canvas" data-testid="project-dashboard">
+      <Panels
+        autoSaveId="annotate:dashboard:sidebar-workspace"
+        direction="horizontal"
+        className="flex-1"
+        data-testid="dashboard-panel-group"
+      >
+        <Panel id="dashboard-sidebar" defaultSize={18} minSize={14} maxSize={32}>
+      <aside className="flex h-full w-full flex-col overflow-y-auto border-r border-border bg-surface" aria-label={t('project.controls')}>
+        <div className="border-b border-border px-4 py-4">
+          <h2 className="m-0 truncate text-lg font-semibold">{manifest.name}</h2>
+          <p className="mb-0 mt-1 truncate text-xs text-secondary">{matchLabel}</p>
         </div>
 
-      ) : !manifest ? (
-        /* === Loading state === */
-        <div className="fixed inset-0 z-10 bg-canvas flex items-center justify-center">
-          <div className="panel max-w-lg w-full p-10 text-center">
-            <div className="spinner mx-auto" />
-            <div className="text-base text-muted">Loading project…</div>
-          </div>
+        <div className="grid p-2">
+          <button className="button-quiet w-full justify-start text-left" onClick={() => router.push('/metadata')}>{t('project.matchInfo')}</button>
+          <button className="button-quiet w-full justify-start text-left" disabled={busy} onClick={() => void importVideo()}>{t('project.importVideo')}</button>
+          <button className="button-quiet w-full justify-start text-left" disabled={busy} onClick={() => void saveNow()}>{t('project.saveNow')}</button>
+          <button className="button-quiet w-full justify-start text-left" disabled={busy} onClick={() => void clearTrash()}>{t('project.emptyTrash')}</button>
         </div>
 
-      ) : (
-        /* === Dashboard — project open === */
-        <div className="flex" style={{ minHeight: 'calc(100vh - 60px)' }}>
-          {/* Left sidebar */}
-          <div className="w-[320px] shrink-0 flex flex-col border-r border-subtle p-4 gap-4">
-            <div>
-              <h2 className="text-xl font-bold truncate">{manifest.name}</h2>
-              <div className="text-sm text-muted mt-1">
-                {projectDir.name} · Created {new Date(manifest.created).toLocaleDateString()}
-              </div>
-            </div>
+        <div className="mt-auto border-t border-border p-3">
+          <div className="px-1 pb-3 text-xs text-secondary">
+            <div className="flex justify-between"><span>{t('project.videos')}</span><strong>{formatNumber(manifest.videos.length)}</strong></div>
+            <div className="mt-1 flex justify-between"><span>{t('project.clips')}</span><strong>{formatNumber(clips.length)}</strong></div>
+            <div className="mt-1 flex justify-between"><span>{t('project.presentations')}</span><strong>{formatNumber(presentations.length)}</strong></div>
+          </div>
+          <button className="button-quiet w-full text-left" onClick={() => void closeProject()}>{t('project.close')}</button>
+        </div>
+      </aside>
+        </Panel>
+        <PanelResizeHandle direction="horizontal" data-testid="dashboard-resize-handle" />
+        <Panel id="dashboard-workspace" defaultSize={82} minSize={52}>
+      <div className="h-full min-w-0 overflow-y-auto p-5 lg:p-7">
+        <div className="mx-auto max-w-[1500px]">
+          <header className="mb-5 flex items-center justify-between gap-4">
+            <h1 className="m-0 text-xl font-semibold">{t('project.workspace')}</h1>
+            <button
+              className="button-primary"
+              onClick={() => openPlayer()}
+              disabled={manifest.videos.length === 0}
+            >
+              {t('project.openCapture')}
+            </button>
+          </header>
 
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <div className="text-sm text-muted uppercase tracking-wide">Videos</div>
-                <div className="text-base text-accent font-semibold">{manifest.videos.length}</div>
+          <div className="grid grid-cols-2 items-start gap-4 max-lg:grid-cols-1">
+            <section className="panel min-w-0 overflow-hidden p-0" aria-labelledby="analysis-heading">
+              <div className="panel-heading h-auto py-3">
+                <h2 id="analysis-heading">{t('project.analysis')}</h2>
+                <div className="flex gap-2">
+                  <div data-testid="stat-videos" className="text-right">
+                    <strong className="block text-xl">{formatNumber(manifest.videos.length)}</strong>
+                    <span className="text-xs text-muted">{t('project.videos')}</span>
+                  </div>
+                  <div data-testid="stat-clips" className="border-l border-border pl-2 text-right">
+                    <strong className="block text-xl">{formatNumber(clips.length)}</strong>
+                    <span className="text-xs text-muted">{t('project.clips')}</span>
+                  </div>
+                </div>
               </div>
-              <div>
-                <div className="text-sm text-muted uppercase tracking-wide">Marks</div>
-                <div className="text-base text-accent font-semibold">{manifest.marks.length}</div>
+
+              <div className="grid">
+                {manifest.videos.map((video) => {
+                  const videoClipCount = clips.filter((clip) => clip.videoId === video.id).length;
+                  return (
+                    <article key={video.id} className="border-t border-border p-3 first:border-t-0" data-testid={`video-card-${video.id}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <strong className="block truncate">{video.label}</strong>
+                          <p className="mb-0 mt-1 font-mono text-[10px] text-muted">
+                            {t('project.videoStats', {
+                              frames: formatNumber(video.frameCount),
+                              fps: formatNumber(video.fps),
+                              width: formatNumber(video.width),
+                              height: formatNumber(video.height),
+                            })}
+                          </p>
+                          <p className="mb-0 mt-2 text-xs text-secondary">{t('project.clipCount', { count: formatNumber(videoClipCount) })}</p>
+                        </div>
+                        <button className="button-quiet" aria-label={t('project.openPlayerFor', { name: video.label })} onClick={() => openPlayer(video.id)}>{t('common.open')}</button>
+                      </div>
+                    </article>
+                  );
+                })}
+                {manifest.videos.length === 0 && (
+                  <div className="empty-state m-3" aria-hidden="true" />
+                )}
               </div>
-              <div>
-                <div className="text-sm text-muted uppercase tracking-wide">Stills</div>
-                <div className="text-base text-accent font-semibold">{manifest.stills.length}</div>
+
+              <div className="flex flex-wrap gap-2 border-t border-border p-3">
+                <button className="button-primary" disabled={busy} onClick={() => void importVideo()}>{t('project.importVideo')}</button>
+                <button disabled={exportBusy} onClick={() => void exportReport()}>
+                  {exportBusy ? t('project.exporting') : t('project.exportReport')}
+                </button>
               </div>
-            </div>
-            <div className="text-sm text-muted">
-              Project FPS: <span className="text-accent font-semibold">{getProjectFps(manifest)}</span>
-              <span className="mx-1">·</span>
-              Resolution: <span className="text-accent font-semibold">{getProjectResolution(manifest).width}×{getProjectResolution(manifest).height}</span>
-            </div>
+            </section>
 
-            <div className="flex flex-col gap-1">
-              <button onClick={() => router.push('/metadata')} className="w-full text-left px-3 py-2.5 text-base">
-                {manifest.matchInfo ? 'Edit match info' : 'Set up match info →'}
-              </button>
-              <button onClick={() => router.push('/presentations')} className="w-full text-left px-3 py-2.5 text-base">
-                Presentations
-              </button>
-              <button onClick={handleImportClick} className="w-full text-left px-3 py-2.5 text-base">
-                Import Video…
-              </button>
-              <button onClick={handleSaveNow} className="w-full text-left px-3 py-2.5 text-base">
-                Save Now
-              </button>
-            </div>
-
-            <div className="flex-1" />
-
-            <div className="border-t border-subtle pt-3">
-              <button onClick={handleClose} className="w-full text-left px-3 py-2.5 text-base text-muted">
-                Close Project
-              </button>
-            </div>
+            <section className="panel min-w-0 overflow-hidden p-0" aria-labelledby="presentations-heading">
+              <div className="panel-heading h-auto py-3">
+                <h2 id="presentations-heading">{t('project.presentations')}</h2>
+                <div data-testid="stat-presentations" className="text-right">
+                  <strong className="block text-xl">{formatNumber(presentations.length)}</strong>
+                  <span className="text-xs text-muted">{t('project.decks')}</span>
+                </div>
+              </div>
+              <div className="p-3">
+                <PresentationLibrary
+                  projectDir={projectDir}
+                  onOpen={(presentationId) => router.push(`/presentation/${presentationId}`)}
+                  onChanged={refreshIntegrity}
+                  compact
+                />
+              </div>
+            </section>
           </div>
 
-          {/* Right area — video list + drop zone */}
-          <div
-            className="flex-1 min-w-0 flex flex-col p-4"
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            onDrop={onDrop}
-          >
-            <h3 className="text-lg font-bold mb-3">Videos ({manifest.videos.length})</h3>
+          {exportProgress && (
+            <section className="panel mt-4" aria-label={t('project.exportProgress')}>
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span>{exportProgressLabel(exportProgress, t, formatNumber)}</span>
+                <span className="font-mono text-xs text-muted">{formatNumber(exportProgress.done)}/{formatNumber(exportProgress.total)}</span>
+              </div>
+              <progress className="mt-2 w-full" max={Math.max(1, exportProgress.total)} value={exportProgress.done} />
+              {exportFailures.length > 0 && (
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-xs text-warning">{t('project.exportFailures', { count: formatNumber(exportFailures.length) })}</summary>
+                  <ul className="mb-0 mt-2 list-none p-0 text-xs text-secondary">
+                    {exportFailures.map((failure, index) => (
+                      <li key={`${failure.clipId}:${failure.annotationId ?? index}`} className="border-t border-border py-1 first:border-t-0">
+                        <span className="font-mono">{failure.path ?? failure.clipId}</span> · {failure.error}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </section>
+          )}
 
-            {manifest.videos.length > 0 && (
-              <div className="flex flex-col">
-                {manifest.videos.map(v => (
-                  <button
-                    key={v.id}
-                    onClick={() => { setSelectedVideoId(v.id); router.push('/player'); }}
-                    className={`w-full text-left px-4 py-3 text-base border-b border-subtle ${
-                      selectedVideoId === v.id
-                        ? 'bg-selected border-l-2 border-l-accent'
-                        : 'hover:bg-hover'
-                    }`}
-                  >
-                    <div className="font-medium">{v.label}</div>
-                    <div className="text-sm text-secondary mt-0.5">
-                      {typeof v.durationMs === 'number' ? formatDuration(v.durationMs) : ''}
-                      {v.width && v.height ? ` · ${v.width}×${v.height}` : ''}
-                    </div>
+          {normalizationProgress && (
+            <section
+              className="panel fixed bottom-5 right-5 z-50 w-[min(28rem,calc(100vw-2.5rem))]"
+              aria-label={t('project.normalizationProgress')}
+              role="status"
+            >
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span>{t(`project.normalization.${normalizationProgress.phase}`)}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs text-muted">
+                    {formatNumber(Math.round(normalizationProgress.progress * 100))}%
+                  </span>
+                  <button className="px-2 py-1 text-xs" onClick={() => importAbortRef.current?.abort()}>
+                    {t('common.cancel')}
                   </button>
+                </div>
+              </div>
+              <progress
+                className="mt-2 w-full"
+                max={1}
+                value={normalizationProgress.progress}
+              />
+            </section>
+          )}
+
+          <details className="panel mt-4" open={issues.length > 0}>
+            <summary className="cursor-pointer text-sm font-bold" data-testid="integrity-summary">
+              {t('project.integrity', { errors: formatNumber(errorCount), warnings: formatNumber(warningCount) })}
+            </summary>
+            {issues.length === 0 ? (
+              <p className="mb-0 mt-3 text-sm text-success">{t('project.integrityClear')}</p>
+            ) : (
+              <ul className="mb-0 mt-3 list-none p-0">
+                {issues.map((issue, index) => (
+                  <IntegrityIssue key={`${issue.code}:${issue.path}:${index}`} issue={issue} />
                 ))}
-              </div>
+              </ul>
             )}
+          </details>
 
-            <div className={`mt-3 flex-1 min-h-[120px] border-2 border-dashed flex items-center justify-center ${
-              dragOver ? 'border-accent bg-accent/5' : 'border-border'
-            }`}>
-              <div className="text-base text-muted text-center p-4">
-                {manifest.videos.length === 0
-                  ? 'No videos yet. Drop video files here or use Import Video.'
-                  : 'Drop video files here to import'}
-              </div>
+          {(message || restoreError) && (
+            <div role="status" className="toast">
+              {message ?? restoreError}
             </div>
-          </div>
+          )}
         </div>
-      )}
-
-      {/* Upload overlay (portal) */}
-      {uploading && (typeof document !== 'undefined') && createPortal(
-        <div className="overlay" role="status" aria-live="polite">
-          <div className="loader">
-            <div className="spinner" />
-            <div className="text-center text-sm">{uploadLabel ? `Uploading ${uploadLabel}…` : 'Uploading…'}</div>
-            {typeof uploadProgress === 'number' && (
-              <>
-                <div className="progress"><div style={{ width: `${Math.round(uploadProgress)}%` }} /></div>
-                <div className="percent">{Math.round(uploadProgress)}%</div>
-              </>
-            )}
-            {showStillLoading && (
-              <div className="percent">Still loading…</div>
-            )}
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {msg && <div className="toast">{msg}</div>}
-    </div>
+      </div>
+        </Panel>
+      </Panels>
+    </main>
   );
 }

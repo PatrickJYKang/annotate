@@ -5,6 +5,7 @@
 // ---------------------------------------------------------------------------
 
 import { requestSegmentation, type SegmentationResult } from './sidecarClient';
+import { frameToMs, type VideoFrame } from './frameMath';
 
 // ---------------------------------------------------------------------------
 // LRU mask cache — keyed by rounded frame ms
@@ -74,7 +75,7 @@ export class OcclusionCache {
  * Fetch an occlusion mask from the sidecar for a specific video frame.
  * Returns an ImageBitmap of the alpha mask (single-channel grayscale PNG).
  */
-export async function fetchOcclusionMask(
+async function fetchOcclusionMaskAtMs(
   video: { videoRef?: string; videoPath?: string },
   frameMs: number,
   baseUrl?: string,
@@ -95,6 +96,15 @@ export async function fetchOcclusionMask(
     height: result.height,
     personCount: result.personCount,
   };
+}
+
+export async function fetchOcclusionMask(
+  video: { videoRef?: string; videoPath?: string },
+  frame: VideoFrame,
+  videoFps: number,
+  baseUrl?: string,
+): Promise<{ mask: ImageBitmap; width: number; height: number; personCount: number }> {
+  return fetchOcclusionMaskAtMs(video, Number(frameToMs(frame, videoFps)), baseUrl);
 }
 
 // ---------------------------------------------------------------------------
@@ -130,12 +140,6 @@ export function compositeForeground(
   return canvas;
 }
 
-// ---------------------------------------------------------------------------
-// Round frame ms to nearest frame boundary for cache keying
-// ---------------------------------------------------------------------------
-
-export function roundToFrame(ms: number, fps: number): number {
-  if (fps <= 0) return Math.round(ms);
-  const frameDuration = 1000 / fps;
-  return Math.round(ms / frameDuration) * frameDuration;
+export function occlusionCacheKey(frame: VideoFrame): number {
+  return frame;
 }

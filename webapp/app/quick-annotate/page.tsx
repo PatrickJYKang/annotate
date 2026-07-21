@@ -5,7 +5,6 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import ColorLinkToggle from "../../components/annotate/ColorLinkToggle";
 import type { Tool, StrokePattern } from "../../components/annotate/Editor";
-import { ProjectProvider, useProject } from "../../lib/state/ProjectContext";
 import { buildAnnotationPath, readAnnotationDocument } from "../../lib/fs/annotationStorage";
 import { renderAnnotatedPng, type AnnotationsV1 } from "../../lib/export/d7Render";
 import { registerVideoFile, requestHomography, unregisterVideoRef } from "../../lib/clip/sidecarClient";
@@ -31,18 +30,8 @@ function useToast() {
 }
 
 export default function QuickAnnotatePage() {
-  // Nested provider: the quick session connects an OPFS-backed "project"
-  // directory for the Editor without touching the app-wide project state.
-  return (
-    <ProjectProvider>
-      <QuickAnnotateInner />
-    </ProjectProvider>
-  );
-}
-
-function QuickAnnotateInner() {
   const router = useRouter();
-  const { projectDir, setProjectDir } = useProject();
+  const [projectDir, setProjectDir] = useState<FileSystemDirectoryHandle | null>(null);
   const { msg, show } = useToast();
 
   const Editor = useMemo(() => dynamic(() => import("../../components/annotate/Editor"), { ssr: false }), []);
@@ -342,7 +331,7 @@ function QuickAnnotateInner() {
         const saved = (projectDir && annotationFilePath)
           ? await readAnnotationDocument(projectDir, annotationFilePath)
           : null;
-        const ann: AnnotationsV1 = saved ?? {
+        const ann: AnnotationsV1 = saved?.schema === 'annotations.v1' ? saved : {
           schema: 'annotations.v1',
           stillId,
           image: { file: file.name, width: bmp.width, height: bmp.height },
@@ -371,7 +360,7 @@ function QuickAnnotateInner() {
   // --- Styling helpers (mirrors the annotate page) ---
   const toolBtnCls = (t: Tool) =>
     `self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base cursor-pointer ${
-      tool === t ? 'bg-[#2563eb] text-white' : 'bg-surface text-primary'
+      tool === t ? 'bg-active text-white' : 'bg-surface text-primary'
     }`;
   const actionBtnCls =
     'self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base cursor-pointer bg-canvas text-primary disabled:opacity-50 disabled:cursor-not-allowed';
@@ -392,7 +381,7 @@ function QuickAnnotateInner() {
     return (
       <div className="fullbleed">
         <div className="fixed inset-0 z-10 bg-canvas flex items-center justify-center">
-          <div className="panel max-w-lg w-full p-10 text-center">
+          <div className="panel max-w-lg w-full p-8 text-center">
             <h2 className="text-xl font-bold">Quick Annotate</h2>
             <p className="text-base text-danger mt-3">
               This browser does not support the storage APIs quick annotate needs. Use a recent Chromium-based browser.
@@ -411,27 +400,23 @@ function QuickAnnotateInner() {
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onPickFile} />
         <div className="fixed inset-0 z-10 bg-canvas flex items-center justify-center">
           <div
-            className={`panel max-w-lg w-full p-10 flex flex-col items-center gap-8 ${dragOver ? 'outline outline-2 outline-[#2563eb]' : ''}`}
+            className={`w-full max-w-[440px] border bg-surface ${dragOver ? 'border-focus' : 'border-border'}`}
             onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={onDrop}
           >
-            <div className="text-center">
-              <h2 className="text-2xl font-bold">Quick Annotate</h2>
-              <p className="text-base text-muted mt-3">
-                Annotate a single image and export the result — no project needed.
-              </p>
+            <div className="border-b border-border px-5 py-4 text-center">
+              <h2 className="m-0 text-lg font-semibold">Quick Annotate</h2>
             </div>
-            <div className="w-full flex flex-col gap-3">
-              <button onClick={() => fileInputRef.current?.click()} className="w-full py-5 text-lg font-bold text-accent">
+            <div className="p-5">
+              <button onClick={() => fileInputRef.current?.click()} className="button-primary w-full py-4 text-sm font-bold">
                 Choose Image…
               </button>
-              <div className="text-sm text-muted text-center">or drop an image file here</div>
+              {error && <div className="mt-3 text-center text-sm text-danger">{error}</div>}
+              <button onClick={() => router.push('/')} className="button-quiet mt-3 w-full text-sm">
+                ← Back to projects
+              </button>
             </div>
-            {error && <div className="text-sm text-danger text-center">{error}</div>}
-            <button onClick={() => router.push('/')} className="px-4 py-2 text-sm text-muted">
-              ← Back to projects
-            </button>
           </div>
         </div>
         {msg && <div className="toast">{msg}</div>}
@@ -579,6 +564,7 @@ function QuickAnnotateInner() {
               onSaveStatus={onSaveStatus}
               autoPerspectiveQuad={autoPerspectiveQuad}
               autoPerspectiveTick={autoPerspectiveTick}
+              projectDir={projectDir}
             />
           )}
         </div>

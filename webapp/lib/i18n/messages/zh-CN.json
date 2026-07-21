@@ -1,0 +1,524 @@
+{
+  "app.title": "Annotate",
+  "header.fullscreen": "全屏",
+  "header.locale": "语言",
+  "locale.en": "English",
+  "locale.zh-CN": "简体中文",
+  "common.cancel": "取消",
+  "common.create": "创建",
+  "common.delete": "删除",
+  "common.duplicate": "复制",
+  "common.open": "打开",
+  "common.rename": "重命名",
+  "common.save": "保存",
+  "export.complete": "导出完成",
+  "export.completeFailures": "导出完成 · {count} 个失败项",
+  "export.rendered": "已渲染 {done}/{total} 个标注文档",
+  "export.rendering": "正在渲染 {clip} · f{frame} · {annotation}",
+  "export.writing": "正在写入 {file}…",
+  "error.annotationAnchor": "标注文档锚点与此编辑器不匹配。为避免覆盖，已停止操作。",
+  "error.annotationInvalidJson": "标注 JSON 无效。为避免覆盖，已停止操作。",
+  "error.annotationParse": "{error} 为避免覆盖，已停止操作。",
+  "error.folderPermission": "未授予文件夹权限。",
+  "error.writePermission": "未授予项目文件夹写入权限。",
+  "integrity.annotation-anchor-mismatch": "标注文档连接到了错误的片段、帧标记或帧。",
+  "integrity.clip-read-error": "无法读取某个片段文档。",
+  "integrity.invalid-annotation-document": "某个标注文档无效。",
+  "integrity.invalid-match-video-transition": "某个比赛视频过渡的端点无效或无法解析。",
+  "integrity.invalid-presentation-cue": "某个演示提示引用了有效选择范围之外的媒体。",
+  "integrity.missing-annotation-document": "缺少被引用的标注文档。",
+  "integrity.missing-video-file": "缺少被引用的视频文件。",
+  "integrity.orphan-annotation-document": "片段文件夹中存在未被引用的标注条目。",
+  "integrity.presentation-read-error": "无法读取某个演示文稿。",
+  "integrity.unresolved-clip-video": "某个片段引用了项目中不存在的视频。",
+  "integrity.unresolved-presentation-annotation": "演示文稿引用了无法解析的标注集。",
+  "integrity.unresolved-presentation-clip": "演示文稿引用了无法解析的片段。",
+  "integrity.unresolved-presentation-pin": "演示文稿引用了无法解析的帧标记。",
+  "metadata.away": "客队",
+  "metadata.home": "主队",
+  "project.chromiumRequired": "需要使用 Chrome、Edge 或其他 Chromium 浏览器。",
+  "project.close": "关闭项目",
+  "project.controls": "项目控制",
+  "project.clips": "片段",
+  "project.create": "新建项目",
+  "project.createFolder": "创建项目文件夹…",
+  "project.creating": "正在创建…",
+  "project.created": "项目已创建。",
+  "project.emptyTrash": "清空废纸篓",
+  "project.exportFailures": "{count} 个文件失败",
+  "project.exportProgress": "导出报告进度",
+  "project.exportReport": "导出报告…",
+  "project.exported": "报告已导出到 exports/report/。",
+  "project.exportedWithFailures": "报告已导出，但有 {count} 个文件失败。",
+  "project.exporting": "正在导出…",
+  "project.importDescription": "比赛视频",
+  "project.importPrompt": "导入比赛视频以开始分析。",
+  "project.importVideo": "导入视频…",
+  "project.imported": "已导入 {name}。",
+  "project.integrity": "项目完整性 · {errors} 个错误 · {warnings} 个警告",
+  "project.integrityClear": "未发现完整性问题。",
+  "project.matchInfo": "比赛信息",
+  "project.matchUnset": "尚未设置比赛信息",
+  "project.matchVersus": "{home} 对 {away}",
+  "project.noOpen": "未打开项目。",
+  "project.normalizing": "正在准备 {name}…",
+  "project.normalizationProgress": "视频导入进度",
+  "project.normalization.uploading": "正在上传源视频",
+  "project.normalization.queued": "正在等待媒体分析",
+  "project.normalization.analyzing": "正在读取源视频帧信息",
+  "project.normalization.remuxing": "正在重新封装兼容视频",
+  "project.normalization.transcoding": "正在转换不兼容视频",
+  "project.normalization.normalizing": "正在转换为指定媒体格式",
+  "project.normalization.probing": "正在验证帧数",
+  "project.normalization.downloading": "正在接收已准备的视频",
+  "project.normalization.complete": "视频已可导入",
+  "project.open": "打开现有项目",
+  "project.openCapture": "打开采集播放器",
+  "project.openChooser": "项目",
+  "project.openPlayerFor": "在播放器中打开 {name}",
+  "project.opened": "项目已打开。",
+  "project.permissionDenied": "未授予读写权限。",
+  "project.presentations": "演示文稿",
+  "project.restore": "正在恢复 Annotate 0.2 项目…",
+  "project.saveNow": "立即保存",
+  "project.saved": "项目已保存。",
+  "project.setupBrowser": "需要 Chromium。请使用 Chrome、Edge 或 Opera。",
+  "project.setupDescription": "比赛信息可现在或稍后填写。每个导入视频保留自己的帧率和分辨率。",
+  "project.setupImportMetadata": "导入比赛信息",
+  "project.setupName": "项目名称",
+  "project.setupNamePlaceholder": "例如：阿森纳 对 切尔西",
+  "project.setupNotes": "备注",
+  "project.setupNotesPlaceholder": "自由填写比赛备注…",
+  "project.setupTitle": "项目设置",
+  "project.trashAlreadyEmpty": "废纸篓已经为空。",
+  "project.trashEmptiedOne": "已清空 1 个恢复操作。",
+  "project.trashEmptiedMany": "已清空 {count} 个恢复操作。",
+  "project.videos": "视频",
+  "project.perVideoMedia": "每个视频独立帧率与分辨率",
+  "project.workspace": "工作区",
+  "project.workspaceDescription": "0.2 版项目使用片段、帧标记和项目内标签面板。0.1 版文件夹仍需使用冻结的 0.1 应用。",
+  "project.workspaceLabel": "Annotate 0.2 工作区",
+  "project.workspaceTitle": "分析 ∥ 演示文稿",
+  "project.analysis": "分析",
+  "project.analysisDescription": "视频及其逐帧片段",
+  "project.videoStats": "{frames} 帧 · {fps} fps · {width}×{height}",
+  "project.clipCount": "{count} 个片段",
+  "project.presentationDescription": "由片段和帧标记组成的独立播放列表",
+  "project.decks": "套演示文稿",
+  "presentation.confirmDelete": "确认删除",
+  "presentation.defaultName": "新演示文稿",
+  "presentation.empty": "暂无演示文稿。",
+  "presentation.nameInput": "新演示文稿名称",
+  "presentation.renameAria": "重命名 {name}",
+  "presentation.summary": "{count} 张幻灯片 · 更新于 {date}",
+  "presentation.untitled": "未命名演示文稿"
+  ,"player.activeRangesOne": "已启用 1 个范围"
+  ,"player.activeRangesMany": "已启用 {count} 个范围"
+  ,"player.backProject": "返回项目"
+  ,"player.backCapture": "返回采集播放器"
+  ,"player.cancelRetag": "取消重新标记"
+  ,"player.captured": "已在第 {start}–{end} 帧采集“{label}”。"
+  ,"player.clipReadErrorOne": "有 1 个片段文档无法读取。"
+  ,"player.clipReadErrorMany": "有 {count} 个片段文档无法读取。"
+  ,"player.clipsDescription": "选择片段可跳转。将片段拖到其他代码可重新标记。"
+  ,"player.deleted": "已删除“{label}”。"
+  ,"player.deleteClip": "删除片段"
+  ,"player.framePosition": "第 {frame} 帧 / 共 {lastFrame} 帧"
+  ,"player.lastCaptureRemoved": "已移除上次采集。"
+  ,"player.noVideo": "此项目尚未导入视频。"
+  ,"player.openEditor": "打开编辑器"
+  ,"player.pauseBeforeRetag": "请先暂停播放，再重新标记片段。"
+  ,"player.project": "项目"
+  ,"player.player": "播放器"
+  ,"player.rangeArmed": "“{label}”范围已从第 {frame} 帧开始。"
+  ,"player.rangeCanceled": "已取消“{label}”范围。"
+  ,"player.rangeCanceledOnVideoOne": "切换视频时取消了 1 个活动范围采集。"
+  ,"player.rangeCanceledOnVideoMany": "切换视频时取消了 {count} 个活动范围采集。"
+  ,"player.rangeCloseHint": "请移到第 {frame} 帧之后以结束“{label}”。"
+  ,"player.restored": "已恢复“{label}”。"
+  ,"player.retagCanceled": "已取消重新标记。"
+  ,"player.retagCanceledPlayback": "播放开始，因此已取消重新标记。"
+  ,"player.retagChoose": "请选择“{label}”的代码。"
+  ,"player.retagCleared": "已清除片段标签。"
+  ,"player.retagSaved": "片段已重新标记。"
+  ,"player.retagSelected": "重新标记所选片段"
+  ,"player.selectBeforeRetag": "请选择要重新标记的片段。"
+  ,"player.selectClipFirst": "进入重新标记模式前，请先选择片段。"
+  ,"player.selectVideo": "所选视频"
+  ,"player.undoCapture": "撤销采集"
+  ,"player.undoDelete": "撤销删除"
+  ,"player.untaggedClip": "无标签片段"
+  ,"tagBoard.appliedNext": "应用到下一个代码"
+  ,"tagBoard.cancelRange": "取消“{label}”范围"
+  ,"tagBoard.capture": "采集"
+  ,"tagBoard.capturePrompt": "在当前帧按下一个代码"
+  ,"tagBoard.fromFrame": "从 f{frame} 开始"
+  ,"tagBoard.modifiers": "修饰项"
+  ,"tagBoard.multiple": "可多选"
+  ,"tagBoard.range": "范围"
+  ,"tagBoard.requires": "需要 {requirements}"
+  ,"tagBoard.retag": "重新标记"
+  ,"tagBoard.retagPrompt": "重新标记所选片段"
+  ,"tagBoard.title": "标签面板"
+  ,"tagTree.empty": "使用标签面板采集第一个片段。"
+  ,"tagTree.frameRange": "f{start}–{end} · {count} 帧"
+  ,"tagTree.unknown": "未知标签"
+  ,"tagTree.untagged": "无标签"
+  ,"video.clipAria": "片段 {label}"
+  ,"video.clipTitle": "{label} · 第 {start}–{end} 帧"
+  ,"video.captureInProgress": "{label} · 从第 {start} 帧开始采集中"
+  ,"video.fullscreen": "全屏"
+  ,"video.loading": "正在加载…"
+  ,"video.pause": "暂停"
+  ,"video.play": "播放"
+  ,"video.skipBack": "向后跳转"
+  ,"video.skipForward": "向前跳转"
+  ,"video.stepBack": "后退一帧"
+  ,"video.stepBackTitle": "后退一帧"
+  ,"video.stepForward": "前进一帧"
+  ,"video.stepForwardTitle": "前进一帧"
+  ,"video.zoom": "缩放"
+  ,"annotation.calibrate": "自动校准"
+  ,"annotation.calibrating": "正在校准…"
+  ,"annotation.colors": "颜色"
+  ,"annotation.definePitch": "定义球场"
+  ,"annotation.definePitchHint": "依次点击四角：左上、右上、右下、左下"
+  ,"annotation.fill": "填充"
+  ,"annotation.fillColor": "标注填充颜色"
+  ,"annotation.fillOpacity": "填充不透明度"
+  ,"annotation.font": "字体大小"
+  ,"annotation.inspector": "检查器"
+  ,"annotation.linkColors": "链接描边和填充颜色"
+  ,"annotation.linkedColorsTitle": "描边与填充一起变化"
+  ,"annotation.manualHomography": "手动 H"
+  ,"annotation.showHomography": "显示 H"
+  ,"annotation.hideHomography": "隐藏 H"
+  ,"annotation.deleteHomography": "删除 H"
+  ,"pin.homographyDeleted": "已删除单应性。"
+  ,"pin.returnToFrame": "返回标记帧"
+  ,"clip.pinPopupBlocked": "请允许弹出窗口以打开标记编辑器。"
+  ,"clip.pinMissing": "标记已不存在。"
+  ,"clip.homographyDeleted": "已删除单应性。"
+  ,"clip.homographyProgress": "正在计算单应性"
+  ,"annotation.opacity": "不透明度"
+  ,"annotation.patternDashdot": "点划线"
+  ,"annotation.patternDashed": "虚线"
+  ,"annotation.patternDotted": "点线"
+  ,"annotation.patternSolid": "实线"
+  ,"annotation.radius": "半径"
+  ,"annotation.reset": "重置"
+  ,"annotation.retrySave": "重试保存"
+  ,"annotation.saveError": "保存错误"
+  ,"annotation.size": "字号"
+  ,"annotation.spread": "展开角度"
+  ,"annotation.stroke": "描边"
+  ,"annotation.strokeColor": "标注描边颜色"
+  ,"annotation.style": "样式"
+  ,"annotation.textHighlight": "文字高亮"
+  ,"annotation.unlinkColors": "取消链接描边和填充颜色"
+  ,"annotation.unlinkedColorsTitle": "描边与填充分别变化"
+  ,"annotation.width": "宽度"
+  ,"clip.addPin": "在 f{frame} 添加帧标记"
+  ,"clip.annotate": "标注"
+  ,"clip.annotationSetCountOne": "1 个标注集"
+  ,"clip.annotationSetCountMany": "{count} 个标注集"
+  ,"clip.clearRange": "清除范围"
+  ,"clip.computeHomography": "计算 H"
+  ,"clip.computingHomography": "正在计算 H…"
+  ,"clip.coordImage": "图像"
+  ,"clip.coordPitch": "球场"
+  ,"clip.currentSpan": "当前区段：{state}"
+  ,"clip.deleteKeyframe": "删除关键帧"
+  ,"clip.deleteObject": "删除对象（Shift+Delete）"
+  ,"clip.deletePin": "删除帧标记"
+  ,"clip.drawMode": "绘制：{mode}"
+  ,"clip.frame": "第 {frame} 帧"
+  ,"clip.frameHeader": "第 {start}–{end} 帧 · {fps} fps"
+  ,"clip.framePosition": "第 {frame} 帧 / 共 {lastFrame} 帧"
+  ,"clip.hideKeyframe": "隐藏关键帧"
+  ,"clip.homographyLoaded": "已载入 {count} 个单应性样本。"
+  ,"clip.homographyMinimum": "单应性计算至少需要两个源帧。"
+  ,"clip.importDocumentMissing": "未找到标注文档“{id}”。"
+  ,"clip.importResult": "已导入 {count} 个对象{skipped}。"
+  ,"clip.importSkipped": "；跳过 {count} 个"
+  ,"clip.keyframeCountOne": "1 个关键帧"
+  ,"clip.keyframeCountMany": "{count} 个关键帧"
+  ,"clip.keyframeDuplicate": "此对象在第 {frame} 帧已有关键帧。"
+  ,"clip.keyframeLocationRequired": "对象必须至少保留一个位置关键帧。"
+  ,"clip.keyframeOverlap": "显示/隐藏关键帧不能与位置关键帧位于同一帧。"
+  ,"clip.keyframeHere": "在此添加关键帧"
+  ,"clip.loading": "正在加载逐帧片段编辑器…"
+  ,"clip.markRangeEnd": "标记范围终点"
+  ,"clip.nextFrame": "下一帧"
+  ,"clip.noCorrection": "后面没有修正关键帧。"
+  ,"clip.noGeometry": "此对象在当前帧没有可见几何形状。"
+  ,"clip.noPinImport": "当前没有打开可供导入的帧标记。"
+  ,"clip.objectInspector": "对象检查器"
+  ,"clip.objectPrompt": "暂停播放，然后选择或绘制对象。"
+  ,"clip.openPin": "打开 f{frame} 的帧标记"
+  ,"clip.openedPin": "已打开第 {frame} 帧的帧标记。"
+  ,"clip.pinDeleted": "已删除第 {frame} 帧的帧标记。"
+  ,"clip.pinLabel": "帧标记名称"
+  ,"clip.pinLabelSaved": "帧标记名称已保存。"
+  ,"clip.pinRestored": "帧标记已恢复。"
+  ,"clip.pins": "帧标记"
+  ,"clip.playhead": "片段播放头"
+  ,"clip.previousFrame": "上一帧"
+  ,"clip.projectSaveUnavailable": "项目不可用于保存。"
+  ,"clip.recomputeHomography": "重新计算 H"
+  ,"clip.retrackRange": "重新跟踪到 f{frame}"
+  ,"clip.saveFailed": "保存失败"
+  ,"clip.saveLabel": "保存名称"
+  ,"clip.saved": "已保存"
+  ,"clip.saving": "正在保存…"
+  ,"clip.showKeyframe": "显示关键帧"
+  ,"clip.sidecar": "Sidecar {status}"
+  ,"clip.sidecarOffline": "Sidecar 离线"
+  ,"clip.source": "{coords} 坐标 · 来源：{source}"
+  ,"clip.source.auto": "自动"
+  ,"clip.source.corrected": "已修正"
+  ,"clip.source.manual": "手动"
+  ,"clip.trackCorrection": "跟踪到修正帧 f{frame}"
+  ,"clip.trackEnd": "跟踪到下一个关键帧/片段末尾"
+  ,"clip.trackedFrames": "已跟踪 {count} 个源帧。"
+  ,"clip.tracking": "正在跟踪…"
+  ,"clip.trackingHighlightOnly": "跟踪仅支持所选的球员高亮标注。"
+  ,"clip.trackingMinimum": "到下一个关键帧或片段末尾前至少需要两个源帧。"
+  ,"clip.trackingNoSeed": "所选球员高亮在当前帧没有种子几何形状。"
+  ,"clip.trackingRangeEndpoint": "请为范围另一端选择不同的帧。"
+  ,"clip.undoPinDelete": "撤销删除帧标记"
+  ,"clip.videoNotRegistered": "视频尚未向 sidecar 注册。"
+  ,"clip.showState.correction": "修正"
+  ,"clip.showState.lost": "丢失"
+  ,"clip.showState.manual": "手动"
+  ,"clip.showState.tracked": "已跟踪"
+  ,"pin.annotationCreated": "标注集已创建。"
+  ,"pin.annotationImported": "标注已导入动画片段图层。"
+  ,"pin.annotationMovedTrash": "标注集已移到废纸篓。"
+  ,"pin.annotationRestored": "标注集已恢复。"
+  ,"pin.atFrame": "帧标记 f{frame}"
+  ,"pin.autoCalibrateApplied": "已应用 PnLCalib。"
+  ,"pin.autoCalibrateFailed": "PnLCalib 未在此帧标记返回可用的单应性。"
+  ,"pin.close": "关闭帧标记"
+  ,"pin.closeShort": "关闭"
+  ,"pin.createDefault": "创建默认标注集"
+  ,"pin.defaultAnnotations": "默认标注"
+  ,"pin.deleteSet": "删除标注集"
+  ,"pin.editable": "位于帧标记帧；可编辑标注"
+  ,"pin.importClip": "导入片段"
+  ,"pin.lockedPreview": "预览第 {frame} 帧；标注已隐藏并锁定"
+  ,"pin.newSet": "新建标注集"
+  ,"pin.noSet": "此帧标记没有标注集。"
+  ,"pin.prepareFrame": "正在准备帧标记画面…"
+  ,"pin.preparePreview": "正在准备视频预览…"
+  ,"pin.previewHint": "按住 ← / → 可预览最多 5 秒 · 空格键返回"
+  ,"pin.set": "标注集"
+  ,"pin.setLabel": "标注集名称"
+  ,"pin.undoSetDelete": "撤销删除标注集"
+  ,"timeline.frameRange": "第 {frame} 帧 · 片段 {start}–{end}"
+  ,"timeline.horizontalZoom": "水平缩放"
+  ,"timeline.keyframeAria": "{type} 在第 {frame} 帧的关键帧"
+  ,"timeline.keyframeTitle": "{provenance}关键帧 · 第 {frame} 帧"
+  ,"timeline.keyframes": "关键帧"
+  ,"timeline.objects": "对象"
+  ,"timeline.pinAria": "第 {frame} 帧的帧标记"
+  ,"timeline.pinTitle": "{label} · 第 {frame} 帧"
+  ,"timeline.visibilityAria": "{action}关键帧位于第 {frame} 帧"
+  ,"timeline.visibilityTitle": "{action} · 第 {frame} 帧"
+  ,"timeline.zoom": "时间轴缩放"
+  ,"timeline.action.hide": "隐藏"
+  ,"timeline.action.show": "显示"
+  ,"timeline.provenance.correction": "修正"
+  ,"timeline.provenance.lost": "丢失"
+  ,"timeline.provenance.manual": "手动"
+  ,"timeline.provenance.tracked": "已跟踪"
+  ,"tool.arrow": "箭头"
+  ,"tool.box": "矩形"
+  ,"tool.circle": "圆形"
+  ,"tool.highlight": "球员高亮"
+  ,"tool.lob": "高球"
+  ,"tool.poly": "多边形"
+  ,"tool.select": "选择"
+  ,"tool.shadow": "防守覆盖阴影"
+  ,"tool.text": "文字"
+  ,"presentation.addSlideFirst": "请至少添加一张幻灯片后再演示。"
+  ,"presentation.addTitle": "添加标题"
+  ,"presentation.annotatedPinFrame": "已标注的帧标记画面"
+  ,"presentation.assets": "片段和帧标记"
+  ,"presentation.autoPause": "在每个帧标记处自动暂停"
+  ,"presentation.autoResume": "自动继续前的毫秒数（留空为手动）"
+  ,"presentation.back": "返回"
+  ,"presentation.body": "正文"
+  ,"presentation.chronological": "按时间顺序"
+  ,"presentation.clipSlide": "片段幻灯片"
+  ,"presentation.complete": "演示结束。"
+  ,"presentation.cut": "直接切换"
+  ,"presentation.deleteSlide": "删除幻灯片"
+  ,"presentation.dragClip": "将此片段拖入演示序列"
+  ,"presentation.dragEmpty": "将片段或帧标记拖入演示序列。"
+  ,"presentation.dragHere": "将片段或帧标记拖到这里"
+  ,"presentation.dragPin": "将此帧标记拖入演示序列"
+  ,"presentation.enterMs": "进入时间（毫秒）"
+  ,"presentation.exactReady": "精确演示媒体已准备就绪。"
+  ,"presentation.exit": "退出"
+  ,"presentation.exitMs": "退出时间（毫秒）"
+  ,"presentation.expandPins": "展开“{label}”的帧标记"
+  ,"presentation.collapsePins": "收起“{label}”的帧标记"
+  ,"presentation.hideTransitionAnnotations": "过渡期间隐藏标注"
+  ,"presentation.includeAllAnnotations": "包含所有标注集"
+  ,"presentation.inspector": "检查器"
+  ,"presentation.kind.clip": "片段"
+  ,"presentation.kind.pin": "帧标记"
+  ,"presentation.kind.title": "标题"
+  ,"presentation.loading": "正在加载演示文稿…"
+  ,"presentation.matchVideo": "比赛视频"
+  ,"presentation.validation.notMatchVideo": "该过渡不是比赛视频过渡。"
+  ,"presentation.validation.requiresPins": "比赛视频过渡需要两张帧标记幻灯片。"
+  ,"presentation.validation.missingPins": "一个或两个帧标记幻灯片不存在。"
+  ,"presentation.validation.sameVideo": "比赛视频过渡的两个帧标记必须属于同一视频。"
+  ,"presentation.validation.forward": "比赛视频过渡的帧标记必须按时间正向排列。"
+  ,"presentation.validation.emptyRange": "比赛视频偏移产生了空范围或超出帧标记范围。"
+  ,"presentation.validation.outsideVideo": "比赛视频范围超出了源视频。"
+  ,"presentation.sceneMissingTransition": "缺少过渡边。"
+  ,"presentation.sceneMissingSlide": "缺少幻灯片。"
+  ,"presentation.sceneMissingClip": "缺少片段：{id}"
+  ,"presentation.sceneMissingVideo": "缺少视频：{id}"
+  ,"presentation.sceneMissingPin": "缺少帧标记：{id}"
+  ,"presentation.name": "演示文稿名称"
+  ,"presentation.mediaProgress": "正在准备精确媒体 {current}/{total}…"
+  ,"presentation.mediaPreparing": "正在准备精确演示媒体…"
+  ,"presentation.mediaPreparingShort": "正在准备…"
+  ,"presentation.mediaUnavailable": "视频资源不可用：{id}"
+  ,"presentation.missingClip": "缺少片段：{id}"
+  ,"presentation.missingClipLabel": "缺少片段 · {id}"
+  ,"presentation.missingSlide": "缺少幻灯片"
+  ,"presentation.next": "下一张"
+  ,"presentation.noPins": "无帧标记"
+  ,"presentation.pausePreview": "暂停预览"
+  ,"presentation.pinFallback": "帧标记 f{frame} · {id}"
+  ,"presentation.pinSlide": "帧标记幻灯片"
+  ,"presentation.playPreview": "播放预览"
+  ,"presentation.playbackRate": "播放速度"
+  ,"presentation.present": "演示"
+  ,"presentation.previewHint": "将此片段或其中一个帧标记拖入演示序列以预览。"
+  ,"presentation.previous": "上一张"
+  ,"presentation.resumeFrom": "从“{label}”继续"
+  ,"presentation.saveFailed": "保存失败"
+  ,"presentation.saved": "已保存"
+  ,"presentation.saving": "正在保存…"
+  ,"presentation.selectSlide": "请选择幻灯片。"
+  ,"presentation.showPinAnnotations": "显示帧标记标注"
+  ,"presentation.slideHold": "幻灯片停留毫秒数"
+  ,"presentation.slidePosition": "第 {current} 张 / 共 {total} 张"
+  ,"presentation.sourceFrame": "演示源帧"
+  ,"presentation.speakerNotes": "演讲者备注"
+  ,"presentation.startOffset": "起始偏移帧"
+  ,"presentation.endOffset": "结束偏移帧"
+  ,"presentation.tags": "标签"
+  ,"presentation.template": "模板"
+  ,"presentation.templateDivider": "分隔页"
+  ,"presentation.templateSection": "章节页"
+  ,"presentation.templateTitle": "标题页"
+  ,"presentation.time": "时间"
+  ,"presentation.title": "标题"
+  ,"presentation.titleSlide": "标题幻灯片"
+  ,"presentation.transition": "过渡 {number}"
+  ,"presentation.transitionAfter": "后续过渡"
+  ,"presentation.transitionAfterAria": "幻灯片后的过渡"
+  ,"presentation.unsaved": "未保存"
+  ,"presentation.untitledSlide": "未命名"
+  ,"presentation.slideType.clip": "片段"
+  ,"presentation.slideType.pin": "帧标记"
+  ,"presentation.slideType.divider": "分隔页"
+  ,"presentation.slideType.section": "章节页"
+  ,"presentation.slideType.title": "标题页"
+  ,"metadata.addPlayer": "+ 添加球员"
+  ,"metadata.apiClear": "清除"
+  ,"metadata.apiKey": "API 密钥"
+  ,"metadata.apiKeyDescription": "API 密钥仅存储在此浏览器中，绝不会保存到项目文件。"
+  ,"metadata.apiKeyFree": "可在此免费获取密钥："
+  ,"metadata.apiKeyPlaceholder": "您的 football-data.org API 密钥"
+  ,"metadata.back": "← 返回"
+  ,"metadata.backHome": "返回首页"
+  ,"metadata.captain": "队长"
+  ,"metadata.captainShort": "队长"
+  ,"metadata.chooseTeamsheet": "选择文件（CSV、TSV 或 TXT）："
+  ,"metadata.coach": "教练"
+  ,"metadata.competition": "赛事"
+  ,"metadata.confirm": "确认（{count}）"
+  ,"metadata.confirmImport": "确认导入"
+  ,"metadata.date": "日期"
+  ,"metadata.duplicateNumber": "球衣号码重复"
+  ,"metadata.enterMatchId": "请输入有效的比赛 ID。"
+  ,"metadata.enterSeason": "请输入赛季年份。"
+  ,"metadata.failedDetails": "加载比赛详情失败。"
+  ,"metadata.formation": "阵型"
+  ,"metadata.formationPlaceholder": "例如：4-3-3"
+  ,"metadata.homeScore": "主队比分"
+  ,"metadata.awayScore": "客队比分"
+  ,"metadata.importMatch": "导入比赛信息"
+  ,"metadata.importTeamsheet": "导入球队名单"
+  ,"metadata.kickoff": "开球时间"
+  ,"metadata.kickoffPreview": "开球：{value}"
+  ,"metadata.lineupsUnavailable": "此场比赛的阵容尚不可用。"
+  ,"metadata.loadingDetails": "正在加载比赛详情…"
+  ,"metadata.matchDetails": "比赛详情"
+  ,"metadata.matchId": "比赛 ID"
+  ,"metadata.matchesFound": "找到 {count} 场比赛。请选择一场预览。"
+  ,"metadata.matchday": "比赛轮次（可选）"
+  ,"metadata.matchdayPlaceholder": "全部"
+  ,"metadata.modeCompetition": "按赛季/轮次"
+  ,"metadata.modeMatchId": "按比赛 ID"
+  ,"metadata.modeStage": "按阶段（杯赛）"
+  ,"metadata.name": "姓名"
+  ,"metadata.noMatches": "未找到符合条件的比赛。"
+  ,"metadata.noPlayers": "暂无球员。"
+  ,"metadata.noProject": "未打开项目。请返回并打开项目。"
+  ,"metadata.notes": "备注"
+  ,"metadata.notesPlaceholder": "自由填写比赛备注…"
+  ,"metadata.orPaste": "— 或在下方粘贴文本 —"
+  ,"metadata.parse": "解析"
+  ,"metadata.parseFailed": "未能从输入中解析出球员。请检查格式后重试。"
+  ,"metadata.pastePlaceholder": "在此粘贴球队名单，例如：\n1 A. 门将\n2 B. 后卫\n3 C. 中场\n...\n\n或带表头的 CSV：\nNumber,Name,Position\n1,A. 门将,GK"
+  ,"metadata.playersDetected": "检测到 {count} 名球员。可按需编辑，然后确认。"
+  ,"metadata.positionShort": "位置"
+  ,"metadata.previewCompetition": "赛事：{value}"
+  ,"metadata.previewDate": "日期：{value}"
+  ,"metadata.previewFormation": "阵型：{value}"
+  ,"metadata.previewCoach": "教练：{value}"
+  ,"metadata.previewReferee": "裁判：{value}"
+  ,"metadata.previewRound": "轮次：{value}"
+  ,"metadata.previewScore": "比分：{value}"
+  ,"metadata.previewSeason": "赛季：{value}"
+  ,"metadata.previewVenue": "场地：{value}"
+  ,"metadata.referee": "裁判"
+  ,"metadata.remove": "移除"
+  ,"metadata.removePlayer": "移除球员"
+  ,"metadata.reviewHint": "请核对以下数据，并在确认前选择要导入的部分。"
+  ,"metadata.round": "轮次"
+  ,"metadata.roundPlaceholder": "例如：第 22 轮"
+  ,"metadata.search": "搜索"
+  ,"metadata.searchFailed": "搜索失败。"
+  ,"metadata.searching": "正在搜索…"
+  ,"metadata.score": "比分"
+  ,"metadata.season": "赛季"
+  ,"metadata.seasonPlaceholder": "例如：2025-26"
+  ,"metadata.seasonYear": "赛季年份"
+  ,"metadata.seasonYearPlaceholder": "例如：2024"
+  ,"metadata.selectSeasonStage": "请选择赛季和阶段。"
+  ,"metadata.stage": "阶段"
+  ,"metadata.stage.final": "决赛"
+  ,"metadata.stage.group": "小组赛"
+  ,"metadata.stage.last16": "十六强"
+  ,"metadata.stage.quarter": "四分之一决赛"
+  ,"metadata.stage.semi": "半决赛"
+  ,"metadata.substitute": "替补"
+  ,"metadata.substituteShort": "替补"
+  ,"metadata.substitutions": "换人"
+  ,"metadata.substitutionsCount": "换人（{count}）"
+  ,"metadata.teamName": "{team}名称"
+  ,"metadata.teamTitle": "{team}"
+  ,"metadata.teamsheetTitle": "导入球队名单"
+  ,"metadata.venue": "比赛场地"
+  ,"metadata.venuePlaceholder": "例如：老特拉福德"
+}

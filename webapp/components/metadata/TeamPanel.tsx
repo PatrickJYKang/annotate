@@ -1,7 +1,8 @@
 "use client";
 import { useState } from "react";
-import type { TeamInfo, PlayerEntry } from "../../lib/types/project";
+import type { TeamInfo, PlayerEntry } from "../../lib/types/metadata";
 import TeamsheetImporter from "./TeamsheetImporter";
+import { useT } from "../../lib/i18n";
 
 function generateId(): string {
   return (globalThis.crypto && "randomUUID" in globalThis.crypto)
@@ -9,17 +10,16 @@ function generateId(): string {
     : `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-const inputCls = "bg-raised text-accent border border-border px-2 py-1.5 text-sm font-sans w-full";
-const labelCls = "flex flex-col gap-0.5 text-xs text-secondary";
 const cellCls = "bg-transparent text-accent border-0 border-b border-border px-0.5 py-1 text-xs font-sans w-full outline-none";
 
 type Props = {
-  label: "Home" | "Away";
+  label: string;
   team: TeamInfo;
   onChange: (next: TeamInfo) => void;
 };
 
 export default function TeamPanel({ label, team, onChange }: Props) {
+  const t = useT();
   const [importerOpen, setImporterOpen] = useState(false);
 
   const setField = (patch: Partial<TeamInfo>) => onChange({ ...team, ...patch });
@@ -61,39 +61,36 @@ export default function TeamPanel({ label, team, onChange }: Props) {
   }
 
   return (
-    <div className="panel">
-      <h3 className="mt-0 text-base font-bold">{label} Team</h3>
-
+    <section className="form-section min-w-0">
+      <h3 className="form-heading">{t('metadata.teamTitle', { team: label })}</h3>
       <div className="flex flex-col gap-2">
-        <label className={labelCls}>
-          Name
+        <label className="field">
+          {t('metadata.name')}
           <input
             type="text"
             value={team.name ?? ""}
             onChange={(e) => setField({ name: e.target.value || null })}
-            placeholder={`${label} team name`}
-            className={inputCls}
+            className="w-full"
           />
         </label>
 
         <div className="grid grid-cols-2 gap-2">
-          <label className={labelCls}>
-            Coach
+          <label className="field">
+            {t('metadata.coach')}
             <input
               type="text"
               value={team.coach ?? ""}
               onChange={(e) => setField({ coach: e.target.value || null })}
-              className={inputCls}
+              className="w-full"
             />
           </label>
-          <label className={labelCls}>
-            Formation
+          <label className="field">
+            {t('metadata.formation')}
             <input
               type="text"
               value={team.formation ?? ""}
               onChange={(e) => setField({ formation: e.target.value || null })}
-              placeholder="e.g. 4-3-3"
-              className={inputCls}
+              className="w-full"
             />
           </label>
         </div>
@@ -101,8 +98,8 @@ export default function TeamPanel({ label, team, onChange }: Props) {
 
       {/* Import button */}
       <div className="mt-2.5 mb-1.5">
-        <button onClick={() => setImporterOpen(true)} className="text-xs px-2.5 py-1">
-          Import teamsheet
+        <button className="button-quiet text-xs" onClick={() => setImporterOpen(true)}>
+          {t('metadata.importTeamsheet')}
         </button>
       </div>
 
@@ -112,10 +109,10 @@ export default function TeamPanel({ label, team, onChange }: Props) {
           <thead>
             <tr className="text-secondary text-left">
               <th className="w-10 px-0.5 py-1">#</th>
-              <th className="px-0.5 py-1">Name</th>
-              <th className="w-15 px-0.5 py-1">Pos</th>
-              <th className="w-7 px-0.5 py-1 text-center">C</th>
-              <th className="w-7 px-0.5 py-1 text-center">S</th>
+              <th className="px-0.5 py-1">{t('metadata.name')}</th>
+              <th className="w-15 px-0.5 py-1">{t('metadata.positionShort')}</th>
+              <th className="w-7 px-0.5 py-1 text-center">{t('metadata.captainShort')}</th>
+              <th className="w-7 px-0.5 py-1 text-center">{t('metadata.substituteShort')}</th>
               <th className="w-7" />
             </tr>
           </thead>
@@ -139,7 +136,7 @@ export default function TeamPanel({ label, team, onChange }: Props) {
                     }`}
                     title={
                       p.number != null && duplicateNumbers.has(p.number)
-                        ? "Duplicate shirt number"
+                        ? t('metadata.duplicateNumber')
                         : undefined
                     }
                   />
@@ -167,7 +164,7 @@ export default function TeamPanel({ label, team, onChange }: Props) {
                     type="checkbox"
                     checked={!!p.isCaptain}
                     onChange={(e) => updatePlayer(i, { isCaptain: e.target.checked || undefined })}
-                    title="Captain"
+                    title={t('metadata.captain')}
                   />
                 </td>
                 <td className="text-center">
@@ -175,14 +172,14 @@ export default function TeamPanel({ label, team, onChange }: Props) {
                     type="checkbox"
                     checked={!!p.isSubstitute}
                     onChange={(e) => updatePlayer(i, { isSubstitute: e.target.checked || undefined })}
-                    title="Substitute"
+                    title={t('metadata.substitute')}
                   />
                 </td>
                 <td>
                   <button
                     onClick={() => removePlayer(i)}
                     className="bg-transparent border-0 text-danger cursor-pointer text-sm px-1"
-                    title="Remove player"
+                    title={t('metadata.removePlayer')}
                   >
                     ×
                   </button>
@@ -195,18 +192,16 @@ export default function TeamPanel({ label, team, onChange }: Props) {
 
       <button
         onClick={addPlayer}
-        className="mt-1.5 text-xs px-2.5 py-1"
+        className="button-quiet mt-1.5 text-xs"
       >
-        + Add player
+        {t('metadata.addPlayer')}
       </button>
-
-      {/* Teamsheet importer modal */}
       {importerOpen && (
         <TeamsheetImporter
           onImport={handleImport}
           onCancel={() => setImporterOpen(false)}
         />
       )}
-    </div>
+    </section>
   );
 }

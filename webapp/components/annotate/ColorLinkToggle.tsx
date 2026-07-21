@@ -1,5 +1,7 @@
 "use client";
 
+import { useT } from '../../lib/i18n';
+
 type ColorLinkToggleProps = {
   linked: boolean;
   onToggle: () => void;
@@ -13,12 +15,13 @@ export default function ColorLinkToggle({
   disabled,
   className = "",
 }: ColorLinkToggleProps) {
+  const t = useT();
   return (
     <button
       type="button"
-      aria-label={linked ? "Unlink stroke and fill colors" : "Link stroke and fill colors"}
+      aria-label={linked ? t('annotation.unlinkColors') : t('annotation.linkColors')}
       aria-pressed={linked}
-      title={linked ? "Stroke and fill change together" : "Stroke and fill change separately"}
+      title={linked ? t('annotation.linkedColorsTitle') : t('annotation.unlinkedColorsTitle')}
       onClick={onToggle}
       disabled={disabled}
       className={`inline-flex h-7 w-7 items-center justify-center border border-border p-0 disabled:cursor-not-allowed disabled:opacity-50 ${

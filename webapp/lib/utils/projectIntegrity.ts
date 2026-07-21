@@ -1,277 +1,330 @@
-import type { ProjectManifestV1 } from "../types/project";
+import { parseAnnotations } from '../types/annotations';
+import type { ClipPin, Clip, PinAnnotationRef } from '../types/clip';
+import type { PresentationSlide, Presentation } from '../types/presentation';
+import type { ProjectManifest } from '../types/project';
+import { listClips } from '../fs/clipStorage';
+import {
+  getDirectoryPath,
+  isNotFoundError,
+  pathExists,
+  readTextFile,
+  splitSafeRelativePath,
+} from '../fs/fsAccess';
+import { listPresentations } from '../fs/presentationStorage';
 
-type ProjectMark = ProjectManifestV1["marks"][number];
-type ProjectStill = ProjectManifestV1["stills"][number];
+export type ProjectIntegritySeverity = 'error' | 'warning';
 
-export type ManifestRepairIssue =
-  | {
-      kind: "duplicate_mark_timestamp";
-      videoId: string;
-      t_ms: number;
-      markIds: string[];
-    }
-  | {
-      kind: "duplicate_still_timestamp";
-      videoId: string;
-      t_ms: number;
-      stillIds: string[];
-    }
-  | {
-      kind: "unresolved_still_source_mark";
-      stillId: string;
-      videoId: string;
-      t_ms: number;
-      sourceMarkId: string | null;
-    };
+export type ProjectIntegrityCode =
+  | 'clip-read-error'
+  | 'presentation-read-error'
+  | 'missing-video-file'
+  | 'unresolved-clip-video'
+  | 'missing-annotation-document'
+  | 'invalid-annotation-document'
+  | 'annotation-anchor-mismatch'
+  | 'orphan-annotation-document'
+  | 'unresolved-presentation-clip'
+  | 'unresolved-presentation-pin'
+  | 'unresolved-presentation-annotation'
+  | 'invalid-presentation-cue'
+  | 'invalid-match-video-transition';
 
-export type ManifestRepairResult = {
-  manifest: ProjectManifestV1;
-  changed: boolean;
-  issues: ManifestRepairIssue[];
-};
-
-export function isBlockingManifestIssue(issue: ManifestRepairIssue): boolean {
-  return issue.kind !== "duplicate_still_timestamp";
+export interface ProjectIntegrityIssue {
+  severity: ProjectIntegritySeverity;
+  code: ProjectIntegrityCode;
+  path: string;
+  message: string;
 }
 
-function keyFor(videoId: string, t_ms: number) {
-  return `${videoId}::${t_ms}`;
+export interface ProjectIntegrityReport {
+  ok: boolean;
+  issues: ProjectIntegrityIssue[];
+  clips: Clip[];
+  presentations: Presentation[];
 }
 
-function normalizeSourceMarkId(sourceMarkId: unknown): string | null {
-  return typeof sourceMarkId === "string" && sourceMarkId.trim().length > 0 ? sourceMarkId : null;
+function issue(
+  issues: ProjectIntegrityIssue[],
+  severity: ProjectIntegritySeverity,
+  code: ProjectIntegrityCode,
+  path: string,
+  message: string,
+): void {
+  issues.push({ severity, code, path, message });
 }
 
-function createBackfilledMarkId(stillId: string, markById: Map<string, ProjectMark>): string {
-  const baseId = `mark_backfill_${stillId}`;
-  if (!markById.has(baseId)) {
-    return baseId;
-  }
-  let suffix = 2;
-  let nextId = `${baseId}_${suffix}`;
-  while (markById.has(nextId)) {
-    suffix += 1;
-    nextId = `${baseId}_${suffix}`;
-  }
-  return nextId;
+function pinById(clip: Clip, pinId: string): ClipPin | null {
+  return clip.pins.find((pin) => pin.id === pinId) ?? null;
 }
 
-export function findMarkAtTimestamp(
-  marks: ProjectManifestV1["marks"],
-  videoId: string,
-  t_ms: number,
-  excludeMarkId?: string | null,
-): ProjectMark | null {
-  for (const mark of marks) {
-    if (mark.videoId !== videoId) continue;
-    if (mark.t_ms !== t_ms) continue;
-    if (excludeMarkId && mark.id === excludeMarkId) continue;
-    return mark;
-  }
-  return null;
+function annotationRefById(pin: ClipPin, annotationId: string): PinAnnotationRef | null {
+  return pin.annotations.find((annotation) => annotation.id === annotationId) ?? null;
 }
 
-export function hasDuplicateMarkTimestamp(
-  marks: ProjectManifestV1["marks"],
-  videoId: string,
-  t_ms: number,
-  excludeMarkId?: string | null,
-): boolean {
-  return findMarkAtTimestamp(marks, videoId, t_ms, excludeMarkId) !== null;
+function selectedAnnotationIds(pin: ClipPin, selected: string[] | null | undefined): Set<string> {
+  return new Set(selected === null || selected === undefined
+    ? pin.annotations.map((annotation) => annotation.id)
+    : selected);
 }
 
-export function findStillAtTimestamp(
-  stills: ProjectManifestV1["stills"],
-  videoId: string,
-  t_ms: number,
-  excludeStillId?: string | null,
-): ProjectStill | null {
-  for (const still of stills) {
-    if (still.videoId !== videoId) continue;
-    if (still.t_ms !== t_ms) continue;
-    if (excludeStillId && still.id === excludeStillId) continue;
-    return still;
-  }
-  return null;
-}
-
-export function hasDuplicateStillTimestamp(
-  stills: ProjectManifestV1["stills"],
-  videoId: string,
-  t_ms: number,
-  excludeStillId?: string | null,
-): boolean {
-  return findStillAtTimestamp(stills, videoId, t_ms, excludeStillId) !== null;
-}
-
-export function findLinkedStillsForMark(
-  stills: ProjectManifestV1["stills"],
-  markId: string,
-): ProjectStill[] {
-  return stills.filter((still) => normalizeSourceMarkId(still.sourceMarkId) === markId);
-}
-
-export function findCanonicalStillForMark(
-  manifest: ProjectManifestV1,
-  markId: string,
-): ProjectStill | null {
-  const mark = manifest.marks.find((entry) => entry.id === markId);
-  if (!mark) return null;
-  const linked = findLinkedStillsForMark(manifest.stills, markId);
-  if (linked.length === 0) return null;
-  return [...linked].sort((a, b) => {
-    const aExact = a.t_ms === mark.t_ms ? 0 : 1;
-    const bExact = b.t_ms === mark.t_ms ? 0 : 1;
-    if (aExact !== bExact) return aExact - bExact;
-    const aDist = Math.abs(a.t_ms - mark.t_ms);
-    const bDist = Math.abs(b.t_ms - mark.t_ms);
-    if (aDist !== bDist) return aDist - bDist;
-    if (a.t_ms !== b.t_ms) return a.t_ms - b.t_ms;
-    return a.id.localeCompare(b.id);
-  })[0];
-}
-
-export function repairManifestIntegrity(manifest: ProjectManifestV1): ManifestRepairResult {
-  const issues: ManifestRepairIssue[] = [];
-  const markIdsByTimestamp = new Map<string, string[]>();
-  const stillIdsByTimestamp = new Map<string, string[]>();
-  const markById = new Map<string, ProjectMark>();
-  const nextMarks = [...manifest.marks];
-
-  for (const mark of manifest.marks) {
-    markById.set(mark.id, mark);
-    const key = keyFor(mark.videoId, mark.t_ms);
-    const ids = markIdsByTimestamp.get(key);
-    if (ids) {
-      ids.push(mark.id);
-    } else {
-      markIdsByTimestamp.set(key, [mark.id]);
+function checkAnnotationSelection(
+  issues: ProjectIntegrityIssue[],
+  path: string,
+  pin: ClipPin,
+  annotationIds: string[] | null | undefined,
+  cueIds: readonly string[],
+): void {
+  const effective = selectedAnnotationIds(pin, annotationIds);
+  for (const annotationId of effective) {
+    if (!annotationRefById(pin, annotationId)) {
+      issue(
+        issues,
+        'warning',
+        'unresolved-presentation-annotation',
+        path,
+        `Annotation "${annotationId}" does not resolve on pin "${pin.id}".`,
+      );
     }
   }
+  for (const annotationId of cueIds) {
+    if (!effective.has(annotationId) || !annotationRefById(pin, annotationId)) {
+      issue(
+        issues,
+        'warning',
+        'invalid-presentation-cue',
+        path,
+        `Annotation cue "${annotationId}" is not in the slide's effective annotation set.`,
+      );
+    }
+  }
+}
 
-  const uniqueMarkByTimestamp = new Map<string, ProjectMark>();
-  for (const mark of manifest.marks) {
-    const key = keyFor(mark.videoId, mark.t_ms);
-    const ids = markIdsByTimestamp.get(key) ?? [];
-    if (ids.length === 1) {
-      uniqueMarkByTimestamp.set(key, mark);
+async function checkClipAnnotationDocuments(
+  projectDir: FileSystemDirectoryHandle,
+  clip: Clip,
+  issues: ProjectIntegrityIssue[],
+): Promise<void> {
+  const expectedFiles = new Set<string>();
+  for (const pin of clip.pins) {
+    for (const reference of pin.annotations) {
+      expectedFiles.add(reference.file);
+      const path = ['analysis', 'clips', clip.id, ...splitSafeRelativePath(reference.file)];
+      let raw: unknown;
+      try {
+        raw = JSON.parse(await readTextFile(projectDir, path));
+      } catch (error) {
+        issue(
+          issues,
+          isNotFoundError(error) ? 'warning' : 'error',
+          isNotFoundError(error) ? 'missing-annotation-document' : 'invalid-annotation-document',
+          path.join('/'),
+          isNotFoundError(error)
+            ? `Annotation document "${reference.file}" is missing.`
+            : error instanceof Error ? error.message : String(error),
+        );
+        continue;
+      }
+      try {
+        const document = parseAnnotations(raw);
+        if (
+          document.annotationId !== reference.id
+          || document.clipId !== clip.id
+          || document.pinId !== pin.id
+          || document.frame !== pin.frame
+        ) {
+          issue(
+            issues,
+            'error',
+            'annotation-anchor-mismatch',
+            path.join('/'),
+            `Annotation document anchor does not match ${clip.id}/${pin.id}@${pin.frame}.`,
+          );
+        }
+      } catch (error) {
+        issue(
+          issues,
+          'error',
+          'invalid-annotation-document',
+          path.join('/'),
+          error instanceof Error ? error.message : String(error),
+        );
+      }
     }
   }
 
-  for (const [key, markIds] of markIdsByTimestamp.entries()) {
-    if (markIds.length < 2) continue;
-    const [videoId, tMsRaw] = key.split("::");
-    issues.push({
-      kind: "duplicate_mark_timestamp",
-      videoId,
-      t_ms: Number(tMsRaw),
-      markIds: [...markIds],
-    });
+  let annotationsDirectory: FileSystemDirectoryHandle;
+  try {
+    annotationsDirectory = await getDirectoryPath(projectDir, ['analysis', 'clips', clip.id, 'annotations'], false);
+  } catch (error) {
+    if (isNotFoundError(error)) return;
+    throw error;
   }
-
-  for (const still of manifest.stills) {
-    const key = keyFor(still.videoId, still.t_ms);
-    const ids = stillIdsByTimestamp.get(key);
-    if (ids) {
-      ids.push(still.id);
-    } else {
-      stillIdsByTimestamp.set(key, [still.id]);
+  for await (const [name, handle] of annotationsDirectory.entries()) {
+    const relativePath = `annotations/${name}`;
+    if (handle.kind !== 'file' || !expectedFiles.has(relativePath)) {
+      issue(
+        issues,
+        'warning',
+        'orphan-annotation-document',
+        `analysis/clips/${clip.id}/${relativePath}`,
+        `Unreferenced annotation entry "${relativePath}" exists in clip "${clip.id}".`,
+      );
     }
   }
+}
 
-  for (const [key, stillIds] of stillIdsByTimestamp.entries()) {
-    if (stillIds.length < 2) continue;
-    const [videoId, tMsRaw] = key.split("::");
-    issues.push({
-      kind: "duplicate_still_timestamp",
-      videoId,
-      t_ms: Number(tMsRaw),
-      stillIds: [...stillIds],
-    });
-  }
+function resolveSlidePin(
+  slide: PresentationSlide,
+  clips: Map<string, Clip>,
+): { clip: Clip; pin: ClipPin } | null {
+  if (slide.kind !== 'pin') return null;
+  const clip = clips.get(slide.clipId);
+  const pin = clip ? pinById(clip, slide.pinId) : null;
+  return clip && pin ? { clip, pin } : null;
+}
 
-  let changed = false;
-  const nextStills = manifest.stills.map((still) => {
-    const normalizedSourceMarkId = normalizeSourceMarkId(still.sourceMarkId);
-    const currentSourceMark = normalizedSourceMarkId ? markById.get(normalizedSourceMarkId) ?? null : null;
-    const sourceMarkValid = !!currentSourceMark && currentSourceMark.videoId === still.videoId;
-
-    if (sourceMarkValid && normalizedSourceMarkId === still.sourceMarkId) {
-      return still;
+function checkPresentation(
+  presentation: Presentation,
+  clips: Map<string, Clip>,
+  videoIdsByClip: Map<string, string>,
+  issues: ProjectIntegrityIssue[],
+): void {
+  presentation.slides.forEach((slide, slideIndex) => {
+    const path = `presentations/${presentation.id}.json/slides[${slideIndex}]`;
+    if (slide.kind === 'title') return;
+    const clip = clips.get(slide.clipId);
+    if (!clip) {
+      issue(issues, 'warning', 'unresolved-presentation-clip', path, `Clip "${slide.clipId}" is missing.`);
+      return;
+    }
+    if (slide.kind === 'pin') {
+      const pin = pinById(clip, slide.pinId);
+      if (!pin) {
+        issue(issues, 'warning', 'unresolved-presentation-pin', path, `Pin "${slide.pinId}" is missing.`);
+        return;
+      }
+      checkAnnotationSelection(
+        issues,
+        path,
+        pin,
+        slide.annotationIds,
+        (slide.annotationCues ?? []).map((cue) => cue.annotationId),
+      );
+      return;
     }
 
-    const exactKey = keyFor(still.videoId, still.t_ms);
-    const exactMarkIds = markIdsByTimestamp.get(exactKey) ?? [];
-    const exactMark = uniqueMarkByTimestamp.get(exactKey) ?? null;
-    let repairedSourceMarkId = sourceMarkValid
-      ? normalizedSourceMarkId
-      : exactMark?.id ?? null;
-
-    if (!repairedSourceMarkId && exactMarkIds.length === 0) {
-      const backfilledMark: ProjectMark = {
-        id: createBackfilledMarkId(still.id, markById),
-        videoId: still.videoId,
-        t_ms: still.t_ms,
-      };
-      nextMarks.push(backfilledMark);
-      markById.set(backfilledMark.id, backfilledMark);
-      markIdsByTimestamp.set(exactKey, [backfilledMark.id]);
-      uniqueMarkByTimestamp.set(exactKey, backfilledMark);
-      repairedSourceMarkId = backfilledMark.id;
-      changed = true;
+    const effectivePinIds = new Set(slide.pausePins === null
+      ? clip.pins.map((pin) => pin.id)
+      : slide.pausePins);
+    for (const pinId of effectivePinIds) {
+      if (!pinById(clip, pinId)) {
+        issue(issues, 'warning', 'unresolved-presentation-pin', path, `Pause pin "${pinId}" is missing.`);
+      }
     }
-
-    const sameAsStored = repairedSourceMarkId === normalizeSourceMarkId(still.sourceMarkId)
-      && (repairedSourceMarkId !== null || still.sourceMarkId === null);
-
-    if (!sameAsStored || !("sourceMarkId" in still)) {
-      changed = true;
+    for (const cue of slide.pauseCues ?? []) {
+      const pin = pinById(clip, cue.pinId);
+      if (!pin || !effectivePinIds.has(cue.pinId)) {
+        issue(
+          issues,
+          'warning',
+          'invalid-presentation-cue',
+          path,
+          `Pause cue pin "${cue.pinId}" is not in the slide's effective pin set.`,
+        );
+        continue;
+      }
+      checkAnnotationSelection(
+        issues,
+        path,
+        pin,
+        cue.annotationIds,
+        (cue.annotationCues ?? []).map((annotationCue) => annotationCue.annotationId),
+      );
     }
-
-    if (!repairedSourceMarkId) {
-      issues.push({
-        kind: "unresolved_still_source_mark",
-        stillId: still.id,
-        videoId: still.videoId,
-        t_ms: still.t_ms,
-        sourceMarkId: normalizedSourceMarkId,
-      });
-    }
-
-    return {
-      ...still,
-      sourceMarkId: repairedSourceMarkId,
-    };
   });
 
-  if (!changed) {
-    return { manifest, changed: false, issues };
+  presentation.transitions.forEach((transition, transitionIndex) => {
+    if (transition.mode !== 'match_video') return;
+    const path = `presentations/${presentation.id}.json/transitions[${transitionIndex}]`;
+    const left = resolveSlidePin(presentation.slides[transitionIndex], clips);
+    const right = resolveSlidePin(presentation.slides[transitionIndex + 1], clips);
+    if (!left || !right) {
+      issue(
+        issues,
+        'warning',
+        'invalid-match-video-transition',
+        path,
+        'Match-video transitions require two resolving pin slides.',
+      );
+      return;
+    }
+    const sameVideo = videoIdsByClip.get(left.clip.id) === videoIdsByClip.get(right.clip.id);
+    const startFrame = left.pin.frame + (transition.startOffsetFrames ?? 0);
+    const endFrame = right.pin.frame + (transition.endOffsetFrames ?? 0);
+    if (!sameVideo || endFrame <= startFrame) {
+      issue(
+        issues,
+        'warning',
+        'invalid-match-video-transition',
+        path,
+        'Match-video pins must be forward ordered on the same video with a non-empty trimmed range.',
+      );
+    }
+  });
+}
+
+export async function checkProjectIntegrity(
+  projectDir: FileSystemDirectoryHandle,
+  manifest: ProjectManifest,
+): Promise<ProjectIntegrityReport> {
+  const issues: ProjectIntegrityIssue[] = [];
+  const clipResult = await listClips(projectDir);
+  const presentationResult = await listPresentations(projectDir);
+
+  clipResult.errors.forEach((entry) => {
+    issue(issues, 'error', 'clip-read-error', `analysis/clips/${entry.clipId}`, entry.error.message);
+  });
+  presentationResult.errors.forEach((entry) => {
+    issue(
+      issues,
+      'error',
+      'presentation-read-error',
+      `presentations/${entry.presentationId}.json`,
+      entry.error.message,
+    );
+  });
+
+  for (const video of manifest.videos) {
+    if (!(await pathExists(projectDir, splitSafeRelativePath(video.file), 'file'))) {
+      issue(issues, 'error', 'missing-video-file', video.file, `Video file "${video.file}" is missing.`);
+    }
+  }
+  const videos = new Set(manifest.videos.map((video) => video.id));
+  for (const clip of clipResult.clips) {
+    if (!videos.has(clip.videoId)) {
+      issue(
+        issues,
+        'error',
+        'unresolved-clip-video',
+        `analysis/clips/${clip.id}/clip.json`,
+        `Clip videoId "${clip.videoId}" does not resolve.`,
+      );
+    }
+    await checkClipAnnotationDocuments(projectDir, clip, issues);
+  }
+
+  const clips = new Map(clipResult.clips.map((clip) => [clip.id, clip]));
+  const videoIdsByClip = new Map(clipResult.clips.map((clip) => [clip.id, clip.videoId]));
+  for (const presentation of presentationResult.presentations) {
+    checkPresentation(presentation, clips, videoIdsByClip, issues);
   }
 
   return {
-    manifest: {
-      ...manifest,
-      marks: nextMarks,
-      stills: nextStills,
-    },
-    changed: true,
+    ok: !issues.some((entry) => entry.severity === 'error'),
     issues,
+    clips: clipResult.clips,
+    presentations: presentationResult.presentations,
   };
 }
 
-export function summarizeManifestRepairIssues(issues: ManifestRepairIssue[], maxItems = 3): string {
-  if (issues.length === 0) return "";
-  const lines = issues.slice(0, Math.max(1, maxItems)).map((issue) => {
-    if (issue.kind === "duplicate_mark_timestamp") {
-      return `Duplicate marks at ${issue.videoId} ${issue.t_ms}ms: ${issue.markIds.join(", ")}`;
-    }
-    if (issue.kind === "duplicate_still_timestamp") {
-      return `Duplicate stills at ${issue.videoId} ${issue.t_ms}ms: ${issue.stillIds.join(", ")}`;
-    }
-    return `Still ${issue.stillId} at ${issue.videoId} ${issue.t_ms}ms could not be linked to a mark`;
-  });
-  if (issues.length > lines.length) {
-    lines.push(`+${issues.length - lines.length} more issue(s)`);
-  }
-  return lines.join("; ");
-}
+export const checkProjectOnOpen = checkProjectIntegrity;

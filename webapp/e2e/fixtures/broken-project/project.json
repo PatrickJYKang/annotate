@@ -1,0 +1,17 @@
+{
+  "schema": "project.v2",
+  "name": "Broken integrity fixture",
+  "created": "2026-07-11T00:00:00.000Z",
+  "videos": [
+    {
+      "id": "video-main",
+      "label": "Retrieval sample",
+      "file": "media/retrieval-sample.mp4",
+      "fps": 25,
+      "frameCount": 50,
+      "frameCountSource": "probe",
+      "width": 640,
+      "height": 360
+    }
+  ]
+}

@@ -6,14 +6,17 @@ estimation, and video export encoding.
 
 ## Current scope note
 
-This sidecar now actively backs the clip-analysis workflow in the webapp:
+This sidecar actively backs the frame-native project and clip workflows:
 
+- `/video/normalize/start` supplies authoritative per-video metadata and chooses
+  preserve, remux, or transcode for every v2 video import
 - `/track` is the live highlight-driven player-tracking path
 - `/homography` is the live clip homography path on vendored `PnLCalib`
-- `/segment` powers paused-frame foreground occlusion
 - `/derived-media/exact-motion` continues to power presentation playback media
 
-The clip CV paths are no longer just parked code in the repository.
+`/segment` and the generic `/export/*` session API remain implemented and
+tested service boundaries, but the canonical v2 UI does not currently expose
+foreground compositing or clip MP4 export.
 
 ## Requirements
 
@@ -37,7 +40,7 @@ pip install -r requirements.lock.txt
 pip install git+https://github.com/ChaoningZhang/MobileSAM.git
 ```
 
-> **Note:** `requirements.lock.txt` pins the 0.1 pre-release environment. Use
+> **Note:** `requirements.lock.txt` pins the verified application environment. Use
 > `requirements.txt` only when intentionally refreshing dependency versions.
 >
 > Tracking now depends on `supervision`, and homography now depends on
@@ -83,7 +86,12 @@ Relative `videoPath` values are rejected.
 | `DELETE` | `/export/{id}`      | Clean up export session              |
 | `POST`   | `/derived-media/exact-motion` | Encode exact video segment for presentation playback |
 | `POST`   | `/video/register`   | Upload video file and get `videoRef` |
-| `POST`   | `/video/normalize`  | Transcode uploaded video to project FPS/resolution |
+| `POST`   | `/video/normalize`  | Compatibility synchronous normalization endpoint |
+| `POST`   | `/video/normalize/start` | Upload video and start a smart background import job |
+| `GET`    | `/video/normalize/{jobId}` | Poll analyze/remux/transcode/probe progress and metadata |
+| `GET`    | `/video/normalize/{jobId}/file` | Download a remux/transcode result and clean up the job |
+| `DELETE` | `/video/normalize/{jobId}` | Acknowledge preserve, or cancel and clean up an import job |
+| `POST`   | `/video/probe`      | Count frames and return authoritative FPS/dimensions without normalizing |
 | `DELETE` | `/video/{videoRef}` | Unregister a temporary uploaded video |
 
 ## Architecture
@@ -101,13 +109,14 @@ annotate_sidecar/
     homography.py          # POST /homography
     export.py              # Export endpoints
     derived_media.py       # POST /derived-media/exact-motion
-    video.py               # Video register/unregister endpoints
+    video.py               # Video register, smart import, probe, and cleanup
   services/
     frame_extractor.py     # cv2.VideoCapture → frames by ms
     tracker.py             # annotate-owned tracking adapter / response shaping
     segmenter.py           # YOLO + MobileSAM wrapper
     calibration/           # PnLCalib-backed range adapter + public response types
     encoder.py             # ffmpeg MP4 encoding
+    video_probe.py         # fast container count, packet count, decode fallback
   vendor/
     trackers/              # Vendored trackers primitives (OC-SORT + PnLCalib)
   models/                  # Optional local model cache (gitignored)
@@ -117,7 +126,7 @@ annotate_sidecar/
 
 Tracking defaults are centralized in:
 
-- [tracking.py](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/config/tracking.py)
+- [`annotate_sidecar/config/tracking.py`](annotate_sidecar/config/tracking.py)
 
 Current ownership stance:
 
@@ -146,13 +155,44 @@ Optional sidecar-level environment overrides:
 - `ANNOTATE_TRACKING_HIGH_CONF_THRESHOLD`
 - `ANNOTATE_TRACKING_DELTA_T`
 
+## Video import
+
+The v2 webapp uses the background job endpoints rather than the blocking
+compatibility route. Each video retains its own authoritative FPS and
+resolution. The job selects the least destructive path:
+
+- compatible CFR H.264/yuv420p MP4 is `preserve`d without FFmpeg encoding;
+- compatible CFR H.264 in another container is `remux`ed without video
+  re-encoding; and
+- variable-frame-rate or incompatible media is `transcode`d to CFR H.264 at
+  its source FPS and dimensions.
+
+The browser reports upload and result-download bytes; FFmpeg operations report
+processed media time. For preserve, the browser writes its original `File`
+directly into the project and acknowledges the sidecar job with `DELETE`.
+Authoritative probing first accepts positive container `nb_frames`; only files
+without it incur a packet scan, followed by explicit decoding as a last resort.
+
+On macOS, `auto` mode prefers the FFmpeg `h264_videotoolbox` encoder, moving
+H.264 encoding onto Apple media hardware. Other systems, or a failed hardware
+attempt, use `libx264` with the `veryfast` preset and at most four threads.
+The filter graph is separately capped at two threads, long-operation timeouts
+scale with media duration, and the sidecar runs at most one import job at a
+time.
+
+Optional overrides:
+
+- `ANNOTATE_NORMALIZE_ENCODER=auto|h264_videotoolbox|libx264`
+- `ANNOTATE_NORMALIZE_THREADS=<1-16>` (software fallback; default `4` or the
+  machine's lower CPU count)
+
 ## Homography calibration
 
 Homography now follows the same ownership pattern as tracking:
 
 - `annotate` sidecar owns the app-facing `/homography` contract and clip-range extraction
 - the calibration layer lives under
-  [services/calibration](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/services/calibration)
+  [`annotate_sidecar/services/calibration/`](annotate_sidecar/services/calibration/)
 - the only active provider is the vendored trackers `PnLCalibProvider`
 - smoothing/interpolation happens inside the vendored provider config, then results are adapted back into annotate's cached frame format
 
@@ -169,8 +209,9 @@ Current clip-side coexistence rule:
 
 ## Hardware
 
-- **CPU-only** works for all features. Tracking and segmentation are
-  slower but functional.
+- **CPU-only** works for the implemented endpoints when their required models
+  and provider assets are installed. Tracking, segmentation, and homography
+  are substantially slower.
 - **CUDA GPU** accelerates YOLO, MobileSAM, and PnLCalib significantly.
   PyTorch auto-detects CUDA if available.
 - **Apple Silicon** is supported via MPS (Metal Performance Shaders)

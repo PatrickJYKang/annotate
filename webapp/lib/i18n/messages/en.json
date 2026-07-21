@@ -1,0 +1,524 @@
+{
+  "app.title": "Annotate",
+  "header.fullscreen": "Fullscreen",
+  "header.locale": "Language",
+  "locale.en": "English",
+  "locale.zh-CN": "简体中文",
+  "common.cancel": "Cancel",
+  "common.create": "Create",
+  "common.delete": "Delete",
+  "common.duplicate": "Duplicate",
+  "common.open": "Open",
+  "common.rename": "Rename",
+  "common.save": "Save",
+  "export.complete": "Export complete",
+  "export.completeFailures": "Export complete · {count} failures",
+  "export.rendered": "Rendered {done} of {total} annotation documents",
+  "export.rendering": "Rendering {clip} · f{frame} · {annotation}",
+  "export.writing": "Writing {file}…",
+  "error.annotationAnchor": "Annotation document anchor does not match this editor. Refusing to overwrite.",
+  "error.annotationInvalidJson": "Invalid annotations JSON. Refusing to overwrite.",
+  "error.annotationParse": "{error} Refusing to overwrite.",
+  "error.folderPermission": "Folder permission not granted.",
+  "error.writePermission": "Write permission not granted for project folder.",
+  "integrity.annotation-anchor-mismatch": "An annotation document is attached to the wrong clip, pin, or frame.",
+  "integrity.clip-read-error": "A clip document could not be read.",
+  "integrity.invalid-annotation-document": "An annotation document is invalid.",
+  "integrity.invalid-match-video-transition": "A match-video transition has invalid or unresolved endpoints.",
+  "integrity.invalid-presentation-cue": "A presentation cue references media outside its effective selection.",
+  "integrity.missing-annotation-document": "A referenced annotation document is missing.",
+  "integrity.missing-video-file": "A referenced video file is missing.",
+  "integrity.orphan-annotation-document": "An unreferenced annotation entry exists in a clip folder.",
+  "integrity.presentation-read-error": "A presentation document could not be read.",
+  "integrity.unresolved-clip-video": "A clip references a video that does not exist in the project.",
+  "integrity.unresolved-presentation-annotation": "A presentation references an annotation set that does not resolve.",
+  "integrity.unresolved-presentation-clip": "A presentation references a clip that does not resolve.",
+  "integrity.unresolved-presentation-pin": "A presentation references a frame pin that does not resolve.",
+  "metadata.away": "Away",
+  "metadata.home": "Home",
+  "project.chromiumRequired": "Chrome, Edge, or another Chromium browser is required.",
+  "project.close": "Close project",
+  "project.controls": "Project controls",
+  "project.clips": "Clips",
+  "project.create": "Create New Project",
+  "project.createFolder": "Create project folder...",
+  "project.creating": "Creating...",
+  "project.created": "Project created.",
+  "project.emptyTrash": "Empty Trash",
+  "project.exportFailures": "{count} files failed",
+  "project.exportProgress": "Export report progress",
+  "project.exportReport": "Export report…",
+  "project.exported": "Report exported to exports/report/.",
+  "project.exportedWithFailures": "Report exported with {count} file failures.",
+  "project.exporting": "Exporting…",
+  "project.importDescription": "Match video",
+  "project.importPrompt": "Import a match video to begin analysis.",
+  "project.importVideo": "Import video…",
+  "project.imported": "Imported {name}.",
+  "project.integrity": "Project integrity · {errors} errors · {warnings} warnings",
+  "project.integrityClear": "No integrity issues found.",
+  "project.matchInfo": "Match info",
+  "project.matchUnset": "Match details not set",
+  "project.matchVersus": "{home} vs {away}",
+  "project.noOpen": "No project is open.",
+  "project.normalizing": "Preparing {name}…",
+  "project.normalizationProgress": "Video import progress",
+  "project.normalization.uploading": "Uploading source video",
+  "project.normalization.queued": "Waiting to analyze media",
+  "project.normalization.analyzing": "Reading source frame metadata",
+  "project.normalization.remuxing": "Repackaging compatible video",
+  "project.normalization.transcoding": "Converting incompatible video",
+  "project.normalization.normalizing": "Converting to the requested media contract",
+  "project.normalization.probing": "Verifying frame count",
+  "project.normalization.downloading": "Receiving prepared video",
+  "project.normalization.complete": "Video import ready",
+  "project.open": "Open Existing Project",
+  "project.openCapture": "Open capture player",
+  "project.openChooser": "Projects",
+  "project.openPlayerFor": "Open player for {name}",
+  "project.opened": "Project opened.",
+  "project.permissionDenied": "Read/write permission was not granted.",
+  "project.presentations": "Presentations",
+  "project.restore": "Restoring Annotate 0.2 project…",
+  "project.saveNow": "Save now",
+  "project.saved": "Project saved.",
+  "project.setupBrowser": "Chromium required. Use Chrome, Edge, or Opera.",
+  "project.setupDescription": "Add the match details now or later. Each imported video keeps its own frame rate and resolution.",
+  "project.setupImportMetadata": "Import match metadata",
+  "project.setupName": "Project name",
+  "project.setupNamePlaceholder": "e.g. Arsenal vs Chelsea",
+  "project.setupNotes": "Notes",
+  "project.setupNotesPlaceholder": "Free-form match notes…",
+  "project.setupTitle": "Project setup",
+  "project.trashAlreadyEmpty": "Trash is already empty.",
+  "project.trashEmptiedOne": "Emptied 1 recovery operation.",
+  "project.trashEmptiedMany": "Emptied {count} recovery operations.",
+  "project.videos": "Videos",
+  "project.perVideoMedia": "Per-video FPS and resolution",
+  "project.workspace": "Workspace",
+  "project.workspaceDescription": "Version 0.2 projects use clips, frame pins, and project-local tagging boards. Version 0.1 folders remain on the frozen 0.1 app.",
+  "project.workspaceLabel": "Annotate 0.2 workspace",
+  "project.workspaceTitle": "Analysis ∥ Presentations",
+  "project.analysis": "Analysis",
+  "project.analysisDescription": "Videos and their frame-native clips",
+  "project.videoStats": "{frames} frames · {fps} fps · {width}×{height}",
+  "project.clipCount": "{count} clips",
+  "project.presentationDescription": "Independent playlists built from clips and pins",
+  "project.decks": "decks",
+  "presentation.confirmDelete": "Confirm delete",
+  "presentation.defaultName": "New presentation",
+  "presentation.empty": "No presentations yet.",
+  "presentation.nameInput": "New presentation name",
+  "presentation.renameAria": "Rename {name}",
+  "presentation.summary": "{count} slides · updated {date}",
+  "presentation.untitled": "Untitled presentation"
+  ,"player.activeRangesOne": "1 range armed"
+  ,"player.activeRangesMany": "{count} ranges armed"
+  ,"player.backProject": "Back to project"
+  ,"player.backCapture": "Back to capture player"
+  ,"player.cancelRetag": "Cancel re-tag"
+  ,"player.captured": "Captured {label} at frames {start}–{end}."
+  ,"player.clipReadErrorOne": "1 clip document could not be read."
+  ,"player.clipReadErrorMany": "{count} clip documents could not be read."
+  ,"player.clipsDescription": "Select to seek. Drag onto another code to re-tag."
+  ,"player.deleted": "Deleted {label}."
+  ,"player.deleteClip": "Delete clip"
+  ,"player.framePosition": "frame {frame} / {lastFrame}"
+  ,"player.lastCaptureRemoved": "Last capture removed."
+  ,"player.noVideo": "This project has no imported video."
+  ,"player.openEditor": "Open editor"
+  ,"player.pauseBeforeRetag": "Pause playback before re-tagging a clip."
+  ,"player.project": "Project"
+  ,"player.player": "Player"
+  ,"player.rangeArmed": "{label} range armed at frame {frame}."
+  ,"player.rangeCanceled": "{label} range canceled."
+  ,"player.rangeCanceledOnVideoOne": "1 active range capture was canceled when the video changed."
+  ,"player.rangeCanceledOnVideoMany": "{count} active range captures were canceled when the video changed."
+  ,"player.rangeCloseHint": "Move after frame {frame} to close {label}."
+  ,"player.restored": "Restored {label}."
+  ,"player.retagCanceled": "Re-tagging canceled."
+  ,"player.retagCanceledPlayback": "Re-tagging canceled because playback started."
+  ,"player.retagChoose": "Choose a code for {label}."
+  ,"player.retagCleared": "Clip tags cleared."
+  ,"player.retagSaved": "Clip re-tagged."
+  ,"player.retagSelected": "Re-tag selected"
+  ,"player.selectBeforeRetag": "Select a clip to re-tag."
+  ,"player.selectClipFirst": "Select a clip before entering re-tag mode."
+  ,"player.selectVideo": "Selected video"
+  ,"player.undoCapture": "Undo capture"
+  ,"player.undoDelete": "Undo delete"
+  ,"player.untaggedClip": "Untagged clip"
+  ,"tagBoard.appliedNext": "Applied to the next code"
+  ,"tagBoard.cancelRange": "Cancel {label} range"
+  ,"tagBoard.capture": "capture"
+  ,"tagBoard.capturePrompt": "Press a code at the current frame"
+  ,"tagBoard.fromFrame": "from f{frame}"
+  ,"tagBoard.modifiers": "Modifiers"
+  ,"tagBoard.multiple": "multiple"
+  ,"tagBoard.range": "range"
+  ,"tagBoard.requires": "Requires {requirements}"
+  ,"tagBoard.retag": "re-tag"
+  ,"tagBoard.retagPrompt": "Re-tag selected clip"
+  ,"tagBoard.title": "Tag board"
+  ,"tagTree.empty": "Use the tag board to capture your first clip."
+  ,"tagTree.frameRange": "f{start}–{end} · {count} frames"
+  ,"tagTree.unknown": "Unknown tag"
+  ,"tagTree.untagged": "Untagged"
+  ,"video.clipAria": "Clip {label}"
+  ,"video.clipTitle": "{label} · frames {start}–{end}"
+  ,"video.captureInProgress": "{label} · active from frame {start}"
+  ,"video.fullscreen": "Fullscreen"
+  ,"video.loading": "Loading…"
+  ,"video.pause": "Pause"
+  ,"video.play": "Play"
+  ,"video.skipBack": "Skip back"
+  ,"video.skipForward": "Skip forward"
+  ,"video.stepBack": "Step back"
+  ,"video.stepBackTitle": "Step back (frame)"
+  ,"video.stepForward": "Step forward"
+  ,"video.stepForwardTitle": "Step forward (frame)"
+  ,"video.zoom": "Zoom"
+  ,"annotation.calibrate": "Calibrate"
+  ,"annotation.calibrating": "Calibrating…"
+  ,"annotation.colors": "Colors"
+  ,"annotation.definePitch": "Define Pitch"
+  ,"annotation.definePitchHint": "Click 4 corners: TL, TR, BR, BL"
+  ,"annotation.fill": "Fill"
+  ,"annotation.fillColor": "Annotation fill color"
+  ,"annotation.fillOpacity": "Fill Opacity"
+  ,"annotation.font": "Font"
+  ,"annotation.inspector": "Inspector"
+  ,"annotation.linkColors": "Link stroke and fill colors"
+  ,"annotation.linkedColorsTitle": "Stroke and fill change together"
+  ,"annotation.manualHomography": "Manual H"
+  ,"annotation.showHomography": "Show H"
+  ,"annotation.hideHomography": "Hide H"
+  ,"annotation.deleteHomography": "Delete H"
+  ,"pin.homographyDeleted": "Homography deleted."
+  ,"pin.returnToFrame": "Return to pin"
+  ,"clip.pinPopupBlocked": "Allow pop-ups to open the pin editor."
+  ,"clip.pinMissing": "Pin no longer exists."
+  ,"clip.homographyDeleted": "Homography deleted."
+  ,"clip.homographyProgress": "Computing homography"
+  ,"annotation.opacity": "Opacity"
+  ,"annotation.patternDashdot": "Dash-dot"
+  ,"annotation.patternDashed": "Dashed"
+  ,"annotation.patternDotted": "Dotted"
+  ,"annotation.patternSolid": "Solid"
+  ,"annotation.radius": "Radius"
+  ,"annotation.reset": "Reset"
+  ,"annotation.retrySave": "Retry Save"
+  ,"annotation.saveError": "Save Error"
+  ,"annotation.size": "Size"
+  ,"annotation.spread": "Spread"
+  ,"annotation.stroke": "Stroke"
+  ,"annotation.strokeColor": "Annotation stroke color"
+  ,"annotation.style": "Style"
+  ,"annotation.textHighlight": "Highlight"
+  ,"annotation.unlinkColors": "Unlink stroke and fill colors"
+  ,"annotation.unlinkedColorsTitle": "Stroke and fill change separately"
+  ,"annotation.width": "Width"
+  ,"clip.addPin": "Add pin at f{frame}"
+  ,"clip.annotate": "Annotate"
+  ,"clip.annotationSetCountOne": "1 annotation set"
+  ,"clip.annotationSetCountMany": "{count} annotation sets"
+  ,"clip.clearRange": "Clear Range"
+  ,"clip.computeHomography": "Compute H"
+  ,"clip.computingHomography": "Computing H…"
+  ,"clip.coordImage": "image"
+  ,"clip.coordPitch": "pitch"
+  ,"clip.currentSpan": "Current span: {state}"
+  ,"clip.deleteKeyframe": "Delete KF"
+  ,"clip.deleteObject": "Delete object (Shift+Delete)"
+  ,"clip.deletePin": "Delete pin"
+  ,"clip.drawMode": "Draw: {mode}"
+  ,"clip.frame": "Frame {frame}"
+  ,"clip.frameHeader": "frames {start}–{end} · {fps} fps"
+  ,"clip.framePosition": "Frame {frame} / {lastFrame}"
+  ,"clip.hideKeyframe": "Hide KF"
+  ,"clip.homographyLoaded": "Loaded {count} homography samples."
+  ,"clip.homographyMinimum": "Homography needs at least two source frames."
+  ,"clip.importDocumentMissing": "Annotation document \"{id}\" was not found."
+  ,"clip.importResult": "Imported {count} objects{skipped}."
+  ,"clip.importSkipped": "; skipped {count}"
+  ,"clip.keyframeCountOne": "1 keyframe"
+  ,"clip.keyframeCountMany": "{count} keyframes"
+  ,"clip.keyframeDuplicate": "Frame {frame} already has a keyframe for this object."
+  ,"clip.keyframeLocationRequired": "An object must retain at least one location keyframe."
+  ,"clip.keyframeOverlap": "Show/hide and location keyframes cannot occupy the same frame."
+  ,"clip.keyframeHere": "KF Here"
+  ,"clip.loading": "Loading frame-native clip editor…"
+  ,"clip.markRangeEnd": "Mark Range End"
+  ,"clip.nextFrame": "Next frame"
+  ,"clip.noCorrection": "There is no later correction keyframe."
+  ,"clip.noGeometry": "The object has no visible geometry at this frame."
+  ,"clip.noPinImport": "No pin is open for import."
+  ,"clip.objectInspector": "Object inspector"
+  ,"clip.objectPrompt": "Pause playback and select or draw an object."
+  ,"clip.openPin": "Open pin at f{frame}"
+  ,"clip.openedPin": "Opened pin at frame {frame}."
+  ,"clip.pinDeleted": "Deleted pin at frame {frame}."
+  ,"clip.pinLabel": "Pin label"
+  ,"clip.pinLabelSaved": "Pin label saved."
+  ,"clip.pinRestored": "Pin restored."
+  ,"clip.pins": "Pins"
+  ,"clip.playhead": "Clip playhead"
+  ,"clip.previousFrame": "Previous frame"
+  ,"clip.projectSaveUnavailable": "The project is not available for saving."
+  ,"clip.recomputeHomography": "Recompute H"
+  ,"clip.retrackRange": "Re-track range to f{frame}"
+  ,"clip.saveFailed": "Save failed"
+  ,"clip.saveLabel": "Save label"
+  ,"clip.saved": "Saved"
+  ,"clip.saving": "Saving…"
+  ,"clip.showKeyframe": "Show KF"
+  ,"clip.sidecar": "Sidecar {status}"
+  ,"clip.sidecarOffline": "Sidecar offline"
+  ,"clip.source": "{coords} coords · source: {source}"
+  ,"clip.source.auto": "automatic"
+  ,"clip.source.corrected": "corrected"
+  ,"clip.source.manual": "manual"
+  ,"clip.trackCorrection": "Track to correction f{frame}"
+  ,"clip.trackEnd": "Track to next keyframe/end"
+  ,"clip.trackedFrames": "Tracked {count} source frames."
+  ,"clip.tracking": "Tracking…"
+  ,"clip.trackingHighlightOnly": "Tracking supports selected highlight annotations."
+  ,"clip.trackingMinimum": "Tracking needs at least two source frames before the next keyframe or clip end."
+  ,"clip.trackingNoSeed": "The selected highlight has no seed geometry at this frame."
+  ,"clip.trackingRangeEndpoint": "Choose a different frame for the other range endpoint."
+  ,"clip.undoPinDelete": "Undo pin delete"
+  ,"clip.videoNotRegistered": "The video is not registered with the sidecar yet."
+  ,"clip.showState.correction": "correction"
+  ,"clip.showState.lost": "lost"
+  ,"clip.showState.manual": "manual"
+  ,"clip.showState.tracked": "tracked"
+  ,"pin.annotationCreated": "Annotation set created."
+  ,"pin.annotationImported": "Annotations imported into the animated clip layer."
+  ,"pin.annotationMovedTrash": "Annotation set moved to trash."
+  ,"pin.annotationRestored": "Annotation set restored."
+  ,"pin.atFrame": "Pin f{frame}"
+  ,"pin.autoCalibrateApplied": "PnLCalib applied."
+  ,"pin.autoCalibrateFailed": "PnLCalib returned no usable homography at this pin."
+  ,"pin.close": "Close pin"
+  ,"pin.closeShort": "Close"
+  ,"pin.createDefault": "Create default set"
+  ,"pin.defaultAnnotations": "Default annotations"
+  ,"pin.deleteSet": "Delete set"
+  ,"pin.editable": "At pin frame; annotations editable"
+  ,"pin.importClip": "Import into clip"
+  ,"pin.lockedPreview": "Preview frame {frame}; annotations hidden and locked"
+  ,"pin.newSet": "New set"
+  ,"pin.noSet": "This pin has no annotation set."
+  ,"pin.prepareFrame": "Preparing pin frame…"
+  ,"pin.preparePreview": "Preparing video preview…"
+  ,"pin.previewHint": "Hold ← / → to preview up to 5 seconds · Space returns"
+  ,"pin.set": "Set"
+  ,"pin.setLabel": "Set label"
+  ,"pin.undoSetDelete": "Undo set delete"
+  ,"timeline.frameRange": "Frame {frame} · clip {start}–{end}"
+  ,"timeline.horizontalZoom": "Horizontal zoom"
+  ,"timeline.keyframeAria": "{type} keyframe at frame {frame}"
+  ,"timeline.keyframeTitle": "{provenance} keyframe · frame {frame}"
+  ,"timeline.keyframes": "Keyframes"
+  ,"timeline.objects": "Objects"
+  ,"timeline.pinAria": "Pin at frame {frame}"
+  ,"timeline.pinTitle": "{label} · frame {frame}"
+  ,"timeline.visibilityAria": "{action} keyframe at frame {frame}"
+  ,"timeline.visibilityTitle": "{action} · frame {frame}"
+  ,"timeline.zoom": "Timeline zoom"
+  ,"timeline.action.hide": "hide"
+  ,"timeline.action.show": "show"
+  ,"timeline.provenance.correction": "correction"
+  ,"timeline.provenance.lost": "lost"
+  ,"timeline.provenance.manual": "manual"
+  ,"timeline.provenance.tracked": "tracked"
+  ,"tool.arrow": "Arrow"
+  ,"tool.box": "Box"
+  ,"tool.circle": "Circle"
+  ,"tool.highlight": "Highlight"
+  ,"tool.lob": "Lob"
+  ,"tool.poly": "Poly"
+  ,"tool.select": "Select"
+  ,"tool.shadow": "Shadow"
+  ,"tool.text": "Text"
+  ,"presentation.addSlideFirst": "Add at least one slide before presenting."
+  ,"presentation.addTitle": "Add title"
+  ,"presentation.annotatedPinFrame": "Annotated pin frame"
+  ,"presentation.assets": "Clips and pins"
+  ,"presentation.autoPause": "Automatically pause at every pin"
+  ,"presentation.autoResume": "Auto-resume after ms (blank = manual)"
+  ,"presentation.back": "Back"
+  ,"presentation.body": "Body"
+  ,"presentation.chronological": "Chronological"
+  ,"presentation.clipSlide": "clip slide"
+  ,"presentation.complete": "Presentation complete."
+  ,"presentation.cut": "Cut"
+  ,"presentation.deleteSlide": "Delete slide"
+  ,"presentation.dragClip": "Drag this clip into the deck"
+  ,"presentation.dragEmpty": "Drag a clip or pin into the deck."
+  ,"presentation.dragHere": "Drag a clip or pin here"
+  ,"presentation.dragPin": "Drag this pin into the deck"
+  ,"presentation.enterMs": "Enter ms"
+  ,"presentation.exactReady": "Exact presentation media is ready."
+  ,"presentation.exit": "Exit"
+  ,"presentation.exitMs": "Exit ms"
+  ,"presentation.expandPins": "Expand pins for {label}"
+  ,"presentation.collapsePins": "Collapse pins for {label}"
+  ,"presentation.hideTransitionAnnotations": "Hide annotations during transition"
+  ,"presentation.includeAllAnnotations": "Include every annotation set"
+  ,"presentation.inspector": "Inspector"
+  ,"presentation.kind.clip": "clip"
+  ,"presentation.kind.pin": "pin"
+  ,"presentation.kind.title": "title"
+  ,"presentation.loading": "Loading presentation…"
+  ,"presentation.matchVideo": "Match video"
+  ,"presentation.validation.notMatchVideo": "Transition is not match video."
+  ,"presentation.validation.requiresPins": "Match video requires two pin slides."
+  ,"presentation.validation.missingPins": "One or both pin slides are missing."
+  ,"presentation.validation.sameVideo": "Match video pins must belong to the same video."
+  ,"presentation.validation.forward": "Match video pins must be ordered forward in time."
+  ,"presentation.validation.emptyRange": "Match video offsets produce an empty or out-of-pin range."
+  ,"presentation.validation.outsideVideo": "Match video range is outside the source video."
+  ,"presentation.sceneMissingTransition": "Transition edge is missing."
+  ,"presentation.sceneMissingSlide": "Slide is missing."
+  ,"presentation.sceneMissingClip": "Missing clip: {id}"
+  ,"presentation.sceneMissingVideo": "Missing video: {id}"
+  ,"presentation.sceneMissingPin": "Missing pin: {id}"
+  ,"presentation.name": "Presentation name"
+  ,"presentation.mediaProgress": "Preparing exact media {current} of {total}…"
+  ,"presentation.mediaPreparing": "Preparing exact presentation media…"
+  ,"presentation.mediaPreparingShort": "Preparing…"
+  ,"presentation.mediaUnavailable": "Video resource is unavailable: {id}"
+  ,"presentation.missingClip": "Missing clip: {id}"
+  ,"presentation.missingClipLabel": "Missing clip · {id}"
+  ,"presentation.missingSlide": "Missing slide"
+  ,"presentation.next": "Next"
+  ,"presentation.noPins": "No pins"
+  ,"presentation.pausePreview": "Pause preview"
+  ,"presentation.pinFallback": "Pin f{frame} · {id}"
+  ,"presentation.pinSlide": "pin slide"
+  ,"presentation.playPreview": "Play preview"
+  ,"presentation.playbackRate": "Playback rate"
+  ,"presentation.present": "Present"
+  ,"presentation.previewHint": "Drag this clip or one of its pins into the deck to preview it."
+  ,"presentation.previous": "Previous"
+  ,"presentation.resumeFrom": "Resume from {label}"
+  ,"presentation.saveFailed": "Save failed"
+  ,"presentation.saved": "Saved"
+  ,"presentation.saving": "Saving…"
+  ,"presentation.selectSlide": "Select a slide."
+  ,"presentation.showPinAnnotations": "Show pin annotations"
+  ,"presentation.slideHold": "Slide hold ms"
+  ,"presentation.slidePosition": "Slide {current} / {total}"
+  ,"presentation.sourceFrame": "Presentation source frame"
+  ,"presentation.speakerNotes": "Speaker notes"
+  ,"presentation.startOffset": "Start offset f"
+  ,"presentation.endOffset": "End offset f"
+  ,"presentation.tags": "Tags"
+  ,"presentation.template": "Template"
+  ,"presentation.templateDivider": "Divider"
+  ,"presentation.templateSection": "Section"
+  ,"presentation.templateTitle": "Title"
+  ,"presentation.time": "Time"
+  ,"presentation.title": "Title"
+  ,"presentation.titleSlide": "title slide"
+  ,"presentation.transition": "Transition {number}"
+  ,"presentation.transitionAfter": "Transition after"
+  ,"presentation.transitionAfterAria": "Transition after slide"
+  ,"presentation.unsaved": "Unsaved"
+  ,"presentation.untitledSlide": "Untitled"
+  ,"presentation.slideType.clip": "CLIP"
+  ,"presentation.slideType.pin": "PIN"
+  ,"presentation.slideType.divider": "DIVIDER"
+  ,"presentation.slideType.section": "SECTION"
+  ,"presentation.slideType.title": "TITLE"
+  ,"metadata.addPlayer": "+ Add player"
+  ,"metadata.apiClear": "Clear"
+  ,"metadata.apiKey": "API key"
+  ,"metadata.apiKeyDescription": "Your API key is stored locally in this browser and is never saved to your project files."
+  ,"metadata.apiKeyFree": "Get a free key at"
+  ,"metadata.apiKeyPlaceholder": "Your football-data.org API key"
+  ,"metadata.back": "← Back"
+  ,"metadata.backHome": "Back to Home"
+  ,"metadata.captain": "Captain"
+  ,"metadata.captainShort": "C"
+  ,"metadata.chooseTeamsheet": "Choose a file (CSV, TSV, or TXT):"
+  ,"metadata.coach": "Coach"
+  ,"metadata.competition": "Competition"
+  ,"metadata.confirm": "Confirm ({count})"
+  ,"metadata.confirmImport": "Confirm Import"
+  ,"metadata.date": "Date"
+  ,"metadata.duplicateNumber": "Duplicate shirt number"
+  ,"metadata.enterMatchId": "Enter a valid match ID."
+  ,"metadata.enterSeason": "Enter a season year."
+  ,"metadata.failedDetails": "Failed to load match details."
+  ,"metadata.formation": "Formation"
+  ,"metadata.formationPlaceholder": "e.g. 4-3-3"
+  ,"metadata.homeScore": "Score (H)"
+  ,"metadata.awayScore": "Score (A)"
+  ,"metadata.importMatch": "Import Match Metadata"
+  ,"metadata.importTeamsheet": "Import teamsheet"
+  ,"metadata.kickoff": "Kickoff time"
+  ,"metadata.kickoffPreview": "Kickoff: {value}"
+  ,"metadata.lineupsUnavailable": "Lineups are not yet available for this match."
+  ,"metadata.loadingDetails": "Loading match details…"
+  ,"metadata.matchDetails": "Match Details"
+  ,"metadata.matchId": "Match ID"
+  ,"metadata.matchesFound": "{count} match(es) found. Select one to preview."
+  ,"metadata.matchday": "Matchday (optional)"
+  ,"metadata.matchdayPlaceholder": "all"
+  ,"metadata.modeCompetition": "By season / matchday"
+  ,"metadata.modeMatchId": "By match ID"
+  ,"metadata.modeStage": "By stage (cups)"
+  ,"metadata.name": "Name"
+  ,"metadata.noMatches": "No matches found for the given criteria."
+  ,"metadata.noPlayers": "No players available."
+  ,"metadata.noProject": "No project open. Go back and open a project."
+  ,"metadata.notes": "Notes"
+  ,"metadata.notesPlaceholder": "Free-form match notes…"
+  ,"metadata.orPaste": "— or paste text below —"
+  ,"metadata.parse": "Parse"
+  ,"metadata.parseFailed": "Could not parse any players from the input. Check the format and try again."
+  ,"metadata.pastePlaceholder": "Paste teamsheet text here, e.g.:\n1 A. Goalkeeper\n2 B. Defender\n3 C. Midfielder\n...\n\nor CSV with headers:\nNumber,Name,Position\n1,A. Goalkeeper,GK"
+  ,"metadata.playersDetected": "{count} player(s) detected. Edit if needed, then confirm."
+  ,"metadata.positionShort": "Pos"
+  ,"metadata.previewCompetition": "Competition: {value}"
+  ,"metadata.previewDate": "Date: {value}"
+  ,"metadata.previewFormation": "Formation: {value}"
+  ,"metadata.previewCoach": "Coach: {value}"
+  ,"metadata.previewReferee": "Referee: {value}"
+  ,"metadata.previewRound": "Round: {value}"
+  ,"metadata.previewScore": "Score: {value}"
+  ,"metadata.previewSeason": "Season: {value}"
+  ,"metadata.previewVenue": "Venue: {value}"
+  ,"metadata.referee": "Referee"
+  ,"metadata.remove": "Remove"
+  ,"metadata.removePlayer": "Remove player"
+  ,"metadata.reviewHint": "Review the data below. Toggle sections on/off before confirming."
+  ,"metadata.round": "Round"
+  ,"metadata.roundPlaceholder": "e.g. Matchday 22"
+  ,"metadata.search": "Search"
+  ,"metadata.searchFailed": "Search failed."
+  ,"metadata.searching": "Searching…"
+  ,"metadata.score": "Score"
+  ,"metadata.season": "Season"
+  ,"metadata.seasonPlaceholder": "e.g. 2025-26"
+  ,"metadata.seasonYear": "Season (year)"
+  ,"metadata.seasonYearPlaceholder": "e.g. 2024"
+  ,"metadata.selectSeasonStage": "Select season and stage."
+  ,"metadata.stage": "Stage"
+  ,"metadata.stage.final": "Final"
+  ,"metadata.stage.group": "Group Stage"
+  ,"metadata.stage.last16": "Round of 16"
+  ,"metadata.stage.quarter": "Quarter-finals"
+  ,"metadata.stage.semi": "Semi-finals"
+  ,"metadata.substitute": "Substitute"
+  ,"metadata.substituteShort": "Sub"
+  ,"metadata.substitutions": "Substitutions"
+  ,"metadata.substitutionsCount": "Substitutions ({count})"
+  ,"metadata.teamName": "{team} team name"
+  ,"metadata.teamTitle": "{team} Team"
+  ,"metadata.teamsheetTitle": "Import Teamsheet"
+  ,"metadata.venue": "Venue"
+  ,"metadata.venuePlaceholder": "e.g. Old Trafford"
+}

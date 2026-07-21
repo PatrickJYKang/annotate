@@ -1,4 +1,4 @@
-import type { MatchInfo, TeamInfo, PlayerEntry, Substitution } from "../types/project";
+import type { MatchInfo, TeamInfo, PlayerEntry, Substitution } from "../types/metadata";
 
 // ---------------------------------------------------------------------------
 // Constants

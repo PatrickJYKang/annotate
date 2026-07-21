@@ -1,28 +1,32 @@
-# annotate
+# Annotate
 
-We have released [**our first stable pre-release**](https://github.com/PatrickJYKang/annotate/releases/tag/v0.1.0-pre.2) 🎉 Massively grateful to everyone who has supported this project to get it to this stage.
+Annotate is a self-hosted football video analysis application for capturing
+passages of play, drawing frame-accurate tactical analysis, tracking players,
+and assembling presentations.
 
-A web application for football match analysis across marks, stills, clips, and presentations. Built with **Next.js 14 (App Router)**, **React 18**, **TypeScript**, and **Konva** for canvas-based annotation.
+The released stable pre-release is
+[Annotate 0.1](https://github.com/PatrickJYKang/annotate/releases/tag/v0.1.0-pre.3).
+This checkout contains the in-development **0.2 implementation**, which uses a
+new frame-native project format and is not data-compatible with 0.1 projects.
 
-Requires a **Chromium-based browser** (Chrome, Edge, Arc, etc.) for the File System Access API.
+Annotate requires a **Chromium-based browser** such as Chrome, Edge, Brave,
+Arc, or Chromium because project folders use the File System Access API.
 
-## Quick start
+## Released install (0.1)
 
-For a non-technical local install on macOS, download the Annotate 0.1 pre-release bundle and double-click `Install Annotate.command`.
-
-From a terminal, you can also run:
+For a non-technical local install on macOS, download the 0.1 release bundle and
+double-click `Install Annotate.command`. From a terminal, run:
 
 ```bash
 bash install.sh
 ```
 
-The installer bootstraps missing prerequisites where it can, clones Annotate, installs dependencies, and creates Desktop launchers. On a clean macOS machine it can install Homebrew, Git, Node.js, Python, and ffmpeg; if macOS asks for Command Line Tools, complete the system prompt and return to the installer. On macOS, double-click `Annotate.command` on your Desktop to run the app; from a terminal, run `start-annotate.sh`.
+The installer is pinned to `v0.1.0-pre.3`, bootstraps missing prerequisites
+where possible, installs locked dependencies, and creates a Desktop launcher.
+It stops with a link to Chrome if no supported browser is installed.
 
-Requires a Chromium-based browser. If Chrome, Edge, Brave, Arc, or Chromium is missing, the installer stops and asks you to install Chrome from <https://www.google.com/chrome/>. The launcher also refuses to fall back silently to a non-Chromium browser.
-
-The installer defaults to the pinned Git release ref `v0.1.0-pre.3`. It only installs missing system packages, skips Homebrew updates unless `ANNOTATE_BREW_UPDATE=1` is set, skips install-time tests unless `ANNOTATE_RUN_TESTS=1` is set, and skips repeat dependency installs when lockfiles have not changed. Terminal output is compact by default; set `ANNOTATE_VERBOSE_INSTALL=1` to stream full dependency logs while testing. Node dependencies install from `package-lock.json` via `npm ci`; sidecar dependencies install from `sidecar/requirements.lock.txt`.
-
-If the installer fails after cloning the repo, you can run the app manually from the install folder:
+If the installer fails after cloning the repository, run the dependency and
+startup commands directly from the installation folder:
 
 ```bash
 cd ~/Documents/annotate
@@ -32,70 +36,119 @@ sidecar/.venv/bin/python -m pip install -r sidecar/requirements.lock.txt
 npm run dev
 ```
 
-If the installer fails before cloning, install Git, Node.js 18.17+, Python 3.10+ or 3.12, ffmpeg, and a Chromium-based browser first, then clone the release tag and run the same commands:
+If cloning itself failed, first install Git, Node.js 18.17 or newer, Python
+3.10-3.12, ffmpeg, and a Chromium browser, then clone the release:
 
 ```bash
-git clone --branch v0.1.0-pre.3 --single-branch https://github.com/PatrickJYKang/annotate.git ~/Documents/annotate
+git clone --branch v0.1.0-pre.3 --single-branch \
+  https://github.com/PatrickJYKang/annotate.git ~/Documents/annotate
 ```
 
-For development from an existing checkout:
+## Development setup (0.2)
+
+Install the webapp and sidecar dependencies from the checked-in lockfiles:
+
+```bash
+cd webapp
+npm ci
+cd ../sidecar
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.lock.txt
+cd ..
+```
+
+Run both services from the repository root:
 
 ```bash
 npm run dev
 ```
 
-If this is your first run, install the webapp dependencies first:
+The Next.js app starts at `http://localhost:3000`; the Python sidecar starts at
+`http://127.0.0.1:8321`. Video import in 0.2 uses the sidecar to obtain an
+authoritative frame count and choose the least destructive browser-compatible
+path: preserve compatible CFR H.264 MP4, remux compatible streams, or transcode
+only incompatible/variable-frame-rate media.
 
-```bash
-cd webapp
-npm ci
-```
+## Project compatibility
 
-## Workspace run command
-From the repo root, `npm run dev` now launches both the Next.js webapp and the Python sidecar together. If the sidecar virtualenv exists at `sidecar/.venv`, that interpreter is used automatically; otherwise it falls back to `python3`.
+Annotate 0.2 creates only `project.v2` folders. It deliberately refuses
+`project.v1` folders and does not migrate them. Keep using the pinned 0.1
+release for existing 0.1 work.
 
-## Current development focus
-- Active work is currently centered on **clip analysis and presentation authoring/playback**: clip keyframing, highlight tracking, pitch homography, annotation import from stills, and presentation playback media.
-- The sidecar-backed CV paths are live local workflows: `/track`, `/homography`, `/segment`, `/export`, and `/derived-media/exact-motion` all remain optional but supported when the sidecar is running with the relevant dependencies.
+Every stored media position in 0.2 is an absolute, zero-based video frame.
+Clip ranges are half-open (`[startFrame, endFrame)`). FPS, frame count, width,
+and height belong to each video rather than the project, so mixed-FPS and
+mixed-resolution clips can be used in one presentation.
 
-## Key features
-- **Project folders** on disk with a `project.json` manifest and automatic integrity repair
-- **Quick annotate** — upload a single image from the splash screen, annotate it with the full editor, and export the annotated PNG; no project needed
-- **Video import** and playback with frame-level stepping and an **editor-style zoomable timeline** (timecode ruler, mark pips, playhead, 1×–100× zoom)
-- **Match metadata** — teams, teamsheets (CSV/TSV/paste import), football-data.org API import
-- **Marks** at timestamps with a hierarchical **tagging system** (primary path + facet traits, driven by per-project `tagging-schema.yaml`)
-- **Tag folder tree** — collapsible tree view grouping marks by schema, with drag-and-drop re-tagging
-- **Still capture** from video frames with automatic thumbnails
-- **Annotation editor** (Konva canvas) — boxes, circles, highlights, shadows, arrows, lobs, polygons, and text; linked stroke/fill defaults; PnLCalib or manual homography; multiple annotation documents per still
-- **Clip editor** — video sub-clips with keyframe-animated annotations, interpolation engine (linear + Catmull-Rom), timeline strip, show/hide keyframes, pitch/image drawing modes, still-annotation import, and batch tracking
-- **Presentations** — deck-like slide sequences built from stills, clips, and title cards; tag/time/clip asset browsing; drag-to-deck authoring; match-video transitions; annotation set timing; exact-motion transition and clip playback
-- **ML sidecar** (Python) — highlight tracking via YOLO + vendored trackers OC-SORT, pitch homography via vendored trackers PnLCalib, segmentation/occlusion, clip export, and exact-motion derived media
-- **Foreground occlusion** — people rendered above annotations via sidecar segmentation masks
-- **Video export** — frontend-driven frame rendering + sidecar ffmpeg encoding to MP4
-- **Derived media** — exact-motion video segments for presentation transitions and clip-slide playback preparation
-- **Export** annotated PNGs and CSV/JSON reports
-- **Dark monochrome UI** — Tailwind CSS v4, square design language, space-filling controls
+## Current features
 
-## Sidecar (ML service)
+- **Local project folders** with a `project.json` manifest, project-handle
+  restoration, open-time integrity reporting, and recoverable trash operations.
+- **Observable, per-video import** that preserves compatible CFR H.264 MP4s,
+  remuxes compatible streams without re-encoding video, and transcodes only as
+  a fallback, with byte/media-time progress, Apple VideoToolbox acceleration,
+  and a bounded four-thread software fallback.
+- **Frame-native clip capture** from a configurable button board, including
+  instant windows, open/close range capture, facets, hotkeys, untagged capture,
+  paused re-tagging, and drag-and-drop re-tagging in the clip tree.
+- **Clip editor** with absolute-frame transport, keyframed tactical shapes,
+  position and show/hide keyframes, manual keyframe retiming, horizontal timeline
+  zoom, image/pitch coordinate modes, undo/redo, and persisted resizable panels.
+- **Player tracking** for highlight objects through YOLO and vendored OC-SORT,
+  with linked image-space tactical shapes following their highlight anchor.
+- **Pitch homography** through vendored PnLCalib, interpolation and sanity
+  filtering, video-namespaced project caching, and pitch-space box/circle
+  authoring.
+- **Clip-local pins** for important frames, with multiple annotation documents,
+  the shared tactical annotation editor, five-second context preview, automatic
+  or manual calibration, and explicit pin-document import into the animated clip
+  layer.
+- **Presentations** built from clips, pins, and title cards, with clip-first
+  browsing, drag-to-deck authoring, pin pauses, annotation cues, match-video
+  transitions, exact-motion preparation, full-screen playback, and graceful
+  handling of missing references.
+- **Exports** written to `exports/report/`: clip JSON and CSV reports plus one
+  native-resolution annotated PNG per pin annotation document. Individual render
+  failures are reported without discarding successful outputs.
+- **English and Simplified Chinese UI** with a persisted global locale. The
+  Chinese catalog is complete but still awaits native-speaker copy review.
+- **Standalone quick annotate route** at `/quick-annotate` for a single image.
+  It is retained as a best-effort compatibility utility and is not part of the
+  canonical `project.v2` workflow.
 
-The Python sidecar provides local video-processing endpoints for clip analysis and presentation playback media. See [`sidecar/README.md`](sidecar/README.md) for setup and API documentation.
+The Python sidecar owns smart media preparation, authoritative probing, tracking,
+homography, optional foreground segmentation, export encoding APIs, and
+exact-motion media generation. See the [sidecar documentation](sidecar/README.md)
+for its endpoints and model requirements.
 
-```bash
-cd sidecar
-python3.12 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.lock.txt
-python -m annotate_sidecar   # http://127.0.0.1:8321
-```
+## Technology
+
+- Next.js 14 App Router, React 18, and TypeScript
+- Konva and React-Konva for tactical annotation
+- Tailwind CSS 4 and `react-resizable-panels`
+- File System Access API, IndexedDB, and OPFS
+- FastAPI, OpenCV, ffmpeg, Ultralytics YOLO, vendored OC-SORT, and PnLCalib
+- Vitest, Playwright, and pytest
 
 ## Documentation
-- [As-built technical specification](technical_document.md) – Current codebase and runtime behavior
-- [Historical MVP plan](MVP_Implementation_Plan.md) – Original MVP planning document
-- [Plans directory](plans/) – Historical per-deliverable implementation plans and post-MVP design docs
 
-## Testing
+- [As-built technical reference](technical_document.md)
+- [Annotate 0.2 scope](plans/v0.2/v0.2-scope.md)
+- [Annotate 0.2 implementation ledger](plans/v0.2/implementation-plan.md)
+- [Project v2 schema and migration decisions](plans/v0.2/project-v2-schema-and-migration.md)
+- [Python sidecar setup and API](sidecar/README.md)
+- [Historical MVP plan](MVP_Implementation_Plan.md)
+- [Plans directory](plans/)
+
+## Verification
+
 ```bash
-npm run test          # Vitest unit/component-level tests
-npm run test:e2e      # Playwright browser flows
+npm test                         # Vitest
+npm run test:e2e                # Playwright (Chromium)
+npm run build                   # production Next.js build
+npm --prefix webapp run lint    # ESLint
+sidecar/.venv/bin/pytest sidecar/tests
 ```
 
-Vitest excludes `webapp/e2e/**`; browser coverage lives under Playwright.
+Vitest excludes `webapp/e2e/**`; browser coverage is owned by Playwright.

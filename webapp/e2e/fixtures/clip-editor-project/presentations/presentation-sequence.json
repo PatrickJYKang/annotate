@@ -1,0 +1,43 @@
+{
+  "schema": 2,
+  "id": "presentation-sequence",
+  "name": "Breaking the press",
+  "createdAt": "2026-07-11T00:00:00.000Z",
+  "updatedAt": "2026-07-11T00:00:00.000Z",
+  "slides": [
+    {
+      "id": "slide-title",
+      "kind": "title",
+      "template": "section",
+      "title": "Breaking the first press",
+      "body": "A clip-first analysis"
+    },
+    {
+      "id": "slide-clip",
+      "kind": "clip",
+      "clipId": "clip-sequence",
+      "pausePins": null,
+      "pauseCues": [
+        {
+          "pinId": "pin-shape",
+          "holdMs": 1200,
+          "annotationIds": null,
+          "annotationCues": [{ "annotationId": "ann-shape", "enterAtMs": 0, "exitAtMs": 1000 }]
+        }
+      ]
+    },
+    {
+      "id": "slide-pin",
+      "kind": "pin",
+      "clipId": "clip-sequence",
+      "pinId": "pin-release",
+      "showAnnotations": true,
+      "annotationIds": null,
+      "holdMs": 1500
+    }
+  ],
+  "transitions": [
+    { "mode": "cut" },
+    { "mode": "cut" }
+  ]
+}

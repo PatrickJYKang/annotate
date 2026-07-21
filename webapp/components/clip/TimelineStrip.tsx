@@ -1,720 +1,471 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ClipAnnotation } from "../../lib/types/clip";
-import { getHiddenSpans, getKeyframeProvenance, getManualVisibilitySpans } from "../../lib/clip/trackingState";
-import { getFrameDurationMs, snapClipRelativeMsToVideoFrame } from "../../lib/clip/frameMath";
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
+import type { ClipAnnotation, Clip } from '../../lib/types/clip';
+import { useLocale, type Translate } from '../../lib/i18n';
+import { createTimelineManualOverride } from '../../lib/media/timelineInteraction';
 
-export interface TimelineKeyframeDescriptor {
-  key: string;
-  annId: string;
-  laneIndex: number;
-  keyframeIndex: number;
-  tMs: number;
-  kind: "position" | "visibility";
-  action?: "show" | "hide";
-}
+export type TimelineKeyframeRef = {
+  annotationId: string;
+  kind: 'position' | 'visibility';
+  index: number;
+  frame: number;
+};
 
-export interface TimelineStripProps {
-  durationMs: number;
-  clipStartMs?: number;
-  currentTMs: number;
-  fps?: number;
-  currentFrameToleranceMs?: number;
-  annotations: ClipAnnotation[];
+interface TimelineStripProps {
+  clip: Clip;
+  currentFrame: number;
   selectedAnnotationId: string | null;
-  selectedAnnotationIds?: string[];
-  selectedKeyframeKeys?: string[];
-  analysisLoopRange?: { startMs: number; endMs: number } | null;
-  retrackRangeEndMs?: number | null;
-  onSeek: (tMs: number) => void;
-  onSelectAnnotation: (id: string | null) => void;
-  onSeekToKeyframe: (annId: string, tMs: number) => void;
-  onSelectedKeyframeKeysChange?: (keys: string[]) => void;
-  onShiftClick?: (tMs: number) => void;
-  onMoveKeyframe?: (descriptor: TimelineKeyframeDescriptor, nextTMs: number) => TimelineKeyframeDescriptor | null;
+  selectedPinId?: string | null;
+  selectedKeyframe: TimelineKeyframeRef | null;
+  rangeEndFrame?: number | null;
+  isPlaying: boolean;
+  onSkipBack: () => void;
+  onPrevious: () => void;
+  onTogglePlayback: () => void | Promise<void>;
+  onNext: () => void;
+  onSkipForward: () => void;
+  onSeek: (frame: number) => void;
+  onSelectAnnotation: (annotationId: string) => void;
+  onSelectPin?: (pinId: string, frame: number) => void;
+  onSelectKeyframe: (keyframe: TimelineKeyframeRef) => void;
+  onMoveKeyframe: (keyframe: TimelineKeyframeRef, frame: number) => void;
 }
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
+const LABEL_WIDTH = 142;
+const ROW_HEIGHT = 32;
+const MIN_FRAME_WIDTH = 4;
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 64;
 
-const HEADER_H = 20;
-const LANE_H = 18;
-const DIAMOND_SIZE = 8;
-const PLAYHEAD_W = 2;
-const RESIZE_HANDLE_H = 8;
-const DEFAULT_VISIBLE_LANES = 5;
-const MIN_ZOOM_X = 1;
-const MAX_ZOOM_X = 12;
-const ZOOM_STEP = 1.25;
-
-function getAnnotationAccentColor(annotation: ClipAnnotation): string {
-  if (annotation.source === "auto") return "#60a5fa";
-  if (annotation.source === "corrected") return "#f59e0b";
-  return "#e5e7eb";
+function clampFrameToClip(clip: Clip, frame: number): number {
+  return Math.max(clip.startFrame, Math.min(clip.endFrame - 1, Math.round(frame)));
 }
 
-type KeyframeDescriptor = TimelineKeyframeDescriptor;
+function annotationLabel(annotation: ClipAnnotation, index: number, t: Translate): string {
+  return `${index + 1}. ${t(`tool.${annotation.type}`)}${annotation.coordMode === 'pitch' ? ` · ${t('clip.coordPitch')}` : ''}`;
+}
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+function annotationAccentColor(annotation: ClipAnnotation): string {
+  if (annotation.source === 'auto') return '#60a5fa';
+  if (annotation.source === 'corrected') return '#f59e0b';
+  return '#e5e7eb';
+}
 
 export default function TimelineStrip({
-  durationMs,
-  clipStartMs = 0,
-  currentTMs,
-  fps = 30,
-  currentFrameToleranceMs = 0,
-  annotations,
+  clip,
+  currentFrame,
   selectedAnnotationId,
-  selectedAnnotationIds = [],
-  selectedKeyframeKeys = [],
-  analysisLoopRange = null,
-  retrackRangeEndMs,
+  selectedPinId = null,
+  selectedKeyframe,
+  rangeEndFrame = null,
+  isPlaying,
+  onSkipBack,
+  onPrevious,
+  onTogglePlayback,
+  onNext,
+  onSkipForward,
   onSeek,
   onSelectAnnotation,
-  onSeekToKeyframe,
-  onSelectedKeyframeKeysChange,
-  onShiftClick,
+  onSelectPin,
+  onSelectKeyframe,
   onMoveKeyframe,
 }: TimelineStripProps) {
-  const viewportRef = useRef<HTMLDivElement | null>(null);
-  const resizeStartRef = useRef<{ y: number; height: number } | null>(null);
-  const userResizedRef = useRef(false);
-  const [viewportWidth, setViewportWidth] = useState(1);
-  const [zoomX, setZoomX] = useState(1);
-  const [visibleHeight, setVisibleHeight] = useState(HEADER_H + LANE_H + RESIZE_HANDLE_H + 4);
-  const [selectedKeyframeAnchorKey, setSelectedKeyframeAnchorKey] = useState<string | null>(null);
-  const suppressClickUntilRef = useRef(0);
+  const { t, formatNumber } = useLocale();
+  const [zoom, setZoom] = useState(1);
+  const [viewportWidth, setViewportWidth] = useState(0);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const manualOverrideRef = useRef<ReturnType<typeof createTimelineManualOverride> | null>(null);
+  const ignoreScrollRef = useRef(false);
+  if (!manualOverrideRef.current) manualOverrideRef.current = createTimelineManualOverride();
+  const frameCount = clip.endFrame - clip.startFrame;
+  const laneWidth = Math.max(640, viewportWidth, frameCount * MIN_FRAME_WIDTH * zoom);
 
-  const laneCount = Math.max(annotations.length, 1);
-  const lanesHeight = laneCount * LANE_H;
-  const minHeight = HEADER_H + LANE_H + RESIZE_HANDLE_H + 4;
-  const maxHeight = HEADER_H + lanesHeight + RESIZE_HANDLE_H + 4;
-  const defaultHeight = HEADER_H + Math.min(laneCount, DEFAULT_VISIBLE_LANES) * LANE_H + RESIZE_HANDLE_H + 4;
-  const timelineBodyHeight = Math.max(0, visibleHeight - HEADER_H - RESIZE_HANDLE_H);
-  const contentWidth = Math.max(viewportWidth, Math.round(viewportWidth * zoomX));
-  const maxScrollLeft = Math.max(0, contentWidth - viewportWidth);
-  const playheadFrac = durationMs > 0 ? currentTMs / durationMs : 0;
-  const frameDurationMs = getFrameDurationMs(fps);
-
-  const clampHeight = useCallback((height: number) => {
-    return Math.max(minHeight, Math.min(maxHeight, height));
-  }, [minHeight, maxHeight]);
-
-  const clampZoom = useCallback((value: number) => {
-    return Math.max(MIN_ZOOM_X, Math.min(MAX_ZOOM_X, value));
+  const setScrollLeftProgrammatically = useCallback((scroller: HTMLDivElement, scrollLeft: number) => {
+    ignoreScrollRef.current = true;
+    scroller.scrollLeft = scrollLeft;
+    requestAnimationFrame(() => {
+      ignoreScrollRef.current = false;
+    });
   }, []);
 
   useEffect(() => {
-    setVisibleHeight((previous) => {
-      if (!userResizedRef.current) {
-        return defaultHeight;
-      }
-      return clampHeight(previous);
-    });
-  }, [clampHeight, defaultHeight]);
-
-  useEffect(() => {
-    const viewportEl = viewportRef.current;
-    if (!viewportEl) return;
-    const update = () => setViewportWidth(Math.max(1, Math.floor(viewportEl.clientWidth)));
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(viewportEl);
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const updateWidth = () => setViewportWidth(scroller.clientWidth);
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(scroller);
     return () => observer.disconnect();
   }, []);
 
-  const fracFromEvent = useCallback((e: React.MouseEvent | MouseEvent) => {
-    const viewportEl = viewportRef.current;
-    if (!viewportEl || contentWidth <= 0) return 0;
-    const rect = viewportEl.getBoundingClientRect();
-    const absoluteX = (e.clientX - rect.left) + viewportEl.scrollLeft;
-    return Math.max(0, Math.min(1, absoluteX / contentWidth));
-  }, [contentWidth]);
+  const frameToX = useCallback((frame: number) => {
+    if (frameCount <= 1) return 0;
+    return ((clampFrameToClip(clip, frame) - clip.startFrame) / (frameCount - 1)) * laneWidth;
+  }, [clip, frameCount, laneWidth]);
 
-  const snapToFrameMs = useCallback((tMs: number) => {
-    if (!Number.isFinite(tMs)) return 0;
-    return snapClipRelativeMsToVideoFrame(clipStartMs, tMs, fps, durationMs);
-  }, [clipStartMs, durationMs, fps]);
-
-  const keyframeDescriptors = useMemo<KeyframeDescriptor[]>(() => (
-    annotations
-      .flatMap((annotation, laneIndex) => {
-        const positionDescriptors = annotation.keyframes.map((keyframe, keyframeIndex) => ({
-          key: `geom:${annotation.id}:${keyframeIndex}:${keyframe.tMs}`,
-          annId: annotation.id,
-          laneIndex,
-          keyframeIndex,
-          tMs: keyframe.tMs,
-          kind: "position" as const,
-        }));
-        const visibilityDescriptors = (annotation.visibilityKeyframes ?? []).map((keyframe, keyframeIndex) => ({
-          key: `vis:${annotation.id}:${keyframeIndex}:${keyframe.tMs}`,
-          annId: annotation.id,
-          laneIndex,
-          keyframeIndex,
-          tMs: keyframe.tMs,
-          kind: "visibility" as const,
-          action: keyframe.action,
-        }));
-        return [...positionDescriptors, ...visibilityDescriptors];
-      })
-      .sort((left, right) => (
-        left.tMs - right.tMs
-        || left.laneIndex - right.laneIndex
-        || (left.kind === right.kind ? 0 : left.kind === "position" ? -1 : 1)
-        || left.keyframeIndex - right.keyframeIndex
-      ))
-  ), [annotations]);
-
-  const keyframeOrder = useMemo(() => {
-    const order = new Map<string, number>();
-    keyframeDescriptors.forEach((descriptor, index) => {
-      order.set(descriptor.key, index);
-    });
-    return order;
-  }, [keyframeDescriptors]);
+  const pointerToFrame = useCallback((clientX: number) => {
+    const scroller = scrollerRef.current;
+    if (!scroller || frameCount <= 1) return clip.startFrame;
+    const rect = scroller.getBoundingClientRect();
+    const contentX = clientX - rect.left + scroller.scrollLeft;
+    return clampFrameToClip(
+      clip,
+      clip.startFrame + (contentX / laneWidth) * (frameCount - 1),
+    );
+  }, [clip, frameCount, laneWidth]);
 
   useEffect(() => {
-    const validKeys = new Set(keyframeDescriptors.map((descriptor) => descriptor.key));
-    const filtered = selectedKeyframeKeys.filter((key) => validKeys.has(key));
-    if (filtered.length !== selectedKeyframeKeys.length) {
-      onSelectedKeyframeKeysChange?.(filtered);
+    if (!isPlaying || manualOverrideRef.current?.isActive()) return;
+    const scroller = scrollerRef.current;
+    if (!scroller || viewportWidth <= 0) return;
+    const playheadX = frameToX(currentFrame);
+    const margin = viewportWidth * 0.33;
+    if (
+      playheadX < scroller.scrollLeft + margin * 0.5
+      || playheadX > scroller.scrollLeft + viewportWidth - margin * 0.5
+    ) {
+      setScrollLeftProgrammatically(scroller, Math.max(0, playheadX - margin));
     }
-    setSelectedKeyframeAnchorKey((previous) => (previous && validKeys.has(previous) ? previous : null));
-  }, [keyframeDescriptors, onSelectedKeyframeKeysChange, selectedKeyframeKeys]);
+  }, [currentFrame, frameToX, isPlaying, setScrollLeftProgrammatically, viewportWidth]);
 
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    if (e.shiftKey && onShiftClick) {
-      const frac = fracFromEvent(e);
-      onShiftClick(snapToFrameMs(frac * durationMs));
+  const setZoomAroundPoint = useCallback((nextZoom: number, anchorClientX?: number) => {
+    const scroller = scrollerRef.current;
+    const clampedZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
+    manualOverrideRef.current?.mark();
+    if (!scroller || frameCount <= 1) {
+      setZoom(clampedZoom);
       return;
     }
+    const rect = scroller.getBoundingClientRect();
+    const anchorX = anchorClientX == null ? viewportWidth / 2 : anchorClientX - rect.left;
+    const anchorRatio = (scroller.scrollLeft + anchorX) / laneWidth;
+    const nextLaneWidth = Math.max(640, viewportWidth, frameCount * MIN_FRAME_WIDTH * clampedZoom);
+    setZoom(clampedZoom);
+    requestAnimationFrame(() => {
+      setScrollLeftProgrammatically(scroller, anchorRatio * nextLaneWidth - anchorX);
+    });
+  }, [frameCount, laneWidth, setScrollLeftProgrammatically, viewportWidth]);
 
-    onSelectedKeyframeKeysChange?.([]);
-    setSelectedKeyframeAnchorKey(null);
-
-    const frac = fracFromEvent(e);
-    onSeek(snapToFrameMs(frac * durationMs));
-
-    const onMove = (moveEvent: MouseEvent) => {
-      const nextFrac = fracFromEvent(moveEvent);
-      onSeek(snapToFrameMs(nextFrac * durationMs));
-    };
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, [durationMs, fracFromEvent, onSeek, onSelectedKeyframeKeysChange, onShiftClick, snapToFrameMs]);
-
-  const onResizeMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    userResizedRef.current = true;
-    resizeStartRef.current = { y: e.clientY, height: visibleHeight };
-
-    const onMove = (moveEvent: MouseEvent) => {
-      const start = resizeStartRef.current;
-      if (!start) return;
-      setVisibleHeight(clampHeight(start.height + (moveEvent.clientY - start.y)));
-    };
-
-    const onUp = () => {
-      resizeStartRef.current = null;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, [clampHeight, visibleHeight]);
-
-  const nudgeHorizontalScroll = useCallback((deltaPx: number) => {
-    const viewportEl = viewportRef.current;
-    if (!viewportEl) return;
-    viewportEl.scrollLeft = Math.max(0, Math.min(maxScrollLeft, viewportEl.scrollLeft + deltaPx));
-  }, [maxScrollLeft]);
-
-  const onViewportWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    const viewportEl = viewportRef.current;
-    if (!viewportEl) return;
-
-    if (e.metaKey || e.ctrlKey) {
-      e.preventDefault();
-      const nextZoom = clampZoom(zoomX * (e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP));
-      if (nextZoom === zoomX) return;
-
-      const rect = viewportEl.getBoundingClientRect();
-      const pointerX = e.clientX - rect.left;
-      const contentX = viewportEl.scrollLeft + pointerX;
-      const focusRatio = contentWidth > 0 ? contentX / contentWidth : 0;
-      const nextContentWidth = Math.max(viewportWidth, Math.round(viewportWidth * nextZoom));
-
-      setZoomX(nextZoom);
-      requestAnimationFrame(() => {
-        const nextLeft = Math.max(0, Math.min(nextContentWidth - viewportWidth, focusRatio * nextContentWidth - pointerX));
-        if (viewportRef.current) viewportRef.current.scrollLeft = nextLeft;
-      });
+  const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    manualOverrideRef.current?.mark();
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      const factor = event.deltaY > 0 ? 2 ** -0.1 : 2 ** 0.1;
+      setZoomAroundPoint(zoom * factor, event.clientX);
       return;
     }
+    if (event.deltaX !== 0) return;
+    event.preventDefault();
+    scroller.scrollLeft += event.deltaY;
+  }, [setZoomAroundPoint, zoom]);
 
-    if (e.shiftKey && Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-      e.preventDefault();
-      nudgeHorizontalScroll(e.deltaY);
-    }
-  }, [clampZoom, contentWidth, nudgeHorizontalScroll, viewportWidth, zoomX]);
-
-  const handleZoomOut = useCallback(() => {
-    setZoomX((current) => clampZoom(current / ZOOM_STEP));
-  }, [clampZoom]);
-
-  const handleZoomIn = useCallback(() => {
-    setZoomX((current) => clampZoom(current * ZOOM_STEP));
-  }, [clampZoom]);
-
-  const handleZoomReset = useCallback(() => {
-    setZoomX(1);
-    if (viewportRef.current) viewportRef.current.scrollLeft = 0;
+  const handleScroll = useCallback(() => {
+    if (!ignoreScrollRef.current) manualOverrideRef.current?.mark();
   }, []);
 
-  const handleKeyframeClick = useCallback((event: React.MouseEvent, descriptor: KeyframeDescriptor) => {
-    event.stopPropagation();
-    if (Date.now() < suppressClickUntilRef.current) return;
-
-    if (event.shiftKey) {
-      const anchorKey = selectedKeyframeAnchorKey ?? descriptor.key;
-      const anchorIndex = keyframeOrder.get(anchorKey);
-      const targetIndex = keyframeOrder.get(descriptor.key);
-      if (anchorIndex != null && targetIndex != null) {
-        const [start, end] = anchorIndex <= targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex];
-        const nextKeys = keyframeDescriptors.slice(start, end + 1).map((entry) => entry.key);
-        onSelectedKeyframeKeysChange?.(nextKeys);
-        if (!selectedKeyframeAnchorKey) setSelectedKeyframeAnchorKey(descriptor.key);
-      } else {
-        onSelectedKeyframeKeysChange?.([descriptor.key]);
-        setSelectedKeyframeAnchorKey(descriptor.key);
-      }
-    } else if (event.metaKey || event.ctrlKey) {
-      const nextKeys = selectedKeyframeKeys.includes(descriptor.key)
-        ? selectedKeyframeKeys.filter((key) => key !== descriptor.key)
-        : [...selectedKeyframeKeys, descriptor.key];
-      onSelectedKeyframeKeysChange?.(nextKeys);
-      setSelectedKeyframeAnchorKey(descriptor.key);
-    } else {
-      onSelectedKeyframeKeysChange?.([descriptor.key]);
-      setSelectedKeyframeAnchorKey(descriptor.key);
-    }
-
-    onSeekToKeyframe(descriptor.annId, descriptor.tMs);
-  }, [keyframeDescriptors, keyframeOrder, onSeekToKeyframe, onSelectedKeyframeKeysChange, selectedKeyframeAnchorKey, selectedKeyframeKeys]);
-
-  const handleKeyframeMouseDown = useCallback((
-    event: React.MouseEvent,
-    descriptor: KeyframeDescriptor,
-    draggable: boolean,
-  ) => {
-    event.stopPropagation();
+  const handleLanePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
-    if (!draggable || event.shiftKey || event.metaKey || event.ctrlKey || !onMoveKeyframe) return;
+    const target = event.target;
+    if (!(target instanceof Element) || target.closest('button')) return;
 
-    let activeDescriptor = descriptor;
-    let didDrag = false;
-    const startX = event.clientX;
-    const initialKey = descriptor.key;
+    event.preventDefault();
+    const annotationRow = target.closest<HTMLElement>('[data-timeline-annotation-id]');
+    const annotationId = annotationRow?.dataset.timelineAnnotationId;
+    if (annotationId) onSelectAnnotation(annotationId);
+    onSeek(pointerToFrame(event.clientX));
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, [onSeek, onSelectAnnotation, pointerToFrame]);
 
-    if (!selectedKeyframeKeys.includes(initialKey)) {
-      onSelectedKeyframeKeysChange?.([initialKey]);
-      setSelectedKeyframeAnchorKey(initialKey);
-    }
-    onSeekToKeyframe(descriptor.annId, descriptor.tMs);
+  const handleLanePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    event.preventDefault();
+    onSeek(pointerToFrame(event.clientX));
+  }, [onSeek, pointerToFrame]);
 
-    const onMove = (moveEvent: MouseEvent) => {
-      const dx = moveEvent.clientX - startX;
-      if (!didDrag && Math.abs(dx) < 3) return;
-      didDrag = true;
-      moveEvent.preventDefault();
-      const nextFrac = fracFromEvent(moveEvent);
-      const nextTMs = snapToFrameMs(nextFrac * durationMs);
-      if (Math.abs(nextTMs - activeDescriptor.tMs) < currentFrameToleranceMs) return;
-      const moved = onMoveKeyframe(activeDescriptor, nextTMs);
-      if (!moved) return;
-      activeDescriptor = moved;
-      setSelectedKeyframeAnchorKey(moved.key);
-      onSeek(moved.tMs);
-    };
-
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      if (didDrag) {
-        suppressClickUntilRef.current = Date.now() + 150;
-      }
-    };
-
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }, [
-    currentFrameToleranceMs,
-    durationMs,
-    fracFromEvent,
-    onMoveKeyframe,
-    onSeek,
-    onSeekToKeyframe,
-    onSelectedKeyframeKeysChange,
-    selectedKeyframeKeys,
-    snapToFrameMs,
-  ]);
-
-  const ticks = useMemo(() => {
-    if (durationMs <= 0) return [] as Array<{ tMs: number; label: string }>;
-    const intervals = [100, 200, 500, 1000, 2000, 5000, 10000, 30000, 60000];
-    let interval = 1000;
-    for (const iv of intervals) {
-      const count = durationMs / iv;
-      if (count >= 3 && count <= 20) {
-        interval = iv;
-        break;
-      }
-    }
-    const result: Array<{ tMs: number; label: string }> = [];
-    for (let t = 0; t <= durationMs; t += interval) {
-      const sec = Math.floor(t / 1000);
-      const m = Math.floor(sec / 60);
-      const s = sec % 60;
-      const label = m > 0 ? `${m}:${String(s).padStart(2, "0")}` : `${s}s`;
-      result.push({ tMs: t, label });
-    }
-    return result;
-  }, [durationMs]);
+  const handleLanePointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    if (event.type === 'pointerup') onSeek(pointerToFrame(event.clientX));
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }, [onSeek, pointerToFrame]);
 
   return (
-    <div
-      data-testid="clip-timeline"
-      className="shrink-0 bg-surface border-t border-border select-none relative overflow-hidden"
-      style={{ height: visibleHeight }}
-    >
-      <div className="absolute top-1 right-2 z-20 flex items-center gap-1 rounded border border-border bg-surface/95 px-1 py-0.5">
+    <section className="flex h-full min-h-0 flex-col bg-surface" data-testid="clip-timeline">
+      <div className="flex h-9 items-stretch border-b border-border text-xs">
         <button
-          type="button"
-          onClick={handleZoomOut}
-          disabled={zoomX <= MIN_ZOOM_X}
-          className="px-1.5 py-0 text-xs border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-          title="Zoom out horizontally"
+          className="button-quiet self-stretch border-0 border-r border-solid border-border px-3"
+          onClick={onSkipBack}
+          aria-label={t('video.skipBack')}
+          title={t('video.skipBack')}
         >
-          -
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="11 19 2 12 11 5" /><line x1="22" y1="19" x2="22" y2="5" /></svg>
         </button>
         <button
-          type="button"
-          onClick={handleZoomReset}
-          disabled={zoomX === 1}
-          className="px-1.5 py-0 text-xs border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-          title="Reset horizontal zoom"
+          className="button-quiet self-stretch border-0 border-r border-solid border-border px-3"
+          onClick={onPrevious}
+          aria-label={t('video.stepBack')}
+          title={t('video.stepBackTitle')}
         >
-          {Math.round(zoomX * 100)}%
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
         </button>
         <button
-          type="button"
-          onClick={handleZoomIn}
-          disabled={zoomX >= MAX_ZOOM_X}
-          className="px-1.5 py-0 text-xs border-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-          title="Zoom in horizontally"
+          className="button-quiet self-stretch border-0 border-r border-solid border-border px-3"
+          onClick={() => void onTogglePlayback()}
+          aria-label={isPlaying ? t('video.pause') : t('video.play')}
+          title={isPlaying ? t('video.pause') : t('video.play')}
         >
-          +
+          {isPlaying ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z" /></svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+          )}
         </button>
+        <button
+          className="button-quiet self-stretch border-0 border-r border-solid border-border px-3"
+          onClick={onNext}
+          aria-label={t('video.stepForward')}
+          title={t('video.stepForwardTitle')}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+        </button>
+        <button
+          className="button-quiet self-stretch border-0 border-r border-solid border-border px-3"
+          onClick={onSkipForward}
+          aria-label={t('video.skipForward')}
+          title={t('video.skipForward')}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="13 19 22 12 13 5" /><line x1="2" y1="19" x2="2" y2="5" /></svg>
+        </button>
+        <div className="flex min-w-0 items-center gap-3 border-r border-border px-3">
+          <strong>{t('timeline.keyframes')}</strong>
+          <span className="font-mono text-[10px] text-muted">{t('timeline.frameRange', {
+            frame: formatNumber(currentFrame),
+            start: formatNumber(clip.startFrame),
+            end: formatNumber(clip.endFrame - 1),
+          })}</span>
+        </div>
+        <span className="flex-1" />
+        <label className="flex items-center gap-2 border-l border-border px-3 text-muted">
+          {t('timeline.horizontalZoom')}
+          <input
+            aria-label={t('timeline.zoom')}
+            type="range"
+            min={Math.log2(MIN_ZOOM)}
+            max={Math.log2(MAX_ZOOM)}
+            step={0.1}
+            value={Math.log2(zoom)}
+            onChange={(event) => setZoomAroundPoint(2 ** Number(event.target.value))}
+          />
+        </label>
       </div>
-
-      <div
-        ref={viewportRef}
-        className="absolute inset-x-0 top-0 overflow-x-auto overflow-y-hidden cursor-crosshair"
-        style={{ bottom: RESIZE_HANDLE_H }}
-        onWheel={onViewportWheel}
-      >
+      <div className="flex min-h-0 flex-1 overflow-y-auto">
+        <div className="shrink-0 border-r border-border bg-surface" style={{ width: LABEL_WIDTH }}>
+          <div className="h-7 border-b border-border px-2 py-1 text-[11px] text-muted">{t('timeline.objects')}</div>
+          <div className="relative border-b border-border py-2 pl-3 pr-2 text-xs font-semibold" style={{ height: ROW_HEIGHT }}>
+            <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-amber-400" />
+            {t('clip.pins')}
+          </div>
+          {clip.annotations.map((annotation, index) => (
+            <button
+              key={annotation.id}
+              className={`relative block w-full truncate border-0 border-b border-solid border-border py-0 pl-3 pr-2 text-left text-xs ${
+                selectedAnnotationId === annotation.id ? 'bg-white/10 font-semibold' : ''
+              }`}
+              style={{ height: ROW_HEIGHT }}
+              onClick={() => onSelectAnnotation(annotation.id)}
+              title={annotation.id}
+            >
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 left-0 w-[3px]"
+                data-testid={`clip-timeline-accent-${annotation.id}`}
+                style={{ backgroundColor: annotationAccentColor(annotation) }}
+              />
+              {annotationLabel(annotation, index, t)}
+            </button>
+          ))}
+        </div>
         <div
-          className="relative"
-          style={{ width: contentWidth, height: HEADER_H + timelineBodyHeight }}
-          onMouseDown={onMouseDown}
+          ref={scrollerRef}
+          className="min-w-0 flex-1 overflow-x-auto"
+          data-testid="clip-timeline-scroller"
+          onWheel={handleWheel}
+          onScroll={handleScroll}
         >
-          {ticks.map(({ tMs, label }) => {
-            const x = durationMs > 0 ? (tMs / durationMs) * 100 : 0;
-            return (
-              <React.Fragment key={`tick-${tMs}`}>
-                <div
-                  className="absolute top-0 border-l border-border"
-                  style={{ left: `${x}%`, height: HEADER_H }}
-                />
-                <div
-                  className="absolute text-[9px] text-muted pointer-events-none"
-                  style={{ left: `${x}%`, top: 2, transform: "translateX(2px)" }}
-                >
-                  {label}
-                </div>
-              </React.Fragment>
-            );
-          })}
-
           <div
-            className="absolute left-0 right-0 border-b border-border"
-            style={{ top: HEADER_H }}
-          />
-
-          <div
-            className="absolute top-0 pointer-events-none"
-            style={{
-              left: `${playheadFrac * 100}%`,
-              width: PLAYHEAD_W,
-              height: HEADER_H + timelineBodyHeight,
-              backgroundColor: "#fff",
-              transform: "translateX(-50%)",
-              zIndex: 10,
-            }}
-          />
-
-          <div
-            className="absolute left-0 right-0 overflow-y-auto"
-            style={{ top: HEADER_H, height: timelineBodyHeight }}
+            className="relative cursor-ew-resize select-none touch-none"
+            data-testid="clip-timeline-lane"
+            data-start-frame={clip.startFrame}
+            data-end-frame={clip.endFrame - 1}
+            style={{ width: laneWidth, minHeight: 28 + (clip.annotations.length + 1) * ROW_HEIGHT }}
+            onPointerDown={handleLanePointerDown}
+            onPointerMove={handleLanePointerMove}
+            onPointerUp={handleLanePointerEnd}
+            onPointerCancel={handleLanePointerEnd}
           >
-            <div className="relative" style={{ height: lanesHeight }}>
-              {analysisLoopRange && durationMs > 0 && (() => {
-                const left = (Math.max(0, Math.min(durationMs, analysisLoopRange.startMs)) / durationMs) * 100;
-                const width = (
-                  (Math.max(0, Math.min(durationMs, analysisLoopRange.endMs)) - Math.max(0, Math.min(durationMs, analysisLoopRange.startMs)))
-                  / durationMs
-                ) * 100;
+            <div className="absolute inset-x-0 top-0 h-7 border-b border-border bg-black/20">
+              {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+                const frame = clampFrameToClip(clip, clip.startFrame + ratio * (frameCount - 1));
                 return (
-                  <div
-                    className="absolute top-0 pointer-events-none"
-                    style={{
-                      left: `${left}%`,
-                      width: `${width}%`,
-                      height: lanesHeight,
-                      backgroundColor: "rgba(245, 158, 11, 0.12)",
-                      borderLeft: "1px solid rgba(245, 158, 11, 0.45)",
-                      borderRight: "1px solid rgba(245, 158, 11, 0.45)",
-                      zIndex: 4,
-                    }}
-                  />
-                );
-              })()}
-
-              {annotations.map((annotation, laneIndex) => {
-                const laneTop = laneIndex * LANE_H;
-                const isSelected = annotation.id === selectedAnnotationId || selectedAnnotationIds.includes(annotation.id);
-                const strokeColor = annotation.style?.stroke || "#000000";
-                const accentColor = getAnnotationAccentColor(annotation);
-                const hiddenSpans = getHiddenSpans(annotation, durationMs, fps);
-                const manualVisibilitySpans = getManualVisibilitySpans(annotation, durationMs);
-
-                return (
-                  <div
-                    key={annotation.id}
-                    className="absolute left-0 right-0"
-                    style={{ top: laneTop, height: LANE_H }}
+                  <span
+                    key={ratio}
+                    className="absolute top-1 text-[10px] text-muted"
+                    style={{ left: frameToX(frame), transform: 'translateX(-50%)' }}
                   >
-                    <div
-                      className={`absolute inset-0 ${isSelected ? "bg-hover" : ""}`}
-                      style={{
-                        borderBottom: "1px solid var(--color-border)",
-                        boxShadow: isSelected ? `inset 2px 0 0 ${accentColor}` : undefined,
-                      }}
-                      onMouseDown={(event) => event.stopPropagation()}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onSelectedKeyframeKeysChange?.([]);
-                        setSelectedKeyframeAnchorKey(null);
-                        onSelectAnnotation(annotation.id === selectedAnnotationId ? null : annotation.id);
-                      }}
-                    />
-
-                    <div
-                      className="absolute left-0 top-0 bottom-0"
-                      style={{
-                        width: 2,
-                        backgroundColor: accentColor,
-                        opacity: 0.9,
-                      }}
-                    />
-
-                    <div
-                      className={`absolute text-[9px] pointer-events-none truncate ${isSelected ? "text-white" : "text-muted"}`}
-                      style={{ left: 2, top: 2, maxWidth: 60 }}
-                    >
-                      {annotation.type}
-                    </div>
-
-                    {hiddenSpans.map((span, spanIndex) => {
-                      const isManualVisibilitySpan = manualVisibilitySpans.some((visibilitySpan) => (
-                        visibilitySpan.startMs === span.startMs && visibilitySpan.endMs === span.endMs
-                      ));
-                      const left = durationMs > 0 ? (span.startMs / durationMs) * 100 : 0;
-                      const width = durationMs > 0 ? ((span.endMs - span.startMs) / durationMs) * 100 : 0;
-                      return (
-                        <div
-                          key={`${annotation.id}-loss-${spanIndex}`}
-                          className="absolute pointer-events-none"
-                          style={{
-                            left: `${left}%`,
-                            width: `${width}%`,
-                            top: 2,
-                            height: LANE_H - 4,
-                            backgroundColor: isManualVisibilitySpan
-                              ? "rgba(148, 163, 184, 0.18)"
-                              : "rgba(248, 113, 113, 0.16)",
-                            borderLeft: isManualVisibilitySpan
-                              ? "1px solid rgba(148, 163, 184, 0.7)"
-                              : "1px solid rgba(248, 113, 113, 0.65)",
-                            borderRight: isManualVisibilitySpan
-                              ? "1px solid rgba(148, 163, 184, 0.45)"
-                              : "1px solid rgba(248, 113, 113, 0.35)",
-                          }}
-                          title={isManualVisibilitySpan ? "Object hidden in this span" : "Tracker lost object in this span"}
-                        />
-                      );
-                    })}
-
-                    {annotation.keyframes.map((keyframe, keyframeIndex) => {
-                      const key = `geom:${annotation.id}:${keyframeIndex}:${keyframe.tMs}`;
-                      const x = durationMs > 0 ? (keyframe.tMs / durationMs) * 100 : 0;
-                      const isAtCurrentFrame = currentFrameToleranceMs > 0
-                        ? Math.abs(keyframe.tMs - currentTMs) <= currentFrameToleranceMs
-                        : keyframe.tMs === currentTMs;
-                      const provenance = getKeyframeProvenance(annotation, keyframe);
-                      const isKeyframeSelected = selectedKeyframeKeys.includes(key);
-                      const diamondSize = isAtCurrentFrame ? DIAMOND_SIZE + 3 : DIAMOND_SIZE;
-                      const markerColor = provenance === "correction"
-                        ? "#f59e0b"
-                        : provenance === "tracked"
-                          ? "#60a5fa"
-                          : provenance === "lost"
-                            ? "#f87171"
-                            : strokeColor;
-                      const canDragKeyframe = provenance === "manual" || provenance === "correction";
-                      const isDiamond = provenance === "tracked" || provenance === "manual";
-                      const markerHeight = provenance === "lost" ? 4 : diamondSize;
-                      const descriptor: KeyframeDescriptor = {
-                        key,
-                        annId: annotation.id,
-                        laneIndex,
-                        keyframeIndex,
-                        tMs: keyframe.tMs,
-                        kind: "position",
-                      };
-                      return (
-                        <div
-                          key={`${annotation.id}-kf-${keyframeIndex}`}
-                          className={`absolute ${canDragKeyframe ? "cursor-ew-resize" : "cursor-pointer"}`}
-                          style={{
-                            left: `${x}%`,
-                            top: (LANE_H - markerHeight) / 2,
-                            width: diamondSize,
-                            height: markerHeight,
-                            transform: isDiamond ? "translateX(-50%) rotate(45deg)" : "translateX(-50%)",
-                            borderRadius: provenance === "correction" ? 2 : provenance === "lost" ? 999 : 0,
-                            backgroundColor: markerColor,
-                            border: isKeyframeSelected
-                              ? "2px solid white"
-                              : "1px solid rgba(255,255,255,0.9)",
-                            boxShadow: isKeyframeSelected
-                              ? "0 0 0 2px rgba(96,165,250,0.55)"
-                              : isAtCurrentFrame
-                                ? "0 0 0 2px rgba(255,255,255,0.55)"
-                                : undefined,
-                            zIndex: isKeyframeSelected ? 8 : 6,
-                          }}
-                          title={`${annotation.type} ${provenance} keyframe @ ${Math.round(keyframe.tMs)}ms${canDragKeyframe ? " (drag to retime)" : ""}`}
-                          onMouseDown={(event) => handleKeyframeMouseDown(event, descriptor, canDragKeyframe)}
-                          onClick={(event) => handleKeyframeClick(event, descriptor)}
-                        />
-                      );
-                    })}
-
-                    {(annotation.visibilityKeyframes ?? []).map((keyframe, keyframeIndex) => {
-                      const key = `vis:${annotation.id}:${keyframeIndex}:${keyframe.tMs}`;
-                      const x = durationMs > 0 ? (keyframe.tMs / durationMs) * 100 : 0;
-                      const isKeyframeSelected = selectedKeyframeKeys.includes(key);
-                      const color = keyframe.action === "show" ? "#22c55e" : "#94a3b8";
-                      const descriptor: KeyframeDescriptor = {
-                        key,
-                        annId: annotation.id,
-                        laneIndex,
-                        keyframeIndex,
-                        tMs: keyframe.tMs,
-                        kind: "visibility",
-                        action: keyframe.action,
-                      };
-                      return (
-                        <div
-                          key={`${annotation.id}-vis-${keyframeIndex}`}
-                          className="absolute cursor-ew-resize"
-                          style={{
-                            left: `${x}%`,
-                            top: (LANE_H - 10) / 2,
-                            width: 10,
-                            height: 10,
-                            transform: "translateX(-50%)",
-                            borderRadius: 2,
-                            backgroundColor: color,
-                            border: isKeyframeSelected
-                              ? "2px solid white"
-                              : "1px solid rgba(255,255,255,0.9)",
-                            boxShadow: isKeyframeSelected ? "0 0 0 2px rgba(96,165,250,0.55)" : undefined,
-                            zIndex: isKeyframeSelected ? 9 : 7,
-                          }}
-                          title={`${annotation.type} ${keyframe.action} @ ${Math.round(keyframe.tMs)}ms (drag to retime)`}
-                          onMouseDown={(event) => handleKeyframeMouseDown(event, descriptor, true)}
-                          onClick={(event) => handleKeyframeClick(event, descriptor)}
-                        >
-                          <div
-                            className="absolute inset-0 flex items-center justify-center text-[8px] leading-none font-semibold text-black"
-                            style={{ color: keyframe.action === "show" ? "#052e16" : "#0f172a" }}
-                          >
-                            {keyframe.action === "show" ? "S" : "H"}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                    {formatNumber(frame)}
+                  </span>
                 );
               })}
-
-              {retrackRangeEndMs != null && durationMs > 0 && (() => {
-                const startFrac = currentTMs / durationMs;
-                const endFrac = retrackRangeEndMs / durationMs;
-                const left = Math.min(startFrac, endFrac) * 100;
-                const width = Math.abs(endFrac - startFrac) * 100;
-                return (
-                  <div
-                    className="absolute top-0 pointer-events-none"
-                    style={{
-                      left: `${left}%`,
-                      width: `${width}%`,
-                      height: lanesHeight,
-                      backgroundColor: "rgba(59, 130, 246, 0.15)",
-                      borderLeft: "1px solid rgba(59, 130, 246, 0.5)",
-                      borderRight: "1px solid rgba(59, 130, 246, 0.5)",
-                      zIndex: 5,
-                    }}
-                  />
-                );
-              })()}
             </div>
+            {rangeEndFrame != null && (
+              <div
+                className="pointer-events-none absolute top-7 bottom-0 bg-amber-400/10"
+                style={{
+                  left: Math.min(frameToX(currentFrame), frameToX(rangeEndFrame)),
+                  width: Math.abs(frameToX(rangeEndFrame) - frameToX(currentFrame)),
+                }}
+              />
+            )}
+            <div
+              className="absolute inset-x-0 border-b border-border/70 bg-amber-400/[0.03]"
+              style={{ top: 28, height: ROW_HEIGHT }}
+            >
+              {clip.pins.map((pin) => (
+                <button
+                  key={pin.id}
+                  aria-label={t('timeline.pinAria', { frame: formatNumber(pin.frame) })}
+                  className="absolute top-1/2 h-4 w-4 rounded-full border border-white bg-amber-400 p-0"
+                  style={{
+                    left: frameToX(pin.frame),
+                    transform: 'translate(-50%, -50%)',
+                    outline: selectedPinId === pin.id ? '2px solid #fff' : undefined,
+                  }}
+                  title={t('timeline.pinTitle', { label: pin.label || pin.id, frame: formatNumber(pin.frame) })}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSelectPin?.(pin.id, pin.frame);
+                  }}
+                />
+              ))}
+            </div>
+            {clip.annotations.map((annotation, rowIndex) => (
+              <div
+                key={annotation.id}
+                className={`absolute inset-x-0 border-b border-border/70 ${
+                  selectedAnnotationId === annotation.id ? 'bg-white/[0.04]' : ''
+                }`}
+                data-timeline-annotation-id={annotation.id}
+                style={{ top: 28 + (rowIndex + 1) * ROW_HEIGHT, height: ROW_HEIGHT }}
+              >
+                {annotation.keyframes.map((keyframe, index) => {
+                  const ref: TimelineKeyframeRef = {
+                    annotationId: annotation.id,
+                    kind: 'position',
+                    index,
+                    frame: keyframe.frame,
+                  };
+                  const selected = selectedKeyframe?.annotationId === annotation.id
+                    && selectedKeyframe.kind === 'position'
+                    && selectedKeyframe.frame === keyframe.frame;
+                  const draggable = keyframe.provenance !== 'tracked' && keyframe.provenance !== 'lost';
+                  return (
+                    <button
+                      key={`position-${keyframe.frame}`}
+                      aria-label={t('timeline.keyframeAria', {
+                        type: t(`tool.${annotation.type}`),
+                        frame: formatNumber(keyframe.frame),
+                      })}
+                      className="absolute top-1/2 h-3.5 w-3.5 rotate-45 border border-white bg-sky-400 p-0"
+                      style={{
+                        left: frameToX(keyframe.frame),
+                        transform: 'translate(-50%, -50%) rotate(45deg)',
+                        outline: selected ? '2px solid #fff' : undefined,
+                        cursor: draggable ? 'ew-resize' : 'pointer',
+                      }}
+                      title={t('timeline.keyframeTitle', {
+                        provenance: t(`timeline.provenance.${keyframe.provenance ?? 'manual'}`),
+                        frame: formatNumber(keyframe.frame),
+                      })}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                        onSelectAnnotation(annotation.id);
+                        onSelectKeyframe(ref);
+                        onSeek(keyframe.frame);
+                        if (draggable && event.button === 0) event.currentTarget.setPointerCapture(event.pointerId);
+                      }}
+                      onPointerMove={(event) => {
+                        if (!draggable || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                        onSeek(pointerToFrame(event.clientX));
+                      }}
+                      onPointerUp={(event) => {
+                        if (!draggable || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                        onMoveKeyframe(ref, pointerToFrame(event.clientX));
+                        event.currentTarget.releasePointerCapture(event.pointerId);
+                      }}
+                    />
+                  );
+                })}
+                {(annotation.visibilityKeyframes ?? []).map((keyframe, index) => {
+                  const ref: TimelineKeyframeRef = {
+                    annotationId: annotation.id,
+                    kind: 'visibility',
+                    index,
+                    frame: keyframe.frame,
+                  };
+                  const selected = selectedKeyframe?.annotationId === annotation.id
+                    && selectedKeyframe.kind === 'visibility'
+                    && selectedKeyframe.frame === keyframe.frame;
+                  return (
+                    <button
+                      key={`visibility-${keyframe.frame}`}
+                      aria-label={t('timeline.visibilityAria', {
+                        action: t(`timeline.action.${keyframe.action}`),
+                        frame: formatNumber(keyframe.frame),
+                      })}
+                      className={`absolute top-1/2 h-3 w-3 rounded-full border border-white p-0 ${
+                        keyframe.action === 'hide' ? 'bg-rose-500' : 'bg-emerald-500'
+                      }`}
+                      style={{
+                        left: frameToX(keyframe.frame),
+                        transform: 'translate(-50%, -50%)',
+                        outline: selected ? '2px solid #fff' : undefined,
+                        cursor: 'ew-resize',
+                      }}
+                      title={t('timeline.visibilityTitle', {
+                        action: t(`timeline.action.${keyframe.action}`),
+                        frame: formatNumber(keyframe.frame),
+                      })}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                        onSelectAnnotation(annotation.id);
+                        onSelectKeyframe(ref);
+                        onSeek(keyframe.frame);
+                        if (event.button === 0) event.currentTarget.setPointerCapture(event.pointerId);
+                      }}
+                      onPointerMove={(event) => {
+                        if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                        onSeek(pointerToFrame(event.clientX));
+                      }}
+                      onPointerUp={(event) => {
+                        if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                        onMoveKeyframe(ref, pointerToFrame(event.clientX));
+                        event.currentTarget.releasePointerCapture(event.pointerId);
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            ))}
+            <div
+              className="pointer-events-none absolute top-0 bottom-0 w-px bg-red-400"
+              style={{ left: frameToX(currentFrame) }}
+            />
           </div>
         </div>
       </div>
-
-      <div
-        className="absolute inset-x-0 bottom-0 h-2 cursor-row-resize border-t border-border bg-white/5 hover:bg-white/10"
-        onMouseDown={onResizeMouseDown}
-      />
-    </div>
+    </section>
   );
 }

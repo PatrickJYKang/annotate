@@ -1,0 +1,264 @@
+{
+  "schema": "tagging-board.v1",
+  "defaults": {
+    "leadSeconds": 3,
+    "lagSeconds": 3,
+    "mode": "instant"
+  },
+  "groups": [
+    {
+      "id": "offensive.open_play",
+      "label": "Offensive - open play",
+      "buttons": [
+        {
+          "id": "offensive.open_play.possession",
+          "label": "Possession",
+          "facetGroupIds": ["zone.vertical_third"]
+        },
+        {
+          "id": "offensive.open_play.transition",
+          "label": "Transition",
+          "facetGroupIds": ["transition.turnover_height", "outcome.general", "goal.method"]
+        },
+        {
+          "id": "offensive.open_play.cross",
+          "label": "Cross",
+          "facetGroupIds": ["cross.type", "cross.origin_depth", "outcome.general", "goal.method", "turnover.method"]
+        },
+        {
+          "id": "offensive.open_play.pass",
+          "label": "Pass",
+          "facetGroupIds": ["pass.length", "pass.type", "outcome.pass", "goal.method"]
+        },
+        {
+          "id": "offensive.open_play.take_on",
+          "label": "Take-on",
+          "facetGroupIds": ["zone.vertical_third", "zone.channel", "outcome.success"]
+        }
+      ]
+    },
+    {
+      "id": "offensive.set_piece",
+      "label": "Offensive - set piece",
+      "buttons": [
+        {
+          "id": "offensive.set_piece.corner",
+          "label": "Corner",
+          "facetGroupIds": ["outcome.general", "goal.method"]
+        },
+        {
+          "id": "offensive.set_piece.free_kick",
+          "label": "Free kick",
+          "facetGroupIds": ["outcome.general", "goal.method"]
+        },
+        {
+          "id": "offensive.set_piece.goal_kick",
+          "label": "Goal kick",
+          "facetGroupIds": ["outcome.general", "goal.method"]
+        },
+        {
+          "id": "offensive.set_piece.throw_in",
+          "label": "Throw in",
+          "facetGroupIds": ["outcome.general", "goal.method"]
+        },
+        {
+          "id": "offensive.set_piece.penalty",
+          "label": "Penalty",
+          "facetGroupIds": ["outcome.general", "goal.method"]
+        }
+      ]
+    },
+    {
+      "id": "defensive.open_play",
+      "label": "Defensive - open play",
+      "buttons": [
+        {
+          "id": "defensive.open_play.possession",
+          "label": "Possession",
+          "facetGroupIds": ["zone.vertical_third"]
+        },
+        {
+          "id": "defensive.open_play.transition",
+          "label": "Transition",
+          "facetGroupIds": ["transition.turnover_height", "outcome.general", "goal.method"]
+        },
+        {
+          "id": "defensive.open_play.cross",
+          "label": "Cross",
+          "facetGroupIds": ["cross.type", "cross.origin_depth", "outcome.general", "goal.method", "turnover.method"]
+        },
+        {
+          "id": "defensive.open_play.pass",
+          "label": "Pass",
+          "facetGroupIds": ["pass.length", "pass.type", "outcome.pass", "goal.method"]
+        },
+        {
+          "id": "defensive.open_play.take_on",
+          "label": "Take-on",
+          "facetGroupIds": ["zone.vertical_third", "zone.channel", "outcome.success"]
+        }
+      ]
+    },
+    {
+      "id": "defensive.set_piece",
+      "label": "Defensive - set piece",
+      "buttons": [
+        {
+          "id": "defensive.set_piece.corner",
+          "label": "Corner",
+          "facetGroupIds": ["outcome.general", "goal.method"]
+        },
+        {
+          "id": "defensive.set_piece.free_kick",
+          "label": "Free kick",
+          "facetGroupIds": ["outcome.general", "goal.method"]
+        },
+        {
+          "id": "defensive.set_piece.goal_kick",
+          "label": "Goal kick",
+          "facetGroupIds": ["outcome.general", "goal.method"]
+        },
+        {
+          "id": "defensive.set_piece.throw_in",
+          "label": "Throw in",
+          "facetGroupIds": ["outcome.general", "goal.method"]
+        },
+        {
+          "id": "defensive.set_piece.penalty",
+          "label": "Penalty",
+          "facetGroupIds": ["outcome.general", "goal.method"]
+        }
+      ]
+    }
+  ],
+  "facets": [
+    {
+      "id": "zone.vertical_third",
+      "label": "Vertical third",
+      "mode": "single",
+      "options": [
+        { "id": "defensive_third", "label": "Defensive third" },
+        { "id": "middle_third", "label": "Middle third" },
+        { "id": "final_third", "label": "Final third" }
+      ]
+    },
+    {
+      "id": "zone.channel",
+      "label": "Channel",
+      "mode": "single",
+      "options": [
+        { "id": "inside", "label": "Inside" },
+        { "id": "half_space", "label": "Half-space" },
+        { "id": "wing", "label": "Wing" }
+      ]
+    },
+    {
+      "id": "transition.turnover_height",
+      "label": "Turnover height",
+      "mode": "single",
+      "options": [
+        { "id": "high", "label": "High turnover" },
+        { "id": "low", "label": "Low turnover" }
+      ]
+    },
+    {
+      "id": "cross.type",
+      "label": "Cross type",
+      "mode": "single",
+      "options": [
+        { "id": "floated", "label": "Floated" },
+        { "id": "whipped", "label": "Whipped" },
+        { "id": "low", "label": "Low" }
+      ]
+    },
+    {
+      "id": "cross.origin_depth",
+      "label": "Cross location",
+      "mode": "single",
+      "options": [
+        { "id": "deep", "label": "Deep" },
+        { "id": "middle", "label": "Middle" },
+        { "id": "byline", "label": "Byline" }
+      ]
+    },
+    {
+      "id": "pass.length",
+      "label": "Pass length",
+      "mode": "single",
+      "options": [
+        { "id": "short", "label": "Short" },
+        { "id": "medium", "label": "Medium" },
+        { "id": "long", "label": "Long" }
+      ]
+    },
+    {
+      "id": "pass.type",
+      "label": "Pass type",
+      "mode": "single",
+      "options": [
+        { "id": "through_ball", "label": "Through ball" },
+        { "id": "switch", "label": "Switch" },
+        { "id": "other", "label": "Other" }
+      ]
+    },
+    {
+      "id": "outcome.general",
+      "label": "Outcome",
+      "mode": "single",
+      "options": [
+        { "id": "goal", "label": "Goal" },
+        { "id": "turnover", "label": "Turnover" },
+        { "id": "foul", "label": "Foul" },
+        { "id": "offside", "label": "Offside" }
+      ]
+    },
+    {
+      "id": "outcome.pass",
+      "label": "Pass outcome",
+      "mode": "single",
+      "options": [
+        { "id": "complete", "label": "Complete" },
+        { "id": "incomplete", "label": "Incomplete" },
+        { "id": "offside", "label": "Offside" },
+        { "id": "goal", "label": "Goal" },
+        { "id": "progression", "label": "Progression" }
+      ]
+    },
+    {
+      "id": "outcome.success",
+      "label": "Take-on outcome",
+      "mode": "single",
+      "options": [
+        { "id": "successful", "label": "Successful" },
+        { "id": "unsuccessful", "label": "Unsuccessful" }
+      ]
+    },
+    {
+      "id": "goal.method",
+      "label": "Goal method",
+      "mode": "single",
+      "requiresAny": [
+        { "facetGroupId": "outcome.general", "optionId": "goal" },
+        { "facetGroupId": "outcome.pass", "optionId": "goal" }
+      ],
+      "options": [
+        { "id": "header", "label": "Header" },
+        { "id": "volley", "label": "Volley" },
+        { "id": "ground", "label": "Ground" }
+      ]
+    },
+    {
+      "id": "turnover.method",
+      "label": "Turnover method",
+      "mode": "single",
+      "requiresAny": [
+        { "facetGroupId": "outcome.general", "optionId": "turnover" }
+      ],
+      "options": [
+        { "id": "headed", "label": "Headed" },
+        { "id": "foot", "label": "Foot" },
+        { "id": "other", "label": "Other" }
+      ]
+    }
+  ]
+}

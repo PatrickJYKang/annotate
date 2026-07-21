@@ -1,851 +1,634 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import VideoPlayerUnit, { type VideoPlayerHandle } from '../player/VideoPlayerUnit';
-import type { AnnotationsV1 } from '../../lib/export/d7Render';
+import type { AnnotationPayload } from '../../lib/annotate/documentPayload';
+import { annotationPayloadFromDocument } from '../../lib/annotate/documentPayload';
+import {
+  frameTemporalAdapter,
+  renderClipAnnotationsToCanvas,
+} from '../../lib/clip/renderClipAnnotations';
+import { frameToMs, videoFrame } from '../../lib/clip/frameMath';
+import { resolveUsableHomographyAtTime } from '../../lib/clip/homographyInterpolation';
 import { renderAnnotatedPng } from '../../lib/export/d7Render';
-import { mergeLoadedAnnotationDocuments, type LoadedAnnotationDocument } from '../../lib/fs/annotationStorage';
-import type { PlaybackAssetRegistry, PreferredPlaybackAssetIdByVideoId, ResolvedPlaybackAsset } from '../../lib/presentation/derivedMediaTypes';
+import type { PreparedPresentationAsset } from '../../lib/fs/presentationMedia';
+import { preparedPresentationAssetKey } from '../../lib/fs/presentationMedia';
+import { findOverlappingCache, type HomographyFrame } from '../../lib/fs/homographyCache';
+import { readPinAnnotationDocument } from '../../lib/fs/pinAnnotationStorage';
+import { createFrameRasterQueue } from '../../lib/media/frameRaster';
 import {
-  buildPlaybackAssetLeaseKey,
-  detachVideoElementIfUsingUrl,
-  type PlaybackAssetObjectUrlRegistry,
-} from '../../lib/presentation/playbackAssetObjectUrls';
-import { getBlobUrlId, recordMediaTrace } from '../../lib/presentation/mediaTrace';
-import type { PresentationPlayerState } from '../../lib/presentation/playerController';
+  effectivePausePins as resolveEffectivePausePins,
+  validateMatchVideoEdge,
+} from '../../lib/presentation/authoring';
 import {
-  buildClipPlaybackPreferenceKey,
-  buildOriginalPlaybackAssetId,
-  buildTransitionPlaybackPreferenceKey,
-  getPlaybackWorkflowForState,
-  resolveAuthoringClipPreviewPlaybackAsset,
-  resolveAuthoringRetrievalPlaybackAsset,
-  resolveAuthoringTransitionPreviewPlaybackAsset,
-  resolvePresentClipPlaybackAsset,
-  resolvePresentTransitionPlaybackAsset,
-  resolvePlaybackAssetForVideoId,
-} from '../../lib/presentation/playbackAssetResolver';
+  advancePinPauseMachine,
+  resumePinPauseMachine,
+  seekPinPauseMachine,
+  sourceFrameToMediaSeconds,
+  startPinPauseMachine,
+  toSourceFrame,
+  visibleAnnotationIds,
+  type PinPauseMachine,
+  type PresentationPlaybackAsset,
+} from '../../lib/presentation/playback';
+import type { ClipPin, Clip } from '../../lib/types/clip';
+import type {
+  ClipPauseCue,
+  PresentationSlide,
+  PresentationTransition,
+  Presentation,
+} from '../../lib/types/presentation';
+import type { ProjectManifest, VideoEntry } from '../../lib/types/project';
+import { useLocale, type Translate } from '../../lib/i18n';
 
-export interface PresentationCanvasProps {
-  presentationId?: string | null;
-  state: PresentationPlayerState;
-  stillUrlById: Record<string, string>;
-  annotatedStillUrlById: Record<string, string>;
-  annotationsByStillId: Record<string, AnnotationsV1 | null>;
-  annotationDocumentsByStillId: Record<string, LoadedAnnotationDocument[]>;
-  playbackAssetById: PlaybackAssetRegistry;
-  preferredPlaybackAssetIdByVideoId: PreferredPlaybackAssetIdByVideoId;
-  preferredPlaybackAssetIdsByPlaybackKey?: Record<string, string[]>;
-  playbackAssetObjectUrlRegistry?: PlaybackAssetObjectUrlRegistry | null;
-  isPresenting?: boolean;
-  allowPlaybackFallbackToOriginal?: boolean;
-  onResolvedPlaybackAssetChange?: (asset: ResolvedPlaybackAsset | null) => void;
-  onVideoComplete: () => void;
+export interface PresentationVideoResource {
+  video: VideoEntry;
+  file: File;
+  url: string;
 }
 
-function filterAnnotations(annotations: AnnotationsV1, visibleIds: Set<string>): AnnotationsV1 {
+export interface PreparedPresentationResource {
+  entry: PreparedPresentationAsset;
+  url: string;
+}
+
+export type PresentationScene =
+  | { kind: 'slide'; index: number }
+  | { kind: 'transition'; index: number };
+
+interface PresentationCanvasProps {
+  projectDir: FileSystemDirectoryHandle;
+  manifest: ProjectManifest;
+  presentation: Presentation;
+  clips: readonly Clip[];
+  scene: PresentationScene;
+  videoResources: ReadonlyMap<string, PresentationVideoResource>;
+  preparedResources: ReadonlyMap<string, PreparedPresentationResource>;
+  isPresenting: boolean;
+  onComplete: () => void;
+}
+
+type ResolvedScene = {
+  sceneKey: string;
+  slide: PresentationSlide | null;
+  clip: Clip | null;
+  pin: ClipPin | null;
+  transition: PresentationTransition | null;
+  video: VideoEntry | null;
+  range: { startFrame: number; endFrame: number } | null;
+  preparedOwnerId: string | null;
+  hideAnimatedAnnotations: boolean;
+  error: string | null;
+};
+
+function transitionOwnerId(from: PresentationSlide, to: PresentationSlide): string {
+  return `edge-${from.id}-${to.id}`;
+}
+
+function resolveScene(
+  scene: PresentationScene,
+  presentation: Presentation,
+  clips: readonly Clip[],
+  manifest: ProjectManifest,
+  t: Translate,
+): ResolvedScene {
+  const clipsById = new Map(clips.map((clip) => [clip.id, clip]));
+  if (scene.kind === 'transition') {
+    const from = presentation.slides[scene.index];
+    const to = presentation.slides[scene.index + 1];
+    const transition = presentation.transitions[scene.index];
+    if (!from || !to || !transition) {
+      return { sceneKey: `missing-transition-${scene.index}`, slide: null, clip: null, pin: null, transition: null, video: null, range: null, preparedOwnerId: null, hideAnimatedAnnotations: true, error: t('presentation.sceneMissingTransition') };
+    }
+    const valid = validateMatchVideoEdge(from, to, transition, clips, manifest);
+    if (!valid.ok) {
+      return { sceneKey: `invalid-transition-${scene.index}`, slide: null, clip: null, pin: null, transition, video: null, range: null, preparedOwnerId: null, hideAnimatedAnnotations: true, error: t(`presentation.validation.${valid.code}`) };
+    }
+    return {
+      sceneKey: `transition-${scene.index}-${from.id}-${to.id}`,
+      slide: null,
+      clip: null,
+      pin: null,
+      transition,
+      video: valid.video,
+      range: valid.range,
+      preparedOwnerId: transitionOwnerId(from, to),
+      hideAnimatedAnnotations: transition.mode === 'match_video' && transition.hideAnnotationsDuringPlayback,
+      error: null,
+    };
+  }
+
+  const slide = presentation.slides[scene.index] ?? null;
+  if (!slide) {
+    return { sceneKey: `missing-slide-${scene.index}`, slide: null, clip: null, pin: null, transition: null, video: null, range: null, preparedOwnerId: null, hideAnimatedAnnotations: false, error: t('presentation.sceneMissingSlide') };
+  }
+  if (slide.kind === 'title') {
+    return { sceneKey: `slide-${slide.id}`, slide, clip: null, pin: null, transition: null, video: null, range: null, preparedOwnerId: null, hideAnimatedAnnotations: false, error: null };
+  }
+  const clip = clipsById.get(slide.clipId) ?? null;
+  if (!clip) {
+    return { sceneKey: `slide-${slide.id}`, slide, clip: null, pin: null, transition: null, video: null, range: null, preparedOwnerId: null, hideAnimatedAnnotations: false, error: t('presentation.sceneMissingClip', { id: slide.clipId }) };
+  }
+  const video = manifest.videos.find((candidate) => candidate.id === clip.videoId) ?? null;
+  if (!video) {
+    return { sceneKey: `slide-${slide.id}`, slide, clip, pin: null, transition: null, video: null, range: null, preparedOwnerId: null, hideAnimatedAnnotations: false, error: t('presentation.sceneMissingVideo', { id: clip.videoId }) };
+  }
+  if (slide.kind === 'pin') {
+    const pin = clip.pins.find((candidate) => candidate.id === slide.pinId) ?? null;
+    return {
+      sceneKey: `slide-${slide.id}`,
+      slide,
+      clip,
+      pin,
+      transition: null,
+      video,
+      range: pin ? { startFrame: pin.frame, endFrame: pin.frame + 1 } : null,
+      preparedOwnerId: null,
+      hideAnimatedAnnotations: false,
+      error: pin ? null : t('presentation.sceneMissingPin', { id: slide.pinId }),
+    };
+  }
   return {
-    ...annotations,
-    shapes: annotations.shapes.filter((shape) => visibleIds.has(shape.id)),
+    sceneKey: `slide-${slide.id}`,
+    slide,
+    clip,
+    pin: null,
+    transition: null,
+    video,
+    range: { startFrame: clip.startFrame, endFrame: clip.endFrame },
+    preparedOwnerId: slide.id,
+    hideAnimatedAnnotations: false,
+    error: null,
   };
 }
 
-const fullscreenImageClassName = "relative z-10 w-full h-full object-contain";
+function mergePayloads(payloads: readonly AnnotationPayload[], width: number, height: number): AnnotationPayload {
+  return {
+    image: { width, height },
+    shapes: payloads.flatMap((payload) => payload.shapes),
+    perspective: payloads.find((payload) => payload.perspective)?.perspective,
+  };
+}
 
 export default function PresentationCanvas({
-  presentationId = null,
-  state,
-  stillUrlById,
-  annotatedStillUrlById,
-  annotationsByStillId,
-  annotationDocumentsByStillId,
-  playbackAssetById,
-  preferredPlaybackAssetIdByVideoId,
-  preferredPlaybackAssetIdsByPlaybackKey = {},
-  playbackAssetObjectUrlRegistry = null,
-  isPresenting = false,
-  allowPlaybackFallbackToOriginal = true,
-  onResolvedPlaybackAssetChange,
-  onVideoComplete,
+  projectDir,
+  manifest,
+  presentation,
+  clips,
+  scene,
+  videoResources,
+  preparedResources,
+  isPresenting,
+  onComplete,
 }: PresentationCanvasProps) {
-  const playerRef = useRef<VideoPlayerHandle | null>(null);
-  const transitionVideoRef = useRef<HTMLVideoElement | null>(null);
+  const { t, formatNumber } = useLocale();
+  const resolved = useMemo(
+    () => resolveScene(scene, presentation, clips, manifest, t),
+    [clips, manifest, presentation, scene, t],
+  );
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const overlayRef = useRef<HTMLCanvasElement | null>(null);
+  const pauseMachineRef = useRef<PinPauseMachine | null>(null);
   const completionKeyRef = useRef<string | null>(null);
-  const timedAnnotatedStillUrlRef = useRef<string | null>(null);
-  const playerVideoUrlRef = useRef<string | null>(null);
-  const playerVideoErrorCountRef = useRef<Record<string, number>>({});
-  const [videoReady, setVideoReady] = useState(false);
-  const [playerVideoUrl, setPlayerVideoUrl] = useState<string | null>(null);
-  const [playerVideoReloadNonce, setPlayerVideoReloadNonce] = useState(0);
-  const [blockedPlaybackAssetIds, setBlockedPlaybackAssetIds] = useState<string[]>([]);
-  const [stillPlaybackElapsedMs, setStillPlaybackElapsedMs] = useState(0);
-  const [timedAnnotatedStillUrl, setTimedAnnotatedStillUrl] = useState<string | null>(null);
-  const effectivePlayerVideoUrl = playerVideoUrl;
-  const isSimpleTransitionPlayback = state.mode === 'video' && state.source === 'transition';
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [sourceFrame, setSourceFrame] = useState(resolved.range?.startFrame ?? 0);
+  const requestedSourceFrameRef = useRef(resolved.range?.startFrame ?? 0);
+  const pendingSeekFrameRef = useRef<number | null>(null);
+  const activeSceneKeyRef = useRef<string | null>(null);
+  const playIntentRef = useRef(isPresenting);
+  const [playing, setPlaying] = useState(false);
+  const [pausedPin, setPausedPin] = useState<ClipPin | null>(null);
+  const [staticFrameUrl, setStaticFrameUrl] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [staticElapsedMs, setStaticElapsedMs] = useState(0);
+  const [homographyFrames, setHomographyFrames] = useState<HomographyFrame[]>([]);
+  const staticStartedAtRef = useRef(Date.now());
 
-  useEffect(() => {
-    playerVideoUrlRef.current = effectivePlayerVideoUrl;
-  }, [effectivePlayerVideoUrl]);
-
-  const baseStillUrl = useMemo(() => {
-    if (state.mode !== 'still') return null;
-    return stillUrlById[state.still.id] ?? null;
-  }, [state, stillUrlById]);
-
-  const activeStillAnnotations = useMemo(() => {
-    if (state.mode !== 'still') return null;
-    return annotationsByStillId[state.still.id] ?? null;
-  }, [state, annotationsByStillId]);
-
-  const activeStillAnnotationDocuments = useMemo(() => {
-    if (state.mode !== 'still') return [] as LoadedAnnotationDocument[];
-    return annotationDocumentsByStillId[state.still.id] ?? [];
-  }, [state, annotationDocumentsByStillId]);
-
-  const usesAnnotationSetSelection = useMemo(() => {
-    return state.mode === 'still'
-      && (state.slide.annotationSetIds !== undefined || (state.slide.annotationSetCues?.length ?? 0) > 0);
-  }, [state]);
-
-  const visibleAnnotationSetIds = useMemo(() => {
-    if (state.mode !== 'still' || !state.showAnnotations || !usesAnnotationSetSelection) return null;
-    const selectedIds = new Set(
-      state.slide.annotationSetIds !== undefined
-        ? state.slide.annotationSetIds
-        : activeStillAnnotationDocuments.map((entry) => entry.entry.id),
-    );
-    const visibleEntries = activeStillAnnotationDocuments.filter((entry) => selectedIds.has(entry.entry.id));
-    if (!isPresenting || (state.slide.annotationSetCues?.length ?? 0) === 0) {
-      return visibleEntries.map((entry) => entry.entry.id);
-    }
-    const cueBySetId = new Map((state.slide.annotationSetCues ?? []).map((cue) => [cue.annotationSetId, cue] as const));
-    return visibleEntries
-      .filter((entry) => {
-        const cue = cueBySetId.get(entry.entry.id);
-        if (!cue) return true;
-        if (cue.enterAtMs != null && stillPlaybackElapsedMs < cue.enterAtMs) return false;
-        if (cue.exitAtMs != null && stillPlaybackElapsedMs >= cue.exitAtMs) return false;
-        return true;
-      })
-      .map((entry) => entry.entry.id);
-  }, [state, usesAnnotationSetSelection, activeStillAnnotationDocuments, isPresenting, stillPlaybackElapsedMs]);
-
-  const timedAnnotationIds = useMemo(() => {
-    if (state.mode !== 'still' || !state.showAnnotations || !activeStillAnnotations || usesAnnotationSetSelection) return null;
-    const cues = state.slide.annotationCues ?? [];
-    if (!isPresenting || cues.length === 0) return null;
-    const cueById = new Map(cues.map((cue) => [cue.annotationId, cue] as const));
-    return activeStillAnnotations.shapes
-      .filter((shape) => {
-        const cue = cueById.get(shape.id);
-        if (!cue) return true;
-        if (cue.enterAtMs != null && stillPlaybackElapsedMs < cue.enterAtMs) return false;
-        if (cue.exitAtMs != null && stillPlaybackElapsedMs >= cue.exitAtMs) return false;
-        return true;
-      })
-      .map((shape) => shape.id);
-  }, [state, activeStillAnnotations, usesAnnotationSetSelection, isPresenting, stillPlaybackElapsedMs]);
-
-  const dynamicStillAnnotations = useMemo(() => {
-    if (state.mode !== 'still' || !state.showAnnotations) return null;
-    if (usesAnnotationSetSelection) {
-      if (!visibleAnnotationSetIds) return null;
-      const visibleSetIdSet = new Set(visibleAnnotationSetIds);
-      return mergeLoadedAnnotationDocuments(
-        activeStillAnnotationDocuments.filter((entry) => visibleSetIdSet.has(entry.entry.id)),
-      );
-    }
-    if (timedAnnotationIds) {
-      return activeStillAnnotations ? filterAnnotations(activeStillAnnotations, new Set(timedAnnotationIds)) : null;
-    }
-    return null;
-  }, [state, usesAnnotationSetSelection, visibleAnnotationSetIds, activeStillAnnotationDocuments, timedAnnotationIds, activeStillAnnotations]);
-
-  const stillPlaybackKey = state.mode === 'still' ? state.slide.id : state.mode;
-  const timedAnnotationKey = usesAnnotationSetSelection
-    ? visibleAnnotationSetIds?.join('|') ?? null
-    : timedAnnotationIds
-      ? timedAnnotationIds.join('|')
-      : null;
-
-  const activeStillUrl = useMemo(() => {
-    if (state.mode !== 'still') return null;
-    if (!baseStillUrl) return null;
-    if (!state.showAnnotations) {
-      return baseStillUrl;
-    }
-    if (usesAnnotationSetSelection || timedAnnotationIds) {
-      const dynamicShapeCount = dynamicStillAnnotations?.shapes?.length ?? 0;
-      if (dynamicShapeCount === 0) {
-        return baseStillUrl;
-      }
-      return timedAnnotatedStillUrl ?? baseStillUrl;
-    }
-    if (annotatedStillUrlById[state.still.id]) {
-      return annotatedStillUrlById[state.still.id];
-    }
-    return baseStillUrl;
-  }, [state, baseStillUrl, usesAnnotationSetSelection, timedAnnotationIds, timedAnnotatedStillUrl, dynamicStillAnnotations, annotatedStillUrlById]);
-
-  const transitionBackdropUrl = useMemo(() => {
-    if (!isSimpleTransitionPlayback || !state.backdropStillId) {
-      return null;
-    }
-    const baseUrl = stillUrlById[state.backdropStillId] ?? null;
-    if (!baseUrl) {
-      return null;
-    }
-    if (!state.backdropShowAnnotations) {
-      return baseUrl;
-    }
-    return annotatedStillUrlById[state.backdropStillId] ?? baseUrl;
-  }, [annotatedStillUrlById, isSimpleTransitionPlayback, state, stillUrlById]);
-
-  const activeVideoState = useMemo(() => {
-    if (state.mode === 'video') {
-      return {
-        key: state.source === 'retrieval'
-          ? `retrieval:${state.videoId}`
-          : `${state.videoId}:${state.startMs}:${state.endMs ?? 'none'}:${state.source}`,
-        videoId: state.videoId,
-        startMs: state.startMs,
-        endMs: state.endMs,
-        autoplay: state.autoplay,
-        playbackRate: state.playbackRate,
-        label: state.source === 'transition' && isPresenting
-          ? 'Transition'
-          : state.label || (state.source === 'transition' ? 'Transition preview' : state.source === 'retrieval' ? 'Retrieved mark' : 'Clip slide'),
-        preload: state.source === 'retrieval' ? 'metadata' as const : 'auto' as const,
-        showLoadingLabel: state.source !== 'clip',
-        showPausedAtMarkLabel: state.source === 'retrieval',
-      };
-    }
-    if (state.mode === 'clip') {
-      return {
-        key: `${state.clip.videoId}:${state.clip.startMs}:${state.clip.endMs}:${state.slide.id}`,
-        videoId: state.clip.videoId,
-        startMs: state.clip.startMs,
-        endMs: state.clip.endMs,
-        autoplay: isPresenting,
-        playbackRate: 1,
-        label: 'Clip slide',
-        preload: 'auto' as const,
-        showLoadingLabel: false,
-        showPausedAtMarkLabel: false,
-      };
-    }
-    return null;
-  }, [state, isPresenting]);
-
-  const playerVideoState = activeVideoState;
-
-  const playerPlaybackPreferenceKey = useMemo(() => {
-    if (!presentationId) {
-      return playerVideoState?.key ?? null;
-    }
-    if (activeVideoState) {
-      if (state.mode === 'video' && state.source === 'transition') {
-        return buildTransitionPlaybackPreferenceKey({
-          presentationId,
-          slotKey: state.source,
-          videoId: state.videoId,
-          startMs: state.startMs,
-          endMs: state.endMs ?? null,
-        });
-      }
-      if (state.mode === 'clip') {
-        return buildClipPlaybackPreferenceKey({
-          presentationId,
-          slideId: state.slide.id,
-          videoId: state.clip.videoId,
-          startMs: state.clip.startMs,
-          endMs: state.clip.endMs,
-        });
-      }
-      return activeVideoState.key;
-    }
-    return null;
-  }, [presentationId, playerVideoState, activeVideoState, state]);
-
-  const playerVideoWorkflow = useMemo(() => {
-    if (activeVideoState) {
-      return getPlaybackWorkflowForState(state, isPresenting);
-    }
-    return null;
-  }, [activeVideoState, state, isPresenting]);
-
-  const blockedPlaybackAssetIdSet = useMemo(() => {
-    return new Set(blockedPlaybackAssetIds);
-  }, [blockedPlaybackAssetIds]);
-
-  const playerPlaybackAsset = useMemo(() => {
-    if (!playerVideoState || !playerVideoWorkflow) return null;
-    const preferredAssetIds = (playerPlaybackPreferenceKey
-      ? preferredPlaybackAssetIdsByPlaybackKey[playerPlaybackPreferenceKey] ?? []
-      : [])
-      .filter((assetId) => !blockedPlaybackAssetIdSet.has(assetId));
-    const effectivePreferredPlaybackAssetIdByVideoId = (() => {
-      const preferredAssetId = preferredPlaybackAssetIdByVideoId[playerVideoState.videoId];
-      if (!preferredAssetId || !blockedPlaybackAssetIdSet.has(preferredAssetId)) {
-        return preferredPlaybackAssetIdByVideoId;
-      }
-      return {
-        ...preferredPlaybackAssetIdByVideoId,
-        [playerVideoState.videoId]: buildOriginalPlaybackAssetId(playerVideoState.videoId),
-      };
-    })();
-    const resolveArgs = {
-      videoId: playerVideoState.videoId,
-      playbackAssetById,
-      preferredPlaybackAssetIdByVideoId: effectivePreferredPlaybackAssetIdByVideoId,
-      preferredAssetIds,
-      allowFallbackToOriginal: allowPlaybackFallbackToOriginal,
-    };
-    if (playerVideoWorkflow === 'authoring_retrieval') {
-      return resolveAuthoringRetrievalPlaybackAsset(resolveArgs);
-    }
-    if (playerVideoWorkflow === 'authoring_clip_preview') {
-      return resolveAuthoringClipPreviewPlaybackAsset(resolveArgs);
-    }
-    if (playerVideoWorkflow === 'authoring_transition_preview') {
-      return resolveAuthoringTransitionPreviewPlaybackAsset(resolveArgs);
-    }
-    if (playerVideoWorkflow === 'present_transition') {
-      return resolvePresentTransitionPlaybackAsset(resolveArgs);
-    }
-    if (playerVideoWorkflow === 'present_clip') {
-      return resolvePresentClipPlaybackAsset(resolveArgs);
-    }
-    return resolvePlaybackAssetForVideoId({
-      ...resolveArgs,
-      workflow: playerVideoWorkflow,
-    });
-  }, [
-    playerVideoState,
-    playerVideoWorkflow,
-    playbackAssetById,
-    preferredPlaybackAssetIdByVideoId,
-    preferredPlaybackAssetIdsByPlaybackKey,
-    playerPlaybackPreferenceKey,
-    blockedPlaybackAssetIdSet,
-    allowPlaybackFallbackToOriginal,
-  ]);
-
-  const playerPlaybackAssetLeaseKey = useMemo(() => {
-    return buildPlaybackAssetLeaseKey(playerPlaybackAsset);
-  }, [playerPlaybackAsset]);
-
-  const playerVideoErrorKey = useMemo(() => {
-    return `${playerVideoState?.key ?? 'none'}|${playerPlaybackAssetLeaseKey ?? 'none'}`;
-  }, [playerVideoState?.key, playerPlaybackAssetLeaseKey]);
-
-  const showVideoPlayer = state.mode === 'video' || state.mode === 'clip';
-
-  useEffect(() => {
-    onResolvedPlaybackAssetChange?.(playerPlaybackAsset);
-    recordMediaTrace('canvas_resolved_playback_asset_changed', {
-      stateKey: playerVideoState?.key ?? null,
-      workflow: playerVideoWorkflow,
-      assetId: playerPlaybackAsset?.assetId ?? null,
-      assetClass: playerPlaybackAsset?.assetClass ?? null,
-      generationKey: playerPlaybackAsset?.generationKey ?? null,
-      filePath: playerPlaybackAsset?.filePath ?? null,
-      leaseKey: playerPlaybackAssetLeaseKey,
-    });
-  }, [playerPlaybackAsset, onResolvedPlaybackAssetChange]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let effectResolvedUrl: string | null = null;
-    setPlayerVideoUrl(null);
-    setVideoReady(false);
-    if (!playerPlaybackAsset) {
-      return;
-    }
-    recordMediaTrace('canvas_bind_start', {
-      stateKey: playerVideoState?.key ?? null,
-      workflow: playerVideoWorkflow,
-      assetId: playerPlaybackAsset.assetId,
-      assetClass: playerPlaybackAsset.assetClass,
-      generationKey: playerPlaybackAsset.generationKey ?? null,
-      filePath: playerPlaybackAsset.filePath ?? null,
-      leaseKey: playerPlaybackAssetLeaseKey,
-    });
-    const releaseLease = playbackAssetObjectUrlRegistry?.acquireLease(playerPlaybackAsset) ?? (() => {});
-    const loadPlayerVideoUrl = async () => {
-      try {
-        const nextUrl = playbackAssetObjectUrlRegistry
-          ? await playbackAssetObjectUrlRegistry.ensureObjectUrl(playerPlaybackAsset)
-          : playerPlaybackAsset.objectUrl ?? null;
-        if (!cancelled) {
-          effectResolvedUrl = nextUrl;
-          recordMediaTrace('canvas_bind_resolved_url', {
-            stateKey: playerVideoState?.key ?? null,
-            workflow: playerVideoWorkflow,
-            assetId: playerPlaybackAsset.assetId,
-            assetClass: playerPlaybackAsset.assetClass,
-            generationKey: playerPlaybackAsset.generationKey ?? null,
-            filePath: playerPlaybackAsset.filePath ?? null,
-            blobUrl: nextUrl,
-            leaseKey: playerPlaybackAssetLeaseKey,
-          });
-          setPlayerVideoUrl(nextUrl);
-        }
-      } catch (error) {
-        recordMediaTrace('canvas_bind_failed', {
-          stateKey: playerVideoState?.key ?? null,
-          workflow: playerVideoWorkflow,
-          assetId: playerPlaybackAsset.assetId,
-          assetClass: playerPlaybackAsset.assetClass,
-          generationKey: playerPlaybackAsset.generationKey ?? null,
-          filePath: playerPlaybackAsset.filePath ?? null,
-          leaseKey: playerPlaybackAssetLeaseKey,
-          error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
-        }, 'error');
-        console.error('[PresentationCanvas] Failed to resolve playback URL', {
-          assetId: playerPlaybackAsset.assetId,
-          assetClass: playerPlaybackAsset.assetClass,
-          filePath: playerPlaybackAsset.filePath ?? null,
-          generationKey: playerPlaybackAsset.generationKey ?? null,
-          workflow: playerVideoWorkflow,
-          error,
-        });
-        if (!cancelled) {
-          setPlayerVideoUrl(null);
-        }
-      }
-    };
-    void loadPlayerVideoUrl();
-    return () => {
-      cancelled = true;
-      const didDetach = detachVideoElementIfUsingUrl(
-        isSimpleTransitionPlayback
-          ? transitionVideoRef.current
-          : playerRef.current?.getVideoElement() ?? null,
-        effectResolvedUrl,
-      );
-      recordMediaTrace('canvas_bind_cleanup', {
-        stateKey: playerVideoState?.key ?? null,
-        workflow: playerVideoWorkflow,
-        assetId: playerPlaybackAsset.assetId,
-        assetClass: playerPlaybackAsset.assetClass,
-        generationKey: playerPlaybackAsset.generationKey ?? null,
-        filePath: playerPlaybackAsset.filePath ?? null,
-        blobUrl: effectResolvedUrl,
-        leaseKey: playerPlaybackAssetLeaseKey,
-        didDetachVideoElement: didDetach,
-      }, didDetach ? 'warn' : 'info');
-      releaseLease();
-    };
-  }, [isSimpleTransitionPlayback, playerPlaybackAssetLeaseKey, playbackAssetObjectUrlRegistry, playerVideoReloadNonce, playerVideoWorkflow, playerVideoState?.key]);
-  useEffect(() => {
-    if (state.mode !== 'still' || !isPresenting) {
-      setStillPlaybackElapsedMs(0);
-      return;
-    }
-    const startedAt = performance.now();
-    setStillPlaybackElapsedMs(0);
-    const intervalId = window.setInterval(() => {
-      setStillPlaybackElapsedMs(performance.now() - startedAt);
-    }, 80);
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [stillPlaybackKey, isPresenting, state.mode]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const revokeTimedUrl = () => {
-      if (timedAnnotatedStillUrlRef.current) {
-        try {
-          URL.revokeObjectURL(timedAnnotatedStillUrlRef.current);
-        } catch {}
-        timedAnnotatedStillUrlRef.current = null;
-      }
-      setTimedAnnotatedStillUrl(null);
-    };
-
-    if (state.mode !== 'still' || !baseStillUrl || !state.showAnnotations || !dynamicStillAnnotations || !timedAnnotationKey) {
-      revokeTimedUrl();
-      return;
-    }
-    if ((dynamicStillAnnotations.shapes?.length ?? 0) === 0) {
-      revokeTimedUrl();
-      return;
-    }
-
-    const renderTimedStill = async () => {
-      const response = await fetch(baseStillUrl);
-      const blob = await response.blob();
-      const bitmap = await createImageBitmap(blob);
-      try {
-        const annotatedBlob = await renderAnnotatedPng({
-          bmp: bitmap,
-          ann: dynamicStillAnnotations,
-        });
-        const url = URL.createObjectURL(annotatedBlob);
-        if (cancelled) {
-          URL.revokeObjectURL(url);
+  const requestPlayback = useCallback((video: HTMLVideoElement) => {
+    const attempt = (retries: number) => {
+      if (!playIntentRef.current || videoRef.current !== video) return;
+      void video.play().then(() => setPlaying(true)).catch((error) => {
+        if (
+          error instanceof DOMException
+          && error.name === 'AbortError'
+          && retries > 0
+          && playIntentRef.current
+        ) {
+          setPlaying(false);
+          window.setTimeout(() => attempt(retries - 1), 75);
           return;
         }
-        if (timedAnnotatedStillUrlRef.current) {
-          try {
-            URL.revokeObjectURL(timedAnnotatedStillUrlRef.current);
-          } catch {}
-        }
-        timedAnnotatedStillUrlRef.current = url;
-        setTimedAnnotatedStillUrl(url);
-      } finally {
-        bitmap.close();
-      }
-    };
-
-    void renderTimedStill().catch(() => {
-      if (!cancelled) {
-        revokeTimedUrl();
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [state, baseStillUrl, dynamicStillAnnotations, timedAnnotationKey]);
-
-  useEffect(() => {
-    return () => {
-      if (timedAnnotatedStillUrlRef.current) {
-        try {
-          URL.revokeObjectURL(timedAnnotatedStillUrlRef.current);
-        } catch {}
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    setVideoReady(false);
-    completionKeyRef.current = null;
-    setPlayerVideoReloadNonce(0);
-    setBlockedPlaybackAssetIds([]);
-    playerVideoErrorCountRef.current = {};
-  }, [state, playerVideoState?.key]);
-
-  useEffect(() => {
-    if (!playerVideoState || !effectivePlayerVideoUrl) return;
-    const element = isSimpleTransitionPlayback
-      ? transitionVideoRef.current
-      : playerRef.current?.getVideoElement() ?? null;
-    if (!element) return;
-
-    let cancelled = false;
-    const syncPlayback = async () => {
-      if (cancelled) return;
-      try {
-        const targetSeconds = isSimpleTransitionPlayback ? 0 : playerVideoState.startMs / 1000;
-        if (Number.isFinite(targetSeconds) && Math.abs(element.currentTime - targetSeconds) > 0.05) {
-          element.currentTime = targetSeconds;
-        }
-      } catch {}
-      try {
-        element.playbackRate = playerVideoState.playbackRate ?? 1;
-      } catch {}
-      if (cancelled) return;
-      if (playerVideoState.autoplay) {
-        try {
-          await element.play();
-        } catch (error) {
-          const isAbortDuringTeardown = error instanceof DOMException && error.name === 'AbortError';
-          if (cancelled || isAbortDuringTeardown) {
-            return;
-          }
-          console.warn('[PresentationCanvas] Video autoplay was rejected', {
-            key: playerVideoState.key,
-            assetId: playerPlaybackAsset?.assetId ?? null,
-            workflow: playerVideoWorkflow,
-            error,
-          });
-        }
-      } else {
-        element.pause();
-      }
-      if (!cancelled && !isSimpleTransitionPlayback) {
-        setVideoReady(true);
-      }
-    };
-
-    if (element.readyState >= 1) {
-      void syncPlayback();
-    } else {
-      const onLoadedMetadata = () => {
-        void syncPlayback();
-      };
-      element.addEventListener('loadedmetadata', onLoadedMetadata);
-      return () => {
-        cancelled = true;
-        element.removeEventListener('loadedmetadata', onLoadedMetadata);
-      };
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [effectivePlayerVideoUrl, isSimpleTransitionPlayback, playerVideoState, playerVideoWorkflow]);
-
-  useEffect(() => {
-    if (!playerVideoState || !effectivePlayerVideoUrl) {
-      return;
-    }
-    const element = isSimpleTransitionPlayback
-      ? transitionVideoRef.current
-      : playerRef.current?.getVideoElement() ?? null;
-    if (!element) {
-      return;
-    }
-    const logVideoEvent = (eventName: string, level: 'info' | 'warn' | 'error' = 'info') => {
-      recordMediaTrace(`video_${eventName}`, {
-        stateKey: playerVideoState.key,
-        workflow: playerVideoWorkflow,
-        assetId: playerPlaybackAsset?.assetId ?? null,
-        assetClass: playerPlaybackAsset?.assetClass ?? null,
-        generationKey: playerPlaybackAsset?.generationKey ?? null,
-        currentSrc: element.currentSrc ?? null,
-        currentSrcBlobUrlId: getBlobUrlId(element.currentSrc),
-        boundBlobUrlId: getBlobUrlId(effectivePlayerVideoUrl),
-        readyState: element.readyState,
-        networkState: element.networkState,
-        paused: element.paused,
-        currentTime: element.currentTime,
-      }, level);
-    };
-    const eventMap: Array<[keyof HTMLMediaElementEventMap, 'info' | 'warn' | 'error']> = [
-      ['loadstart', 'info'],
-      ['loadedmetadata', 'info'],
-      ['loadeddata', 'info'],
-      ['canplay', 'info'],
-      ['play', 'info'],
-      ['playing', 'info'],
-      ['pause', 'info'],
-      ['abort', 'warn'],
-      ['emptied', 'warn'],
-      ['error', 'error'],
-    ];
-    const listeners = eventMap.map(([eventName, level]) => {
-      const handler = () => logVideoEvent(eventName, level);
-      element.addEventListener(eventName, handler);
-      return [eventName, handler] as const;
-    });
-    return () => {
-      listeners.forEach(([eventName, handler]) => {
-        element.removeEventListener(eventName, handler);
+        playIntentRef.current = false;
+        setPlaying(false);
+        setMessage(error instanceof Error ? error.message : String(error));
       });
     };
-  }, [effectivePlayerVideoUrl, isSimpleTransitionPlayback, playerPlaybackAsset, playerVideoState, playerVideoWorkflow]);
+    attempt(3);
+  }, []);
 
-  const handlePlayerVideoError = useCallback((event: React.SyntheticEvent<HTMLVideoElement, Event>) => {
-    const mediaError = event.currentTarget.error;
-    const mediaErrorSummary = mediaError
-      ? {
-          code: mediaError.code,
-          message: 'message' in mediaError ? (mediaError as MediaError & { message?: string }).message ?? null : null,
-        }
-      : null;
-    console.error('[PresentationCanvas] Video element reported a playback error', {
-      key: playerVideoState?.key ?? null,
-      workflow: playerVideoWorkflow,
-      assetId: playerPlaybackAsset?.assetId ?? null,
-      assetClass: playerPlaybackAsset?.assetClass ?? null,
-      assetFilePath: playerPlaybackAsset?.filePath ?? null,
-      assetGenerationKey: playerPlaybackAsset?.generationKey ?? null,
-      currentUrl: playerVideoUrlRef.current,
-      mediaError: mediaErrorSummary,
+  const resource = resolved.video ? videoResources.get(resolved.video.id) ?? null : null;
+  const preparedKey = useMemo(() => {
+    if (!resolved.preparedOwnerId || !resolved.video || !resolved.range) return null;
+    return preparedPresentationAssetKey({
+      kind: scene.kind === 'transition' ? 'transition' : 'clip_slide',
+      ownerId: resolved.preparedOwnerId,
+      videoId: resolved.video.id,
+      sourceStartFrame: resolved.range.startFrame,
+      sourceEndFrame: resolved.range.endFrame,
     });
-    setVideoReady(false);
-    if (!playerPlaybackAsset) {
+  }, [resolved.preparedOwnerId, resolved.range, resolved.video, scene.kind]);
+  const prepared = preparedKey ? preparedResources.get(preparedKey) ?? null : null;
+
+  const playbackAsset = useMemo<PresentationPlaybackAsset | null>(() => {
+    if (!resolved.video || !resolved.range || !resource) return null;
+    return {
+      id: prepared?.entry.key ?? `original-${resolved.video.id}-${resolved.range.startFrame}-${resolved.range.endFrame}`,
+      kind: prepared ? 'exact_motion' : 'original',
+      videoId: resolved.video.id,
+      url: prepared?.url ?? resource.url,
+      sourceStartFrame: videoFrame(resolved.range.startFrame),
+      sourceEndFrame: resolved.range.endFrame as PresentationPlaybackAsset['sourceEndFrame'],
+    };
+  }, [prepared, resolved.range, resolved.video, resource]);
+
+  const effectivePausePins = useMemo(() => (
+    resolved.slide?.kind === 'clip' && resolved.clip
+      ? resolveEffectivePausePins(resolved.clip, resolved.slide)
+      : []
+  ), [resolved.clip, resolved.slide]);
+
+  useEffect(() => {
+    if (!resolved.clip || !resolved.video || resolved.slide?.kind !== 'clip') {
+      setHomographyFrames([]);
       return;
     }
-    const nextErrorCount = (playerVideoErrorCountRef.current[playerVideoErrorKey] ?? 0) + 1;
-    playerVideoErrorCountRef.current[playerVideoErrorKey] = nextErrorCount;
+    let active = true;
+    void findOverlappingCache(
+      projectDir,
+      resolved.video.id,
+      Number(frameToMs(resolved.clip.startFrame, resolved.video.fps)),
+      Number(frameToMs(videoFrame(resolved.clip.endFrame - 1), resolved.video.fps)),
+    ).then((frames) => {
+      if (active) setHomographyFrames(frames ?? []);
+    });
+    return () => { active = false; };
+  }, [projectDir, resolved.clip, resolved.slide?.kind, resolved.video]);
 
-    if (nextErrorCount === 1 && playbackAssetObjectUrlRegistry) {
-      recordMediaTrace('canvas_invalidate_after_error', {
-        key: playerVideoState?.key ?? null,
-        workflow: playerVideoWorkflow,
-        assetId: playerPlaybackAsset.assetId,
-        assetClass: playerPlaybackAsset.assetClass,
-        generationKey: playerPlaybackAsset.generationKey ?? null,
-        blobUrl: playerVideoUrlRef.current,
-        mediaError: mediaErrorSummary,
-        errorCount: nextErrorCount,
-      }, 'warn');
-      const invalidated = playbackAssetObjectUrlRegistry.invalidateObjectUrl(
-        playerPlaybackAsset,
-        playerVideoUrlRef.current,
-      );
-      if (invalidated) {
-        console.warn('[PresentationCanvas] Retrying playback with a fresh blob URL', {
-          key: playerVideoState?.key ?? null,
-          assetId: playerPlaybackAsset.assetId,
-          assetClass: playerPlaybackAsset.assetClass,
-        });
-        setPlayerVideoUrl(null);
-        setPlayerVideoReloadNonce((value) => value + 1);
+  const paintAnimatedAnnotations = useCallback((frame: number) => {
+    const canvas = overlayRef.current;
+    const clip = resolved.clip;
+    const video = resolved.video;
+    if (!canvas || !clip || !video) return;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    if (resolved.hideAnimatedAnnotations || pausedPin || resolved.slide?.kind !== 'clip') return;
+    renderClipAnnotationsToCanvas({
+      canvas,
+      annotations: clip.annotations,
+      sample: frame,
+      temporalAdapter: frameTemporalAdapter(clip.endFrame),
+      homographyLookup: (sample) => resolveUsableHomographyAtTime(
+        homographyFrames,
+        Number(frameToMs(videoFrame(sample), video.fps)),
+      ),
+      size: { width: canvas.width, height: canvas.height, sourceWidth: video.width, sourceHeight: video.height },
+    });
+  }, [homographyFrames, pausedPin, resolved.clip, resolved.hideAnimatedAnnotations, resolved.slide?.kind, resolved.video]);
+
+  useEffect(() => {
+    paintAnimatedAnnotations(sourceFrame);
+  }, [paintAnimatedAnnotations, sourceFrame]);
+
+  const completeVideo = useCallback(() => {
+    if (completionKeyRef.current === resolved.sceneKey) return;
+    completionKeyRef.current = resolved.sceneKey;
+    playIntentRef.current = false;
+    setPlaying(false);
+    videoRef.current?.pause();
+    if (!isPresenting) return;
+    const holdMs = resolved.slide?.kind === 'clip' ? resolved.slide.holdMs : undefined;
+    if (holdMs && holdMs > 0) {
+      holdTimerRef.current = setTimeout(onComplete, holdMs);
+    } else {
+      onComplete();
+    }
+  }, [isPresenting, onComplete, resolved.sceneKey, resolved.slide]);
+
+  const pauseAtPin = useCallback((pin: ClipPin) => {
+    videoRef.current?.pause();
+    playIntentRef.current = false;
+    setPlaying(false);
+    setPausedPin(pin);
+    staticStartedAtRef.current = Date.now();
+    setStaticElapsedMs(0);
+  }, []);
+
+  const sampleVideoFrame = useCallback((mediaTime: number) => {
+    if (!playbackAsset || !resolved.video) return;
+    const frame = toSourceFrame(playbackAsset, mediaTime, resolved.video);
+    if (pendingSeekFrameRef.current !== null && frame !== pendingSeekFrameRef.current) return;
+    if (pendingSeekFrameRef.current === frame) pendingSeekFrameRef.current = null;
+    requestedSourceFrameRef.current = frame;
+    setSourceFrame(frame);
+    if (resolved.slide?.kind === 'clip' && pauseMachineRef.current) {
+      const step = advancePinPauseMachine(pauseMachineRef.current, frame, effectivePausePins);
+      pauseMachineRef.current = step.state;
+      if (step.triggeredPinId) {
+        const pin = effectivePausePins.find((candidate) => candidate.id === step.triggeredPinId);
+        if (pin) {
+          pauseAtPin(pin);
+          return;
+        }
+      }
+    }
+    if (
+      playbackAsset.kind === 'original'
+      && frame >= playbackAsset.sourceEndFrame - 1
+      && !pausedPin
+    ) {
+      completeVideo();
+    }
+  }, [completeVideo, effectivePausePins, pauseAtPin, pausedPin, playbackAsset, resolved.slide?.kind, resolved.video]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !playbackAsset || !resolved.video || resolved.slide?.kind === 'pin' || resolved.slide?.kind === 'title') return;
+    let cancelled = false;
+    let frameRequest = 0;
+    const onFrame = (_now: number, metadata: VideoFrameCallbackMetadata) => {
+      if (cancelled) return;
+      sampleVideoFrame(metadata.mediaTime);
+      frameRequest = video.requestVideoFrameCallback(onFrame);
+    };
+    const onTimeUpdate = () => sampleVideoFrame(video.currentTime);
+    const frameVideo = video as HTMLVideoElement & {
+      requestVideoFrameCallback?: (callback: VideoFrameRequestCallback) => number;
+      cancelVideoFrameCallback?: (handle: number) => void;
+    };
+    if (typeof frameVideo.requestVideoFrameCallback === 'function') {
+      frameRequest = frameVideo.requestVideoFrameCallback(onFrame);
+    } else {
+      video.addEventListener('timeupdate', onTimeUpdate);
+    }
+    return () => {
+      cancelled = true;
+      if (frameRequest && typeof frameVideo.cancelVideoFrameCallback === 'function') {
+        frameVideo.cancelVideoFrameCallback(frameRequest);
+      }
+      video.removeEventListener('timeupdate', onTimeUpdate);
+    };
+  }, [playbackAsset, resolved.slide?.kind, resolved.video, sampleVideoFrame]);
+
+  useEffect(() => {
+    const sceneChanged = activeSceneKeyRef.current !== resolved.sceneKey;
+    activeSceneKeyRef.current = resolved.sceneKey;
+    if (sceneChanged) {
+      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+      completionKeyRef.current = null;
+      setPausedPin(null);
+      setMessage(resolved.error);
+      const initialSourceFrame = resolved.range?.startFrame ?? 0;
+      requestedSourceFrameRef.current = initialSourceFrame;
+      pendingSeekFrameRef.current = initialSourceFrame;
+      setSourceFrame(initialSourceFrame);
+      staticStartedAtRef.current = Date.now();
+      setStaticElapsedMs(0);
+      playIntentRef.current = isPresenting;
+    } else if (isPresenting) {
+      playIntentRef.current = true;
+    }
+    const video = videoRef.current;
+    if (!video || !playbackAsset || !resolved.video || resolved.slide?.kind === 'pin' || resolved.slide?.kind === 'title') {
+      setPlaying(false);
+      return;
+    }
+    const started = sceneChanged && resolved.slide?.kind === 'clip'
+      ? startPinPauseMachine(playbackAsset.sourceStartFrame, effectivePausePins)
+      : null;
+    if (sceneChanged) pauseMachineRef.current = started?.state ?? null;
+    if (started?.triggeredPinId) {
+      const pin = effectivePausePins.find((candidate) => candidate.id === started.triggeredPinId);
+      if (pin) {
+        pauseAtPin(pin);
         return;
       }
     }
+    const seekAndMaybePlay = () => {
+      pendingSeekFrameRef.current = requestedSourceFrameRef.current;
+      video.currentTime = sourceFrameToMediaSeconds(
+        playbackAsset,
+        videoFrame(requestedSourceFrameRef.current),
+        resolved.video!,
+      );
+      video.playbackRate = resolved.transition?.mode === 'match_video' ? resolved.transition.playbackRate ?? 1 : 1;
+      if (playIntentRef.current) {
+        requestPlayback(video);
+      } else {
+        video.pause();
+        setPlaying(false);
+      }
+    };
+    if (video.readyState >= 1) seekAndMaybePlay();
+    else video.addEventListener('loadedmetadata', seekAndMaybePlay, { once: true });
+    return () => video.removeEventListener('loadedmetadata', seekAndMaybePlay);
+  }, [effectivePausePins, isPresenting, pauseAtPin, playbackAsset, requestPlayback, resolved.error, resolved.range?.startFrame, resolved.sceneKey, resolved.slide?.kind, resolved.transition, resolved.video]);
 
-    const canFallbackToAuthoringOriginal = !isPresenting
-      && playerVideoWorkflow != null
-      && playerVideoWorkflow.startsWith('authoring')
-      && playerPlaybackAsset.assetClass !== 'original';
-    if (canFallbackToAuthoringOriginal) {
-      console.warn('[PresentationCanvas] Falling back from a failed derived asset to original playback', {
-        key: playerVideoState?.key ?? null,
-        failedAssetId: playerPlaybackAsset.assetId,
-        failedAssetClass: playerPlaybackAsset.assetClass,
-        fallbackAssetId: playerPlaybackAsset.sourceVideoId
-          ? buildOriginalPlaybackAssetId(playerPlaybackAsset.sourceVideoId)
-          : null,
-      });
-      setBlockedPlaybackAssetIds((current) => (
-        current.includes(playerPlaybackAsset.assetId)
-          ? current
-          : [...current, playerPlaybackAsset.assetId]
-      ));
-    }
-  }, [isPresenting, playbackAssetObjectUrlRegistry, playerPlaybackAsset, playerVideoErrorKey, playerVideoState?.key, playerVideoWorkflow]);
+  const activeStaticPin = resolved.slide?.kind === 'pin' ? resolved.pin : pausedPin;
+  const activePauseCue: ClipPauseCue | undefined = pausedPin && resolved.slide?.kind === 'clip'
+    ? resolved.slide.pauseCues?.find((cue) => cue.pinId === pausedPin.id)
+    : undefined;
+  const staticSelection = resolved.slide?.kind === 'pin'
+    ? resolved.slide.showAnnotations ? resolved.slide.annotationIds : []
+    : activePauseCue?.annotationIds;
+  const staticCues = resolved.slide?.kind === 'pin'
+    ? resolved.slide.annotationCues
+    : activePauseCue?.annotationCues;
+  const visibleStaticIds = activeStaticPin
+    ? visibleAnnotationIds(
+        activeStaticPin.annotations.map((reference) => reference.id),
+        staticSelection,
+        staticCues,
+        staticElapsedMs,
+      )
+    : [];
+  const visibleStaticKey = visibleStaticIds.join('|');
 
-  const handleVideoTimeUpdate = () => {
-    if (isSimpleTransitionPlayback) return;
-    if (!activeVideoState || activeVideoState.endMs == null) return;
-    const element = playerRef.current?.getVideoElement() ?? null;
-    if (!element) return;
-    if (element.currentTime * 1000 < activeVideoState.endMs) return;
-    const key = `${activeVideoState.videoId}:${activeVideoState.startMs}:${activeVideoState.endMs}:${state.mode === 'video' ? state.transitionToSlideIndex ?? '' : state.selectedSlideIndex}`;
-    if (completionKeyRef.current === key) return;
-    completionKeyRef.current = key;
-    element.pause();
-    try {
-      element.currentTime = activeVideoState.endMs / 1000;
-    } catch {}
-    if (state.mode === 'video') {
-      onVideoComplete();
-    }
-  };
-
-  const handleTransitionVideoEnded = useCallback(() => {
-    if (!isSimpleTransitionPlayback || !activeVideoState || state.mode !== 'video') {
+  useEffect(() => {
+    if (!activeStaticPin || !resolved.clip || !resolved.video || !resource) {
+      setStaticFrameUrl(null);
       return;
     }
-    const key = `${activeVideoState.videoId}:${activeVideoState.startMs}:${activeVideoState.endMs ?? 'end'}:${state.transitionToSlideIndex ?? ''}:transition-ended`;
-    if (completionKeyRef.current === key) {
+    let active = true;
+    let objectUrl: string | null = null;
+    const queue = createFrameRasterQueue(resource.file);
+    void (async () => {
+      try {
+        const visibleDocumentIds = visibleStaticKey ? visibleStaticKey.split('|') : [];
+        const raster = await queue.rasterize({
+          frame: activeStaticPin.frame,
+          fps: resolved.video!.fps,
+          outputWidth: resolved.video!.width,
+        });
+        let blob = raster.blob;
+        if (visibleDocumentIds.length > 0) {
+          const documents = await Promise.all(visibleDocumentIds.map((annotationId) => (
+            readPinAnnotationDocument(projectDir, resolved.clip!.id, annotationId)
+          )));
+          const payloads = documents
+            .filter((entry) => entry.document)
+            .map((entry) => annotationPayloadFromDocument(entry.document!));
+          if (payloads.length > 0) {
+            const bitmap = await createImageBitmap(raster.blob);
+            try {
+              blob = await renderAnnotatedPng({ bmp: bitmap, payload: mergePayloads(payloads, raster.width, raster.height) });
+            } finally {
+              bitmap.close();
+            }
+          }
+        }
+        if (!active) return;
+        objectUrl = URL.createObjectURL(blob);
+        setStaticFrameUrl(objectUrl);
+      } catch (error) {
+        if (active) setMessage(error instanceof Error ? error.message : String(error));
+      }
+    })();
+    return () => {
+      active = false;
+      queue.dispose();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [activeStaticPin, projectDir, resolved.clip, resolved.sceneKey, resolved.video, resource, visibleStaticKey]);
+
+  useEffect(() => {
+    if (!activeStaticPin) return;
+    const timer = window.setInterval(() => setStaticElapsedMs(Date.now() - staticStartedAtRef.current), 50);
+    return () => window.clearInterval(timer);
+  }, [activeStaticPin, resolved.sceneKey]);
+
+  const resumeFromPin = useCallback(() => {
+    if (!pausedPin || !pauseMachineRef.current) return;
+    const wasFinalFrame = playbackAsset && pausedPin.frame >= playbackAsset.sourceEndFrame - 1;
+    pauseMachineRef.current = resumePinPauseMachine(pauseMachineRef.current);
+    setPausedPin(null);
+    if (wasFinalFrame) {
+      completeVideo();
       return;
     }
-    completionKeyRef.current = key;
-    onVideoComplete();
-  }, [activeVideoState, isSimpleTransitionPlayback, onVideoComplete, state]);
+    playIntentRef.current = true;
+    if (videoRef.current) requestPlayback(videoRef.current);
+  }, [completeVideo, pausedPin, playbackAsset, requestPlayback]);
 
-  if (state.mode === 'empty') {
+  useEffect(() => {
+    if (!pausedPin || activePauseCue?.holdMs === undefined) return;
+    const timer = window.setTimeout(resumeFromPin, activePauseCue.holdMs);
+    return () => window.clearTimeout(timer);
+  }, [activePauseCue?.holdMs, pausedPin, resumeFromPin]);
+
+  useEffect(() => {
+    if (!isPresenting || scene.kind !== 'slide' || !resolved.slide) return;
+    if (resolved.slide.kind === 'clip') return;
+    if (resolved.slide.holdMs === undefined) return;
+    const timer = window.setTimeout(onComplete, resolved.slide.holdMs);
+    return () => window.clearTimeout(timer);
+  }, [isPresenting, onComplete, resolved.slide, scene.kind]);
+
+  const togglePlayback = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || pausedPin) return;
+    if (!playIntentRef.current) {
+      playIntentRef.current = true;
+      requestPlayback(video);
+    } else {
+      playIntentRef.current = false;
+      video.pause();
+      setPlaying(false);
+    }
+  }, [pausedPin, requestPlayback]);
+
+  const seekSourceFrame = useCallback((frame: number) => {
+    if (!playbackAsset || !resolved.video) return;
+    const target = videoFrame(Math.max(playbackAsset.sourceStartFrame, Math.min(playbackAsset.sourceEndFrame - 1, Math.round(frame))));
+    requestedSourceFrameRef.current = target;
+    pendingSeekFrameRef.current = target;
+    setSourceFrame(target);
+    if (pauseMachineRef.current) pauseMachineRef.current = seekPinPauseMachine(pauseMachineRef.current, target, effectivePausePins);
+    setPausedPin(null);
+    if (videoRef.current) videoRef.current.currentTime = sourceFrameToMediaSeconds(playbackAsset, target, resolved.video);
+  }, [effectivePausePins, playbackAsset, resolved.video]);
+
+  if (resolved.error || !resolved.slide && scene.kind === 'slide') {
+    return <div className="flex h-full items-center justify-center bg-black text-sm text-danger" data-testid="presentation-missing-reference">{resolved.error || t('presentation.missingSlide')}</div>;
+  }
+  if (resolved.slide?.kind === 'title') {
     return (
-      <div className="flex-1 min-h-0 flex items-center justify-center bg-surface rounded border border-subtle">
-        <div className="text-sm text-muted">No slides in this presentation yet.</div>
+      <div className="flex h-full flex-col items-center justify-center bg-[#0b0d10] px-12 text-center text-[#f4f1e8]" data-testid="presentation-title-slide">
+        <p className="text-xs text-[#8d968f]">{t(`presentation.template${resolved.slide.template[0].toUpperCase()}${resolved.slide.template.slice(1)}`)}</p>
+        <h1 className="m-0 max-w-4xl text-5xl leading-tight">{resolved.slide.title}</h1>
+        {resolved.slide.body && <p className="mt-5 max-w-3xl text-xl text-[#b8c0ba]">{resolved.slide.body}</p>}
       </div>
     );
   }
 
-  if (state.mode === 'missing') {
-    return (
-      <div className="flex-1 min-h-0 flex items-center justify-center bg-surface rounded border border-subtle">
-        <div className="text-sm text-danger">{state.message}</div>
-      </div>
-    );
-  }
-
-  let slideContent: React.ReactNode = null;
-
-  if (state.mode === 'title') {
-    const templateClassName = state.slide.template === 'divider'
-      ? 'items-center justify-center'
-      : state.slide.template === 'section'
-        ? 'items-start justify-center'
-        : 'items-center justify-center';
-    slideContent = (
-      <div className={`relative z-10 w-full h-full flex ${templateClassName} p-12`}>
-        <div className="max-w-3xl w-full">
-          <div className="text-xs uppercase tracking-[0.2em] text-muted mb-4">{state.slide.template}</div>
-          <div className="text-5xl font-semibold leading-tight mb-4">{state.slide.title}</div>
-          {state.slide.body && (
-            <div className="text-xl text-muted leading-relaxed whitespace-pre-wrap">{state.slide.body}</div>
-          )}
-        </div>
-      </div>
-    );
-  } else if (state.mode === 'still') {
-    slideContent = activeStillUrl ? (
-      <img src={activeStillUrl} alt="Presentation slide" className={fullscreenImageClassName} />
-    ) : (
-      <div className="relative z-10 text-sm text-muted">Still image unavailable</div>
-    );
-  } else if (isSimpleTransitionPlayback) {
-    slideContent = transitionBackdropUrl ? (
-      <img src={transitionBackdropUrl} alt="Transition backdrop" className={fullscreenImageClassName} />
-    ) : (
-      <div className="relative z-10 text-sm text-muted">Transition backdrop unavailable</div>
-    );
-  }
-
-  const showTransitionLoadingSpinner = isSimpleTransitionPlayback && !!playerPlaybackAsset && !videoReady;
-
+  const videoVisible = scene.kind === 'transition' || resolved.slide?.kind === 'clip';
   return (
-    <div className="flex-1 min-h-0 rounded border border-subtle bg-surface overflow-hidden relative flex items-center justify-center">
-      {slideContent}
-      {effectivePlayerVideoUrl && playerVideoState ? (
-        <div className={`absolute inset-0 ${showVideoPlayer ? 'z-20' : 'z-0 opacity-0 pointer-events-none'}`}>
-          {isSimpleTransitionPlayback ? (
-            <video
-              ref={transitionVideoRef}
-              src={effectivePlayerVideoUrl}
-              preload={playerVideoState.preload}
-              playsInline
-              className={`w-full h-full block bg-black object-contain ${videoReady ? 'opacity-100' : 'opacity-0'}`}
-              onLoadedData={() => setVideoReady(true)}
-              onEnded={handleTransitionVideoEnded}
-              onError={handlePlayerVideoError}
-            />
+    <div className="relative flex h-full min-h-0 items-center justify-center overflow-hidden bg-black" data-testid="presentation-canvas" data-source-frame={sourceFrame} data-playback-asset={playbackAsset?.kind ?? 'none'}>
+      <div className="relative max-h-full max-w-full" style={{ width: resolved.video?.width ?? 640, aspectRatio: `${resolved.video?.width ?? 16}/${resolved.video?.height ?? 9}` }}>
+        {videoVisible && playbackAsset && (
+          <video
+            ref={videoRef}
+            key={playbackAsset.id}
+            src={playbackAsset.url}
+            muted
+            playsInline
+            className="absolute inset-0 h-full w-full object-contain"
+            onEnded={completeVideo}
+          />
+        )}
+        {videoVisible && resolved.video && (
+          <canvas
+            ref={overlayRef}
+            width={resolved.video.width}
+            height={resolved.video.height}
+            className="pointer-events-none absolute inset-0 h-full w-full"
+            data-testid="presentation-animated-overlay"
+          />
+        )}
+        {activeStaticPin && staticFrameUrl && (
+          <div
+            role="img"
+            aria-label={t('presentation.annotatedPinFrame')}
+            className="absolute inset-0 h-full w-full bg-contain bg-center bg-no-repeat"
+            style={{ backgroundImage: `url(${JSON.stringify(staticFrameUrl)})` }}
+            data-testid="presentation-pin-frame"
+          />
+        )}
+      </div>
+
+      {(videoVisible || pausedPin) && (
+        <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded border border-white/20 bg-black/80 px-3 py-2 text-xs text-white">
+          {pausedPin ? (
+            <button onClick={resumeFromPin}>{t('presentation.resumeFrom', { label: pausedPin.label || `f${formatNumber(pausedPin.frame)}` })}</button>
           ) : (
-            <VideoPlayerUnit
-              ref={playerRef}
-              src={effectivePlayerVideoUrl}
-              preload={playerVideoState.preload}
-              initialTime={playerVideoState.startMs / 1000}
-              externalSeekMs={playerVideoState.startMs}
-              allowFullscreen={!isPresenting}
-              showAddMarkButton={false}
-              enableMarkHotkey={false}
-              className="w-full h-full"
-              onTimeUpdate={handleVideoTimeUpdate}
-              onLoadedMetadata={() => setVideoReady(true)}
-              onLoadedData={() => setVideoReady(true)}
-              onError={handlePlayerVideoError}
+            <button onClick={togglePlayback}>{playing ? t('presentation.pausePreview') : t('presentation.playPreview')}</button>
+          )}
+          {playbackAsset && scene.kind === 'slide' && resolved.slide?.kind === 'clip' && (
+            <input
+              aria-label={t('presentation.sourceFrame')}
+              type="range"
+              min={playbackAsset.sourceStartFrame}
+              max={playbackAsset.sourceEndFrame - 1}
+              step={1}
+              value={sourceFrame}
+              onInput={(event) => seekSourceFrame(Number(event.currentTarget.value))}
             />
           )}
-        </div>
-      ) : showVideoPlayer ? (
-        <div className="text-sm text-muted">Video unavailable for this preview</div>
-      ) : null}
-      {showTransitionLoadingSpinner && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
-          <div className="rounded bg-black/60 px-4 py-3 text-sm text-white flex items-center gap-3">
-            <div className="spinner" />
-            <span>Loading transition…</span>
-          </div>
+          <span className="font-mono">f{formatNumber(sourceFrame)}</span>
         </div>
       )}
-      {!isPresenting && activeVideoState && (
-        <div className="absolute left-3 top-3 px-2 py-1 rounded bg-black/60 text-xs text-white">
-          {activeVideoState.label}
-          {activeVideoState.showPausedAtMarkLabel && ' · paused at mark'}
-          {activeVideoState.showLoadingLabel && !videoReady && ' · loading'}
-        </div>
-      )}
+      {message && <div className="absolute right-3 top-3 max-w-sm rounded bg-black/80 px-3 py-2 text-xs text-warning">{message}</div>}
     </div>
   );
 }
+
+export { transitionOwnerId };

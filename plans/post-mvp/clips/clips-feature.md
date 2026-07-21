@@ -911,12 +911,12 @@ sidecar/
 
 **Cache** (`webapp/lib/fs/homographyCache.ts` — new file):
 
-- [x] `writeHomographyCache(projectDir, startMs, endMs, frames) →
-      void` — write to `homography-cache/range-{start}-{end}.json`
-- [x] `readHomographyCache(projectDir, startMs, endMs) →
+- [x] `writeHomographyCache(projectDir, videoId, startMs, endMs, frames) →
+      void` — write to `homography-cache/{videoId}/range-{start}-{end}.json`
+- [x] `readHomographyCache(projectDir, videoId, startMs, endMs) →
       HomographyFrame[] | null` — exact range match
-- [x] `findOverlappingCache(projectDir, startMs, endMs) →
-      HomographyFrame[] | null` — list `homography-cache/*.json`, find
+- [x] `findOverlappingCache(projectDir, videoId, startMs, endMs) →
+      HomographyFrame[] | null` — list `homography-cache/{videoId}/*.json`, find
       any range that fully contains the requested range, extract subset
 
 **Frontend integration**:

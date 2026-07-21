@@ -4,19 +4,24 @@
 // ---------------------------------------------------------------------------
 
 import type {
+  ArrowKeyframe,
+  BoxKeyframe,
+  CircleKeyframe,
   ClipAnnotation,
   ClipAnnotationType,
   ClipKeyframe,
-  BoxKeyframe,
-  CircleKeyframe,
-  ShadowKeyframe,
-  ArrowKeyframe,
-  LobKeyframe,
-  TextKeyframe,
-  PolyKeyframe,
   HighlightKeyframe,
+  LobKeyframe,
+  PolyKeyframe,
+  ShadowKeyframe,
+  TextKeyframe,
 } from '../types/clip';
-import { getHiddenSpans, isAnnotationVisibleAtTime, isTimeWithinHiddenSpan } from './trackingState';
+import type { FrameBoundary, VideoFrame } from './frameMath';
+import {
+  getHiddenSpans,
+  isAnnotationVisible,
+  isFrameWithinHiddenSpan,
+} from './trackingState';
 
 // ---------------------------------------------------------------------------
 // Result types — one per annotation type
@@ -90,20 +95,6 @@ function catmullRom(p0: number, p1: number, p2: number, p3: number, t: number): 
     (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
     (-p0 + 3 * p1 - 3 * p2 + p3) * t3
   );
-}
-
-// Binary search: find index of last keyframe with tMs <= target
-function findBracketIndex(keyframes: ClipKeyframe[], tMs: number): number {
-  let lo = 0;
-  let hi = keyframes.length - 1;
-  if (tMs <= keyframes[0].tMs) return 0;
-  if (tMs >= keyframes[hi].tMs) return hi;
-  while (lo < hi - 1) {
-    const mid = (lo + hi) >> 1;
-    if (keyframes[mid].tMs <= tMs) lo = mid;
-    else hi = mid;
-  }
-  return lo;
 }
 
 // ---------------------------------------------------------------------------
@@ -253,135 +244,146 @@ function interpolateHighlight(a: HighlightKeyframe, b: HighlightKeyframe, t: num
   };
 }
 
-// ---------------------------------------------------------------------------
-// Main interpolation function
-// ---------------------------------------------------------------------------
+function findFrameBracketIndex(keyframes: ClipKeyframe[], frame: VideoFrame): number {
+  let low = 0;
+  let high = keyframes.length - 1;
+  if (frame <= keyframes[0].frame) return 0;
+  if (frame >= keyframes[high].frame) return high;
+  while (low < high - 1) {
+    const middle = (low + high) >> 1;
+    if (keyframes[middle].frame <= frame) low = middle;
+    else high = middle;
+  }
+  return low;
+}
 
-/**
- * Interpolate keyframes at a given clip-relative time.
- *
- * @param keyframes  Sorted by tMs ascending
- * @param tMs        Current clip-relative time in ms
- * @param type       Annotation type
- * @param fps        Video fps (used to decide linear vs cubic)
- * @returns Interpolated properties, or null if hidden
- */
+/** Resolve absolute-frame keyframes without converting the stored axis to time. */
 export function interpolateKeyframes(
   keyframes: ClipKeyframe[],
-  tMs: number,
+  frame: VideoFrame,
   type: ClipAnnotationType,
-  fps: number = 30,
 ): InterpolatedKeyframe | null {
-  if (!keyframes || keyframes.length === 0) return null;
+  if (keyframes.length === 0) return null;
+  const clamp = (keyframe: ClipKeyframe) => (
+    keyframe.visible === false
+      ? null
+      : clampToKeyframe(keyframe as unknown as ClipKeyframe, type)
+  );
 
-  // Single keyframe: clamp
-  if (keyframes.length === 1) {
-    const kf = keyframes[0];
-    if (kf.visible === false) return null;
-    return clampToKeyframe(kf, type);
-  }
+  if (keyframes.length === 1 || frame <= keyframes[0].frame) return clamp(keyframes[0]);
+  if (frame >= keyframes[keyframes.length - 1].frame) return clamp(keyframes[keyframes.length - 1]);
 
-  // Before first keyframe → clamp to first
-  if (tMs <= keyframes[0].tMs) {
-    const kf = keyframes[0];
-    if (kf.visible === false) return null;
-    return clampToKeyframe(kf, type);
-  }
+  const index = findFrameBracketIndex(keyframes, frame);
+  const left = keyframes[index];
+  const right = keyframes[index + 1];
+  if (left.visible === false || right.visible === false) return null;
 
-  // After last keyframe → clamp to last
-  if (tMs >= keyframes[keyframes.length - 1].tMs) {
-    const kf = keyframes[keyframes.length - 1];
-    if (kf.visible === false) return null;
-    return clampToKeyframe(kf, type);
-  }
-
-  // Find bracketing pair
-  const i = findBracketIndex(keyframes, tMs);
-  const a = keyframes[i];
-  const b = keyframes[i + 1];
-
-  // If either bracket has visible: false → hidden
-  if (a.visible === false || b.visible === false) return null;
-
-  // Compute t in [0,1] within the bracket
-  const span = b.tMs - a.tMs;
-  const t = span > 0 ? (tMs - a.tMs) / span : 0;
-
-  // Determine interpolation mode: cubic if bracket gap > 2 frames
-  const frameDuration = 1000 / fps;
-  const useCubic = span > frameDuration * 2;
-
-  // Get prev/next for Catmull-Rom (may be null)
-  const prev = i > 0 ? keyframes[i - 1] : null;
-  const next = i + 2 < keyframes.length ? keyframes[i + 2] : null;
+  const span = right.frame - left.frame;
+  const progress = span > 0 ? (frame - left.frame) / span : 0;
+  const useCubic = span > 2;
+  const previous = index > 0 ? keyframes[index - 1] : null;
+  const next = index + 2 < keyframes.length ? keyframes[index + 2] : null;
 
   switch (type) {
     case 'box':
-      // BoxQuad keyframes have .points array; plain BoxKeyframe has x/y/w/h
-      if ('points' in a && 'points' in b) {
-        return interpolatePoly(a as PolyKeyframe, b as PolyKeyframe, t);
+      if ('points' in left && 'points' in right) {
+        return interpolatePoly(
+          left as unknown as PolyKeyframe,
+          right as unknown as PolyKeyframe,
+          progress,
+        );
       }
       return interpolateBox(
-        a as BoxKeyframe, b as BoxKeyframe, t, useCubic,
-        prev as BoxKeyframe | null, next as BoxKeyframe | null,
+        left as unknown as BoxKeyframe,
+        right as unknown as BoxKeyframe,
+        progress,
+        useCubic,
+        previous as unknown as BoxKeyframe | null,
+        next as unknown as BoxKeyframe | null,
       );
     case 'circle':
       return interpolateCircle(
-        a as CircleKeyframe, b as CircleKeyframe, t, useCubic,
-        prev as CircleKeyframe | null, next as CircleKeyframe | null,
+        left as unknown as CircleKeyframe,
+        right as unknown as CircleKeyframe,
+        progress,
+        useCubic,
+        previous as unknown as CircleKeyframe | null,
+        next as unknown as CircleKeyframe | null,
       );
     case 'shadow':
       return interpolateShadow(
-        a as ShadowKeyframe, b as ShadowKeyframe, t, useCubic,
-        prev as ShadowKeyframe | null, next as ShadowKeyframe | null,
+        left as unknown as ShadowKeyframe,
+        right as unknown as ShadowKeyframe,
+        progress,
+        useCubic,
+        previous as unknown as ShadowKeyframe | null,
+        next as unknown as ShadowKeyframe | null,
       );
     case 'arrow':
       return interpolateArrow(
-        a as ArrowKeyframe, b as ArrowKeyframe, t, useCubic,
-        prev as ArrowKeyframe | null, next as ArrowKeyframe | null,
+        left as unknown as ArrowKeyframe,
+        right as unknown as ArrowKeyframe,
+        progress,
+        useCubic,
+        previous as unknown as ArrowKeyframe | null,
+        next as unknown as ArrowKeyframe | null,
       );
     case 'lob':
       return interpolateLob(
-        a as LobKeyframe, b as LobKeyframe, t, useCubic,
-        prev as LobKeyframe | null, next as LobKeyframe | null,
+        left as unknown as LobKeyframe,
+        right as unknown as LobKeyframe,
+        progress,
+        useCubic,
+        previous as unknown as LobKeyframe | null,
+        next as unknown as LobKeyframe | null,
       );
     case 'text':
       return interpolateText(
-        a as TextKeyframe, b as TextKeyframe, t, useCubic,
-        prev as TextKeyframe | null, next as TextKeyframe | null,
+        left as unknown as TextKeyframe,
+        right as unknown as TextKeyframe,
+        progress,
+        useCubic,
+        previous as unknown as TextKeyframe | null,
+        next as unknown as TextKeyframe | null,
       );
     case 'poly':
-      return interpolatePoly(a as PolyKeyframe, b as PolyKeyframe, t);
+      return interpolatePoly(
+        left as unknown as PolyKeyframe,
+        right as unknown as PolyKeyframe,
+        progress,
+      );
     case 'highlight':
       return interpolateHighlight(
-        a as HighlightKeyframe, b as HighlightKeyframe, t, useCubic,
-        prev as HighlightKeyframe | null, next as HighlightKeyframe | null,
+        left as unknown as HighlightKeyframe,
+        right as unknown as HighlightKeyframe,
+        progress,
+        useCubic,
+        previous as unknown as HighlightKeyframe | null,
+        next as unknown as HighlightKeyframe | null,
       );
     default:
       return null;
   }
 }
 
-export function interpolateAnnotationAtTime(
+export function interpolateAnnotation(
   annotation: ClipAnnotation,
-  tMs: number,
-  fps: number = 30,
-  clipDurationMs: number = annotation.keyframes[annotation.keyframes.length - 1]?.tMs ?? 0,
+  frame: VideoFrame,
+  clipEndFrame: FrameBoundary,
 ): InterpolatedKeyframe | null {
-  if (!annotation.keyframes || annotation.keyframes.length === 0) return null;
-  if (!isAnnotationVisibleAtTime(annotation, tMs)) return null;
+  if (annotation.keyframes.length === 0) return null;
+  if (!isAnnotationVisible(annotation, frame)) return null;
 
-  const exact = annotation.keyframes.find((keyframe) => keyframe.tMs === tMs);
+  const exact = annotation.keyframes.find((keyframe) => keyframe.frame === frame);
   if (exact) {
     if (exact.visible === false) return null;
-    return clampToKeyframe(exact, annotation.type);
+    return clampToKeyframe(exact as unknown as ClipKeyframe, annotation.type);
   }
 
-  if (isTimeWithinHiddenSpan(getHiddenSpans(annotation, clipDurationMs, fps), tMs)) {
+  if (isFrameWithinHiddenSpan(getHiddenSpans(annotation, clipEndFrame), frame)) {
     return null;
   }
-
-  return interpolateKeyframes(annotation.keyframes, tMs, annotation.type, fps);
+  return interpolateKeyframes(annotation.keyframes, frame, annotation.type);
 }
 
 // ---------------------------------------------------------------------------
@@ -430,4 +432,4 @@ function clampToKeyframe(kf: ClipKeyframe, type: ClipAnnotationType): Interpolat
 }
 
 // Re-export helpers for testing
-export { lerp, catmullRom, findBracketIndex };
+export { lerp, catmullRom, findFrameBracketIndex };

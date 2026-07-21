@@ -1,242 +1,184 @@
-import { describe, expect, it } from "vitest";
-import type { ProjectManifestV1 } from "../types/project";
-import {
-  findCanonicalStillForMark,
-  findLinkedStillsForMark,
-  findMarkAtTimestamp,
-  findStillAtTimestamp,
-  hasDuplicateMarkTimestamp,
-  hasDuplicateStillTimestamp,
-  isBlockingManifestIssue,
-  repairManifestIntegrity,
-  summarizeManifestRepairIssues,
-} from "./projectIntegrity";
+import { describe, expect, it } from 'vitest';
 
-function makeManifest(overrides: Partial<ProjectManifestV1> = {}): ProjectManifestV1 {
-  return {
-    schema: "project.v1",
-    name: "Test",
-    created: "2026-03-09T00:00:00.000Z",
-    videos: [{ id: "vid-1", label: "Video 1", file: "media/video.mp4" }],
-    marks: [],
-    stills: [],
-    annotations: [],
-    reports: [],
-    thumbnails: [],
-    ...overrides,
+import defaultBoardDocument from '../../public/tagging/board.json';
+import { frameBoundary, videoFrame } from '../clip/frameMath';
+import { writeClip } from '../fs/clipStorage';
+import { writeJsonFile, writeTextFile } from '../fs/fsAccess';
+import { createProject, writeProjectManifest } from '../fs/projectFolder';
+import { writePresentation } from '../fs/presentationStorage';
+import { MockFileSystem } from '../fs/test/mockFileSystem';
+import type { Annotations } from '../types/annotations';
+import type { Clip } from '../types/clip';
+import type { Presentation } from '../types/presentation';
+import type { ProjectManifest } from '../types/project';
+import { checkProjectIntegrity } from './projectIntegrity';
+
+async function createFixture(): Promise<{
+  fileSystem: MockFileSystem;
+  manifest: ProjectManifest;
+  clip: Clip;
+  annotation: Annotations;
+}> {
+  const fileSystem = new MockFileSystem();
+  const created = await createProject(fileSystem.root, {
+    name: 'Integrity fixture',
+    created: '2026-07-11T00:00:00.000Z',
+    defaultBoardSource: JSON.stringify(defaultBoardDocument),
+  });
+  const manifest: ProjectManifest = {
+    ...created.manifest,
+    videos: [{
+      id: 'video_main',
+      label: 'Main video',
+      file: 'media/main.mp4',
+      fps: 30,
+      frameCount: frameBoundary(1000),
+      frameCountSource: 'normalize',
+      width: 1920,
+      height: 1080,
+    }],
   };
+  await writeTextFile(fileSystem.root, ['media', 'main.mp4'], 'video bytes');
+  await writeProjectManifest(fileSystem.root, manifest);
+  const clip: Clip = {
+    schema: 'clip.v2',
+    id: 'clip_main',
+    videoId: 'video_main',
+    startFrame: videoFrame(100),
+    endFrame: frameBoundary(200),
+    tags: { primary: null, facets: {} },
+    pins: [{
+      id: 'pin_main',
+      frame: videoFrame(150),
+      annotations: [{
+        id: 'ann_main',
+        file: 'annotations/ann_main.json',
+        role: 'default',
+      }],
+    }],
+    annotations: [],
+  };
+  const annotation: Annotations = {
+    schema: 'annotations.v2',
+    annotationId: 'ann_main',
+    clipId: clip.id,
+    pinId: clip.pins[0].id,
+    frame: clip.pins[0].frame,
+    image: { width: 1920, height: 1080 },
+    shapes: [],
+  };
+  await writeClip(fileSystem.root, clip);
+  await writeJsonFile(fileSystem.root, ['analysis', 'clips', clip.id, 'annotations', 'ann_main.json'], annotation);
+  return { fileSystem, manifest, clip, annotation };
 }
 
-describe("findMarkAtTimestamp / hasDuplicateMarkTimestamp", () => {
-  const marks: ProjectManifestV1["marks"] = [
-    { id: "mark-a", videoId: "vid-1", t_ms: 1000 },
-    { id: "mark-b", videoId: "vid-1", t_ms: 2000 },
-    { id: "mark-c", videoId: "vid-2", t_ms: 1000 },
-  ];
+describe('projectIntegrity', () => {
+  it('accepts a fully resolving project graph', async () => {
+    const { fileSystem, manifest, clip } = await createFixture();
+    const presentation: Presentation = {
+      schema: 2,
+      id: 'presentation_main',
+      name: 'Review',
+      createdAt: '2026-07-11T00:00:00.000Z',
+      updatedAt: '2026-07-11T00:00:00.000Z',
+      slides: [{
+        id: 'clip_slide',
+        kind: 'clip',
+        clipId: clip.id,
+        pausePins: null,
+        pauseCues: [{ pinId: clip.pins[0].id, annotationIds: null }],
+      }],
+      transitions: [],
+    };
+    await writePresentation(fileSystem.root, presentation);
 
-  it("finds an exact timestamp match within the same video", () => {
-    expect(findMarkAtTimestamp(marks, "vid-1", 1000)?.id).toBe("mark-a");
-    expect(findMarkAtTimestamp(marks, "vid-2", 1000)?.id).toBe("mark-c");
+    const report = await checkProjectIntegrity(fileSystem.root, manifest);
+    expect(report).toMatchObject({ ok: true, issues: [] });
   });
 
-  it("respects the excluded mark id", () => {
-    expect(findMarkAtTimestamp(marks, "vid-1", 1000, "mark-a")).toBeNull();
-  });
-
-  it("reports duplicate presence through the same exact-match rule", () => {
-    expect(hasDuplicateMarkTimestamp(marks, "vid-1", 1000)).toBe(true);
-    expect(hasDuplicateMarkTimestamp(marks, "vid-1", 1500)).toBe(false);
-  });
-});
-
-describe("findStillAtTimestamp / hasDuplicateStillTimestamp", () => {
-  const stills: ProjectManifestV1["stills"] = [
-    { id: "still-a", videoId: "vid-1", t_ms: 1000, file: "stills/1.png" },
-    { id: "still-b", videoId: "vid-1", t_ms: 2000, file: "stills/2.png" },
-    { id: "still-c", videoId: "vid-2", t_ms: 1000, file: "stills/3.png" },
-  ];
-
-  it("finds an exact still timestamp match within the same video", () => {
-    expect(findStillAtTimestamp(stills, "vid-1", 1000)?.id).toBe("still-a");
-    expect(findStillAtTimestamp(stills, "vid-2", 1000)?.id).toBe("still-c");
-  });
-
-  it("respects the excluded still id", () => {
-    expect(findStillAtTimestamp(stills, "vid-1", 1000, "still-a")).toBeNull();
-  });
-
-  it("reports duplicate presence through the same exact-match rule", () => {
-    expect(hasDuplicateStillTimestamp(stills, "vid-1", 1000)).toBe(true);
-    expect(hasDuplicateStillTimestamp(stills, "vid-1", 1500)).toBe(false);
-  });
-});
-
-describe("repairManifestIntegrity", () => {
-  it("backfills sourceMarkId from an exact videoId/timestamp match", () => {
-    const manifest = makeManifest({
-      marks: [{ id: "mark-a", videoId: "vid-1", t_ms: 1000 }],
-      stills: [{ id: "still-a", videoId: "vid-1", t_ms: 1000, file: "stills/000001.png" }],
+  it('reports anchor mismatches, missing documents, and clip-local orphans', async () => {
+    const { fileSystem, manifest, clip, annotation } = await createFixture();
+    clip.pins[0].annotations.push({
+      id: 'ann_missing',
+      file: 'annotations/ann_missing.json',
+      role: 'alternate',
     });
+    await writeClip(fileSystem.root, clip);
+    await writeJsonFile(
+      fileSystem.root,
+      ['analysis', 'clips', clip.id, 'annotations', 'ann_main.json'],
+      { ...annotation, frame: videoFrame(151) },
+    );
+    await writeJsonFile(
+      fileSystem.root,
+      ['analysis', 'clips', clip.id, 'annotations', 'orphan.json'],
+      annotation,
+    );
 
-    const repaired = repairManifestIntegrity(manifest);
-
-    expect(repaired.changed).toBe(true);
-    expect(repaired.issues).toHaveLength(0);
-    expect(repaired.manifest.stills[0].sourceMarkId).toBe("mark-a");
+    const report = await checkProjectIntegrity(fileSystem.root, manifest);
+    expect(report.issues.map((entry) => entry.code)).toEqual(expect.arrayContaining([
+      'annotation-anchor-mismatch',
+      'missing-annotation-document',
+      'orphan-annotation-document',
+    ]));
+    expect(report.ok).toBe(false);
   });
 
-  it("preserves an already valid linked source mark", () => {
-    const manifest = makeManifest({
-      marks: [{ id: "mark-a", videoId: "vid-1", t_ms: 1000 }],
-      stills: [{ id: "still-a", videoId: "vid-1", t_ms: 1000, file: "stills/000001.png", sourceMarkId: "mark-a" }],
-    });
-
-    const repaired = repairManifestIntegrity(manifest);
-
-    expect(repaired.changed).toBe(false);
-    expect(repaired.issues).toHaveLength(0);
-    expect(repaired.manifest).toBe(manifest);
-  });
-
-  it("creates a canonical backfilled mark when a legacy still has no exact mark match", () => {
-    const manifest = makeManifest({
-      marks: [{ id: "mark-a", videoId: "vid-1", t_ms: 1500 }],
-      stills: [{ id: "still-a", videoId: "vid-1", t_ms: 1000, file: "stills/000001.png" }],
-    });
-
-    const repaired = repairManifestIntegrity(manifest);
-
-    expect(repaired.changed).toBe(true);
-    expect(repaired.issues).toEqual([]);
-    expect(repaired.manifest.marks).toHaveLength(2);
-    expect(repaired.manifest.marks[1]).toEqual({
-      id: "mark_backfill_still-a",
-      videoId: "vid-1",
-      t_ms: 1000,
-    });
-    expect(repaired.manifest.stills[0].sourceMarkId).toBe("mark_backfill_still-a");
-  });
-
-  it("flags duplicate marks at the same timestamp and does not backfill an ambiguous still", () => {
-    const manifest = makeManifest({
-      marks: [
-        { id: "mark-a", videoId: "vid-1", t_ms: 1000 },
-        { id: "mark-b", videoId: "vid-1", t_ms: 1000 },
+  it('degrades unresolved presentation references into visible warnings', async () => {
+    const { fileSystem, manifest, clip } = await createFixture();
+    const presentation: Presentation = {
+      schema: 2,
+      id: 'presentation_broken',
+      name: 'Broken references',
+      createdAt: '2026-07-11T00:00:00.000Z',
+      updatedAt: '2026-07-11T00:00:00.000Z',
+      slides: [
+        {
+          id: 'pin_one',
+          kind: 'pin',
+          clipId: clip.id,
+          pinId: clip.pins[0].id,
+          showAnnotations: true,
+          annotationIds: ['ann_missing'],
+          annotationCues: [{ annotationId: 'ann_missing' }],
+        },
+        {
+          id: 'pin_two',
+          kind: 'pin',
+          clipId: 'clip_missing',
+          pinId: 'pin_missing',
+          showAnnotations: true,
+        },
       ],
-      stills: [{ id: "still-a", videoId: "vid-1", t_ms: 1000, file: "stills/000001.png" }],
-    });
+      transitions: [{
+        mode: 'match_video',
+        hideAnnotationsDuringPlayback: true,
+      }],
+    };
+    await writePresentation(fileSystem.root, presentation);
 
-    const repaired = repairManifestIntegrity(manifest);
-
-    expect(repaired.issues).toHaveLength(2);
-    expect(repaired.issues[0]).toEqual({
-      kind: "duplicate_mark_timestamp",
-      videoId: "vid-1",
-      t_ms: 1000,
-      markIds: ["mark-a", "mark-b"],
-    });
-    expect(repaired.issues[1]).toEqual({
-      kind: "unresolved_still_source_mark",
-      stillId: "still-a",
-      videoId: "vid-1",
-      t_ms: 1000,
-      sourceMarkId: null,
-    });
-    expect(repaired.manifest.stills[0].sourceMarkId).toBeNull();
+    const report = await checkProjectIntegrity(fileSystem.root, manifest);
+    expect(report.issues.map((entry) => entry.code)).toEqual(expect.arrayContaining([
+      'unresolved-presentation-annotation',
+      'unresolved-presentation-clip',
+      'invalid-match-video-transition',
+    ]));
+    expect(report.issues.filter((entry) => entry.path.includes('presentations/')).every(
+      (entry) => entry.severity === 'warning',
+    )).toBe(true);
   });
 
-  it("flags duplicate stills at the same timestamp", () => {
-    const manifest = makeManifest({
-      marks: [{ id: "mark-a", videoId: "vid-1", t_ms: 1000 }],
-      stills: [
-        { id: "still-a", videoId: "vid-1", t_ms: 1000, file: "stills/000001.png", sourceMarkId: "mark-a" },
-        { id: "still-b", videoId: "vid-1", t_ms: 1000, file: "stills/000002.png", sourceMarkId: "mark-a" },
-      ],
-    });
+  it('treats missing source media and unresolved clip video ids as errors', async () => {
+    const { fileSystem, manifest, clip } = await createFixture();
+    await fileSystem.root.getDirectoryHandle('media').then((media) => media.removeEntry('main.mp4'));
+    clip.videoId = 'video_missing';
+    await writeClip(fileSystem.root, clip);
 
-    const repaired = repairManifestIntegrity(manifest);
-
-    expect(repaired.issues).toContainEqual({
-      kind: "duplicate_still_timestamp",
-      videoId: "vid-1",
-      t_ms: 1000,
-      stillIds: ["still-a", "still-b"],
-    });
-  });
-
-  it("replaces an invalid cross-video sourceMarkId with a canonical backfilled mark when needed", () => {
-    const manifest = makeManifest({
-      videos: [
-        { id: "vid-1", label: "Video 1", file: "media/v1.mp4" },
-        { id: "vid-2", label: "Video 2", file: "media/v2.mp4" },
-      ],
-      marks: [{ id: "mark-a", videoId: "vid-2", t_ms: 1000 }],
-      stills: [{ id: "still-a", videoId: "vid-1", t_ms: 1000, file: "stills/000001.png", sourceMarkId: "mark-a" }],
-    });
-
-    const repaired = repairManifestIntegrity(manifest);
-
-    expect(repaired.issues).toHaveLength(0);
-    expect(repaired.manifest.marks).toHaveLength(2);
-    expect(repaired.manifest.stills[0].sourceMarkId).toBe("mark_backfill_still-a");
-  });
-});
-
-describe("canonical still helpers", () => {
-  it("finds all linked stills for a mark", () => {
-    const stills: ProjectManifestV1["stills"] = [
-      { id: "still-a", videoId: "vid-1", t_ms: 1000, file: "stills/1.png", sourceMarkId: "mark-a" },
-      { id: "still-b", videoId: "vid-1", t_ms: 1100, file: "stills/2.png", sourceMarkId: "mark-a" },
-      { id: "still-c", videoId: "vid-1", t_ms: 1200, file: "stills/3.png", sourceMarkId: "mark-b" },
-    ];
-
-    expect(findLinkedStillsForMark(stills, "mark-a").map((still) => still.id)).toEqual(["still-a", "still-b"]);
-  });
-
-  it("prefers an exact timestamp match as the canonical still", () => {
-    const manifest = makeManifest({
-      marks: [{ id: "mark-a", videoId: "vid-1", t_ms: 1000 }],
-      stills: [
-        { id: "still-a", videoId: "vid-1", t_ms: 1010, file: "stills/1.png", sourceMarkId: "mark-a" },
-        { id: "still-b", videoId: "vid-1", t_ms: 1000, file: "stills/2.png", sourceMarkId: "mark-a" },
-      ],
-    });
-
-    expect(findCanonicalStillForMark(manifest, "mark-a")?.id).toBe("still-b");
-  });
-});
-
-describe("summarizeManifestRepairIssues", () => {
-  it("summarizes the first few issues", () => {
-    const summary = summarizeManifestRepairIssues([
-      { kind: "duplicate_mark_timestamp", videoId: "vid-1", t_ms: 1000, markIds: ["mark-a", "mark-b"] },
-      { kind: "duplicate_still_timestamp", videoId: "vid-1", t_ms: 1000, stillIds: ["still-a", "still-b"] },
-      { kind: "unresolved_still_source_mark", stillId: "still-a", videoId: "vid-1", t_ms: 2000, sourceMarkId: null },
-    ]);
-
-    expect(summary).toContain("Duplicate marks at vid-1 1000ms");
-    expect(summary).toContain("Duplicate stills at vid-1 1000ms");
-    expect(summary).toContain("Still still-a at vid-1 2000ms could not be linked to a mark");
-  });
-});
-
-describe("isBlockingManifestIssue", () => {
-  it("treats duplicate still timestamps as compatibility warnings rather than blocking errors", () => {
-    expect(isBlockingManifestIssue({
-      kind: "duplicate_still_timestamp",
-      videoId: "vid-1",
-      t_ms: 1000,
-      stillIds: ["still-a", "still-b"],
-    })).toBe(false);
-  });
-
-  it("keeps unresolved source-mark problems blocking", () => {
-    expect(isBlockingManifestIssue({
-      kind: "unresolved_still_source_mark",
-      stillId: "still-a",
-      videoId: "vid-1",
-      t_ms: 2000,
-      sourceMarkId: null,
-    })).toBe(true);
+    const report = await checkProjectIntegrity(fileSystem.root, manifest);
+    expect(report.issues.map((entry) => entry.code)).toEqual(expect.arrayContaining([
+      'missing-video-file',
+      'unresolved-clip-video',
+    ]));
+    expect(report.ok).toBe(false);
   });
 });

@@ -36,25 +36,18 @@ class PnLCalibCalibrationProvider(CalibrationProvider):
         fps: float = 5.0,
         skip_interval: int = 0,
     ) -> list[HomographyFrame]:
-        sampled_timestamps = self._write_sampled_clip(
-            video_path=video_path,
-            start_ms=start_ms,
-            end_ms=end_ms,
-            fps=fps,
-        )
-        if not sampled_timestamps:
-            return []
-
         with tempfile.TemporaryDirectory(prefix="annotate-pnlcalib-") as temp_dir:
             temp_root = Path(temp_dir)
             clip_path = temp_root / "clip.mp4"
-            self._write_sampled_clip(
+            sampled_timestamps = self._write_sampled_clip(
                 video_path=video_path,
                 start_ms=start_ms,
                 end_ms=end_ms,
                 fps=fps,
                 output_path=clip_path,
             )
+            if not sampled_timestamps:
+                return []
             output_dir = temp_root / "output"
             calibrator = self._build_calibrator(skip_interval=skip_interval)
             frames = calibrator.calibrate_video(clip_path, output_dir)
@@ -129,6 +122,10 @@ class PnLCalibCalibrationProvider(CalibrationProvider):
             cap.release()
             return timestamps
 
+        source_fps = float(cap.get(cv2.CAP_PROP_FPS))
+        if source_fps <= 0:
+            source_fps = fps
+        target_frame_indices = [max(0, round(timestamp * source_fps / 1000.0)) for timestamp in timestamps]
         output_path.parent.mkdir(parents=True, exist_ok=True)
         writer = cv2.VideoWriter(
             str(output_path),
@@ -141,16 +138,28 @@ class PnLCalibCalibrationProvider(CalibrationProvider):
             raise RuntimeError(f"Could not create temporary calibration clip at {output_path}")
 
         blank_frame = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame_indices[0])
+        next_frame_index = int(round(cap.get(cv2.CAP_PROP_POS_FRAMES)))
+        last_sampled_frame = None
         try:
-            for timestamp_ms in timestamps:
-                cap.set(cv2.CAP_PROP_POS_MSEC, timestamp_ms)
-                ok, frame = cap.read()
-                if not ok or frame is None:
+            for target_frame_index in target_frame_indices:
+                sampled_frame = None
+                while next_frame_index <= target_frame_index:
+                    if not cap.grab():
+                        break
+                    if next_frame_index == target_frame_index:
+                        ok, candidate = cap.retrieve()
+                        if ok and candidate is not None:
+                            sampled_frame = candidate
+                    next_frame_index += 1
+                frame = sampled_frame if sampled_frame is not None else last_sampled_frame
+                if frame is None:
                     writer.write(blank_frame)
                     continue
                 if frame.shape[1] != frame_width or frame.shape[0] != frame_height:
                     frame = cv2.resize(frame, (frame_width, frame_height))
                 writer.write(frame)
+                last_sampled_frame = frame
         finally:
             writer.release()
             cap.release()

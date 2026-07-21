@@ -80,4 +80,33 @@ describe('resolveUsableHomographyAtTime', () => {
     expect(matrix?.[2]).toBeCloseTo(11, 4);
     expect(matrix?.[5]).toBeCloseTo(21, 4);
   });
+
+  it('rebuilds a contaminated provider gap from direct PnLCalib anchors', () => {
+    const frames = [
+      translationFrame(1000, 10, 20),
+      translationFrame(1050, 1200, 900, 'interpolated_gap'),
+      translationFrame(1100, 1400, 1100, 'interpolated_gap'),
+      translationFrame(1150, 1300, 1000, 'held_short_gap'),
+      translationFrame(1200, 30, 40),
+    ];
+
+    const matrix = resolveUsableHomographyAtTime(frames, 1100);
+
+    expect(matrix).not.toBeNull();
+    expect(matrix?.[2]).toBeCloseTo(20, 4);
+    expect(matrix?.[5]).toBeCloseTo(30, 4);
+  });
+
+  it('keeps legacy caches usable when direct PnLCalib metadata is absent', () => {
+    const frames = [
+      translationFrame(1000, 10, 20, 'keypoints'),
+      translationFrame(1200, 30, 40, 'interpolated'),
+    ];
+
+    const matrix = resolveUsableHomographyAtTime(frames, 1100);
+
+    expect(matrix).not.toBeNull();
+    expect(matrix?.[2]).toBeCloseTo(20, 4);
+    expect(matrix?.[5]).toBeCloseTo(30, 4);
+  });
 });

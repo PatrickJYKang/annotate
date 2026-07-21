@@ -1,0 +1,17 @@
+{
+  "schema": 2,
+  "id": "presentation-broken",
+  "name": "Broken target",
+  "createdAt": "2026-07-11T00:00:00.000Z",
+  "updatedAt": "2026-07-11T00:00:00.000Z",
+  "slides": [
+    {
+      "id": "slide-missing",
+      "kind": "pin",
+      "clipId": "clip-missing",
+      "pinId": "pin-missing",
+      "showAnnotations": true
+    }
+  ],
+  "transitions": []
+}

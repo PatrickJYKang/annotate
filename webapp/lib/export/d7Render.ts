@@ -1,5 +1,8 @@
 type StrokePattern = 'solid' | 'dashed' | 'dotted' | 'dashdot';
 
+import type { AnnotationDocument, AnnotationPayload } from '../annotate/documentPayload';
+import { annotationPayloadFromDocument } from '../annotate/documentPayload';
+
 import {
   buildShadowSectorPoints,
   DEFAULT_SHADOW_RADIUS,
@@ -31,6 +34,7 @@ export type ExportShape = {
     strokePattern?: StrokePattern;
     fontSize?: number;
     fontFamily?: string;
+    textHighlight?: boolean;
   };
 };
 
@@ -46,9 +50,14 @@ export type AnnotationsV1 = {
 
 export async function renderAnnotatedPng(args: {
   bmp: ImageBitmap;
-  ann: AnnotationsV1;
+  payload: AnnotationPayload;
+} | {
+  bmp: ImageBitmap;
+  /** @deprecated Pass the shared payload after parsing the document. */
+  ann: AnnotationDocument;
 }): Promise<Blob> {
-  const { bmp, ann } = args;
+  const { bmp } = args;
+  const payload = 'payload' in args ? args.payload : annotationPayloadFromDocument(args.ann);
   const w = bmp.width;
   const h = bmp.height;
 
@@ -60,12 +69,12 @@ export async function renderAnnotatedPng(args: {
 
   ctx.drawImage(bmp, 0, 0, w, h);
 
-  const shapes = (ann.shapes || []).filter(s => !(s as any)?._temp && !(typeof (s as any)?.id === 'string' && (s as any).id.startsWith('_temp_')));
+  const shapes = (payload.shapes || []).filter(s => !(s as any)?._temp && !(typeof (s as any)?.id === 'string' && (s as any).id.startsWith('_temp_')));
   const byId = new Map<string, ExportShape>();
   for (const s of shapes) byId.set(s.id, s);
 
-  const homography = (ann.perspective?.quad && ann.perspective.quad.length === 4)
-    ? computeHomographyFromUnitSquareToQuad(ann.perspective.quad)
+  const homography = (payload.perspective?.quad && payload.perspective.quad.length === 4)
+    ? computeHomographyFromUnitSquareToQuad(payload.perspective.quad)
     : null;
 
   const other = shapes.filter(s => s.type !== 'highlight' && s.type !== 'arrow' && s.type !== 'lob' && s.type !== 'poly');

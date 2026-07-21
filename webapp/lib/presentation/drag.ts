@@ -1,22 +1,28 @@
-export const PRESENTATION_ASSET_DRAG_MIME = 'application/x-presentation-asset';
+export const PRESENTATION_ASSET_MIME = 'application/x-annotate-presentation-asset-v2';
+export const PRESENTATION_SLIDE_MIME = 'application/x-annotate-presentation-slide-v2';
 
-export type PresentationAssetDragPayload =
-  | { kind: 'still'; stillId: string }
+export type PresentationAssetDrag =
   | { kind: 'clip'; clipId: string }
-  | { kind: 'mark'; markId: string };
+  | { kind: 'pin'; clipId: string; pinId: string };
 
-export function encodePresentationAssetDragPayload(payload: PresentationAssetDragPayload): string {
+export function encodePresentationAssetDrag(payload: PresentationAssetDrag): string {
   return JSON.stringify(payload);
 }
 
-export function decodePresentationAssetDragPayload(raw: string): PresentationAssetDragPayload | null {
+export function decodePresentationAssetDrag(value: string): PresentationAssetDrag | null {
   try {
-    const value = JSON.parse(raw) as Partial<PresentationAssetDragPayload>;
-    if (value.kind === 'still' && typeof value.stillId === 'string') return { kind: 'still', stillId: value.stillId };
-    if (value.kind === 'clip' && typeof value.clipId === 'string') return { kind: 'clip', clipId: value.clipId };
-    if (value.kind === 'mark' && typeof value.markId === 'string') return { kind: 'mark', markId: value.markId };
-    return null;
+    const payload = JSON.parse(value) as Partial<PresentationAssetDrag>;
+    if (payload.kind === 'clip' && typeof payload.clipId === 'string') {
+      return { kind: 'clip', clipId: payload.clipId };
+    }
+    if (
+      payload.kind === 'pin'
+      && typeof payload.clipId === 'string'
+      && typeof payload.pinId === 'string'
+    ) {
+      return { kind: 'pin', clipId: payload.clipId, pinId: payload.pinId };
+    }
   } catch {
-    return null;
   }
+  return null;
 }

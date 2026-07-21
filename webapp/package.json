@@ -1,6 +1,6 @@
 {
   "name": "football-annotator-webapp",
-  "version": "0.1.0-pre.3",
+  "version": "0.2.0-pre.0",
   "license": "GPL-3.0-only",
   "private": true,
   "scripts": {
@@ -16,6 +16,7 @@
     "playwright:install": "playwright install chromium"
   },
   "dependencies": {
+    "@fontsource-variable/ibm-plex-sans": "5.2.8",
     "@tensorflow-models/body-segmentation": "1.0.2",
     "@tensorflow/tfjs-backend-webgl": "^4.22.0",
     "@tensorflow/tfjs-converter": "^4.22.0",
@@ -25,6 +26,7 @@
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-konva": "^18.2.14",
+    "react-resizable-panels": "2.1.9",
     "yaml": "^2.4.5"
   },
   "devDependencies": {

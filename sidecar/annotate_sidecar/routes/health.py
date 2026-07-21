@@ -50,6 +50,7 @@ def _check_capabilities() -> dict:
         capabilities.append("frame_extraction")
     if ffmpeg:
         capabilities.append("export")
+        capabilities.append("video_import")
         capabilities.append("video_normalization")
 
     return {

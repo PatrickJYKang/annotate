@@ -51,7 +51,17 @@ type HomographyAnalysis = {
   matrix: number[];
   projected: ProjectedPoint[];
   span: number;
+  robustSpan: number;
 };
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1]! + sorted[middle]!) / 2
+    : sorted[middle]!;
+}
 
 function polygonArea(points: ProjectedPoint[]): number {
   if (points.length < 3) return 0;
@@ -77,6 +87,13 @@ function analyzeHomographyFrame(frame: HomographyFrame): HomographyAnalysis | nu
     Math.max(...ys) - Math.min(...ys),
   );
   if (!Number.isFinite(span) || span < 10) return null;
+  const sortedXs = [...xs].sort((a, b) => a - b);
+  const sortedYs = [...ys].sort((a, b) => a - b);
+  const robustSpan = Math.max(
+    sortedXs[sortedXs.length - 2]! - sortedXs[1]!,
+    sortedYs[sortedYs.length - 2]! - sortedYs[1]!,
+  );
+  if (!Number.isFinite(robustSpan) || robustSpan < 10) return null;
 
   const cornerArea = polygonArea([
     projected[0]!,
@@ -86,25 +103,28 @@ function analyzeHomographyFrame(frame: HomographyFrame): HomographyAnalysis | nu
   ]);
   if (!Number.isFinite(cornerArea) || cornerArea < 1_000) return null;
 
-  return { frame, matrix, projected, span };
+  return { frame, matrix, projected, span, robustSpan };
 }
 
 function homographyDistance(
   left: HomographyAnalysis,
   right: HomographyAnalysis,
-): { mean: number; max: number } {
+): { mean: number; max: number; median: number } {
   let total = 0;
   let max = 0;
+  const distances: number[] = [];
   for (let index = 0; index < left.projected.length; index += 1) {
     const a = left.projected[index]!;
     const b = right.projected[index]!;
     const distance = Math.hypot(a.x - b.x, a.y - b.y);
+    distances.push(distance);
     total += distance;
     if (distance > max) max = distance;
   }
   return {
     mean: total / left.projected.length,
     max,
+    median: median(distances),
   };
 }
 
@@ -129,16 +149,29 @@ function pruneOutlierFrames(analyses: HomographyAnalysis[]): HomographyAnalysis[
     const prevCurrent = homographyDistance(previous, analysis);
     const currentNext = homographyDistance(analysis, next);
 
-    const baselineMean = Math.max(prevNext.mean * 2.5, 180);
-    const baselineMax = Math.max(prevNext.max * 2.5, 320);
-    const isOutlier =
-      prevCurrent.mean > baselineMean
-      && currentNext.mean > baselineMean
-      && prevCurrent.max > baselineMax
-      && currentNext.max > baselineMax;
+    const temporalThreshold = Math.max(prevNext.median * 2.5, 500);
+    const isTemporalOutlier =
+      prevCurrent.median > temporalThreshold
+      && currentNext.median > temporalThreshold;
 
-    return !isOutlier;
+    const smallerNeighborSpan = Math.min(previous.robustSpan, next.robustSpan);
+    const largerNeighborSpan = Math.max(previous.robustSpan, next.robustSpan);
+    const neighborsHaveComparableScale = largerNeighborSpan <= smallerNeighborSpan * 4;
+    const isCollapsedProjection =
+      neighborsHaveComparableScale
+      && analysis.robustSpan < smallerNeighborSpan * 0.15;
+
+    return !isTemporalOutlier && !isCollapsedProjection;
   });
+}
+
+function selectAnchorFrames(frames: HomographyFrame[]): HomographyFrame[] {
+  const usable = frames.filter(isUsableHomographyFrame);
+  const directPnlCalibFrames = usable.filter((frame) => frame.method === 'pnlcalib');
+
+  // PnLCalib's derived gap frames can inherit a corrupt solve. Rebuild those
+  // gaps from sanitized direct anchors instead of treating derived data as new evidence.
+  return directPnlCalibFrames.length >= 2 ? directPnlCalibFrames : usable;
 }
 
 function interpolateBetweenFrames(
@@ -170,8 +203,7 @@ export function resolveUsableHomographyAtTime(
 ): number[] | null {
   if (!frames || frames.length === 0) return null;
   const usable = pruneOutlierFrames(
-    frames
-      .filter(isUsableHomographyFrame)
+    selectAnchorFrames(frames)
       .sort((a, b) => a.tMs - b.tMs)
       .map(analyzeHomographyFrame)
       .filter((analysis): analysis is HomographyAnalysis => analysis !== null),

@@ -1,8 +1,6 @@
 "use client";
-import type { MatchInfo } from "../../lib/types/project";
-
-const inputCls = "bg-raised text-accent border border-border px-2 py-1.5 text-sm font-sans w-full";
-const labelCls = "flex flex-col gap-0.5 text-xs text-secondary";
+import type { MatchInfo } from "../../lib/types/metadata";
+import { useT } from "../../lib/i18n";
 
 type Props = {
   matchInfo: MatchInfo;
@@ -10,94 +8,86 @@ type Props = {
 };
 
 export default function MatchDetailsForm({ matchInfo, onChange }: Props) {
+  const t = useT();
   const set = (patch: Partial<MatchInfo>) => onChange({ ...matchInfo, ...patch });
 
   return (
-    <div className="panel">
-      <h3 className="mt-0 text-base font-bold">Match Details</h3>
-
-      <div className="grid grid-cols-3 gap-3">
-        {/* Row 1 */}
-        <label className={labelCls}>
-          Date
+    <section className="form-section">
+      <h3 className="form-heading">{t('metadata.matchDetails')}</h3>
+      <div className="field-grid max-w-5xl">
+        <label className="field">
+          {t('metadata.date')}
           <input
             type="date"
             value={matchInfo.date ?? ""}
             onChange={(e) => set({ date: e.target.value || null })}
-            className={inputCls}
+            className="w-full"
           />
         </label>
 
-        <label className={labelCls}>
-          Kickoff time
+        <label className="field">
+          {t('metadata.kickoff')}
           <input
             type="text"
             value={matchInfo.kickoffTime ?? ""}
             onChange={(e) => set({ kickoffTime: e.target.value || null })}
-            placeholder="e.g. 15:00"
-            className={inputCls}
+            className="w-full"
           />
         </label>
 
-        <label className={labelCls}>
-          Competition
+        <label className="field">
+          {t('metadata.competition')}
           <input
             type="text"
             value={matchInfo.competition ?? ""}
             onChange={(e) => set({ competition: e.target.value || null })}
-            placeholder="e.g. Premier League"
-            className={inputCls}
+            className="w-full"
           />
         </label>
 
-        {/* Row 2 */}
-        <label className={labelCls}>
-          Season
+        <label className="field">
+          {t('metadata.season')}
           <input
             type="text"
             value={matchInfo.season ?? ""}
             onChange={(e) => set({ season: e.target.value || null })}
-            placeholder="e.g. 2025-26"
-            className={inputCls}
+            className="w-full"
           />
         </label>
 
-        <label className={labelCls}>
-          Round
+        <label className="field">
+          {t('metadata.round')}
           <input
             type="text"
             value={matchInfo.round ?? ""}
             onChange={(e) => set({ round: e.target.value || null })}
-            placeholder="e.g. Matchday 22"
-            className={inputCls}
+            className="w-full"
           />
         </label>
 
-        <label className={labelCls}>
-          Venue
+        <label className="field">
+          {t('metadata.venue')}
           <input
             type="text"
             value={matchInfo.venue ?? ""}
             onChange={(e) => set({ venue: e.target.value || null })}
-            placeholder="e.g. Old Trafford"
-            className={inputCls}
+            className="w-full"
           />
         </label>
 
-        {/* Row 3 */}
-        <label className={labelCls}>
-          Referee
+        <label className="field">
+          {t('metadata.referee')}
           <input
             type="text"
             value={matchInfo.referee ?? ""}
             onChange={(e) => set({ referee: e.target.value || null })}
-            className={inputCls}
+            className="w-full"
           />
         </label>
 
-        <div className="flex gap-2 items-end">
-          <label className={`${labelCls} flex-1`}>
-            Score (H)
+        <div className="flex max-w-[220px] items-end gap-2">
+          <label className="field min-w-0 flex-1">
+            {t('metadata.homeScore')}
             <input
               type="number"
               min={0}
@@ -108,12 +98,12 @@ export default function MatchDetailsForm({ matchInfo, onChange }: Props) {
                 const next = { ...cur, home: v };
                 set({ score: next.home === null && next.away === null ? null : next });
               }}
-              className={`${inputCls} text-center`}
+              className="w-full text-center"
             />
           </label>
           <span className="pb-2 text-muted">–</span>
-          <label className={`${labelCls} flex-1`}>
-            Score (A)
+          <label className="field min-w-0 flex-1">
+            {t('metadata.awayScore')}
             <input
               type="number"
               min={0}
@@ -124,11 +114,11 @@ export default function MatchDetailsForm({ matchInfo, onChange }: Props) {
                 const next = { ...cur, away: v };
                 set({ score: next.home === null && next.away === null ? null : next });
               }}
-              className={`${inputCls} text-center`}
+              className="w-full text-center"
             />
           </label>
         </div>
       </div>
-    </div>
+    </section>
   );
 }

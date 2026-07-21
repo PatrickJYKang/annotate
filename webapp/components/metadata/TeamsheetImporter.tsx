@@ -1,7 +1,8 @@
 "use client";
 import { useCallback, useRef, useState } from "react";
-import type { PlayerEntry } from "../../lib/types/project";
+import type { PlayerEntry } from "../../lib/types/metadata";
 import { parseTeamsheetCSV, parseTeamsheetPlainText } from "../../lib/metadata/teamsheetParser";
+import { useLocale } from "../../lib/i18n";
 
 type Props = {
   onImport: (players: PlayerEntry[]) => void;
@@ -11,6 +12,7 @@ type Props = {
 type Step = "input" | "preview";
 
 export default function TeamsheetImporter({ onImport, onCancel }: Props) {
+  const { t, formatNumber } = useLocale();
   const [step, setStep] = useState<Step>("input");
   const [pasteText, setPasteText] = useState("");
   const [preview, setPreview] = useState<PlayerEntry[]>([]);
@@ -21,12 +23,12 @@ export default function TeamsheetImporter({ onImport, onCancel }: Props) {
     setError(null);
     const players = isCSV ? parseTeamsheetCSV(text) : parseTeamsheetPlainText(text);
     if (players.length === 0) {
-      setError("Could not parse any players from the input. Check the format and try again.");
+      setError(t('metadata.parseFailed'));
       return;
     }
     setPreview(players);
     setStep("preview");
-  }, []);
+  }, [t]);
 
   const handleFile = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -63,15 +65,15 @@ export default function TeamsheetImporter({ onImport, onCancel }: Props) {
         if (e.target === e.currentTarget) onCancel();
       }}
     >
-      <div className="modal-card min-w-[480px] max-w-[640px] max-h-[80vh] overflow-y-auto p-5">
-        <h3 className="mt-0 text-base font-bold">Import Teamsheet</h3>
+      <div className="modal-card min-w-[min(480px,calc(100vw-2rem))] max-w-[min(640px,calc(100vw-2rem))] max-h-[80vh] overflow-y-auto p-5">
+        <h3 className="mt-0 text-base font-bold">{t('metadata.teamsheetTitle')}</h3>
 
         {step === "input" && (
           <>
             {/* File picker */}
             <div className="mb-3">
               <label className="text-xs text-secondary">
-                Choose a file (CSV, TSV, or TXT):
+                {t('metadata.chooseTeamsheet')}
               </label>
               <br />
               <input
@@ -83,17 +85,12 @@ export default function TeamsheetImporter({ onImport, onCancel }: Props) {
               />
             </div>
 
-            <div className="text-center text-muted text-xs my-2">
-              — or paste text below —
-            </div>
-
-            {/* Paste area */}
             <textarea
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
               rows={8}
-              placeholder={`Paste teamsheet text here, e.g.:\n1 A. Goalkeeper\n2 B. Defender\n3 C. Midfielder\n...\n\nor CSV with headers:\nNumber,Name,Position\n1,A. Goalkeeper,GK`}
-              className="w-full bg-raised text-accent border border-border p-2 resize-y font-mono text-xs"
+              aria-label={t('metadata.orPaste')}
+              className="mt-3 w-full resize-y border border-border bg-raised p-2 font-mono text-xs text-accent"
             />
 
             {error && (
@@ -103,9 +100,9 @@ export default function TeamsheetImporter({ onImport, onCancel }: Props) {
             )}
 
             <div className="flex gap-2 mt-3 justify-end">
-              <button onClick={onCancel}>Cancel</button>
-              <button onClick={handlePaste} disabled={!pasteText.trim()} className="bg-accent text-on-accent hover:bg-accent-hover">
-                Parse
+              <button onClick={onCancel}>{t('common.cancel')}</button>
+              <button onClick={handlePaste} disabled={!pasteText.trim()} className="button-primary">
+                {t('metadata.parse')}
               </button>
             </div>
           </>
@@ -114,17 +111,17 @@ export default function TeamsheetImporter({ onImport, onCancel }: Props) {
         {step === "preview" && (
           <>
             <div className="text-xs text-secondary mb-2">
-              {preview.length} player(s) detected. Edit if needed, then confirm.
+              {t('metadata.playersDetected', { count: formatNumber(preview.length) })}
             </div>
 
             <table className="w-full border-collapse text-xs">
               <thead>
                 <tr className="text-secondary text-left">
                   <th className="w-10 px-0.5 py-1">#</th>
-                  <th className="px-0.5 py-1">Name</th>
-                  <th className="w-15 px-0.5 py-1">Pos</th>
-                  <th className="w-7 px-0.5 py-1 text-center">C</th>
-                  <th className="w-7 px-0.5 py-1 text-center">S</th>
+                  <th className="px-0.5 py-1">{t('metadata.name')}</th>
+                  <th className="w-15 px-0.5 py-1">{t('metadata.positionShort')}</th>
+                  <th className="w-7 px-0.5 py-1 text-center">{t('metadata.captainShort')}</th>
+                  <th className="w-7 px-0.5 py-1 text-center">{t('metadata.substituteShort')}</th>
                   <th className="w-7" />
                 </tr>
               </thead>
@@ -184,7 +181,7 @@ export default function TeamsheetImporter({ onImport, onCancel }: Props) {
                       <button
                         onClick={() => removePreviewPlayer(i)}
                         className="bg-transparent border-0 text-danger cursor-pointer text-sm px-1"
-                        title="Remove"
+                        title={t('metadata.remove')}
                       >
                         ×
                       </button>
@@ -196,15 +193,15 @@ export default function TeamsheetImporter({ onImport, onCancel }: Props) {
 
             <div className="flex gap-2 mt-3 justify-end">
               <button onClick={() => { setStep("input"); setError(null); }}>
-                ← Back
+                {t('metadata.back')}
               </button>
-              <button onClick={onCancel}>Cancel</button>
+              <button onClick={onCancel}>{t('common.cancel')}</button>
               <button
                 onClick={() => onImport(preview)}
                 disabled={preview.length === 0}
-                className="bg-accent text-on-accent hover:bg-accent-hover"
+                className="button-primary"
               >
-                Confirm ({preview.length})
+                {t('metadata.confirm', { count: formatNumber(preview.length) })}
               </button>
             </div>
           </>

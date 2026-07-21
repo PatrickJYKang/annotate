@@ -1,34 +1,17 @@
 {
-  "schema": "project.v1",
-  "name": "Playwright Retrieval Fixture",
-  "created": "2026-03-31T00:00:00.000Z",
+  "schema": "project.v2",
+  "name": "Retrieval fixture",
+  "created": "2026-07-11T00:00:00.000Z",
   "videos": [
     {
-      "id": "video-playwright-1",
-      "label": "Retrieval Sample",
+      "id": "video-main",
+      "label": "Retrieval sample",
       "file": "media/retrieval-sample.mp4",
-      "durationMs": 2000,
+      "fps": 25,
+      "frameCount": 50,
+      "frameCountSource": "normalize",
       "width": 640,
-      "height": 360,
-      "fps": 25
+      "height": 360
     }
-  ],
-  "marks": [
-    {
-      "id": "mark-playwright-1",
-      "videoId": "video-playwright-1",
-      "t_ms": 400,
-      "tags": []
-    },
-    {
-      "id": "mark-playwright-2",
-      "videoId": "video-playwright-1",
-      "t_ms": 1200,
-      "tags": []
-    }
-  ],
-  "stills": [],
-  "annotations": [],
-  "reports": [],
-  "thumbnails": []
+  ]
 }

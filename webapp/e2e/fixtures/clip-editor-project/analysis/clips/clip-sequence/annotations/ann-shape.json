@@ -1,0 +1,19 @@
+{
+  "schema": "annotations.v2",
+  "annotationId": "ann-shape",
+  "clipId": "clip-sequence",
+  "pinId": "pin-shape",
+  "frame": 15,
+  "image": { "width": 640, "height": 360 },
+  "shapes": [
+    {
+      "id": "shape-poly",
+      "type": "poly",
+      "x": 0,
+      "y": 0,
+      "points": [120, 255, 210, 235, 300, 245],
+      "closed": false,
+      "style": { "stroke": "#00e5a8", "strokeWidth": 5 }
+    }
+  ]
+}

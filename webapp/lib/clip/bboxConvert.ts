@@ -8,13 +8,10 @@
 
 import type {
   ClipAnnotationType,
-  BoxKeyframe,
-  CircleKeyframe,
-  ArrowKeyframe,
-  HighlightKeyframe,
   ClipKeyframe,
   ClipKeyframeProvenance,
 } from '../types/clip';
+import { timestampMsToNearestFrame } from './frameMath';
 
 export type Bbox = { x: number; y: number; w: number; h: number };
 
@@ -56,66 +53,63 @@ export function bboxToArrow(bbox: Bbox): { x1: number; y1: number; x2: number; y
   };
 }
 
-// ---------------------------------------------------------------------------
-// Batch converter: raw sidecar keyframes → ClipKeyframe[]
-// ---------------------------------------------------------------------------
-
 export interface RawTrackingKeyframe {
   tMs: number;        // absolute video ms from sidecar
   bbox: Bbox;
   visible?: boolean;
 }
 
-/**
- * Convert sidecar tracking keyframes to typed ClipKeyframes.
- *
- * @param rawKeyframes  Keyframes from sidecar (absolute ms)
- * @param annotationType  Target annotation type
- * @param clipStartMs  Clip start time in absolute video ms (for converting to clip-relative)
- * @returns ClipKeyframe[] sorted by tMs (clip-relative)
- */
+/** Convert sidecar timestamps directly onto the owning video's absolute frame axis. */
 export function convertTrackingKeyframes(
   rawKeyframes: RawTrackingKeyframe[],
   annotationType: ClipAnnotationType,
-  clipStartMs: number,
+  videoFps: number,
+  frameCount: number,
 ): ClipKeyframe[] {
-  return rawKeyframes.map((raw): ClipKeyframe => {
-    const tMs = raw.tMs - clipStartMs;
+  const byFrame = new Map<number, ClipKeyframe>();
+
+  for (const raw of rawKeyframes) {
+    const frame = timestampMsToNearestFrame(raw.tMs, videoFps, frameCount);
     const provenance: ClipKeyframeProvenance = raw.visible === false ? 'lost' : 'tracked';
     const base = {
-      tMs,
+      frame,
       provenance,
       ...(raw.visible === false ? { visible: false } : {}),
     };
 
+    let keyframe: ClipKeyframe;
     switch (annotationType) {
-      case 'box': {
-        const g = bboxToBox(raw.bbox);
-        return { ...base, ...g } as BoxKeyframe;
-      }
-      case 'circle': {
-        const g = bboxToCircle(raw.bbox);
-        return { ...base, ...g } as CircleKeyframe;
-      }
-      case 'arrow': {
-        const g = bboxToArrow(raw.bbox);
-        return { ...base, ...g } as ArrowKeyframe;
-      }
-      case 'highlight': {
-        const g = bboxToHighlight(raw.bbox);
-        return { ...base, ...g } as HighlightKeyframe;
-      }
-      case 'text': {
-        // Text keyframes only need position (top-left of bbox)
-        return { ...base, x: raw.bbox.x, y: raw.bbox.y };
-      }
+      case 'box':
+        keyframe = { ...base, ...bboxToBox(raw.bbox) } as ClipKeyframe;
+        break;
+      case 'circle':
+        keyframe = { ...base, ...bboxToCircle(raw.bbox) } as ClipKeyframe;
+        break;
+      case 'arrow':
+        keyframe = { ...base, ...bboxToArrow(raw.bbox) } as ClipKeyframe;
+        break;
+      case 'highlight':
+        keyframe = { ...base, ...bboxToHighlight(raw.bbox) } as ClipKeyframe;
+        break;
+      case 'text':
+        keyframe = { ...base, x: raw.bbox.x, y: raw.bbox.y } as ClipKeyframe;
+        break;
       case 'poly': {
-        // Poly from bbox → 4 corners
         const { x, y, w, h } = raw.bbox;
-        return { ...base, points: [[x, y], [x + w, y], [x + w, y + h], [x, y + h]] as [number, number][] };
+        keyframe = {
+          ...base,
+          points: [[x, y], [x + w, y], [x + w, y + h], [x, y + h]],
+        } as ClipKeyframe;
+        break;
       }
       default:
-        return { ...base, x: raw.bbox.x, y: raw.bbox.y, w: raw.bbox.w, h: raw.bbox.h } as BoxKeyframe;
+        keyframe = { ...base, ...bboxToBox(raw.bbox) } as ClipKeyframe;
     }
-  }).sort((a, b) => a.tMs - b.tMs);
+
+    // Sparse sidecar samples can round to one source frame; the later sample
+    // is the closest statement of tracker state for that canonical frame.
+    byFrame.set(frame, keyframe);
+  }
+
+  return [...byFrame.values()].sort((left, right) => left.frame - right.frame);
 }

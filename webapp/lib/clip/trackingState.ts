@@ -1,259 +1,207 @@
 import type {
   AnnotationSource,
   ClipAnnotation,
-  ClipKeyframe,
   ClipKeyframeProvenance,
+  ClipKeyframe,
   ClipVisibilityAction,
   ClipVisibilityKeyframe,
-} from "../types/clip";
+} from '../types/clip';
+import type { FrameBoundary, VideoFrame } from './frameMath';
 
-export type ClipFrameTrackingState = "manual" | "tracked" | "correction" | "lost";
-export const MAX_INTERPOLATED_TRACK_GAP_MS = 250;
+export type ClipFrameTrackingState = 'manual' | 'tracked' | 'correction' | 'lost';
 export const MAX_INTERPOLATED_TRACK_GAP_FRAMES = 6;
 
-function sortVisibilityKeyframes(
-  visibilityKeyframes: ClipVisibilityKeyframe[] | undefined,
-): ClipVisibilityKeyframe[] {
-  if (!visibilityKeyframes || visibilityKeyframes.length === 0) return [];
-  return [...visibilityKeyframes].sort((left, right) => left.tMs - right.tMs);
-}
-
 function fallbackProvenanceFromSource(source: AnnotationSource): ClipKeyframeProvenance {
-  if (source === "auto") return "tracked";
-  if (source === "corrected") return "tracked";
-  return "manual";
+  if (source === 'auto' || source === 'corrected') return 'tracked';
+  return 'manual';
 }
 
 export function getKeyframeProvenance(
-  annotation: Pick<ClipAnnotation, "source">,
-  keyframe: Pick<ClipKeyframe, "visible" | "provenance">,
+  annotation: Pick<ClipAnnotation, 'source'>,
+  keyframe: Pick<ClipKeyframe, 'visible' | 'provenance'>,
 ): ClipKeyframeProvenance {
   if (keyframe.provenance) return keyframe.provenance;
-  if (keyframe.visible === false) return "lost";
+  if (keyframe.visible === false) return 'lost';
   return fallbackProvenanceFromSource(annotation.source);
 }
 
 export function countCorrectionKeyframes(annotation: ClipAnnotation): number {
-  return annotation.keyframes.filter((keyframe) => getKeyframeProvenance(annotation, keyframe) === "correction").length;
+  return annotation.keyframes.filter(
+    (keyframe) => getKeyframeProvenance(annotation, keyframe) === 'correction',
+  ).length;
 }
 
-export function getTrackingGapThresholdMs(fps: number): number {
-  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
-  return Math.min(MAX_INTERPOLATED_TRACK_GAP_MS, (1000 / safeFps) * MAX_INTERPOLATED_TRACK_GAP_FRAMES);
+export type FrameSpan = { startFrame: VideoFrame; endFrame: FrameBoundary };
+
+function frameSpan(startFrame: number, endFrame: number): FrameSpan {
+  return { startFrame: startFrame as VideoFrame, endFrame: endFrame as FrameBoundary };
 }
 
-export function getLossSpans(annotation: ClipAnnotation, clipDurationMs: number): Array<{ startMs: number; endMs: number }> {
-  const spans: Array<{ startMs: number; endMs: number }> = [];
-  const keyframes = annotation.keyframes;
-  if (keyframes.length === 0) return spans;
+function sortVisibilityKeyframes(
+  visibilityKeyframes: ClipVisibilityKeyframe[] | undefined,
+): ClipVisibilityKeyframe[] {
+  return visibilityKeyframes?.length
+    ? [...visibilityKeyframes].sort((left, right) => left.frame - right.frame)
+    : [];
+}
 
+export function getLossSpans(
+  annotation: ClipAnnotation,
+  clipEndFrame: FrameBoundary,
+): FrameSpan[] {
+  const spans: FrameSpan[] = [];
   let activeStart: number | null = null;
-  for (let index = 0; index < keyframes.length; index += 1) {
-    const keyframe = keyframes[index];
-    const provenance = getKeyframeProvenance(annotation, keyframe);
-    if (provenance === "lost") {
-      if (activeStart == null) activeStart = keyframe.tMs;
+  for (const keyframe of annotation.keyframes) {
+    if (getKeyframeProvenance(annotation, keyframe) === 'lost') {
+      if (activeStart === null) activeStart = keyframe.frame;
       continue;
     }
-    if (activeStart != null) {
-      spans.push({ startMs: activeStart, endMs: keyframe.tMs });
+    if (activeStart !== null) {
+      spans.push(frameSpan(activeStart, keyframe.frame));
       activeStart = null;
     }
   }
-
-  if (activeStart != null) {
-    spans.push({ startMs: activeStart, endMs: clipDurationMs });
-  }
-
+  if (activeStart !== null) spans.push(frameSpan(activeStart, clipEndFrame));
   return spans;
 }
 
 export function getManualVisibilitySpans(
   annotation: ClipAnnotation,
-  clipDurationMs: number,
-): Array<{ startMs: number; endMs: number }> {
-  const keyframes = sortVisibilityKeyframes(annotation.visibilityKeyframes);
-  if (keyframes.length === 0) return [];
-
-  const spans: Array<{ startMs: number; endMs: number }> = [];
-  let activeHideStart: number | null = null;
-
-  for (const keyframe of keyframes) {
-    if (keyframe.action === "hide") {
-      activeHideStart = keyframe.tMs;
-      continue;
-    }
-
-    if (activeHideStart != null) {
-      spans.push({ startMs: activeHideStart, endMs: keyframe.tMs });
-      activeHideStart = null;
+  clipEndFrame: FrameBoundary,
+): FrameSpan[] {
+  const spans: FrameSpan[] = [];
+  let activeStart: number | null = null;
+  for (const keyframe of sortVisibilityKeyframes(annotation.visibilityKeyframes)) {
+    if (keyframe.action === 'hide') {
+      activeStart = keyframe.frame;
+    } else if (activeStart !== null) {
+      spans.push(frameSpan(activeStart, keyframe.frame));
+      activeStart = null;
     }
   }
-
-  if (activeHideStart != null) {
-    spans.push({ startMs: activeHideStart, endMs: clipDurationMs });
-  }
-
+  if (activeStart !== null) spans.push(frameSpan(activeStart, clipEndFrame));
   return spans;
 }
 
-export function getDerivedHiddenGapSpans(
-  annotation: ClipAnnotation,
-  fps: number,
-): Array<{ startMs: number; endMs: number }> {
-  if (annotation.source === "manual") return [];
-
-  const thresholdMs = getTrackingGapThresholdMs(fps);
-  const spans: Array<{ startMs: number; endMs: number }> = [];
-
+export function getDerivedHiddenGapSpans(annotation: ClipAnnotation): FrameSpan[] {
+  if (annotation.source === 'manual') return [];
+  const spans: FrameSpan[] = [];
   for (let index = 0; index < annotation.keyframes.length - 1; index += 1) {
     const left = annotation.keyframes[index];
     const right = annotation.keyframes[index + 1];
-    const gapMs = right.tMs - left.tMs;
-    if (gapMs <= thresholdMs) continue;
-
-    const leftProv = getKeyframeProvenance(annotation, left);
-    const rightProv = getKeyframeProvenance(annotation, right);
-    if (leftProv === "lost" || rightProv === "lost") continue;
-
-    const touchesTracking = leftProv !== "manual" || rightProv !== "manual";
-    if (!touchesTracking) continue;
-
-    spans.push({ startMs: left.tMs, endMs: right.tMs });
+    if (right.frame - left.frame <= MAX_INTERPOLATED_TRACK_GAP_FRAMES) continue;
+    const leftProvenance = getKeyframeProvenance(annotation, left);
+    const rightProvenance = getKeyframeProvenance(annotation, right);
+    if (leftProvenance === 'lost' || rightProvenance === 'lost') continue;
+    if (leftProvenance === 'manual' && rightProvenance === 'manual') continue;
+    spans.push(frameSpan(left.frame, right.frame));
   }
-
   return spans;
 }
 
-function mergeSpans(spans: Array<{ startMs: number; endMs: number }>): Array<{ startMs: number; endMs: number }> {
+function mergeFrameSpans(spans: FrameSpan[]): FrameSpan[] {
   if (spans.length <= 1) return spans.slice();
-  const sorted = [...spans].sort((left, right) => left.startMs - right.startMs);
-  const merged: Array<{ startMs: number; endMs: number }> = [sorted[0]];
-
+  const sorted = [...spans].sort((left, right) => left.startFrame - right.startFrame);
+  const merged = [frameSpan(sorted[0].startFrame, sorted[0].endFrame)];
   for (let index = 1; index < sorted.length; index += 1) {
     const current = sorted[index];
     const last = merged[merged.length - 1];
-    if (current.startMs <= last.endMs) {
-      last.endMs = Math.max(last.endMs, current.endMs);
-      continue;
+    if (current.startFrame <= last.endFrame) {
+      last.endFrame = Math.max(last.endFrame, current.endFrame) as FrameBoundary;
+    } else {
+      merged.push(frameSpan(current.startFrame, current.endFrame));
     }
-    merged.push({ ...current });
   }
-
   return merged;
 }
 
 export function getHiddenSpans(
   annotation: ClipAnnotation,
-  clipDurationMs: number,
-  fps: number,
-): Array<{ startMs: number; endMs: number }> {
-  return mergeSpans([
-    ...getLossSpans(annotation, clipDurationMs),
-    ...getDerivedHiddenGapSpans(annotation, fps),
-    ...getManualVisibilitySpans(annotation, clipDurationMs),
+  clipEndFrame: FrameBoundary,
+): FrameSpan[] {
+  return mergeFrameSpans([
+    ...getLossSpans(annotation, clipEndFrame),
+    ...getDerivedHiddenGapSpans(annotation),
+    ...getManualVisibilitySpans(annotation, clipEndFrame),
   ]);
 }
 
-export function isTimeWithinHiddenSpan(
-  spans: Array<{ startMs: number; endMs: number }>,
-  tMs: number,
-): boolean {
-  return spans.some((span) => tMs > span.startMs && tMs < span.endMs);
+export function isFrameWithinHiddenSpan(spans: FrameSpan[], frame: VideoFrame): boolean {
+  return spans.some((span) => frame > span.startFrame && frame < span.endFrame);
 }
 
-export function getCurrentKeyframeAtTime(
+export function getCurrentKeyframe(
   annotation: ClipAnnotation,
-  currentTMs: number,
-  toleranceMs: number,
+  frame: VideoFrame,
 ): ClipKeyframe | null {
-  return annotation.keyframes.find((keyframe) => Math.abs(keyframe.tMs - currentTMs) <= toleranceMs) ?? null;
+  return annotation.keyframes.find((keyframe) => keyframe.frame === frame) ?? null;
 }
 
-export function getCurrentVisibilityKeyframeAtTime(
+export function getCurrentVisibilityKeyframe(
   annotation: ClipAnnotation,
-  currentTMs: number,
-  toleranceMs: number,
+  frame: VideoFrame,
 ): ClipVisibilityKeyframe | null {
-  const keyframes = annotation.visibilityKeyframes ?? [];
-  return keyframes.find((keyframe) => Math.abs(keyframe.tMs - currentTMs) <= toleranceMs) ?? null;
+  return annotation.visibilityKeyframes?.find((keyframe) => keyframe.frame === frame) ?? null;
 }
 
-export function getVisibilityActionAtTime(
+export function getVisibilityAction(
   annotation: ClipAnnotation,
-  currentTMs: number,
+  frame: VideoFrame,
 ): ClipVisibilityAction | null {
-  const keyframes = sortVisibilityKeyframes(annotation.visibilityKeyframes);
   let action: ClipVisibilityAction | null = null;
-  for (const keyframe of keyframes) {
-    if (keyframe.tMs > currentTMs) break;
+  for (const keyframe of sortVisibilityKeyframes(annotation.visibilityKeyframes)) {
+    if (keyframe.frame > frame) break;
     action = keyframe.action;
   }
   return action;
 }
 
-export function isAnnotationVisibleAtTime(
-  annotation: ClipAnnotation,
-  currentTMs: number,
-): boolean {
-  const action = getVisibilityActionAtTime(annotation, currentTMs);
-  return action !== "hide";
+export function isAnnotationVisible(annotation: ClipAnnotation, frame: VideoFrame): boolean {
+  return getVisibilityAction(annotation, frame) !== 'hide';
 }
 
 export function getNextCorrectionKeyframe(
   annotation: ClipAnnotation,
-  currentTMs: number,
-  toleranceMs: number,
+  frame: VideoFrame,
 ): ClipKeyframe | null {
-  return annotation.keyframes.find((keyframe) => {
-    if (keyframe.tMs <= currentTMs + toleranceMs) return false;
-    return getKeyframeProvenance(annotation, keyframe) === "correction";
-  }) ?? null;
+  return annotation.keyframes.find((keyframe) => (
+    keyframe.frame > frame
+    && getKeyframeProvenance(annotation, keyframe) === 'correction'
+  )) ?? null;
 }
 
 export function getFrameTrackingState(
   annotation: ClipAnnotation,
-  currentTMs: number,
-  toleranceMs: number,
-  clipDurationMs: number = annotation.keyframes[annotation.keyframes.length - 1]?.tMs ?? 0,
-  fps: number = 30,
+  frame: VideoFrame,
+  clipEndFrame: FrameBoundary,
 ): ClipFrameTrackingState {
-  const exact = getCurrentKeyframeAtTime(annotation, currentTMs, toleranceMs);
-  if (exact) {
-    const provenance = getKeyframeProvenance(annotation, exact);
-    if (provenance === "lost") return "lost";
-    if (provenance === "correction") return "correction";
-    if (provenance === "tracked") return "tracked";
-    return "manual";
-  }
+  const provenanceToState = (provenance: ClipKeyframeProvenance): ClipFrameTrackingState => (
+    provenance === 'lost' ? 'lost'
+      : provenance === 'correction' ? 'correction'
+        : provenance === 'tracked' ? 'tracked'
+          : 'manual'
+  );
+  const exact = getCurrentKeyframe(annotation, frame);
+  if (exact) return provenanceToState(getKeyframeProvenance(annotation, exact));
 
   const keyframes = annotation.keyframes;
-  if (keyframes.length === 0) return "manual";
-  if (isTimeWithinHiddenSpan(getHiddenSpans(annotation, clipDurationMs, fps), currentTMs)) {
-    return "lost";
-  }
-
-  if (currentTMs <= keyframes[0].tMs) {
-    const provenance = getKeyframeProvenance(annotation, keyframes[0]);
-    return provenance === "lost" ? "lost" : provenance === "correction" ? "correction" : provenance === "tracked" ? "tracked" : "manual";
-  }
-
-  if (currentTMs >= keyframes[keyframes.length - 1].tMs) {
-    const provenance = getKeyframeProvenance(annotation, keyframes[keyframes.length - 1]);
-    return provenance === "lost" ? "lost" : provenance === "correction" ? "correction" : provenance === "tracked" ? "tracked" : "manual";
+  if (keyframes.length === 0) return 'manual';
+  if (isFrameWithinHiddenSpan(getHiddenSpans(annotation, clipEndFrame), frame)) return 'lost';
+  if (frame <= keyframes[0].frame) return provenanceToState(getKeyframeProvenance(annotation, keyframes[0]));
+  if (frame >= keyframes[keyframes.length - 1].frame) {
+    return provenanceToState(getKeyframeProvenance(annotation, keyframes[keyframes.length - 1]));
   }
 
   for (let index = 0; index < keyframes.length - 1; index += 1) {
     const left = keyframes[index];
     const right = keyframes[index + 1];
-    if (currentTMs < left.tMs || currentTMs > right.tMs) continue;
-    const leftProv = getKeyframeProvenance(annotation, left);
-    const rightProv = getKeyframeProvenance(annotation, right);
-    if (leftProv === "lost" || rightProv === "lost") return "lost";
-    if (leftProv === "correction" || rightProv === "correction") return "correction";
-    if (leftProv === "tracked" || rightProv === "tracked") return "tracked";
-    return "manual";
+    if (frame < left.frame || frame > right.frame) continue;
+    const leftState = provenanceToState(getKeyframeProvenance(annotation, left));
+    const rightState = provenanceToState(getKeyframeProvenance(annotation, right));
+    if (leftState === 'lost' || rightState === 'lost') return 'lost';
+    if (leftState === 'correction' || rightState === 'correction') return 'correction';
+    if (leftState === 'tracked' || rightState === 'tracked') return 'tracked';
+    return 'manual';
   }
-
-  return annotation.source === "manual" ? "manual" : annotation.source === "corrected" ? "correction" : "tracked";
+  return annotation.source === 'manual' ? 'manual' : annotation.source === 'corrected' ? 'correction' : 'tracked';
 }

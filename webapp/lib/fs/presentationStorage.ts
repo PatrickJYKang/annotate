@@ -1,254 +1,276 @@
+import { isSafeClipIdSegment } from '../types/clip';
 import type {
-  Presentation,
+  ClipPauseCue,
+  PinAnnotationCue,
   PresentationSlide,
   PresentationTransition,
-  ClipSlide,
-  TitleSlide,
-  StillSlide,
+  Presentation,
 } from '../types/presentation';
-import { PRESENTATION_SCHEMA_VERSION } from '../types/presentation';
+import type { StorageReadError } from './clipStorage';
+import {
+  getDirectoryPath,
+  isNotFoundError,
+  readTextFile,
+  removePath,
+  writeJsonFile,
+} from './fsAccess';
+
+export type PresentationReadResult =
+  | { ok: true; presentation: Presentation }
+  | { ok: false; presentationId: string; error: StorageReadError };
+
+export interface PresentationListResult {
+  presentations: Presentation[];
+  errors: { presentationId: string; error: StorageReadError }[];
+}
+
+const PRESENTATIONS_PATH = ['presentations'] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-async function getOrCreateDir(parent: FileSystemDirectoryHandle, name: string) {
-  return await parent.getDirectoryHandle(name, { create: true });
-}
-
-function presentationFileName(presentationId: string): string {
-  return `presentation-${presentationId}.json`;
-}
-
-function presentationIdFromFileName(name: string): string | null {
-  const match = name.match(/^presentation-(.+)\.json$/);
-  return match ? match[1] : null;
-}
-
-function normalizeTransitionLength(
-  slides: PresentationSlide[],
-  transitions: PresentationTransition[],
-): PresentationTransition[] {
-  const wanted = Math.max(0, slides.length - 1);
-  if (transitions.length === wanted) return transitions;
-  if (transitions.length > wanted) return transitions.slice(0, wanted);
-  return [
-    ...transitions,
-    ...Array.from({ length: wanted - transitions.length }, () => ({ mode: 'cut' as const })),
-  ];
-}
-
-function migrateStillSlide(raw: Record<string, unknown>): StillSlide {
-  if (typeof raw.id !== 'string' || !raw.id) {
-    throw new Error('Invalid presentation slide: missing id');
+function optionalDuration(value: unknown, path: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${path} must be a non-negative finite number.`);
   }
-  if (typeof raw.stillId !== 'string' || !raw.stillId) {
-    throw new Error('Invalid still slide: missing stillId');
+  return value;
+}
+
+function optionalStringArray(value: unknown, path: string): string[] | null | undefined {
+  if (value === undefined || value === null) return value;
+  if (
+    !Array.isArray(value)
+    || value.some((entry) => typeof entry !== 'string' || !isSafeClipIdSegment(entry))
+  ) {
+    throw new Error(`${path} must be null or an array of non-empty strings.`);
   }
-  const annotationSetIdsRaw = raw.annotationSetIds;
-  if (annotationSetIdsRaw != null && !Array.isArray(annotationSetIdsRaw)) {
-    throw new Error('Invalid still slide: annotationSetIds must be an array');
+  return value;
+}
+
+function parseAnnotationCue(raw: unknown, path: string): PinAnnotationCue {
+  if (!isRecord(raw) || typeof raw.annotationId !== 'string' || !isSafeClipIdSegment(raw.annotationId)) {
+    throw new Error(`${path}.annotationId is required.`);
   }
-  const annotationSetCuesRaw = raw.annotationSetCues;
-  if (annotationSetCuesRaw != null && !Array.isArray(annotationSetCuesRaw)) {
-    throw new Error('Invalid still slide: annotationSetCues must be an array');
+  const enterAtMs = optionalDuration(raw.enterAtMs, `${path}.enterAtMs`);
+  const exitAtMs = optionalDuration(raw.exitAtMs, `${path}.exitAtMs`);
+  if (enterAtMs !== undefined && exitAtMs !== undefined && exitAtMs < enterAtMs) {
+    throw new Error(`${path}.exitAtMs cannot precede enterAtMs.`);
   }
-  const annotationCuesRaw = raw.annotationCues;
-  if (annotationCuesRaw != null && !Array.isArray(annotationCuesRaw)) {
-    throw new Error('Invalid still slide: annotationCues must be an array');
+  return { annotationId: raw.annotationId, enterAtMs, exitAtMs };
+}
+
+function parseAnnotationCues(raw: unknown, path: string): PinAnnotationCue[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) throw new Error(`${path} must be an array.`);
+  return raw.map((cue, index) => parseAnnotationCue(cue, `${path}[${index}]`));
+}
+
+function parsePauseCue(raw: unknown, path: string): ClipPauseCue {
+  if (!isRecord(raw) || typeof raw.pinId !== 'string' || !isSafeClipIdSegment(raw.pinId)) {
+    throw new Error(`${path}.pinId is required.`);
   }
   return {
-    id: raw.id,
-    kind: 'still',
-    stillId: raw.stillId,
-    showAnnotations: typeof raw.showAnnotations === 'boolean' ? raw.showAnnotations : true,
-    notes: typeof raw.notes === 'string' ? raw.notes : undefined,
-    holdMs: typeof raw.holdMs === 'number' ? raw.holdMs : undefined,
-    annotationSetIds: Array.isArray(annotationSetIdsRaw)
-      ? annotationSetIdsRaw.map((annotationSetId) => {
-          if (typeof annotationSetId !== 'string' || !annotationSetId) {
-            throw new Error('Invalid still slide: annotationSetIds must contain non-empty strings');
-          }
-          return annotationSetId;
-        })
-      : undefined,
-    annotationSetCues: Array.isArray(annotationSetCuesRaw)
-      ? annotationSetCuesRaw.map((cue) => {
-          if (!isRecord(cue) || typeof cue.annotationSetId !== 'string' || !cue.annotationSetId) {
-            throw new Error('Invalid still slide: annotation set cue missing annotationSetId');
-          }
-          return {
-            annotationSetId: cue.annotationSetId,
-            enterAtMs: typeof cue.enterAtMs === 'number' ? cue.enterAtMs : undefined,
-            exitAtMs: typeof cue.exitAtMs === 'number' ? cue.exitAtMs : undefined,
-          };
-        })
-      : undefined,
-    annotationCues: Array.isArray(annotationCuesRaw)
-      ? annotationCuesRaw.map((cue) => {
-          if (!isRecord(cue) || typeof cue.annotationId !== 'string' || !cue.annotationId) {
-            throw new Error('Invalid still slide: annotation cue missing annotationId');
-          }
-          return {
-            annotationId: cue.annotationId,
-            enterAtMs: typeof cue.enterAtMs === 'number' ? cue.enterAtMs : undefined,
-            exitAtMs: typeof cue.exitAtMs === 'number' ? cue.exitAtMs : undefined,
-          };
-        })
-      : undefined,
+    pinId: raw.pinId,
+    holdMs: optionalDuration(raw.holdMs, `${path}.holdMs`),
+    annotationIds: optionalStringArray(raw.annotationIds, `${path}.annotationIds`),
+    annotationCues: parseAnnotationCues(raw.annotationCues, `${path}.annotationCues`),
   };
 }
 
-function migrateTitleSlide(raw: Record<string, unknown>): TitleSlide {
-  if (typeof raw.id !== 'string' || !raw.id) {
-    throw new Error('Invalid presentation slide: missing id');
+function parseSlide(raw: unknown, path: string): PresentationSlide {
+  if (!isRecord(raw) || typeof raw.id !== 'string' || !isSafeClipIdSegment(raw.id)) {
+    throw new Error(`${path}.id is required.`);
   }
-  if (typeof raw.title !== 'string') {
-    throw new Error('Invalid title slide: missing title');
-  }
-  if (raw.template !== 'title' && raw.template !== 'section' && raw.template !== 'divider') {
-    throw new Error('Invalid title slide: unsupported template');
-  }
-  return {
-    id: raw.id,
-    kind: 'title',
-    template: raw.template,
-    title: raw.title,
-    body: typeof raw.body === 'string' ? raw.body : undefined,
-    notes: typeof raw.notes === 'string' ? raw.notes : undefined,
-    holdMs: typeof raw.holdMs === 'number' ? raw.holdMs : undefined,
-  };
-}
-
-function migrateClipSlide(raw: Record<string, unknown>): ClipSlide {
-  if (typeof raw.id !== 'string' || !raw.id) {
-    throw new Error('Invalid presentation slide: missing id');
-  }
-  if (typeof raw.clipId !== 'string' || !raw.clipId) {
-    throw new Error('Invalid clip slide: missing clipId');
-  }
-  return {
-    id: raw.id,
-    kind: 'clip',
-    clipId: raw.clipId,
-    notes: typeof raw.notes === 'string' ? raw.notes : undefined,
-    holdMs: typeof raw.holdMs === 'number' ? raw.holdMs : undefined,
-  };
-}
-
-function migrateSlide(raw: unknown): PresentationSlide {
-  if (!isRecord(raw)) {
-    throw new Error('Invalid presentation slide: not an object');
-  }
-  if (raw.kind === 'still') return migrateStillSlide(raw);
-  if (raw.kind === 'clip') return migrateClipSlide(raw);
-  if (raw.kind === 'title') return migrateTitleSlide(raw);
-  throw new Error('Invalid presentation slide: unknown kind');
-}
-
-function migrateTransition(raw: unknown): PresentationTransition {
-  if (!isRecord(raw) || typeof raw.mode !== 'string') {
-    throw new Error('Invalid presentation transition');
-  }
-  if (raw.mode === 'cut') {
-    return { mode: 'cut' };
-  }
-  if (raw.mode === 'match_video') {
+  const notes = typeof raw.notes === 'string' ? raw.notes : undefined;
+  const holdMs = optionalDuration(raw.holdMs, `${path}.holdMs`);
+  if (raw.kind === 'clip') {
+    if (typeof raw.clipId !== 'string' || !isSafeClipIdSegment(raw.clipId)) {
+      throw new Error(`${path}.clipId is required.`);
+    }
+    const pausePins = optionalStringArray(raw.pausePins, `${path}.pausePins`);
+    if (pausePins === undefined) throw new Error(`${path}.pausePins is required (use null for all pins).`);
+    if (raw.pauseCues !== undefined && !Array.isArray(raw.pauseCues)) {
+      throw new Error(`${path}.pauseCues must be an array.`);
+    }
     return {
-      mode: 'match_video',
-      hideAnnotationsDuringPlayback:
-        typeof raw.hideAnnotationsDuringPlayback === 'boolean'
-          ? raw.hideAnnotationsDuringPlayback
-          : true,
-      playbackRate: typeof raw.playbackRate === 'number' ? raw.playbackRate : undefined,
-      startOffsetMs: typeof raw.startOffsetMs === 'number' ? raw.startOffsetMs : undefined,
-      endOffsetMs: typeof raw.endOffsetMs === 'number' ? raw.endOffsetMs : undefined,
+      id: raw.id,
+      kind: 'clip',
+      clipId: raw.clipId,
+      pausePins,
+      pauseCues: Array.isArray(raw.pauseCues)
+        ? raw.pauseCues.map((cue, index) => parsePauseCue(cue, `${path}.pauseCues[${index}]`))
+        : undefined,
+      notes,
+      holdMs,
     };
   }
-  throw new Error('Invalid presentation transition mode');
+  if (raw.kind === 'pin') {
+    if (typeof raw.clipId !== 'string' || !isSafeClipIdSegment(raw.clipId)) {
+      throw new Error(`${path}.clipId is required.`);
+    }
+    if (typeof raw.pinId !== 'string' || !isSafeClipIdSegment(raw.pinId)) {
+      throw new Error(`${path}.pinId is required.`);
+    }
+    if (typeof raw.showAnnotations !== 'boolean') throw new Error(`${path}.showAnnotations is required.`);
+    return {
+      id: raw.id,
+      kind: 'pin',
+      clipId: raw.clipId,
+      pinId: raw.pinId,
+      showAnnotations: raw.showAnnotations,
+      annotationIds: optionalStringArray(raw.annotationIds, `${path}.annotationIds`),
+      annotationCues: parseAnnotationCues(raw.annotationCues, `${path}.annotationCues`),
+      notes,
+      holdMs,
+    };
+  }
+  if (raw.kind === 'title') {
+    if (raw.template !== 'title' && raw.template !== 'section' && raw.template !== 'divider') {
+      throw new Error(`${path}.template is invalid.`);
+    }
+    if (typeof raw.title !== 'string') throw new Error(`${path}.title is required.`);
+    return {
+      id: raw.id,
+      kind: 'title',
+      template: raw.template,
+      title: raw.title,
+      body: typeof raw.body === 'string' ? raw.body : undefined,
+      notes,
+      holdMs,
+    };
+  }
+  throw new Error(`${path}.kind is invalid.`);
 }
 
-export function migratePresentationSchema(raw: unknown): Presentation {
-  if (!isRecord(raw)) {
-    throw new Error('Invalid presentation data: not an object');
+function parseTransition(raw: unknown, path: string): PresentationTransition {
+  if (!isRecord(raw)) throw new Error(`${path} must be an object.`);
+  if (raw.mode === 'cut') return { mode: 'cut' };
+  if (raw.mode !== 'match_video') throw new Error(`${path}.mode is invalid.`);
+  if (typeof raw.hideAnnotationsDuringPlayback !== 'boolean') {
+    throw new Error(`${path}.hideAnnotationsDuringPlayback is required.`);
   }
-  if (typeof raw.schema !== 'number') {
-    throw new Error('Invalid presentation data: missing or invalid schema version');
+  if (raw.playbackRate !== undefined && (typeof raw.playbackRate !== 'number' || raw.playbackRate <= 0)) {
+    throw new Error(`${path}.playbackRate must be positive.`);
   }
-  if (raw.schema > PRESENTATION_SCHEMA_VERSION) {
-    throw new Error(
-      `Presentation schema version ${raw.schema} is newer than supported version ${PRESENTATION_SCHEMA_VERSION}. Please update the application.`,
-    );
+  if (
+    raw.startOffsetFrames !== undefined
+    && (typeof raw.startOffsetFrames !== 'number' || !Number.isInteger(raw.startOffsetFrames) || raw.startOffsetFrames < 0)
+  ) {
+    throw new Error(`${path}.startOffsetFrames must be a non-negative integer.`);
   }
-  if (raw.schema !== 1) {
-    throw new Error(`Unknown presentation schema version: ${raw.schema}`);
+  if (
+    raw.endOffsetFrames !== undefined
+    && (typeof raw.endOffsetFrames !== 'number' || !Number.isInteger(raw.endOffsetFrames) || raw.endOffsetFrames > 0)
+  ) {
+    throw new Error(`${path}.endOffsetFrames must be a non-positive integer.`);
   }
-  if (typeof raw.id !== 'string' || !raw.id) {
-    throw new Error('Invalid presentation data: missing id');
-  }
-  if (typeof raw.name !== 'string' || !raw.name.trim()) {
-    throw new Error('Invalid presentation data: missing name');
-  }
-  if (typeof raw.createdAt !== 'string' || typeof raw.updatedAt !== 'string') {
-    throw new Error('Invalid presentation data: missing createdAt or updatedAt');
-  }
-  if (!Array.isArray(raw.slides)) {
-    throw new Error('Invalid presentation data: slides must be an array');
-  }
-  if (raw.transitions != null && !Array.isArray(raw.transitions)) {
-    throw new Error('Invalid presentation data: transitions must be an array');
-  }
-
-  const slides = raw.slides.map(migrateSlide);
-  const transitions = normalizeTransitionLength(
-    slides,
-    (raw.transitions ?? []).map(migrateTransition),
-  );
-
-  const theme = isRecord(raw.theme)
-    ? {
-        background: typeof raw.theme.background === 'string' ? raw.theme.background : undefined,
-        panelColor: typeof raw.theme.panelColor === 'string' ? raw.theme.panelColor : undefined,
-        textColor: typeof raw.theme.textColor === 'string' ? raw.theme.textColor : undefined,
-      }
-    : undefined;
-
   return {
-    schema: PRESENTATION_SCHEMA_VERSION,
+    mode: 'match_video',
+    hideAnnotationsDuringPlayback: raw.hideAnnotationsDuringPlayback,
+    playbackRate: raw.playbackRate as number | undefined,
+    startOffsetFrames: raw.startOffsetFrames as number | undefined,
+    endOffsetFrames: raw.endOffsetFrames as number | undefined,
+  };
+}
+
+export function parsePresentation(raw: unknown): Presentation {
+  if (!isRecord(raw) || raw.schema !== 2) throw new Error('Presentation schema must be 2.');
+  if (typeof raw.id !== 'string' || !isSafeClipIdSegment(raw.id)) {
+    throw new Error('Presentation id must be a safe identifier.');
+  }
+  if (typeof raw.name !== 'string' || !raw.name.trim()) throw new Error('Presentation name is required.');
+  if (typeof raw.createdAt !== 'string' || !Number.isFinite(Date.parse(raw.createdAt))) {
+    throw new Error('Presentation createdAt is invalid.');
+  }
+  if (typeof raw.updatedAt !== 'string' || !Number.isFinite(Date.parse(raw.updatedAt))) {
+    throw new Error('Presentation updatedAt is invalid.');
+  }
+  if (!Array.isArray(raw.slides) || !Array.isArray(raw.transitions)) {
+    throw new Error('Presentation slides and transitions must be arrays.');
+  }
+  const slides = raw.slides.map((slide, index) => parseSlide(slide, `slides[${index}]`));
+  if (new Set(slides.map((slide) => slide.id)).size !== slides.length) {
+    throw new Error('Presentation slide ids must be unique.');
+  }
+  const transitions = raw.transitions.map((transition, index) => (
+    parseTransition(transition, `transitions[${index}]`)
+  ));
+  if (transitions.length !== Math.max(slides.length - 1, 0)) {
+    throw new Error('Presentation transitions must have exactly slides.length - 1 entries.');
+  }
+  return {
+    schema: 2,
     id: raw.id,
     name: raw.name,
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt,
     slides,
     transitions,
-    theme,
+    theme: isRecord(raw.theme)
+      ? {
+          background: typeof raw.theme.background === 'string' ? raw.theme.background : undefined,
+          panelColor: typeof raw.theme.panelColor === 'string' ? raw.theme.panelColor : undefined,
+          textColor: typeof raw.theme.textColor === 'string' ? raw.theme.textColor : undefined,
+        }
+      : undefined,
   };
+}
+
+function presentationPath(presentationId: string): string[] {
+  if (!isSafeClipIdSegment(presentationId)) {
+    throw new Error(`Unsafe presentation id: ${JSON.stringify(presentationId)}`);
+  }
+  return [...PRESENTATIONS_PATH, `${presentationId}.json`];
 }
 
 export async function readPresentation(
   projectDir: FileSystemDirectoryHandle,
   presentationId: string,
-): Promise<Presentation | null> {
-  let presentationsDir: FileSystemDirectoryHandle;
+): Promise<PresentationReadResult> {
+  let source: string;
   try {
-    presentationsDir = await projectDir.getDirectoryHandle('presentations', { create: false });
-  } catch {
-    return null;
+    source = await readTextFile(projectDir, presentationPath(presentationId));
+  } catch (error) {
+    return {
+      ok: false,
+      presentationId,
+      error: {
+        code: isNotFoundError(error) ? 'not-found' : 'io-error',
+        message: isNotFoundError(error)
+          ? `Presentation "${presentationId}" was not found.`
+          : error instanceof Error ? error.message : String(error),
+      },
+    };
   }
-
-  let fh: FileSystemFileHandle;
+  let raw: unknown;
   try {
-    fh = await presentationsDir.getFileHandle(presentationFileName(presentationId), { create: false });
-  } catch {
-    return null;
+    raw = JSON.parse(source);
+  } catch (error) {
+    return {
+      ok: false,
+      presentationId,
+      error: {
+        code: 'invalid-json',
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
   }
-
-  const file = await fh.getFile();
-  const text = await file.text();
   try {
-    return migratePresentationSchema(JSON.parse(text));
-  } catch {
-    return null;
+    const presentation = parsePresentation(raw);
+    if (presentation.id !== presentationId) {
+      throw new Error(
+        `Presentation file "${presentationId}.json" contains id "${presentation.id}".`,
+      );
+    }
+    return { ok: true, presentation };
+  } catch (error) {
+    return {
+      ok: false,
+      presentationId,
+      error: { code: 'invalid-document', message: error instanceof Error ? error.message : String(error) },
+    };
   }
 }
 
@@ -256,98 +278,95 @@ export async function writePresentation(
   projectDir: FileSystemDirectoryHandle,
   presentation: Presentation,
 ): Promise<void> {
-  const normalized = migratePresentationSchema(presentation);
-  const presentationsDir = await getOrCreateDir(projectDir, 'presentations');
-  const fh = await presentationsDir.getFileHandle(presentationFileName(normalized.id), { create: true });
-  const ws = await fh.createWritable();
-  await ws.write(JSON.stringify(normalized, null, 2));
-  await ws.close();
+  const parsed = parsePresentation(presentation);
+  await getDirectoryPath(projectDir, PRESENTATIONS_PATH, true);
+  await writeJsonFile(projectDir, presentationPath(parsed.id), parsed);
+}
+
+export async function listPresentations(
+  projectDir: FileSystemDirectoryHandle,
+): Promise<PresentationListResult> {
+  let directory: FileSystemDirectoryHandle;
+  try {
+    directory = await getDirectoryPath(projectDir, PRESENTATIONS_PATH, false);
+  } catch (error) {
+    return {
+      presentations: [],
+      errors: [{
+        presentationId: '*',
+        error: {
+          code: isNotFoundError(error) ? 'not-found' : 'io-error',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      }],
+    };
+  }
+  const presentations: Presentation[] = [];
+  const errors: PresentationListResult['errors'] = [];
+  for await (const [name, handle] of directory.entries()) {
+    if (handle.kind !== 'file' || !name.endsWith('.json')) continue;
+    const presentationId = name.slice(0, -'.json'.length);
+    const result = await readPresentation(projectDir, presentationId);
+    if (result.ok) presentations.push(result.presentation);
+    else errors.push({ presentationId, error: result.error });
+  }
+  presentations.sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+  return { presentations, errors };
+}
+
+async function requirePresentation(
+  projectDir: FileSystemDirectoryHandle,
+  presentationId: string,
+): Promise<Presentation> {
+  const result = await readPresentation(projectDir, presentationId);
+  if (!result.ok) throw new Error(result.error.message);
+  return result.presentation;
+}
+
+export async function renamePresentation(
+  projectDir: FileSystemDirectoryHandle,
+  presentationId: string,
+  name: string,
+  now = new Date(),
+): Promise<Presentation> {
+  const current = await requirePresentation(projectDir, presentationId);
+  const next: Presentation = {
+    ...current,
+    name: name.trim() || 'Untitled presentation',
+    updatedAt: now.toISOString(),
+  };
+  await writePresentation(projectDir, next);
+  return next;
+}
+
+export interface DuplicatePresentationOptions {
+  id: string;
+  name?: string;
+  now?: Date;
+}
+
+export async function duplicatePresentation(
+  projectDir: FileSystemDirectoryHandle,
+  presentationId: string,
+  options: DuplicatePresentationOptions,
+): Promise<Presentation> {
+  const current = await requirePresentation(projectDir, presentationId);
+  const iso = (options.now ?? new Date()).toISOString();
+  const copy: Presentation = {
+    ...structuredClone(current),
+    id: options.id,
+    name: options.name?.trim() || `${current.name} copy`,
+    createdAt: iso,
+    updatedAt: iso,
+  };
+  await writePresentation(projectDir, copy);
+  return copy;
 }
 
 export async function deletePresentation(
   projectDir: FileSystemDirectoryHandle,
   presentationId: string,
 ): Promise<void> {
-  let presentationsDir: FileSystemDirectoryHandle;
-  try {
-    presentationsDir = await projectDir.getDirectoryHandle('presentations', { create: false });
-  } catch {
-    return;
-  }
-
-  try {
-    await presentationsDir.removeEntry(presentationFileName(presentationId));
-  } catch {
-  }
-}
-
-export async function listPresentations(
-  projectDir: FileSystemDirectoryHandle,
-): Promise<Presentation[]> {
-  let presentationsDir: FileSystemDirectoryHandle;
-  try {
-    presentationsDir = await projectDir.getDirectoryHandle('presentations', { create: false });
-  } catch {
-    return [];
-  }
-
-  const presentations: Presentation[] = [];
-  for await (const [name, handle] of presentationsDir.entries()) {
-    if ((handle as any).kind !== 'file') continue;
-    if (!name.endsWith('.json')) continue;
-    if (!presentationIdFromFileName(name)) continue;
-    try {
-      const file = await (handle as FileSystemFileHandle).getFile();
-      const text = await file.text();
-      presentations.push(migratePresentationSchema(JSON.parse(text)));
-    } catch {
-      console.warn(`Skipping invalid presentation file: ${name}`);
-    }
-  }
-
-  presentations.sort((a, b) => {
-    const updatedDiff = Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
-    if (Number.isFinite(updatedDiff) && updatedDiff !== 0) return updatedDiff;
-    const createdDiff = Date.parse(b.createdAt) - Date.parse(a.createdAt);
-    if (Number.isFinite(createdDiff) && createdDiff !== 0) return createdDiff;
-    return a.name.localeCompare(b.name);
-  });
-  return presentations;
-}
-
-export async function renamePresentation(
-  projectDir: FileSystemDirectoryHandle,
-  presentationId: string,
-  nextName: string,
-  now = new Date(),
-): Promise<Presentation | null> {
-  const current = await readPresentation(projectDir, presentationId);
-  if (!current) return null;
-  const renamed = {
-    ...current,
-    name: nextName,
-    updatedAt: now.toISOString(),
-  };
-  await writePresentation(projectDir, renamed);
-  return renamed;
-}
-
-export async function duplicatePresentation(
-  projectDir: FileSystemDirectoryHandle,
-  presentationId: string,
-  nextId: string,
-  nextName: string,
-  now = new Date(),
-): Promise<Presentation | null> {
-  const current = await readPresentation(projectDir, presentationId);
-  if (!current) return null;
-  const duplicated = {
-    ...current,
-    id: nextId,
-    name: nextName,
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-  };
-  await writePresentation(projectDir, duplicated);
-  return duplicated;
+  await requirePresentation(projectDir, presentationId);
+  await removePath(projectDir, presentationPath(presentationId));
 }

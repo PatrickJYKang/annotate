@@ -1,4 +1,4 @@
-import type { PlayerEntry } from "../types/project";
+import type { PlayerEntry } from "../types/metadata";
 
 function generateId(): string {
   return (globalThis.crypto && "randomUUID" in globalThis.crypto)

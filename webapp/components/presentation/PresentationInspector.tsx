@@ -1,564 +1,301 @@
 "use client";
 
-import type { Clip } from '../../lib/types/clip';
-import type { ProjectManifestV1 } from '../../lib/types/project';
-import type { Presentation, PresentationSlide, PresentationTransition, StillSlide, TitleSlide, ClipSlide } from '../../lib/types/presentation';
+import type { ClipPin, Clip } from '../../lib/types/clip';
 import type {
-  PresentationPlayerState,
-  PresentationTransitionPreview,
-} from '../../lib/presentation/playerController';
-import type { AnnotationsV1, ExportShape } from '../../lib/export/d7Render';
-import type { LoadedAnnotationDocument } from '../../lib/fs/annotationStorage';
+  ClipPauseCue,
+  ClipSlide,
+  PinAnnotationCue,
+  PinSlide,
+  PresentationSlide,
+  PresentationTransition,
+} from '../../lib/types/presentation';
+import { useLocale } from '../../lib/i18n';
 
-export interface PresentationInspectorProps {
-  presentation: Presentation;
-  manifest: ProjectManifestV1;
-  clips?: Clip[];
-  selectedSlideIndex: number;
-  state: PresentationPlayerState;
-  annotationsByStillId: Record<string, AnnotationsV1 | null>;
-  annotationDocumentsByStillId: Record<string, LoadedAnnotationDocument[]>;
-  currentTransition: PresentationTransitionPreview | null;
-  onPreviewTransition: () => void;
-  canUseMatchVideo: boolean;
-  transitionValidationMessage: string | null;
-  onDeleteSelectedSlide: () => void;
-  onUpdateSelectedSlide: (updater: (slide: PresentationSlide) => PresentationSlide, immediate?: boolean) => void;
-  onUpdateSelectedTransition: (updater: (transition: PresentationTransition) => PresentationTransition) => void;
+interface PresentationInspectorProps {
+  slide: PresentationSlide | null;
+  clip: Clip | null;
+  transitionAfter: PresentationTransition | null;
+  transitionError?: string | null;
+  onSlideChange: (slide: PresentationSlide) => void;
+  onTransitionChange: (transition: PresentationTransition) => void;
+  onDelete: () => void;
 }
 
-function formatTimestamp(ms: number): string {
-  const clamped = Math.max(0, Math.floor(ms || 0));
-  let remaining = clamped;
-  const hh = Math.floor(remaining / 3600000);
-  remaining %= 3600000;
-  const mm = Math.floor(remaining / 60000);
-  remaining %= 60000;
-  const ss = Math.floor(remaining / 1000);
-  const mss = remaining % 1000;
-  if (hh > 0) {
-    return `${hh}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.${String(mss).padStart(3, '0')}`;
-  }
-  return `${mm}:${String(ss).padStart(2, '0')}.${String(mss).padStart(3, '0')}`;
-}
-
-function parseOptionalNumber(value: string): number | undefined {
+function optionalNumber(value: string): number | undefined {
   if (!value.trim()) return undefined;
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function toMatchVideoTransition(transition: PresentationTransition): Extract<PresentationTransition, { mode: 'match_video' }> {
-  if (transition.mode === 'match_video') {
-    return transition;
-  }
-  return {
-    mode: 'match_video',
-    hideAnnotationsDuringPlayback: true,
-  };
-}
-
-function formatNumberInput(value?: number): string {
-  return value == null ? '' : String(value);
-}
-
-function formatAnnotationLabel(shape: ExportShape): string {
-  if (shape.type === 'text' && shape.text?.trim()) {
-    return `${shape.type} · ${shape.text.trim().slice(0, 32)}`;
-  }
-  return `${shape.type} · ${shape.id}`;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
 function updateAnnotationCue(
-  slide: StillSlide,
+  cues: PinAnnotationCue[] | undefined,
   annotationId: string,
   field: 'enterAtMs' | 'exitAtMs',
   value: number | undefined,
-): StillSlide {
-  const currentCues = slide.annotationCues ?? [];
-  const existingCue = currentCues.find((cue) => cue.annotationId === annotationId) ?? { annotationId };
-  const nextCue = {
-    ...existingCue,
-    [field]: value,
-  };
-  const nextCues = currentCues.filter((cue) => cue.annotationId !== annotationId);
-  if (nextCue.enterAtMs != null || nextCue.exitAtMs != null) {
-    nextCues.push(nextCue);
-  }
+): PinAnnotationCue[] {
+  const existing = cues?.find((cue) => cue.annotationId === annotationId) ?? { annotationId };
+  const next = { ...existing, [field]: value };
+  const retained = (cues ?? []).filter((cue) => cue.annotationId !== annotationId);
+  if (next.enterAtMs === undefined && next.exitAtMs === undefined) return retained;
+  return [...retained, next];
+}
+
+function AnnotationDocumentControls({
+  pin,
+  selectedIds,
+  cues,
+  onSelectionChange,
+  onCuesChange,
+}: {
+  pin: ClipPin;
+  selectedIds: string[] | null | undefined;
+  cues: PinAnnotationCue[] | undefined;
+  onSelectionChange: (ids: string[] | null) => void;
+  onCuesChange: (cues: PinAnnotationCue[]) => void;
+}) {
+  const t = useLocale().t;
+  const selected = selectedIds == null ? new Set(pin.annotations.map((reference) => reference.id)) : new Set(selectedIds);
+  return (
+    <div className="mt-2 border-t border-border pt-2">
+      <label className="flex items-center gap-2 text-xs">
+        <input type="checkbox" checked={selectedIds == null} onChange={(event) => onSelectionChange(event.target.checked ? null : [])} />
+        {t('presentation.includeAllAnnotations')}
+      </label>
+      {pin.annotations.map((reference) => {
+        const cue = cues?.find((candidate) => candidate.annotationId === reference.id);
+        return (
+          <div key={reference.id} className="mt-2 border-t border-border pt-2">
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={selected.has(reference.id)}
+                onChange={(event) => {
+                  const next = new Set(selected);
+                  if (event.target.checked) next.add(reference.id);
+                  else next.delete(reference.id);
+                  onSelectionChange(Array.from(next));
+                }}
+              />
+              {reference.label || reference.id}
+            </label>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <label className="text-[10px] text-muted">{t('presentation.enterMs')}
+                <input
+                  className="mt-1 w-full"
+                  type="number"
+                  min={0}
+                  value={cue?.enterAtMs ?? ''}
+                  onChange={(event) => onCuesChange(updateAnnotationCue(cues, reference.id, 'enterAtMs', optionalNumber(event.target.value)))}
+                />
+              </label>
+              <label className="text-[10px] text-muted">{t('presentation.exitMs')}
+                <input
+                  className="mt-1 w-full"
+                  type="number"
+                  min={0}
+                  value={cue?.exitAtMs ?? ''}
+                  onChange={(event) => onCuesChange(updateAnnotationCue(cues, reference.id, 'exitAtMs', optionalNumber(event.target.value)))}
+                />
+              </label>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PinSlideControls({
+  slide,
+  pin,
+  onChange,
+}: {
+  slide: PinSlide;
+  pin: ClipPin | null;
+  onChange: (slide: PinSlide) => void;
+}) {
+  const t = useLocale().t;
+  return (
+    <>
+      <label className="flex items-center gap-2 text-xs">
+        <input type="checkbox" checked={slide.showAnnotations} onChange={(event) => onChange({ ...slide, showAnnotations: event.target.checked })} />
+        {t('presentation.showPinAnnotations')}
+      </label>
+      {pin && slide.showAnnotations && (
+        <AnnotationDocumentControls
+          pin={pin}
+          selectedIds={slide.annotationIds}
+          cues={slide.annotationCues}
+          onSelectionChange={(annotationIds) => onChange({ ...slide, annotationIds })}
+          onCuesChange={(annotationCues) => onChange({ ...slide, annotationCues })}
+        />
+      )}
+    </>
+  );
+}
+
+function pauseCueFor(slide: ClipSlide, pinId: string): ClipPauseCue {
+  return slide.pauseCues?.find((cue) => cue.pinId === pinId) ?? { pinId, annotationIds: null };
+}
+
+function updatePauseCue(slide: ClipSlide, cue: ClipPauseCue): ClipSlide {
   return {
     ...slide,
-    annotationCues: nextCues.length > 0 ? nextCues : undefined,
+    pauseCues: [...(slide.pauseCues ?? []).filter((candidate) => candidate.pinId !== cue.pinId), cue],
   };
 }
 
-function setAnnotationSetSelection(slide: StillSlide, nextIds: string[], allIds: string[]): StillSlide {
-  const normalized = Array.from(new Set(nextIds));
-  const everySelected = allIds.length > 0 && normalized.length === allIds.length && allIds.every((id) => normalized.includes(id));
-  return {
-    ...slide,
-    annotationSetIds: everySelected ? undefined : normalized,
-  };
-}
-
-function toggleAnnotationSetSelection(slide: StillSlide, annotationSetId: string, allIds: string[]): StillSlide {
-  const currentIds = slide.annotationSetIds ?? allIds;
-  const currentSet = new Set(currentIds);
-  if (currentSet.has(annotationSetId)) {
-    currentSet.delete(annotationSetId);
-  } else {
-    currentSet.add(annotationSetId);
-  }
-  return setAnnotationSetSelection(slide, Array.from(currentSet), allIds);
-}
-
-function updateAnnotationSetCue(
-  slide: StillSlide,
-  annotationSetId: string,
-  field: 'enterAtMs' | 'exitAtMs',
-  value: number | undefined,
-): StillSlide {
-  const currentCues = slide.annotationSetCues ?? [];
-  const existingCue = currentCues.find((cue) => cue.annotationSetId === annotationSetId) ?? { annotationSetId };
-  const nextCue = {
-    ...existingCue,
-    [field]: value,
-  };
-  const nextCues = currentCues.filter((cue) => cue.annotationSetId !== annotationSetId);
-  if (nextCue.enterAtMs != null || nextCue.exitAtMs != null) {
-    nextCues.push(nextCue);
-  }
-  return {
-    ...slide,
-    annotationSetCues: nextCues.length > 0 ? nextCues : undefined,
-  };
+function ClipSlideControls({
+  slide,
+  clip,
+  onChange,
+}: {
+  slide: ClipSlide;
+  clip: Clip | null;
+  onChange: (slide: ClipSlide) => void;
+}) {
+  const { t, formatNumber } = useLocale();
+  if (!clip) return <p className="text-xs text-danger">{t('presentation.missingClip', { id: slide.clipId })}</p>;
+  const effectiveIds = new Set(slide.pausePins ?? clip.pins.map((pin) => pin.id));
+  return (
+    <>
+      <label className="flex items-center gap-2 text-xs">
+        <input
+          type="checkbox"
+          checked={slide.pausePins === null}
+          onChange={(event) => onChange({ ...slide, pausePins: event.target.checked ? null : [] })}
+        />
+        {t('presentation.autoPause')}
+      </label>
+      <div className="mt-2">
+        {clip.pins.map((pin) => {
+          const cue = pauseCueFor(slide, pin.id);
+          return (
+            <details key={pin.id} className="border-t border-border py-2 first:border-t-0" open={effectiveIds.has(pin.id)}>
+              <summary className="cursor-pointer text-xs font-semibold">
+                <label className="mr-2 inline-flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={effectiveIds.has(pin.id)}
+                    onChange={(event) => {
+                      const next = new Set(effectiveIds);
+                      if (event.target.checked) next.add(pin.id);
+                      else next.delete(pin.id);
+                      onChange({ ...slide, pausePins: Array.from(next) });
+                    }}
+                  />
+                  f{formatNumber(pin.frame)} · {pin.label || pin.id}
+                </label>
+              </summary>
+              <label className="mt-2 block text-[10px] text-muted">{t('presentation.autoResume')}
+                <input
+                  className="mt-1 w-full"
+                  type="number"
+                  min={0}
+                  value={cue.holdMs ?? ''}
+                  onChange={(event) => onChange(updatePauseCue(slide, { ...cue, holdMs: optionalNumber(event.target.value) }))}
+                />
+              </label>
+              <AnnotationDocumentControls
+                pin={pin}
+                selectedIds={cue.annotationIds}
+                cues={cue.annotationCues}
+                onSelectionChange={(annotationIds) => onChange(updatePauseCue(slide, { ...cue, annotationIds }))}
+                onCuesChange={(annotationCues) => onChange(updatePauseCue(slide, { ...cue, annotationCues }))}
+              />
+            </details>
+          );
+        })}
+      </div>
+    </>
+  );
 }
 
 export default function PresentationInspector({
-  presentation,
-  manifest,
-  clips = [],
-  selectedSlideIndex,
-  state,
-  annotationsByStillId,
-  annotationDocumentsByStillId,
-  currentTransition,
-  onPreviewTransition,
-  canUseMatchVideo,
-  transitionValidationMessage,
-  onDeleteSelectedSlide,
-  onUpdateSelectedSlide,
-  onUpdateSelectedTransition,
+  slide,
+  clip,
+  transitionAfter,
+  transitionError,
+  onSlideChange,
+  onTransitionChange,
+  onDelete,
 }: PresentationInspectorProps) {
-  const selectedSlide = selectedSlideIndex >= 0 ? presentation.slides[selectedSlideIndex] : null;
-  const selectedStill = selectedSlide?.kind === 'still'
-    ? manifest.stills.find((still) => still.id === selectedSlide.stillId) ?? null
-    : null;
-  const selectedClip = selectedSlide?.kind === 'clip'
-    ? clips.find((clip) => clip.id === selectedSlide.clipId) ?? null
-    : null;
-  const selectedMark = selectedStill?.sourceMarkId
-    ? manifest.marks.find((mark) => mark.id === selectedStill.sourceMarkId) ?? null
-    : null;
-  const selectedAnnotations = selectedStill ? annotationsByStillId[selectedStill.id] ?? null : null;
-  const selectedAnnotationDocuments = selectedStill ? annotationDocumentsByStillId[selectedStill.id] ?? [] : [];
-  const annotationShapes = selectedAnnotations?.shapes ?? [];
-  const annotationCount = annotationShapes.length;
-  const annotationDocumentCount = selectedAnnotationDocuments.length;
-  const currentTransitionMode = currentTransition?.transition.mode ?? 'cut';
-  const transitionConfig = currentTransition?.transition.mode === 'match_video' ? currentTransition.transition : null;
-  const cueByAnnotationId = new Map(
-    selectedSlide?.kind === 'still'
-      ? (selectedSlide.annotationCues ?? []).map((cue) => [cue.annotationId, cue] as const)
-      : [],
-  );
-  const cueByAnnotationSetId = new Map(
-    selectedSlide?.kind === 'still'
-      ? (selectedSlide.annotationSetCues ?? []).map((cue) => [cue.annotationSetId, cue] as const)
-      : [],
-  );
-  const visibleAnnotationSetIds = new Set(
-    selectedSlide?.kind === 'still'
-      ? (selectedSlide.annotationSetIds ?? selectedAnnotationDocuments.map((entry) => entry.entry.id))
-      : [],
-  );
-  const usesAnnotationSetSelection = selectedAnnotationDocuments.length > 0;
-  const allAnnotationSetIds = selectedAnnotationDocuments.map((entry) => entry.entry.id);
-
+  const t = useLocale().t;
+  if (!slide) {
+    return <aside className="h-full w-full bg-surface p-3"><div className="empty-state h-24" aria-hidden="true" /></aside>;
+  }
+  const pin = slide.kind === 'pin' ? clip?.pins.find((candidate) => candidate.id === slide.pinId) ?? null : null;
   return (
-    <div className="w-[320px] shrink-0 min-h-0 border-l border-subtle bg-surface p-4 overflow-y-auto flex flex-col gap-4">
-      <div>
-        <div className="text-xs uppercase tracking-wide text-muted">Presentation</div>
-        <div className="text-lg font-semibold mt-1">{presentation.name}</div>
-        <div className="text-sm text-muted mt-2">{presentation.slides.length} slides · {presentation.transitions.length} transitions</div>
+    <aside className="h-full min-h-0 w-full overflow-y-auto bg-surface p-3" data-testid="presentation-inspector">
+      <div className="mb-3 flex items-center justify-between gap-2 border-b border-border pb-2">
+        <h3 className="m-0 text-xs font-semibold">{t('presentation.inspector')}</h3>
+        <span className="text-xs text-muted">{t(`presentation.${slide.kind}Slide`)}</span>
       </div>
 
-      <div className="border border-subtle rounded p-3">
-        <div className="text-xs uppercase tracking-wide text-muted">Current view</div>
-        <div className="text-sm font-medium mt-2">
-          {state.mode === 'video'
-            ? state.source === 'transition'
-              ? 'Transition preview'
-              : 'Retrieved mark preview'
-            : state.mode === 'clip'
-              ? 'Clip slide'
-            : state.mode === 'still'
-              ? 'Still slide'
-              : state.mode === 'title'
-                ? 'Title slide'
-                : state.mode === 'missing'
-                  ? 'Missing asset'
-                  : 'Empty presentation'}
-        </div>
-      </div>
+      {slide.kind === 'title' && (
+        <>
+          <label className="block text-xs text-muted">{t('presentation.template')}
+            <select className="mt-1 w-full" value={slide.template} onChange={(event) => onSlideChange({ ...slide, template: event.target.value as typeof slide.template })}>
+              <option value="title">{t('presentation.templateTitle')}</option><option value="section">{t('presentation.templateSection')}</option><option value="divider">{t('presentation.templateDivider')}</option>
+            </select>
+          </label>
+          <label className="mt-3 block text-xs text-muted">{t('presentation.title')}
+            <input className="mt-1 w-full" value={slide.title} onChange={(event) => onSlideChange({ ...slide, title: event.target.value })} />
+          </label>
+          <label className="mt-3 block text-xs text-muted">{t('presentation.body')}
+            <textarea className="mt-1 w-full" value={slide.body ?? ''} onChange={(event) => onSlideChange({ ...slide, body: event.target.value })} />
+          </label>
+        </>
+      )}
 
-      <div className="border border-subtle rounded p-3 flex flex-col gap-2">
-        <div className="text-xs uppercase tracking-wide text-muted">Selected slide</div>
-        {selectedSlide ? (
-          <>
-            <div className="flex items-center gap-2">
-              <div className="text-sm font-medium flex-1">Slide {selectedSlideIndex + 1}</div>
-              <button onClick={onDeleteSelectedSlide} className="px-2 py-1 text-xs cursor-pointer text-danger">Delete</button>
+      {slide.kind === 'pin' && <PinSlideControls slide={slide} pin={pin} onChange={onSlideChange} />}
+      {slide.kind === 'clip' && <ClipSlideControls slide={slide} clip={clip} onChange={onSlideChange} />}
+
+      <label className="mt-3 block text-xs text-muted">{t('presentation.slideHold')}
+        <input className="mt-1 w-full" type="number" min={0} value={slide.holdMs ?? ''} onChange={(event) => onSlideChange({ ...slide, holdMs: optionalNumber(event.target.value) })} />
+      </label>
+      {'notes' in slide && (
+        <label className="mt-3 block text-xs text-muted">{t('presentation.speakerNotes')}
+          <textarea className="mt-1 w-full" value={slide.notes ?? ''} onChange={(event) => onSlideChange({ ...slide, notes: event.target.value })} />
+        </label>
+      )}
+
+      {transitionAfter && (
+        <section className="mt-4 border-t border-border pt-3">
+          <h4 className="m-0 text-xs">{t('presentation.transitionAfter')}</h4>
+          <select
+            className="mt-2 w-full"
+            aria-label={t('presentation.transitionAfterAria')}
+            value={transitionAfter.mode}
+            onChange={(event) => onTransitionChange(event.target.value === 'match_video'
+              ? { mode: 'match_video', hideAnnotationsDuringPlayback: true }
+              : { mode: 'cut' })}
+          >
+            <option value="cut">{t('presentation.cut')}</option>
+            <option value="match_video">{t('presentation.matchVideo')}</option>
+          </select>
+          {transitionAfter.mode === 'match_video' && (
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <label className="text-[10px] text-muted">{t('presentation.startOffset')}
+                <input className="mt-1 w-full" type="number" min={0} value={transitionAfter.startOffsetFrames ?? 0} onChange={(event) => onTransitionChange({ ...transitionAfter, startOffsetFrames: Math.max(0, Number(event.target.value) || 0) })} />
+              </label>
+              <label className="text-[10px] text-muted">{t('presentation.endOffset')}
+                <input className="mt-1 w-full" type="number" max={0} value={transitionAfter.endOffsetFrames ?? 0} onChange={(event) => onTransitionChange({ ...transitionAfter, endOffsetFrames: Math.min(0, Number(event.target.value) || 0) })} />
+              </label>
+              <label className="col-span-2 text-[10px] text-muted">{t('presentation.playbackRate')}
+                <input className="mt-1 w-full" type="number" min={0.1} step={0.1} value={transitionAfter.playbackRate ?? 1} onChange={(event) => onTransitionChange({ ...transitionAfter, playbackRate: Math.max(0.1, Number(event.target.value) || 1) })} />
+              </label>
+              <label className="col-span-2 flex items-center gap-2 text-xs">
+                <input type="checkbox" checked={transitionAfter.hideAnnotationsDuringPlayback} onChange={(event) => onTransitionChange({ ...transitionAfter, hideAnnotationsDuringPlayback: event.target.checked })} />
+                {t('presentation.hideTransitionAnnotations')}
+              </label>
             </div>
-            <div className="text-sm text-muted">Kind: {selectedSlide.kind}</div>
-            {selectedSlide.kind === 'title' ? (
-              <>
-                <label className="flex flex-col gap-1 text-xs text-muted">
-                  Template
-                  <select
-                    value={selectedSlide.template}
-                    onChange={(e) => onUpdateSelectedSlide((slide) => ({
-                      ...(slide as TitleSlide),
-                      template: e.target.value as TitleSlide['template'],
-                    }), true)}
-                    className="text-sm"
-                  >
-                    <option value="title">title</option>
-                    <option value="section">section</option>
-                    <option value="divider">divider</option>
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1 text-xs text-muted">
-                  Title
-                  <input
-                    value={selectedSlide.title}
-                    onChange={(e) => onUpdateSelectedSlide((slide) => ({ ...(slide as TitleSlide), title: e.target.value }))}
-                    onBlur={() => onUpdateSelectedSlide((slide) => slide, true)}
-                    className="text-sm"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-xs text-muted">
-                  Body
-                  <textarea
-                    value={selectedSlide.body ?? ''}
-                    onChange={(e) => onUpdateSelectedSlide((slide) => ({ ...(slide as TitleSlide), body: e.target.value }))}
-                    onBlur={() => onUpdateSelectedSlide((slide) => slide, true)}
-                    rows={5}
-                    className="text-sm resize-y"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-xs text-muted">
-                  Notes
-                  <textarea
-                    value={selectedSlide.notes ?? ''}
-                    onChange={(e) => onUpdateSelectedSlide((slide) => ({ ...(slide as TitleSlide), notes: e.target.value }))}
-                    onBlur={() => onUpdateSelectedSlide((slide) => slide, true)}
-                    rows={4}
-                    className="text-sm resize-y"
-                  />
-                </label>
-              </>
-            ) : selectedSlide.kind === 'clip' ? (
-              <>
-                <div className="text-sm text-muted">Clip: {selectedSlide.clipId}</div>
-                {selectedClip ? (
-                  <>
-                    <div className="text-sm text-muted">Video: {selectedClip.videoId}</div>
-                    <div className="text-sm text-muted">Range: {formatTimestamp(selectedClip.startMs)} → {formatTimestamp(selectedClip.endMs)}</div>
-                    <div className="text-sm text-muted">Annotations: {selectedClip.annotations.length}</div>
-                  </>
-                ) : (
-                  <div className="text-sm text-danger">Clip asset is missing from disk.</div>
-                )}
-                <label className="flex flex-col gap-1 text-xs text-muted">
-                  Notes
-                  <textarea
-                    value={selectedSlide.notes ?? ''}
-                    onChange={(e) => onUpdateSelectedSlide((slide) => ({ ...(slide as ClipSlide), notes: e.target.value }))}
-                    onBlur={() => onUpdateSelectedSlide((slide) => slide, true)}
-                    rows={4}
-                    className="text-sm resize-y"
-                  />
-                </label>
-              </>
-            ) : (
-              <>
-                <div className="text-sm text-muted">Still: {selectedSlide.stillId}</div>
-                <div className="text-sm text-muted">Annotations: {annotationCount}</div>
-                <div className="text-sm text-muted">Annotation sets: {annotationDocumentCount}</div>
-                <label className="flex items-center gap-2 text-sm text-muted">
-                  <input
-                    type="checkbox"
-                    checked={selectedSlide.showAnnotations !== false}
-                    onChange={(e) => onUpdateSelectedSlide((slide) => ({
-                      ...slide,
-                      showAnnotations: e.target.checked,
-                    }), true)}
-                  />
-                  Show annotations
-                </label>
-                <label className="flex flex-col gap-1 text-xs text-muted">
-                  Notes
-                  <textarea
-                    value={selectedSlide.notes ?? ''}
-                    onChange={(e) => onUpdateSelectedSlide((slide) => ({ ...slide, notes: e.target.value }))}
-                    onBlur={() => onUpdateSelectedSlide((slide) => slide, true)}
-                    rows={4}
-                    className="text-sm resize-y"
-                  />
-                </label>
-                {selectedStill && (
-                  <>
-                    <div className="text-sm text-muted">Video: {selectedStill.videoId}</div>
-                    <div className="text-sm text-muted">Timestamp: {Math.round(selectedStill.t_ms)}ms</div>
-                  </>
-                )}
-                {selectedMark && (
-                  <div className="text-sm text-muted">Source mark: {selectedMark.id}</div>
-                )}
-                {usesAnnotationSetSelection ? (
-                  <div className="border border-subtle rounded p-3 flex flex-col gap-2">
-                    <div className="text-xs uppercase tracking-wide text-muted">Annotation sets</div>
-                    {selectedSlide.showAnnotations === false && (
-                      <div className="text-xs text-muted">This slide currently hides annotations. Set timings and selection will be preserved.</div>
-                    )}
-                    {selectedAnnotationDocuments.length > 0 ? (
-                      selectedAnnotationDocuments.map(({ entry, document }) => {
-                        const cue = cueByAnnotationSetId.get(entry.id);
-                        const label = document.label || entry.label || (entry.id === 'default' ? 'Default annotations' : `Annotation set ${entry.id}`);
-                        return (
-                          <div key={entry.file} className="rounded border border-subtle bg-canvas px-2 py-2 flex flex-col gap-2">
-                            <label className="flex items-start gap-2 text-sm">
-                              <input
-                                type="checkbox"
-                                checked={visibleAnnotationSetIds.has(entry.id)}
-                                onChange={() => onUpdateSelectedSlide((slide) => (
-                                  slide.kind === 'still'
-                                    ? toggleAnnotationSetSelection(slide, entry.id, allAnnotationSetIds)
-                                    : slide
-                                ))}
-                                onBlur={() => onUpdateSelectedSlide((slide) => slide, true)}
-                              />
-                              <div className="min-w-0 flex-1">
-                                <div className="text-xs font-medium break-all">{label}</div>
-                                <div className="text-[11px] text-muted break-all mt-1">{entry.id} · {document.shapes.length} shapes</div>
-                              </div>
-                            </label>
-                            <div className="grid grid-cols-2 gap-2">
-                              <label className="flex flex-col gap-1 text-[11px] text-muted">
-                                Enter (ms)
-                                <input
-                                  type="number"
-                                  step="1"
-                                  value={formatNumberInput(cue?.enterAtMs)}
-                                  onChange={(e) => onUpdateSelectedSlide((slide) => (
-                                    slide.kind === 'still'
-                                      ? updateAnnotationSetCue(slide, entry.id, 'enterAtMs', parseOptionalNumber(e.target.value))
-                                      : slide
-                                  ))}
-                                  onBlur={() => onUpdateSelectedSlide((slide) => slide, true)}
-                                  className="text-sm"
-                                />
-                              </label>
-                              <label className="flex flex-col gap-1 text-[11px] text-muted">
-                                Exit (ms)
-                                <input
-                                  type="number"
-                                  step="1"
-                                  value={formatNumberInput(cue?.exitAtMs)}
-                                  onChange={(e) => onUpdateSelectedSlide((slide) => (
-                                    slide.kind === 'still'
-                                      ? updateAnnotationSetCue(slide, entry.id, 'exitAtMs', parseOptionalNumber(e.target.value))
-                                      : slide
-                                  ))}
-                                  onBlur={() => onUpdateSelectedSlide((slide) => slide, true)}
-                                  className="text-sm"
-                                />
-                              </label>
-                            </div>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="text-xs text-muted">This still has no saved annotation sets.</div>
-                    )}
-                  </div>
-                ) : selectedAnnotations ? (
-                  <div className="border border-subtle rounded p-3 flex flex-col gap-2">
-                    <div className="text-xs uppercase tracking-wide text-muted">Annotation cues</div>
-                    {selectedSlide.showAnnotations === false && (
-                      <div className="text-xs text-muted">This slide currently hides annotations. Cue timings will be preserved.</div>
-                    )}
-                    {annotationShapes.length > 0 ? (
-                      annotationShapes.map((shape) => {
-                        const cue = cueByAnnotationId.get(shape.id);
-                        return (
-                          <div key={shape.id} className="rounded border border-subtle bg-canvas px-2 py-2 flex flex-col gap-2">
-                            <div>
-                              <div className="text-xs font-medium break-all">{formatAnnotationLabel(shape)}</div>
-                              <div className="text-[11px] text-muted break-all mt-1">{shape.id}</div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                              <label className="flex flex-col gap-1 text-[11px] text-muted">
-                                Enter (ms)
-                                <input
-                                  type="number"
-                                  step="1"
-                                  value={formatNumberInput(cue?.enterAtMs)}
-                                  onChange={(e) => onUpdateSelectedSlide((slide) => (
-                                    slide.kind === 'still'
-                                      ? updateAnnotationCue(slide, shape.id, 'enterAtMs', parseOptionalNumber(e.target.value))
-                                      : slide
-                                  ))}
-                                  onBlur={() => onUpdateSelectedSlide((slide) => slide, true)}
-                                  className="text-sm"
-                                />
-                              </label>
-                              <label className="flex flex-col gap-1 text-[11px] text-muted">
-                                Exit (ms)
-                                <input
-                                  type="number"
-                                  step="1"
-                                  value={formatNumberInput(cue?.exitAtMs)}
-                                  onChange={(e) => onUpdateSelectedSlide((slide) => (
-                                    slide.kind === 'still'
-                                      ? updateAnnotationCue(slide, shape.id, 'exitAtMs', parseOptionalNumber(e.target.value))
-                                      : slide
-                                  ))}
-                                  onBlur={() => onUpdateSelectedSlide((slide) => slide, true)}
-                                  className="text-sm"
-                                />
-                              </label>
-                            </div>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="text-xs text-muted">This still has no saved annotations.</div>
-                    )}
-                  </div>
-                ) : null}
-              </>
-            )}
-          </>
-        ) : (
-          <div className="text-sm text-muted">Select a slide to inspect it.</div>
-        )}
-      </div>
+          )}
+          {transitionError && <p className="mb-0 mt-2 text-xs text-danger">{transitionError}</p>}
+        </section>
+      )}
 
-      <div className="border border-subtle rounded p-3 flex flex-col gap-2">
-        <div className="text-xs uppercase tracking-wide text-muted">Next transition</div>
-        {currentTransition ? (
-          <>
-            <label className="flex flex-col gap-1 text-xs text-muted">
-              Mode
-              <select
-                value={currentTransitionMode}
-                onChange={(e) => {
-                  const value = e.target.value as PresentationTransition['mode'];
-                  if (value === 'match_video') {
-                    onUpdateSelectedTransition(() => ({
-                      mode: 'match_video',
-                      hideAnnotationsDuringPlayback: true,
-                    }));
-                    return;
-                  }
-                  onUpdateSelectedTransition(() => ({ mode: 'cut' }));
-                }}
-                className="text-sm"
-              >
-                <option value="cut">cut</option>
-                <option value="match_video" disabled={!canUseMatchVideo}>match_video</option>
-              </select>
-            </label>
-            {transitionConfig && (
-              <>
-                {currentTransition.sourceStartMs != null && currentTransition.sourceEndMs != null && (
-                  <div className="text-sm text-muted">
-                    Source range: {formatTimestamp(currentTransition.sourceStartMs)} → {formatTimestamp(currentTransition.sourceEndMs)}
-                  </div>
-                )}
-                {currentTransition.videoId && currentTransition.startMs != null && currentTransition.endMs != null && (
-                  <div className="text-sm text-muted">
-                    Preview range: {currentTransition.videoId} · {formatTimestamp(currentTransition.startMs)} → {formatTimestamp(currentTransition.endMs)}
-                  </div>
-                )}
-                <label className="flex items-center gap-2 text-sm text-muted">
-                  <input
-                    type="checkbox"
-                    checked={transitionConfig.hideAnnotationsDuringPlayback !== false}
-                    onChange={(e) => onUpdateSelectedTransition((transition) => ({
-                      ...toMatchVideoTransition(transition),
-                      hideAnnotationsDuringPlayback: e.target.checked,
-                    }))}
-                  />
-                  Hide annotations during playback
-                </label>
-                <label className="flex flex-col gap-1 text-xs text-muted">
-                  Playback rate
-                  <input
-                    type="number"
-                    step="0.05"
-                    min="0.05"
-                    value={transitionConfig.playbackRate ?? 1}
-                    onChange={(e) => onUpdateSelectedTransition((transition) => ({
-                      ...toMatchVideoTransition(transition),
-                      playbackRate: parseOptionalNumber(e.target.value),
-                    }))}
-                    className="text-sm"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-xs text-muted">
-                  Start trim (ms)
-                  <input
-                    type="number"
-                    step="1"
-                    value={transitionConfig.startOffsetMs ?? 0}
-                    onChange={(e) => onUpdateSelectedTransition((transition) => ({
-                      ...toMatchVideoTransition(transition),
-                      startOffsetMs: parseOptionalNumber(e.target.value),
-                    }))}
-                    className="text-sm"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-xs text-muted">
-                  End trim (ms)
-                  <input
-                    type="number"
-                    step="1"
-                    value={transitionConfig.endOffsetMs ?? 0}
-                    onChange={(e) => onUpdateSelectedTransition((transition) => ({
-                      ...toMatchVideoTransition(transition),
-                      endOffsetMs: parseOptionalNumber(e.target.value),
-                    }))}
-                    className="text-sm"
-                  />
-                </label>
-              </>
-            )}
-            {!canUseMatchVideo && transitionValidationMessage && (
-              <div className="text-sm text-danger">{transitionValidationMessage}</div>
-            )}
-            {!currentTransition.playable && currentTransition.reason && (
-              <div className="text-sm text-danger">{currentTransition.reason}</div>
-            )}
-            <button onClick={onPreviewTransition} className="px-3 py-1.5 text-sm cursor-pointer w-fit" disabled={!currentTransition.playable}>
-              Preview transition
-            </button>
-          </>
-        ) : (
-          <div className="text-sm text-muted">No following slide.</div>
-        )}
-      </div>
-    </div>
+      <button className="button-danger mt-5 w-full" onClick={onDelete}>{t('presentation.deleteSlide')}</button>
+    </aside>
   );
 }

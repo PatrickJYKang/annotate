@@ -1,0 +1,19 @@
+{
+  "schema": "annotations.v2",
+  "annotationId": "ann-release",
+  "clipId": "clip-sequence",
+  "pinId": "pin-release",
+  "frame": 32,
+  "image": { "width": 640, "height": 360 },
+  "shapes": [
+    {
+      "id": "release-highlight",
+      "type": "highlight",
+      "x": 390,
+      "y": 230,
+      "rx": 25,
+      "ry": 10,
+      "style": { "stroke": "#ffffff", "fill": "#ffffff", "fillOpacity": 0.2, "strokeWidth": 5 }
+    }
+  ]
+}

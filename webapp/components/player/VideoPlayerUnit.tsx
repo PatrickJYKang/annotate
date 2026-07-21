@@ -1,8 +1,32 @@
 "use client";
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import type { TaggingSelection } from "../../lib/tagging/schema";
+import {
+  clampFrame,
+  frameToSeconds,
+  mediaTimeToVideoFrame,
+} from "../../lib/clip/frameMath";
+import { useT } from "../../lib/i18n";
+import { packTimelineIntervals } from "../../lib/media/timelineLanes";
+import { createTimelineManualOverride } from "../../lib/media/timelineInteraction";
+import { calculateTimelineScale } from "../../lib/media/timelineScale";
 
-type Mark = { id: string; t_ms: number; tags?: TaggingSelection | string[]; label?: string };
+export type FrameRangeMarker = {
+  id: string;
+  startFrame: number;
+  endFrame: number;
+  label?: string;
+  laneId?: string;
+  pending?: boolean;
+};
+
+export type TimelineLane = {
+  id: string;
+  label: string;
+  color?: string;
+};
+
+const EMPTY_FRAME_RANGES: FrameRangeMarker[] = [];
+const EMPTY_TIMELINE_LANES: TimelineLane[] = [];
 
 type Props = {
   src: string | null;
@@ -12,22 +36,21 @@ type Props = {
   onLoadedMetadata?: () => void;
   onLoadedData?: () => void;
   onError?: (event: React.SyntheticEvent<HTMLVideoElement, Event>) => void;
+  onPlayingChange?: (playing: boolean) => void;
   hotkeys?: boolean;
   allowFullscreen?: boolean;
-  onAddMark?: (t_ms: number) => void;
-  onToggleTag?: (digit: string) => void;
   initialTime?: number;
-  externalSeekMs?: number | null;
   skipLargeSeconds?: number;
   className?: string;
   style?: React.CSSProperties;
-  marks?: Mark[];
-  selectedMarkId?: string | null;
-  onSelectMark?: (markId: string, t_ms: number) => void;
-  showAddMarkButton?: boolean;
-  enableMarkHotkey?: boolean;
   locked?: boolean;
-  videoHeight?: string;
+  frameCount?: number;
+  externalSeekFrame?: number | null;
+  ranges?: FrameRangeMarker[];
+  timelineLanes?: TimelineLane[];
+  selectedRangeId?: string | null;
+  onSelectRange?: (rangeId: string, startFrame: number) => void;
+  onPresentedFrameChange?: (frame: number) => void;
 };
 
 export type VideoPlayerHandle = {
@@ -35,9 +58,9 @@ export type VideoPlayerHandle = {
   stepFrame: (dir: -1 | 1) => void;
   nudgeSmall: (dir: -1 | 1) => void;
   nudgeLarge: (dir: -1 | 1) => void;
-  seekMs: (t_ms: number) => void;
-  getCurrentTimeMs: () => number;
-  addMark: () => void;
+  getCurrentFrame: () => number;
+  seekFrame: (frame: number) => void;
+  seekFrameAndReveal: (frame: number) => void;
   getVideoElement: () => HTMLVideoElement | null;
 };
 
@@ -62,7 +85,8 @@ function formatTimeNoMs(ms: number): string {
   return hh > 0 ? `${hh}:${pad2(mm)}:${pad2(ss)}` : `${mm}:${pad2(ss)}`;
 }
 
-function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, onLoadedMetadata, onLoadedData, onError, hotkeys = true, allowFullscreen = true, onAddMark, onToggleTag, initialTime, externalSeekMs, skipLargeSeconds = 2, className, style, marks = [], selectedMarkId, onSelectMark, showAddMarkButton = true, enableMarkHotkey = true, locked = false, videoHeight }: Props, ref: React.Ref<VideoPlayerHandle>) {
+function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, onLoadedMetadata, onLoadedData, onError, onPlayingChange, hotkeys = true, allowFullscreen = true, initialTime, skipLargeSeconds = 2, className, style, locked = false, frameCount, externalSeekFrame, ranges = EMPTY_FRAME_RANGES, timelineLanes = EMPTY_TIMELINE_LANES, selectedRangeId, onSelectRange, onPresentedFrameChange }: Props, ref: React.Ref<VideoPlayerHandle>) {
+  const t = useT();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -72,8 +96,13 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
   const [ready, setReady] = useState(false);
   const [activeBtn, setActiveBtn] = useState<string | null>(null);
   const flashTimer = useRef<number | null>(null);
-  const [hoverMarkId, setHoverMarkId] = useState<string | null>(null);
-  const prevSelectedMarkIdRef = useRef<string | null>(null);
+  const [presentedFrame, setPresentedFrame] = useState(0);
+  const presentedFrameRef = useRef(-1);
+  const onPlayingChangeRef = useRef(onPlayingChange);
+
+  useEffect(() => {
+    onPlayingChangeRef.current = onPlayingChange;
+  }, [onPlayingChange]);
 
   const activeBtnStyle = (name: string): React.CSSProperties =>
     activeBtn === name
@@ -92,8 +121,14 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
       setReady(true);
     };
     const onTime = () => setCurrent(v.currentTime);
-    const onPlay = () => setPlaying(true);
-    const onPause = () => setPlaying(false);
+    const onPlay = () => {
+      setPlaying(true);
+      onPlayingChangeRef.current?.(true);
+    };
+    const onPause = () => {
+      setPlaying(false);
+      onPlayingChangeRef.current?.(false);
+    };
     v.addEventListener("loadedmetadata", onLoaded);
     v.addEventListener("timeupdate", onTime);
     v.addEventListener("play", onPlay);
@@ -106,7 +141,13 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
     };
   }, [initialTime, src]);
 
-  useEffect(() => { setReady(false); }, [src]);
+  useEffect(() => {
+    setReady(false);
+    setPlaying(false);
+    onPlayingChangeRef.current?.(false);
+    presentedFrameRef.current = -1;
+    setPresentedFrame(0);
+  }, [src]);
 
   useEffect(() => {
     return () => { if (flashTimer.current) { clearTimeout(flashTimer.current); } };
@@ -123,15 +164,66 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
     return () => cancelAnimationFrame(raf);
   }, [dragging]);
 
-  // Apply external seek requests from parent
+  const effectiveFrameCount = frameCount && Number.isInteger(frameCount) && frameCount > 0
+    ? frameCount
+    : null;
+
+  const publishPresentedFrame = useCallback((mediaTime: number) => {
+    if (!effectiveFrameCount) return;
+    const frame = mediaTimeToVideoFrame(mediaTime, fps, effectiveFrameCount);
+    if (presentedFrameRef.current === frame) return;
+    presentedFrameRef.current = frame;
+    setPresentedFrame(frame);
+    onPresentedFrameChange?.(frame);
+  }, [effectiveFrameCount, fps, onPresentedFrameChange]);
+
   useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (externalSeekMs == null) return;
-    const t = Math.max(0, Math.min(v.duration || Number.MAX_SAFE_INTEGER, externalSeekMs / 1000));
-    v.currentTime = t;
-    setCurrent(t);
-  }, [externalSeekMs]);
+    const video = videoRef.current;
+    if (!video || !effectiveFrameCount) return;
+    const requestFrame = video.requestVideoFrameCallback?.bind(video);
+    const cancelFrame = video.cancelVideoFrameCallback?.bind(video);
+    if (!requestFrame || !cancelFrame) {
+      publishPresentedFrame(video.currentTime);
+      return;
+    }
+    let callbackId = 0;
+    const callback: VideoFrameRequestCallback = (_now, metadata) => {
+      publishPresentedFrame(metadata.mediaTime);
+      callbackId = requestFrame(callback);
+    };
+    callbackId = requestFrame(callback);
+    return () => cancelFrame(callbackId);
+  }, [effectiveFrameCount, publishPresentedFrame, src]);
+
+  useEffect(() => {
+    if (!effectiveFrameCount) return;
+    const video = videoRef.current;
+    if (!video?.requestVideoFrameCallback) publishPresentedFrame(current);
+  }, [current, effectiveFrameCount, publishPresentedFrame]);
+
+  const getCurrentFrame = useCallback((): number => {
+    if (!effectiveFrameCount) return 0;
+    const video = videoRef.current;
+    return mediaTimeToVideoFrame(video?.currentTime ?? 0, fps, effectiveFrameCount);
+  }, [effectiveFrameCount, fps]);
+
+  const seekFrame = useCallback((frame: number) => {
+    if (!effectiveFrameCount) return;
+    const video = videoRef.current;
+    if (!video) return;
+    const next = clampFrame(frame, effectiveFrameCount);
+    const seconds = frameToSeconds(next, fps);
+    video.currentTime = seconds;
+    setCurrent(seconds);
+    presentedFrameRef.current = next;
+    setPresentedFrame(next);
+    onPresentedFrameChange?.(next);
+  }, [effectiveFrameCount, fps, onPresentedFrameChange]);
+
+  useEffect(() => {
+    if (externalSeekFrame == null) return;
+    seekFrame(externalSeekFrame);
+  }, [externalSeekFrame, seekFrame]);
 
   const durationMs = Math.floor(duration * 1000);
 
@@ -147,11 +239,15 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
     if (locked) return;
     const v = videoRef.current;
     if (!v) return;
-    const dt = 1 / (fps || 30);
-    v.currentTime = Math.max(0, Math.min(v.duration || Number.MAX_SAFE_INTEGER, v.currentTime + dir * dt));
-    setCurrent(v.currentTime);
+    if (effectiveFrameCount) {
+      seekFrame(getCurrentFrame() + dir);
+    } else {
+      const dt = 1 / (fps || 30);
+      v.currentTime = Math.max(0, Math.min(v.duration || Number.MAX_SAFE_INTEGER, v.currentTime + dir * dt));
+      setCurrent(v.currentTime);
+    }
     setActiveBtn(dir < 0 ? 'frame-back' : 'frame-forward'); if (flashTimer.current) clearTimeout(flashTimer.current); flashTimer.current = window.setTimeout(() => setActiveBtn(null), 150);
-  }, [fps, locked]);
+  }, [effectiveFrameCount, fps, getCurrentFrame, locked, seekFrame]);
 
   const nudge = useCallback((dir: -1 | 1) => {
     if (locked) return;
@@ -173,14 +269,6 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
     setCurrent(v.currentTime);
     setActiveBtn(dir < 0 ? 'large-back' : 'large-forward'); if (flashTimer.current) clearTimeout(flashTimer.current); flashTimer.current = window.setTimeout(() => setActiveBtn(null), 150);
   }, [skipLargeSeconds, locked]);
-
-  const addMark = useCallback(() => {
-    if (locked) return;
-    if (!onAddMark) return;
-    const t_ms = Math.round((videoRef.current?.currentTime || 0) * 1000);
-    onAddMark(t_ms);
-    setActiveBtn('mark'); if (flashTimer.current) clearTimeout(flashTimer.current); flashTimer.current = window.setTimeout(() => setActiveBtn(null), 150);
-  }, [onAddMark, locked]);
 
   const toggleFullscreen = useCallback(() => {
     if (!allowFullscreen) return;
@@ -204,22 +292,6 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
     onError?.(event);
   }, [onError]);
 
-  // Imperative API for parent
-  useImperativeHandle(ref, () => ({
-    playPause: togglePlay,
-    stepFrame: (dir: -1 | 1) => step(dir),
-    nudgeSmall: (dir: -1 | 1) => nudge(dir),
-    nudgeLarge: (dir: -1 | 1) => largeNudge(dir),
-    seekMs: (t_ms: number) => {
-      const v = videoRef.current; if (!v) return;
-      const t = Math.max(0, Math.min(v.duration || Number.MAX_SAFE_INTEGER, (t_ms || 0) / 1000));
-      v.currentTime = t; setCurrent(t);
-    },
-    getCurrentTimeMs: () => Math.round((videoRef.current?.currentTime || 0) * 1000),
-    addMark: () => { addMark(); },
-    getVideoElement: () => videoRef.current,
-  }), [togglePlay, step, nudge, largeNudge]);
-
   const onKeyDownCapture = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!hotkeys || locked) return;
     const key = e.key;
@@ -231,15 +303,26 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
     if (key === "l" || key === "L" || key === ".") { e.preventDefault(); shift ? largeNudge(1) : step(1); return; }
     if (key === "ArrowLeft") { e.preventDefault(); shift ? largeNudge(-1) : nudge(-1); return; }
     if (key === "ArrowRight") { e.preventDefault(); shift ? largeNudge(1) : nudge(1); return; }
-    if ((key === "m" || key === "M") && enableMarkHotkey) { e.preventDefault(); addMark(); return; }
-    if (/^[1-9]$/.test(key) && onToggleTag) { e.preventDefault(); onToggleTag(key); return; }
-  }, [hotkeys, locked, enableMarkHotkey, togglePlay, step, nudge, largeNudge, addMark, onToggleTag]);
+  }, [hotkeys, largeNudge, locked, nudge, step, togglePlay]);
 
   // --- Timeline state ---
   const [zoom, setZoom] = useState(1);
   const timelineContainerRef = useRef<HTMLDivElement | null>(null);
+  const timelineManualOverrideRef = useRef<ReturnType<typeof createTimelineManualOverride> | null>(null);
+  const ignoreTimelineScrollRef = useRef(false);
   const [containerWidth, setContainerWidth] = useState(0);
   const [tlScrollLeft, setTlScrollLeft] = useState(0);
+  if (!timelineManualOverrideRef.current) {
+    timelineManualOverrideRef.current = createTimelineManualOverride();
+  }
+
+  const setTimelineScrollLeftProgrammatically = useCallback((element: HTMLDivElement, scrollLeft: number) => {
+    ignoreTimelineScrollRef.current = true;
+    element.scrollLeft = scrollLeft;
+    requestAnimationFrame(() => {
+      ignoreTimelineScrollRef.current = false;
+    });
+  }, []);
 
   // Observe timeline container width
   useEffect(() => {
@@ -253,9 +336,45 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
   }, []);
 
   // Derived timeline values
-  const basePps = containerWidth > 0 && duration > 0 ? containerWidth / duration : 1;
-  const pps = basePps * zoom;
-  const totalTimelineWidth = duration > 0 ? duration * pps : containerWidth;
+  const timelineScale = calculateTimelineScale(duration, containerWidth, zoom);
+  const {
+    defaultVisibleSeconds,
+    minimumZoom,
+    maximumZoom,
+    basePixelsPerSecond: basePps,
+    pixelsPerSecond: pps,
+    totalWidth: totalTimelineWidth,
+  } = timelineScale;
+
+  useEffect(() => {
+    setZoom((currentZoom) => Math.max(minimumZoom, Math.min(maximumZoom, currentZoom)));
+  }, [maximumZoom, minimumZoom]);
+
+  const revealTimelineFrame = useCallback((frame: number) => {
+    const element = timelineContainerRef.current;
+    if (!element || !effectiveFrameCount || containerWidth <= 0 || pps <= 0) return;
+    const frameX = frameToSeconds(clampFrame(frame, effectiveFrameCount), fps) * pps;
+    const maxScrollLeft = Math.max(0, totalTimelineWidth - containerWidth);
+    const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, frameX - containerWidth / 2));
+    setTimelineScrollLeftProgrammatically(element, nextScrollLeft);
+    setTlScrollLeft(nextScrollLeft);
+  }, [containerWidth, effectiveFrameCount, fps, pps, setTimelineScrollLeftProgrammatically, totalTimelineWidth]);
+
+  const seekFrameAndReveal = useCallback((frame: number) => {
+    seekFrame(frame);
+    revealTimelineFrame(frame);
+  }, [revealTimelineFrame, seekFrame]);
+
+  useImperativeHandle(ref, () => ({
+    playPause: togglePlay,
+    stepFrame: (dir: -1 | 1) => step(dir),
+    nudgeSmall: (dir: -1 | 1) => nudge(dir),
+    nudgeLarge: (dir: -1 | 1) => largeNudge(dir),
+    getCurrentFrame,
+    seekFrame,
+    seekFrameAndReveal,
+    getVideoElement: () => videoRef.current,
+  }), [getCurrentFrame, largeNudge, nudge, seekFrame, seekFrameAndReveal, step, togglePlay]);
 
   // Visible time range for tick calculation
   const visibleStartTime = pps > 0 ? tlScrollLeft / pps : 0;
@@ -291,12 +410,15 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
   // Track scroll position
   const handleTimelineScroll = useCallback(() => {
     const el = timelineContainerRef.current;
-    if (el) setTlScrollLeft(el.scrollLeft);
+    if (!el) return;
+    if (!ignoreTimelineScrollRef.current) timelineManualOverrideRef.current?.mark();
+    setTlScrollLeft(el.scrollLeft);
   }, []);
 
   // Auto-follow playhead during playback
   useEffect(() => {
     if (!playing) return;
+    if (timelineManualOverrideRef.current?.isActive()) return;
     const el = timelineContainerRef.current;
     if (!el || containerWidth <= 0 || pps <= 0) return;
     const playheadX = current * pps;
@@ -304,76 +426,80 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
     const viewRight = viewLeft + containerWidth;
     const margin = containerWidth * 0.33;
     if (playheadX < viewLeft + margin * 0.5 || playheadX > viewRight - margin * 0.5) {
-      el.scrollLeft = Math.max(0, playheadX - margin);
+      setTimelineScrollLeftProgrammatically(el, Math.max(0, playheadX - margin));
     }
-  }, [current, playing, pps, containerWidth]);
-
-  // Auto-scroll to selected mark when it's off-screen (only on selection change, not seek/zoom)
-  useEffect(() => {
-    if (!selectedMarkId || selectedMarkId === prevSelectedMarkIdRef.current) {
-      prevSelectedMarkIdRef.current = selectedMarkId ?? null;
-      return;
-    }
-    prevSelectedMarkIdRef.current = selectedMarkId;
-    const el = timelineContainerRef.current;
-    if (!el || containerWidth <= 0 || pps <= 0 || durationMs <= 0) return;
-    const mark = (marks || []).find(m => m.id === selectedMarkId);
-    if (!mark) return;
-    const markX = (mark.t_ms / 1000) * pps;
-    const viewLeft = el.scrollLeft;
-    const viewRight = viewLeft + containerWidth;
-    if (markX < viewLeft || markX > viewRight) {
-      el.scrollLeft = Math.max(0, markX - containerWidth * 0.33);
-    }
-  }, [selectedMarkId, marks, pps, containerWidth, durationMs]);
+  }, [containerWidth, current, playing, pps, setTimelineScrollLeftProgrammatically]);
 
   // Timeline wheel: Ctrl+wheel = zoom, plain wheel = horizontal scroll
   const handleTimelineWheel = useCallback((e: React.WheelEvent) => {
     const el = timelineContainerRef.current;
     if (!el) return;
+    timelineManualOverrideRef.current?.mark();
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
       const rect = el.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseTime = (el.scrollLeft + mouseX) / pps;
-      const factor = e.deltaY > 0 ? 0.95 : 1.053;
-      const newZoom = Math.max(1, Math.min(100, zoom * factor));
+      const factor = e.deltaY > 0 ? 2 ** -0.1 : 2 ** 0.1;
+      const newZoom = Math.max(minimumZoom, Math.min(maximumZoom, zoom * factor));
       setZoom(newZoom);
       requestAnimationFrame(() => {
         const newPps = basePps * newZoom;
-        el.scrollLeft = mouseTime * newPps - mouseX;
+        setTimelineScrollLeftProgrammatically(el, mouseTime * newPps - mouseX);
       });
     } else {
       if (e.deltaX !== 0) return;
       e.preventDefault();
       el.scrollLeft += e.deltaY;
     }
-  }, [zoom, pps, basePps]);
+  }, [zoom, pps, basePps, maximumZoom, minimumZoom, setTimelineScrollLeftProgrammatically]);
 
   const getTimelineZoomAnchorSeconds = useCallback(() => {
-    const selectedMark = selectedMarkId
-      ? (marks || []).find((mark) => mark.id === selectedMarkId)
-      : null;
-    const rawAnchor = selectedMark
-      ? selectedMark.t_ms / 1000
-      : videoRef.current?.currentTime ?? current;
+    const rawAnchor = videoRef.current?.currentTime ?? current;
     return Math.max(0, Math.min(duration || 0, rawAnchor));
-  }, [current, duration, marks, selectedMarkId]);
+  }, [current, duration]);
 
   const handleZoomSliderChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const nextZoom = Math.max(1, Math.min(100, parseFloat(e.target.value) || 1));
+    timelineManualOverrideRef.current?.mark();
+    const exponent = parseFloat(e.target.value);
+    const nextZoom = Math.max(minimumZoom, Math.min(maximumZoom, 2 ** (Number.isFinite(exponent) ? exponent : 0)));
     const el = timelineContainerRef.current;
     const anchorSeconds = getTimelineZoomAnchorSeconds();
     setZoom(nextZoom);
     if (!el || containerWidth <= 0 || duration <= 0) return;
     requestAnimationFrame(() => {
-      const nextPps = (containerWidth / duration) * nextZoom;
+      const nextPps = (containerWidth / defaultVisibleSeconds) * nextZoom;
       const maxScrollLeft = Math.max(0, duration * nextPps - containerWidth);
       const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, anchorSeconds * nextPps - containerWidth / 2));
-      el.scrollLeft = nextScrollLeft;
+      setTimelineScrollLeftProgrammatically(el, nextScrollLeft);
       setTlScrollLeft(nextScrollLeft);
     });
-  }, [containerWidth, duration, getTimelineZoomAnchorSeconds]);
+  }, [containerWidth, defaultVisibleSeconds, duration, getTimelineZoomAnchorSeconds, maximumZoom, minimumZoom, setTimelineScrollLeftProgrammatically]);
+
+  const zoomLabel = zoom >= 10
+    ? String(Math.round(zoom))
+    : zoom >= 1
+      ? zoom.toFixed(zoom === 1 ? 0 : 1)
+      : zoom >= 0.1
+        ? zoom.toFixed(2)
+        : zoom.toFixed(3);
+
+  const laneLayouts = useMemo(() => {
+    let top = 0;
+    return timelineLanes.map((lane, laneIndex) => {
+      const packed = packTimelineIntervals(ranges.filter((range) => range.laneId === lane.id));
+      const height = 8 + Math.max(1, packed.trackCount) * 22;
+      const layout = { lane, laneIndex, top, height, packed };
+      top += height;
+      return layout;
+    });
+  }, [ranges, timelineLanes]);
+  const laneAreaHeight = laneLayouts.reduce((height, lane) => height + lane.height, 0);
+  const unassignedRanges = useMemo(
+    () => ranges.filter((range) => !range.laneId || !timelineLanes.some((lane) => lane.id === range.laneId)),
+    [ranges, timelineLanes],
+  );
+  const hasTimelineLanes = laneLayouts.length > 0;
 
   // Click on track lane to seek
   const handleLaneMouseDown = useCallback((e: React.MouseEvent) => {
@@ -385,8 +511,11 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
     const seekToX = (clientX: number) => {
       const mx = clientX - rect.left + el.scrollLeft;
       const t = Math.max(0, Math.min(v.duration || 0, mx / pps));
-      v.currentTime = t;
-      setCurrent(t);
+      if (effectiveFrameCount) seekFrame(Math.floor(t * fps + 1e-7));
+      else {
+        v.currentTime = t;
+        setCurrent(t);
+      }
     };
     seekToX(e.clientX);
     setDragging(true);
@@ -398,7 +527,88 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
-  }, [locked, pps]);
+  }, [effectiveFrameCount, fps, locked, pps, seekFrame]);
+
+  const renderRangeMarker = (
+    range: FrameRangeMarker,
+    markerTop: number,
+    markerHeight: number,
+    zIndex = 2,
+    global = false,
+  ): React.ReactNode => {
+    if (!effectiveFrameCount || range.endFrame <= range.startFrame) return null;
+    const left = (range.startFrame / fps) * pps;
+    const width = Math.max(3, ((range.endFrame - range.startFrame) / fps) * pps);
+    const selected = range.id === selectedRangeId;
+    const label = range.label ?? range.id;
+    const markerStyle: React.CSSProperties = {
+      left,
+      top: markerTop,
+      width,
+      height: markerHeight,
+      zIndex,
+      background: range.pending
+        ? 'rgba(245, 158, 11, 0.28)'
+        : selected
+          ? 'rgba(249, 115, 22, 0.5)'
+          : global
+            ? 'rgba(148, 163, 184, 0.12)'
+            : 'rgba(59, 130, 246, 0.32)',
+      borderColor: range.pending
+        ? '#fbbf24'
+        : selected
+          ? '#fb923c'
+          : global
+            ? '#64748b'
+            : '#60a5fa',
+      borderStyle: range.pending ? 'dashed' : 'solid',
+    };
+    const content = (
+      <span className="flex h-full min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap px-1.5">
+        {range.pending && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" aria-hidden="true" />}
+        <span className="truncate">{label}</span>
+      </span>
+    );
+
+    if (range.pending) {
+      return (
+        <div
+          key={range.id}
+          data-testid={`video-range-${range.id}`}
+          data-pending="true"
+          aria-label={t('video.captureInProgress', { label, start: range.startFrame })}
+          className="absolute overflow-hidden rounded-sm border text-left text-[10px] leading-none text-warning"
+          style={markerStyle}
+          title={t('video.captureInProgress', { label, start: range.startFrame })}
+        >
+          {content}
+        </div>
+      );
+    }
+
+    return (
+      <button
+        key={range.id}
+        type="button"
+        data-testid={`video-range-${range.id}`}
+        aria-label={t('video.clipAria', { label })}
+        className="absolute overflow-hidden border px-0 py-0 text-left text-[10px] leading-none"
+        style={markerStyle}
+        onMouseDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          onSelectRange?.(range.id, range.startFrame);
+        }}
+        title={t('video.clipTitle', {
+          label,
+          start: range.startFrame,
+          end: range.endFrame - 1,
+        })}
+      >
+        {content}
+      </button>
+    );
+  };
 
   return (
     <div ref={wrapperRef} className={`relative flex flex-col flex-1 min-h-0 overflow-hidden ${className ?? ''}`} style={style} tabIndex={0} onKeyDownCapture={onKeyDownCapture}>
@@ -406,7 +616,7 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
       <div className={`absolute inset-0 bg-surface items-center justify-center pointer-events-none z-[1] ${ready ? 'hidden' : 'flex'}`}>
         <div className="flex flex-col items-center gap-1.5">
           <div className="spinner" />
-          <div className="text-xs text-secondary">Loading…</div>
+          <div className="text-xs text-secondary">{t('video.loading')}</div>
         </div>
       </div>
       {/* Video */}
@@ -423,111 +633,125 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
       />
       {/* Timeline panel */}
       <div className="shrink-0 bg-surface border-t border-border flex flex-col">
-        {/* Scrollable timeline area */}
-        <div
-          ref={timelineContainerRef}
-          className="overflow-x-auto overflow-y-hidden relative"
-          onWheel={handleTimelineWheel}
-          onScroll={handleTimelineScroll}
-        >
-          <div style={{ width: totalTimelineWidth, minWidth: '100%' }}>
-            {/* Timecode ruler */}
-            <div className="h-5 relative border-b border-subtle select-none">
-              {ticks.map((tick, i) => (
-                <div key={i} className="absolute top-0" style={{ left: tick.time * pps }}>
-                  <div className={`w-px ${tick.major ? 'h-5 bg-secondary' : 'h-2.5 bg-subtle'}`} />
-                  {tick.label && (
-                    <span className="absolute top-0 left-1 text-[10px] text-muted whitespace-nowrap">{tick.label}</span>
-                  )}
-                </div>
-              ))}
-            </div>
-            {/* Track lane */}
-            <div
-              className={`h-8 bg-raised relative ${locked ? 'cursor-not-allowed' : 'cursor-crosshair'}`}
-              onMouseDown={handleLaneMouseDown}
-            >
-              {/* Mark pips */}
-              {(marks || []).map(m => {
-                if (durationMs <= 0) return null;
-                const x = (m.t_ms / 1000) * pps;
-                const isSelected = m.id === selectedMarkId;
-                const isHovered = m.id === hoverMarkId;
-                return (
-                  <div
-                    key={m.id}
-                    className="absolute top-0 bottom-0 cursor-pointer"
-                    style={{ left: x - 4, width: 8 }}
-                    onMouseEnter={() => setHoverMarkId(m.id)}
-                    onMouseLeave={() => setHoverMarkId(prev => (prev === m.id ? null : prev))}
-                    onClick={(e) => { e.stopPropagation(); if (onSelectMark) onSelectMark(m.id, m.t_ms); }}
-                  >
-                    <div
-                      className="absolute top-0 bottom-0 left-1/2 w-[3px] -translate-x-1/2"
-                      style={{ background: isSelected ? '#f97316' : '#fbbf24', opacity: isHovered ? 1 : 0.85 }}
-                    />
-                    {isHovered && (
-                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-1.5 py-0.5 bg-surface border border-border text-[10px] text-accent whitespace-nowrap z-10">
-                        {formatTime(m.t_ms)}{m.label ? ` · ${m.label}` : ''}
-                      </div>
+        <div className="flex min-w-0 items-stretch">
+          <div
+            ref={timelineContainerRef}
+            data-testid="video-timeline-scroller"
+            className="relative min-w-0 flex-1 overflow-x-auto overflow-y-hidden"
+            onWheel={handleTimelineWheel}
+            onScroll={handleTimelineScroll}
+          >
+            <div style={{ width: totalTimelineWidth, minWidth: '100%' }}>
+              <div className="relative h-5 select-none border-b border-subtle">
+                {ticks.map((tick, i) => (
+                  <div key={i} className="absolute top-0" style={{ left: tick.time * pps }}>
+                    <div className={`w-px ${tick.major ? 'h-5 bg-secondary' : 'h-2.5 bg-subtle'}`} />
+                    {tick.label && (
+                      <span className="absolute left-1 top-0 whitespace-nowrap text-[10px] text-muted">{tick.label}</span>
                     )}
                   </div>
-                );
-              })}
-              {/* Playhead */}
-              <div
-                className="absolute top-0 bottom-0 w-[2px] bg-[#ef4444] z-[2] pointer-events-none"
-                style={{ left: current * pps }}
-              />
+                ))}
+              </div>
+              {hasTimelineLanes ? (
+                <div
+                  data-testid="video-range-lanes"
+                  className={`relative bg-raised ${locked ? 'cursor-not-allowed' : 'cursor-crosshair'}`}
+                  style={{ height: laneAreaHeight }}
+                  onMouseDown={handleLaneMouseDown}
+                >
+                  {unassignedRanges.map((range) => renderRangeMarker(
+                    range,
+                    2,
+                    Math.max(18, laneAreaHeight - 4),
+                    1,
+                    true,
+                  ))}
+                  {laneLayouts.map(({ lane, laneIndex, top, height, packed }) => (
+                    <div
+                      key={lane.id}
+                      data-testid={`video-range-lane-${lane.id}`}
+                      className="absolute left-0 right-0 border-b border-subtle"
+                      style={{
+                        top,
+                        height,
+                        background: laneIndex % 2 === 0 ? 'rgba(255, 255, 255, 0.018)' : 'transparent',
+                        borderLeft: `3px solid ${lane.color ?? '#60a5fa'}`,
+                      }}
+                    >
+                      {packed.placements.map(({ interval, trackIndex }) => renderRangeMarker(
+                        interval,
+                        4 + trackIndex * 22,
+                        18,
+                        2,
+                      ))}
+                    </div>
+                  ))}
+                  <div
+                    data-testid="video-timeline-playhead"
+                    className="pointer-events-none absolute bottom-0 top-0 z-[3] w-[2px] bg-[#ef4444]"
+                    style={{ left: current * pps }}
+                  />
+                </div>
+              ) : (
+                <div
+                  className={`relative h-8 bg-raised ${locked ? 'cursor-not-allowed' : 'cursor-crosshair'}`}
+                  onMouseDown={handleLaneMouseDown}
+                >
+                  {ranges.map((range) => renderRangeMarker(range, 4, 24))}
+                  <div
+                    data-testid="video-timeline-playhead"
+                    className="pointer-events-none absolute bottom-0 top-0 z-[3] w-[2px] bg-[#ef4444]"
+                    style={{ left: current * pps }}
+                  />
+                </div>
+              )}
             </div>
           </div>
         </div>
         {/* Transport bar */}
         <div className="flex items-stretch border-t border-border">
-          <button disabled={locked} aria-label="Skip back" title="Skip back" onClick={() => largeNudge(-1)} className={`self-stretch px-3 py-1.5 border-0 border-r border-solid border-border ${btnTransition}`} style={activeBtnStyle('large-back')}>
+          <button disabled={locked} aria-label={t('video.skipBack')} title={t('video.skipBack')} onClick={() => largeNudge(-1)} className={`self-stretch px-3 py-1.5 border-0 border-r border-solid border-border ${btnTransition}`} style={activeBtnStyle('large-back')}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="11 19 2 12 11 5"></polyline><line x1="22" y1="19" x2="22" y2="5"></line></svg>
           </button>
-          <button disabled={locked} aria-label="Step back" title="Step back (frame)" onClick={() => step(-1)} className={`self-stretch px-3 py-1.5 border-0 border-r border-solid border-border ${btnTransition}`} style={activeBtnStyle('frame-back')}>
+          <button disabled={locked} aria-label={t('video.stepBack')} title={t('video.stepBackTitle')} onClick={() => step(-1)} className={`self-stretch px-3 py-1.5 border-0 border-r border-solid border-border ${btnTransition}`} style={activeBtnStyle('frame-back')}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
           </button>
-          <button disabled={locked} aria-label={playing ? "Pause" : "Play"} title={playing ? "Pause" : "Play"} onClick={togglePlay} className={`self-stretch px-3 py-1.5 border-0 border-r border-solid border-border ${btnTransition}`} style={activeBtnStyle('play')}>
+          <button disabled={locked} aria-label={playing ? t('video.pause') : t('video.play')} title={playing ? t('video.pause') : t('video.play')} onClick={togglePlay} className={`self-stretch px-3 py-1.5 border-0 border-r border-solid border-border ${btnTransition}`} style={activeBtnStyle('play')}>
             {playing ? (
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
             ) : (
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
             )}
           </button>
-          <button disabled={locked} aria-label="Step forward" title="Step forward (frame)" onClick={() => step(1)} className={`self-stretch px-3 py-1.5 border-0 border-r border-solid border-border ${btnTransition}`} style={activeBtnStyle('frame-forward')}>
+          <button disabled={locked} aria-label={t('video.stepForward')} title={t('video.stepForwardTitle')} onClick={() => step(1)} className={`self-stretch px-3 py-1.5 border-0 border-r border-solid border-border ${btnTransition}`} style={activeBtnStyle('frame-forward')}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
           </button>
-          <button disabled={locked} aria-label="Skip forward" title="Skip forward" onClick={() => largeNudge(1)} className={`self-stretch px-3 py-1.5 border-0 border-r border-solid border-border ${btnTransition}`} style={activeBtnStyle('large-forward')}>
+          <button disabled={locked} aria-label={t('video.skipForward')} title={t('video.skipForward')} onClick={() => largeNudge(1)} className={`self-stretch px-3 py-1.5 border-0 border-r border-solid border-border ${btnTransition}`} style={activeBtnStyle('large-forward')}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="13 19 22 12 13 5"></polyline><line x1="2" y1="19" x2="2" y2="5"></line></svg>
           </button>
           <div className="flex-1 flex items-center px-3">
             <span className="font-mono text-xs text-accent">{formatTime(Math.round(current * 1000))}</span>
             <span className="font-mono text-xs text-muted mx-1">/</span>
             <span className="font-mono text-xs text-muted">{formatTime(durationMs)}</span>
+            {effectiveFrameCount && (
+              <span className="ml-2 font-mono text-[10px] text-muted">f{presentedFrame}</span>
+            )}
           </div>
-          {showAddMarkButton && (
-            <button disabled={locked} aria-label="Add mark" title="Add mark (M)" onClick={addMark} className={`self-stretch px-3 py-1.5 border-0 border-l border-solid border-border ${btnTransition}`} style={activeBtnStyle('mark')}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h12v16l-6-4-6 4z"/></svg>
-            </button>
-          )}
           <div className="flex items-center px-3 gap-2 border-l border-solid border-border">
-            <span className="text-[10px] text-muted">Zoom</span>
+            <span className="text-[10px] text-muted">{t('video.zoom')}</span>
             <input
               type="range"
-              min={1}
-              max={100}
+              min={Math.log2(minimumZoom)}
+              max={Math.log2(maximumZoom)}
               step={0.1}
-              value={zoom}
+              value={Math.log2(zoom)}
               onChange={handleZoomSliderChange}
               className="w-20 accent-[#3b82f6]"
             />
-            <span className="text-[10px] text-muted font-mono w-8">×{zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)}</span>
+            <span className="w-11 font-mono text-[10px] text-muted">×{zoomLabel}</span>
           </div>
           {allowFullscreen && (
-            <button disabled={locked} aria-label="Fullscreen" title="Fullscreen" onClick={toggleFullscreen} className={`self-stretch px-3 py-1.5 border-0 border-l border-solid border-border ${btnTransition}`} style={activeBtnStyle('fullscreen')}>
+            <button disabled={locked} aria-label={t('video.fullscreen')} title={t('video.fullscreen')} onClick={toggleFullscreen} className={`self-stretch px-3 py-1.5 border-0 border-l border-solid border-border ${btnTransition}`} style={activeBtnStyle('fullscreen')}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="15 3 21 3 21 9"></polyline>
                 <polyline points="9 21 3 21 3 15"></polyline>

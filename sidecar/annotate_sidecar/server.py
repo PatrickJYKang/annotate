@@ -41,8 +41,10 @@ async def lifespan(app: FastAPI):
     # --- Shutdown ---
     # Close cached VideoCapture objects
     from .services.frame_extractor import close_all_captures
+    from .services.normalization_jobs import cleanup_normalization_jobs
 
     close_all_captures()
+    cleanup_normalization_jobs()
     cleanup_registered_videos()
     logger.info("annotate_sidecar shut down")
 
@@ -52,7 +54,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="annotate-sidecar",
         description="ML sidecar for the annotate tool",
-        version="0.1.0",
+        version="0.2.0-pre.0",
         lifespan=lifespan,
     )
 
@@ -69,6 +71,14 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=[
+            "X-Annotate-Frame-Count",
+            "X-Annotate-Fps",
+            "X-Annotate-Width",
+            "X-Annotate-Height",
+            "X-Annotate-Frame-Count-Source",
+            "X-Annotate-Import-Strategy",
+        ],
     )
 
     # Mount route modules

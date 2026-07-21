@@ -1,0 +1,9 @@
+{
+  "schema": "annotations.v2",
+  "annotationId": "ann-broken",
+  "clipId": "clip-wrong",
+  "pinId": "pin-broken",
+  "frame": 21,
+  "image": { "width": 640, "height": 360 },
+  "shapes": []
+}

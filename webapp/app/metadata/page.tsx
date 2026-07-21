@@ -2,17 +2,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useProject } from "../../lib/state/ProjectContext";
-import type { MatchInfo } from "../../lib/types/project";
-import { defaultMatchInfo } from "../../lib/types/project";
-import { writeManifest } from "../../lib/fs/projectFolder";
+import type { MatchInfo } from "../../lib/types/metadata";
+import { defaultMatchInfo } from "../../lib/types/metadata";
+import { writeProjectManifest } from "../../lib/fs/projectFolder";
 import MatchDetailsForm from "../../components/metadata/MatchDetailsForm";
 import TeamPanel from "../../components/metadata/TeamPanel";
 import FootballDataImporter from "../../components/metadata/FootballDataImporter";
+import { useT } from "../../lib/i18n";
 
 const DEBOUNCE_MS = 800;
 
 export default function MetadataPage() {
   const router = useRouter();
+  const t = useT();
   const { projectDir, manifest, setManifest } = useProject();
   const [info, setInfo] = useState<MatchInfo>(defaultMatchInfo());
   const [apiImporterOpen, setApiImporterOpen] = useState(false);
@@ -37,7 +39,7 @@ export default function MetadataPage() {
       flushTimer.current = setTimeout(async () => {
         const updated = { ...manifest, matchInfo: infoRef.current };
         setManifest(updated);
-        await writeManifest(projectDir, updated);
+        await writeProjectManifest(projectDir, updated);
       }, DEBOUNCE_MS);
     },
     [projectDir, manifest, setManifest],
@@ -51,7 +53,7 @@ export default function MetadataPage() {
         // Synchronous best-effort flush — writeManifest is async but we fire-and-forget
         if (projectDir && manifest) {
           const updated = { ...manifest, matchInfo: infoRef.current };
-          writeManifest(projectDir, updated).catch(() => {});
+          writeProjectManifest(projectDir, updated).catch(() => {});
         }
       }
     };
@@ -61,9 +63,9 @@ export default function MetadataPage() {
     return (
       <div>
         <div className="panel">
-          <div className="status">No project open. Go back and open a project.</div>
+          <div className="status">{t('metadata.noProject')}</div>
           <div className="toolbar mt-2">
-            <button onClick={() => router.push("/")}>Back to Home</button>
+            <button onClick={() => router.push("/")}>{t('metadata.backHome')}</button>
           </div>
         </div>
       </div>
@@ -71,79 +73,65 @@ export default function MetadataPage() {
   }
 
   return (
-    <div className="fullbleed">
-      {/* Nav bar */}
-      <div className="flex items-stretch bg-surface border-b border-border">
+    <div className="fullbleed flex min-h-0 flex-1 flex-col bg-canvas">
+      <div className="workspace-bar">
         <button
           onClick={() => router.push("/")}
-          className="self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base"
+          className="button-quiet border-r border-border px-4"
         >
-          ← Back to project
+          ← {t('player.backProject')}
         </button>
-        <button
-          onClick={() => setApiImporterOpen(true)}
-          className="self-stretch px-4 py-2 border-0 border-r border-solid border-border text-base"
-        >
-          Import match metadata
-        </button>
+        <h1 className="m-0 flex items-center px-4 text-sm font-semibold">{t('project.matchInfo')}</h1>
         <span className="flex-1" />
         <button
-          onClick={async () => {
-            if (flushTimer.current) clearTimeout(flushTimer.current);
-            const updated = { ...manifest, matchInfo: infoRef.current };
-            setManifest(updated);
-            await writeManifest(projectDir, updated);
-          }}
-          className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base"
+          onClick={() => setApiImporterOpen(true)}
+          className="button-quiet border-l border-border px-4"
         >
-          Save now
+          {t('project.setupImportMetadata')}
         </button>
         <button
           onClick={async () => {
-            // Flush immediately before navigating
             if (flushTimer.current) clearTimeout(flushTimer.current);
             const updated = { ...manifest, matchInfo: infoRef.current };
             setManifest(updated);
-            await writeManifest(projectDir, updated);
-            router.push("/player");
+            await writeProjectManifest(projectDir, updated);
           }}
-          className="self-stretch px-4 py-2 border-0 border-l border-solid border-border text-base"
+          className="button-primary border-y-0 border-r-0 px-5"
         >
-          Player →
+          {t('project.saveNow')}
         </button>
       </div>
 
-      <div className="px-4 py-3">
-      {/* Match Details */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 lg:px-8">
+      <div className="mx-auto max-w-6xl">
       <MatchDetailsForm matchInfo={info} onChange={persist} />
 
       {/* Teams — side by side (responsive via .team-grid) */}
       <div className="team-grid">
         <TeamPanel
-          label="Home"
+          label={t('metadata.home')}
           team={info.homeTeam}
           onChange={(t) => persist({ ...info, homeTeam: t })}
         />
         <TeamPanel
-          label="Away"
+          label={t('metadata.away')}
           team={info.awayTeam}
           onChange={(t) => persist({ ...info, awayTeam: t })}
         />
       </div>
 
       {/* Notes */}
-      <div className="panel mt-3">
-        <h3 className="mt-0 text-base font-bold">Notes</h3>
+      <section className="form-section">
+        <h3 className="form-heading">{t('metadata.notes')}</h3>
         <textarea
           value={info.notes ?? ""}
           onChange={(e) => persist({ ...info, notes: e.target.value || null })}
           rows={3}
-          className="w-full bg-raised text-accent border border-border p-2 resize-y font-sans text-sm"
-          placeholder="Free-form match notes…"
+          className="w-full max-w-3xl resize-y"
         />
+      </section>
       </div>
       </div>
-      {/* Football-data.org API importer modal */}
       {apiImporterOpen && (
         <FootballDataImporter
           onImport={(partial) => {

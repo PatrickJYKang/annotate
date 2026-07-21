@@ -1,52 +1,40 @@
-export const PRESENTATION_SCHEMA_VERSION = 1;
-
 export type PresentationSlideId = string;
 
-export type StillSlideAnnotationCue = {
+export interface PinAnnotationCue {
   annotationId: string;
   enterAtMs?: number;
   exitAtMs?: number;
-};
-
-export type StillSlideAnnotationSetCue = {
-  annotationSetId: string;
-  enterAtMs?: number;
-  exitAtMs?: number;
-};
-
-export type PresentationTransition =
-  | {
-      mode: 'cut';
-    }
-  | {
-      mode: 'match_video';
-      hideAnnotationsDuringPlayback: boolean;
-      playbackRate?: number;
-      startOffsetMs?: number;
-      endOffsetMs?: number;
-    };
-
-export type StillSlide = {
-  id: PresentationSlideId;
-  kind: 'still';
-  stillId: string;
-  showAnnotations: boolean;
-  notes?: string;
+}
+export interface ClipPauseCue {
+  pinId: string;
   holdMs?: number;
-  annotationSetIds?: string[];
-  annotationSetCues?: StillSlideAnnotationSetCue[];
-  annotationCues?: StillSlideAnnotationCue[];
-};
+  annotationIds?: string[] | null;
+  annotationCues?: PinAnnotationCue[];
+}
 
-export type ClipSlide = {
+export interface ClipSlide {
   id: PresentationSlideId;
   kind: 'clip';
   clipId: string;
+  pausePins: string[] | null;
+  pauseCues?: ClipPauseCue[];
   notes?: string;
   holdMs?: number;
-};
+}
 
-export type TitleSlide = {
+export interface PinSlide {
+  id: PresentationSlideId;
+  kind: 'pin';
+  clipId: string;
+  pinId: string;
+  showAnnotations: boolean;
+  annotationIds?: string[] | null;
+  annotationCues?: PinAnnotationCue[];
+  notes?: string;
+  holdMs?: number;
+}
+
+export interface TitleSlide {
   id: PresentationSlideId;
   kind: 'title';
   template: 'title' | 'section' | 'divider';
@@ -54,9 +42,19 @@ export type TitleSlide = {
   body?: string;
   notes?: string;
   holdMs?: number;
-};
+}
 
-export type PresentationSlide = StillSlide | ClipSlide | TitleSlide;
+export type PresentationSlide = ClipSlide | PinSlide | TitleSlide;
+
+export type PresentationTransition =
+  | { mode: 'cut' }
+  | {
+      mode: 'match_video';
+      hideAnnotationsDuringPlayback: boolean;
+      playbackRate?: number;
+      startOffsetFrames?: number;
+      endOffsetFrames?: number;
+    };
 
 export interface PresentationTheme {
   background?: string;
@@ -65,7 +63,7 @@ export interface PresentationTheme {
 }
 
 export interface Presentation {
-  schema: number;
+  schema: 2;
   id: string;
   name: string;
   createdAt: string;
@@ -75,10 +73,14 @@ export interface Presentation {
   theme?: PresentationTheme;
 }
 
-export function createDefaultPresentation(name: string, id: string, now = new Date()): Presentation {
+export function createDefaultPresentation(
+  name: string,
+  id: string,
+  now = new Date(),
+): Presentation {
   const iso = now.toISOString();
   return {
-    schema: PRESENTATION_SCHEMA_VERSION,
+    schema: 2,
     id,
     name,
     createdAt: iso,
