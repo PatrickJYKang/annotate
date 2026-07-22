@@ -135,4 +135,6 @@ def find_best_iou_match(
             -detections[index].confidence,
         ),
     )
-    return nearest_idx
+    nearest_distance = bbox_bottom_center_distance_to_point(detections[nearest_idx], seed_fx, seed_fy)
+    maximum_fallback_distance = max(48.0, user_bbox.w * 1.5, user_bbox.h * 3.0)
+    return nearest_idx if nearest_distance <= maximum_fallback_distance else None

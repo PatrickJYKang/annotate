@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -20,8 +20,52 @@ from .types import BBox, FrameTrackResult
 logger = logging.getLogger("annotate_sidecar.vendor.trackers.ultralytics_ocsort")
 
 
+def _nearest_source_frame(timestamp_ms: float, source_fps: float) -> int:
+    return max(0, int(np.floor(timestamp_ms * source_fps / 1000.0 + 0.5)))
+
+
+def _iter_video_samples(cap, timestamps: list[float], source_fps: float):
+    """Read dense samples sequentially while retaining seeking for sparse jobs."""
+
+    import cv2
+
+    if not timestamps:
+        return
+
+    target_frames = [_nearest_source_frame(timestamp, source_fps) for timestamp in timestamps]
+    source_span = target_frames[-1] - target_frames[0] + 1
+    use_sequential_decode = source_span <= max(4, len(target_frames) * 4)
+
+    if not use_sequential_decode:
+        for timestamp_ms in timestamps:
+            cap.set(cv2.CAP_PROP_POS_MSEC, timestamp_ms)
+            ok, frame = cap.read()
+            yield timestamp_ms, frame if ok else None
+        return
+
+    cap.set(cv2.CAP_PROP_POS_FRAMES, target_frames[0])
+    next_source_frame = int(round(cap.get(cv2.CAP_PROP_POS_FRAMES)))
+    last_frame = None
+    last_source_frame: Optional[int] = None
+    exhausted = False
+
+    for timestamp_ms, target_frame in zip(timestamps, target_frames):
+        while not exhausted and (last_source_frame is None or last_source_frame < target_frame):
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                exhausted = True
+                last_frame = None
+                break
+            last_frame = frame
+            last_source_frame = next_source_frame
+            next_source_frame += 1
+        yield timestamp_ms, last_frame if last_source_frame == target_frame else None
+
+
 class UltralyticsOCSORTCore:
     """Low-level YOLO + OC-SORT tracking primitive."""
+
+    supports_incremental_stop = True
 
     def __init__(
         self,
@@ -79,7 +123,40 @@ class UltralyticsOCSORTCore:
         )
 
     @staticmethod
-    def _tracked_detections_to_bboxes(detections) -> list[BBox]:
+    def _appearance_descriptor(frame: np.ndarray, xyxy: np.ndarray) -> Optional[tuple[float, ...]]:
+        import cv2
+
+        frame_height, frame_width = frame.shape[:2]
+        x1, y1, x2, y2 = (float(value) for value in xyxy)
+        width = max(0.0, x2 - x1)
+        height = max(0.0, y2 - y1)
+        # The central upper body carries useful kit colour while excluding most grass.
+        crop_x1 = max(0, min(frame_width, int(np.floor(x1 + width * 0.15))))
+        crop_x2 = max(0, min(frame_width, int(np.ceil(x1 + width * 0.85))))
+        crop_y1 = max(0, min(frame_height, int(np.floor(y1 + height * 0.08))))
+        crop_y2 = max(0, min(frame_height, int(np.ceil(y1 + height * 0.58))))
+        if crop_x2 <= crop_x1 or crop_y2 <= crop_y1:
+            return None
+
+        crop = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+        if crop.size == 0:
+            return None
+        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+        mask = ((hsv[:, :, 1] > 45) & (hsv[:, :, 2] > 35)).astype(np.uint8) * 255
+        if int(np.count_nonzero(mask)) < 8:
+            return None
+        histogram = cv2.calcHist([hsv], [0, 1], mask, [18, 4], [0, 180, 0, 256]).reshape(-1)
+        norm = float(np.linalg.norm(histogram))
+        if not np.isfinite(norm) or norm <= 1e-9:
+            return None
+        return tuple(float(value) for value in histogram / norm)
+
+    @classmethod
+    def _tracked_detections_to_bboxes(
+        cls,
+        detections,
+        frame: Optional[np.ndarray] = None,
+    ) -> list[BBox]:
         if len(detections) == 0:
             return []
 
@@ -99,6 +176,7 @@ class UltralyticsOCSORTCore:
                     confidence=float(confidence[index]) if confidence is not None else 0.0,
                     class_id=int(class_id[index]) if class_id is not None else 0,
                     track_id=int(tracker_id[index]) if tracker_id is not None else None,
+                    appearance=cls._appearance_descriptor(frame, xyxy) if frame is not None else None,
                 )
             )
         return boxes
@@ -117,7 +195,8 @@ class UltralyticsOCSORTCore:
         detections: list[BBox] = []
         for result in results:
             for bbox in self._tracked_detections_to_bboxes(
-                self._result_to_detections(result, classes, conf_threshold)
+                self._result_to_detections(result, classes, conf_threshold),
+                frame,
             ):
                 detections.append(bbox)
         return detections
@@ -130,6 +209,7 @@ class UltralyticsOCSORTCore:
         fps: float = 30.0,
         classes: Optional[list[int]] = None,
         conf_threshold: float = 0.25,
+        stop_callback: Optional[Callable[[FrameTrackResult], bool]] = None,
     ) -> list[FrameTrackResult]:
         self._load_model()
         if classes is None:
@@ -166,32 +246,37 @@ class UltralyticsOCSORTCore:
             delta_t=self._delta_t,
         )
 
+        source_fps = float(cap.get(cv2.CAP_PROP_FPS))
+        if not np.isfinite(source_fps) or source_fps <= 0:
+            source_fps = fps
+
         tracked_frames: list[FrameTrackResult] = []
         try:
-            for timestamp_ms in timestamps:
-                cap.set(cv2.CAP_PROP_POS_MSEC, timestamp_ms)
-                ok, frame = cap.read()
-                if not ok or frame is None:
-                    tracked_frames.append(
-                        FrameTrackResult(timestamp_ms=timestamp_ms, detections=[])
-                    )
+            for timestamp_ms, frame in _iter_video_samples(cap, timestamps, source_fps):
+                if frame is None:
+                    frame_result = FrameTrackResult(timestamp_ms=timestamp_ms, detections=[])
+                    tracked_frames.append(frame_result)
+                    if stop_callback and stop_callback(frame_result):
+                        break
                     continue
 
                 results = self._model(frame, verbose=False, conf=conf_threshold)
                 if not results:
-                    tracked_frames.append(
-                        FrameTrackResult(timestamp_ms=timestamp_ms, detections=[])
-                    )
+                    frame_result = FrameTrackResult(timestamp_ms=timestamp_ms, detections=[])
+                    tracked_frames.append(frame_result)
+                    if stop_callback and stop_callback(frame_result):
+                        break
                     continue
 
                 detections = self._result_to_detections(results[0], classes, conf_threshold)
                 tracked = tracker.update(detections)
-                tracked_frames.append(
-                    FrameTrackResult(
-                        timestamp_ms=timestamp_ms,
-                        detections=self._tracked_detections_to_bboxes(tracked),
-                    )
+                frame_result = FrameTrackResult(
+                    timestamp_ms=timestamp_ms,
+                    detections=self._tracked_detections_to_bboxes(tracked, frame),
                 )
+                tracked_frames.append(frame_result)
+                if stop_callback and stop_callback(frame_result):
+                    break
         finally:
             cap.release()
 

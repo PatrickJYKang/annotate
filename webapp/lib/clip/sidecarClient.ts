@@ -58,6 +58,28 @@ export interface TrackingParams {
   confThreshold?: number;
   iouThreshold?: number;
   debugVideo?: boolean;
+  stopOnLoss?: boolean;
+}
+
+export interface PlayerDetection {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  confidence: number;
+}
+
+export interface PlayerDetectionParams {
+  videoPath?: string;
+  videoRef?: string;
+  frameMs: number;
+  classes?: number[];
+  confThreshold?: number;
+}
+
+export interface PlayerDetectionResult {
+  frameMs: number;
+  detections: PlayerDetection[];
 }
 
 export interface TrackingKeyframe {
@@ -75,6 +97,8 @@ export interface TrackingResult {
   detectionCount: number;
   debugVideoPath?: string;
   debugVideoUrl?: string;
+  completed?: boolean;
+  stoppedAtMs?: number | null;
 }
 
 export interface TrackingError {
@@ -83,6 +107,11 @@ export interface TrackingError {
   debugVideoPath?: string;
   debugVideoUrl?: string;
 }
+
+type TrackingStreamEvent =
+  | { type: 'keyframe'; keyframe: TrackingKeyframe }
+  | { type: 'result'; result: TrackingResult }
+  | { type: 'error'; error: Record<string, unknown> };
 
 export interface SegmentationParams {
   videoPath?: string;
@@ -582,11 +611,13 @@ export async function probeVideoImport(
 export async function requestTracking(
   params: TrackingParams,
   baseUrl: string = SIDECAR_BASE_URL,
+  signal?: AbortSignal,
 ): Promise<TrackingResult> {
   const res = await fetch(`${baseUrl}/track`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
+    signal,
   });
 
   if (!res.ok) {
@@ -602,6 +633,88 @@ export async function requestTracking(
     throw err;
   }
 
+  return await res.json();
+}
+
+function trackingErrorFromPayload(body: any, fallback: string): TrackingError {
+  const detail = body?.detail && typeof body.detail === 'object' ? body.detail : body;
+  return {
+    message: extractErrorMessage(body, fallback),
+    detectedBboxes: detail?.detectedBboxes,
+    debugVideoPath: detail?.debugVideoPath,
+    debugVideoUrl: detail?.debugVideoUrl,
+  };
+}
+
+export async function requestTrackingStream(
+  params: TrackingParams,
+  onKeyframe: (keyframe: TrackingKeyframe) => void,
+  baseUrl: string = SIDECAR_BASE_URL,
+  signal?: AbortSignal,
+): Promise<TrackingResult> {
+  const res = await fetch(`${baseUrl}/track/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+    signal,
+  });
+
+  if (res.status === 404) return requestTracking(params, baseUrl, signal);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw trackingErrorFromPayload(body, `Tracking failed (${res.status})`);
+  }
+  if (!res.body) throw new Error('Tracking stream response had no body.');
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let finalResult: TrackingResult | null = null;
+
+  const consumeLine = (line: string) => {
+    if (!line.trim()) return;
+    const event = JSON.parse(line) as TrackingStreamEvent;
+    if (event.type === 'keyframe') {
+      onKeyframe(event.keyframe);
+    } else if (event.type === 'result') {
+      finalResult = event.result;
+    } else if (event.type === 'error') {
+      throw trackingErrorFromPayload(event.error, 'Tracking failed');
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      lines.forEach(consumeLine);
+      if (done) break;
+    }
+    consumeLine(buffer);
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (!finalResult) throw new Error('Tracking stream ended before its final result.');
+  return finalResult;
+}
+
+export async function requestPlayerDetections(
+  params: PlayerDetectionParams,
+  baseUrl: string = SIDECAR_BASE_URL,
+  signal?: AbortSignal,
+): Promise<PlayerDetectionResult> {
+  const res = await fetch(`${baseUrl}/track/detect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+    signal,
+  });
+  if (!res.ok) {
+    throw new Error(await buildErrorMessageFromResponse(res, `Player detection failed (${res.status})`));
+  }
   return await res.json();
 }
 

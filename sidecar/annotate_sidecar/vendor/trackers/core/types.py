@@ -13,6 +13,7 @@ class BBox:
     confidence: float = 0.0
     class_id: int = 0
     track_id: Optional[int] = None
+    appearance: Optional[tuple[float, ...]] = None
 
 
 @dataclass

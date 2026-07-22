@@ -62,6 +62,7 @@ export interface ClipAnnotationStyle {
 export interface ClipAnnotation {
   id: string;
   type: ClipAnnotationType;
+  name?: string;
   coordMode: CoordMode;
   source: AnnotationSource;
   trackingAnchorId?: string | null;
@@ -543,6 +544,9 @@ export function parseClip(raw: unknown, options: ValidateClipOptions = {}): Clip
     }
     if (annotation.coordMode === 'pitch' && annotation.type !== 'box' && annotation.type !== 'circle') {
       throw new Error(`${annotationPath} uses pitch coordinates for an unsupported tool.`);
+    }
+    if (annotation.name !== undefined && typeof annotation.name !== 'string') {
+      throw new Error(`${annotationPath}.name must be a string.`);
     }
     if (
       annotation.trackingAnchorId !== undefined

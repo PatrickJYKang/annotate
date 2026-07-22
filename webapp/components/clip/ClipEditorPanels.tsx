@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Panel,
   PanelResizeHandle,
@@ -73,7 +73,7 @@ export function PinList({
   onOpenCurrent,
   onPinLabelChange,
   onSaveLabel,
-  onAnnotate,
+  onGoToPin,
   onDelete,
   onUndoDelete,
 }: {
@@ -86,7 +86,7 @@ export function PinList({
   onOpenCurrent: () => void | Promise<void>;
   onPinLabelChange: (label: string) => void;
   onSaveLabel: () => void | Promise<void>;
-  onAnnotate: (pinId: string) => void | Promise<void>;
+  onGoToPin: (frame: number) => void;
   onDelete: () => void | Promise<void>;
   onUndoDelete: () => void | Promise<void>;
 }) {
@@ -119,7 +119,7 @@ export function PinList({
             />
             <div className="grid grid-cols-2 gap-1">
               <button onClick={() => void onSaveLabel()}>{t('clip.saveLabel')}</button>
-              <button onClick={() => void onAnnotate(selectedPin.id)}>{t('clip.annotate')}</button>
+              <button onClick={() => onGoToPin(selectedPin.frame)}>{t('clip.goToPin')}</button>
             </div>
             <button className="button-danger mt-1 w-full" onClick={() => void onDelete()}>{t('clip.deletePin')}</button>
           </div>
@@ -131,39 +131,44 @@ export function PinList({
 }
 
 export function TrackingToolbar({
-  tracking,
+  phase,
+  hasCandidate,
+  hasStarted,
+  detecting,
   canTrack,
-  nextCorrectionFrame,
-  rangeEndFrame,
-  currentFrame,
-  onTrack,
+  onBegin,
+  onStart,
+  onStop,
 }: {
-  tracking: boolean;
+  phase: 'idle' | 'choosing' | 'running';
+  hasCandidate: boolean;
+  hasStarted: boolean;
+  detecting: boolean;
   canTrack: boolean;
-  nextCorrectionFrame: number | null;
-  rangeEndFrame: number | null;
-  currentFrame: number;
-  onTrack: (mode?: 'correction' | 'range') => void | Promise<void>;
+  onBegin: () => void;
+  onStart: () => void;
+  onStop: () => void;
 }) {
-  const { t, formatNumber } = useLocale();
+  const { t } = useLocale();
   return (
-    <div className="space-y-2">
-      <button className="w-full" onClick={() => void onTrack()} disabled={tracking || !canTrack}>
-        {tracking ? t('clip.tracking') : t('clip.trackEnd')}
-      </button>
-      {nextCorrectionFrame !== null && (
-        <button className="w-full" onClick={() => void onTrack('correction')} disabled={tracking || !canTrack}>
-          {t('clip.trackCorrection', { frame: formatNumber(nextCorrectionFrame) })}
+    <div className="mb-2 grid grid-cols-2 gap-1">
+      {phase === 'idle' ? (
+        <button className="button-primary col-span-2 w-full" onClick={onBegin} disabled={!canTrack}>
+          {t('clip.track')}
         </button>
-      )}
-      {rangeEndFrame !== null && (
-        <button
-          className="w-full"
-          onClick={() => void onTrack('range')}
-          disabled={tracking || !canTrack || rangeEndFrame === currentFrame}
-        >
-          {t('clip.retrackRange', { frame: formatNumber(rangeEndFrame) })}
+      ) : phase === 'running' ? (
+        <button className="button-danger col-span-2 w-full" onClick={onStop}>
+          {t('clip.stop')}
         </button>
+      ) : (
+        <>
+          <button className="button-primary w-full" onClick={onStart} disabled={!hasCandidate}>
+            {detecting && !hasCandidate
+              ? t('clip.detecting')
+              : t(hasStarted ? 'clip.continue' : 'clip.start')}
+          </button>
+          <button className="button-danger w-full" onClick={onStop}>{t('clip.stop')}</button>
+        </>
       )}
     </div>
   );
@@ -174,41 +179,84 @@ export function AnnotationInspector({
   trackingState,
   hasPositionKeyframe,
   hasVisibilityKeyframe,
-  nextCorrectionFrame,
-  rangeEndFrame,
-  currentFrame,
-  tracking,
+  trackingPhase,
+  trackingHasCandidate,
+  trackingHasStarted,
+  detectingPlayers,
   canTrack,
   onAddKeyframe,
   onDeleteKeyframe,
-  onShow,
-  onHide,
-  onTrack,
+  onBeginTracking,
+  onStartTracking,
+  onStopTracking,
+  onRenameHighlight,
   onDeleteObject,
 }: {
   annotation: ClipAnnotation | null;
   trackingState: string | null;
   hasPositionKeyframe: boolean;
   hasVisibilityKeyframe: boolean;
-  nextCorrectionFrame: number | null;
-  rangeEndFrame: number | null;
-  currentFrame: number;
-  tracking: boolean;
+  trackingPhase: 'idle' | 'choosing' | 'running';
+  trackingHasCandidate: boolean;
+  trackingHasStarted: boolean;
+  detectingPlayers: boolean;
   canTrack: boolean;
   onAddKeyframe: () => void;
   onDeleteKeyframe: () => void;
-  onShow: () => void;
-  onHide: () => void;
-  onTrack: (mode?: 'correction' | 'range') => void | Promise<void>;
+  onBeginTracking: () => void;
+  onStartTracking: () => void;
+  onStopTracking: () => void;
+  onRenameHighlight: (name?: string) => void;
   onDeleteObject: () => void;
 }) {
   const { t, formatNumber } = useLocale();
+  const [nameDraft, setNameDraft] = useState('');
+
+  useEffect(() => {
+    setNameDraft(annotation?.type === 'highlight' ? annotation.name ?? '' : '');
+  }, [annotation?.id, annotation?.name, annotation?.type]);
+
+  const commitHighlightName = () => {
+    if (annotation?.type !== 'highlight') return;
+    const name = nameDraft.trim();
+    setNameDraft(name);
+    if (name !== (annotation.name ?? '')) onRenameHighlight(name || undefined);
+  };
+
   return (
     <section>
       <h2 className="section-kicker mb-2">{t('clip.objectInspector')}</h2>
+      <TrackingToolbar
+        phase={trackingPhase}
+        hasCandidate={trackingHasCandidate}
+        hasStarted={trackingHasStarted}
+        detecting={detectingPlayers}
+        canTrack={canTrack}
+        onBegin={onBeginTracking}
+        onStart={onStartTracking}
+        onStop={onStopTracking}
+      />
       {annotation ? (
         <div className="space-y-2">
           <div className="property-section">
+            {annotation.type === 'highlight' && (
+              <label className="block px-2 py-1.5 text-muted">
+                <span className="mb-1 block">{t('annotation.name')}</span>
+                <input
+                  aria-label={t('annotation.name')}
+                  className="w-full"
+                  type="text"
+                  maxLength={80}
+                  value={nameDraft}
+                  placeholder={t('annotation.name')}
+                  onChange={(event) => setNameDraft(event.target.value)}
+                  onBlur={commitHighlightName}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur();
+                  }}
+                />
+              </label>
+            )}
             <div className="property-row">
               <strong className="capitalize text-primary">{t(`tool.${annotation.type}`)}</strong>
               <span>{t('clip.source', {
@@ -232,17 +280,7 @@ export function AnnotationInspector({
           <div className="grid grid-cols-2 gap-1">
             <button onClick={onAddKeyframe} disabled={hasPositionKeyframe}>{t('clip.keyframeHere')}</button>
             <button onClick={onDeleteKeyframe} disabled={!hasPositionKeyframe && !hasVisibilityKeyframe}>{t('clip.deleteKeyframe')}</button>
-            <button onClick={onShow}>{t('clip.showKeyframe')}</button>
-            <button onClick={onHide}>{t('clip.hideKeyframe')}</button>
           </div>
-          <TrackingToolbar
-            tracking={tracking}
-            canTrack={canTrack && annotation.type === 'highlight'}
-            nextCorrectionFrame={nextCorrectionFrame}
-            rangeEndFrame={rangeEndFrame}
-            currentFrame={currentFrame}
-            onTrack={onTrack}
-          />
           <button className="button-danger w-full" onClick={onDeleteObject}>{t('clip.deleteObject')}</button>
         </div>
       ) : (

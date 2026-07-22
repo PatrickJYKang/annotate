@@ -43,6 +43,7 @@ const canonicalClip = {
     {
       id: 'animated_highlight',
       type: 'highlight',
+      name: 'Left winger',
       coordMode: 'image',
       source: 'auto',
       style: { stroke: '#ffffff', strokeWidth: 4 },
@@ -173,6 +174,10 @@ describe('validateClip', () => {
     const invalidTag = cloneClip() as unknown as Record<string, any>;
     invalidTag.tags.facets['../escape'] = 'value';
     expect(() => parseClip(invalidTag)).toThrow('Invalid facet group id');
+
+    const invalidName = cloneClip() as unknown as Record<string, any>;
+    invalidName.annotations[0].name = 8;
+    expect(() => parseClip(invalidName)).toThrow('annotations[0].name must be a string');
   });
 
   it('enforces unique, sorted, in-range pins with one default document', () => {

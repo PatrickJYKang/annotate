@@ -76,6 +76,8 @@ Relative `videoPath` values are rejected.
 |----------|---------------------|--------------------------------------|
 | `GET`    | `/health`           | Sidecar status & model availability  |
 | `POST`   | `/track`            | Object tracking (annotate adapter + vendored trackers OC-SORT core; optional debug artifact) |
+| `POST`   | `/track/stream`     | NDJSON tracking stream with each trusted keyframe followed by the final result |
+| `POST`   | `/track/detect`     | Detect all players at one frame for interactive target selection |
 | `GET`    | `/track/debug/{artifact}` | Download a saved tracking debug MP4 artifact |
 | `POST`   | `/homography`       | Pitch homography (annotate range adapter + vendored trackers PnLCalib provider) |
 | `POST`   | `/segment`          | Person segmentation (YOLO + MobileSAM) |
@@ -104,7 +106,7 @@ annotate_sidecar/
   video_registry.py        # Temporary videoRef -> temp-file registry
   routes/
     health.py              # GET /health
-    track.py               # POST /track + optional debug artifact download
+    track.py               # Tracking, player detection, and optional debug artifact download
     segment.py             # POST /segment
     homography.py          # POST /homography
     export.py              # Export endpoints
@@ -133,14 +135,17 @@ Current ownership stance:
 - `annotate` sidecar owns the practical app defaults and override policy
 - vendored trackers core owns lower-level implementation details
 - `/track` request fields (`fps`, `classes`, `confThreshold`, `iouThreshold`, `debugVideo`) act as request-level overrides
+- `stopOnLoss` enables the interactive editor contract: inference stops at the first frame where continuity cannot identify the chosen player and returns `stoppedAtMs`
 
 Current app-facing tracking semantics:
 
-- the clip editor seeds tracking from `highlight` annotations
+- `/track/detect` supplies provisional foot-anchored highlights for every detected player at the current frame
+- the clip editor creates a `highlight` from the player the analyst selects
 - tracked highlight geometry is treated as foot-anchored
 - the sidecar seed matcher prefers the selected player's foot point and tolerates loose seeds
 - raw OC-SORT IDs are treated as a preference signal, not absolute truth, because seed-frame detections may be immature (`track_id = -1`) and later frames can reassign IDs
 - the annotate-owned adapter follows spatial continuity when a raw ID would imply an unreasonable jump
+- when continuity is lost, the editor pauses at that frame for human reacquisition rather than extrapolating an uncertain identity
 
 Optional sidecar-level environment overrides:
 

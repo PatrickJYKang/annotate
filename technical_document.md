@@ -408,7 +408,8 @@ temporary `videoRef` with the sidecar for CV operations.
   keyframe.
 - Geometry is interpolated between keyframes; the shared renderer is used by
   both the editor and presentation playback.
-- `K`, `S`, and `H` add position, show, and hide keyframes.
+- `K` adds a position keyframe. Visibility still exists in persisted clips but
+  is not exposed as a manual editor control.
 - Arrow keys step exactly one frame; Space toggles playback.
 - Cmd/Ctrl-Z and redo shortcuts operate on editor history.
 - Delete removes the selected keyframe; Shift-Delete removes the object.
@@ -421,14 +422,27 @@ another shape visually overlaps it.
 
 ### Tracking
 
-Only `highlight` objects can seed tracking. The seed bbox is foot-anchored to
-match how analysts place a highlight at a player's feet. The sidecar detects
-all players and uses OC-SORT plus an Annotate continuity adapter; raw tracker
-IDs are preference signals rather than absolute identity because early-frame
-IDs can be immature or reassigned.
+`Track` detects every player at the current frame and draws provisional,
+foot-anchored highlights. Selecting one creates the highlight; `Start` runs
+OC-SORT plus the Annotate continuity adapter forward from that exact frame.
+Raw tracker IDs are preference signals rather than absolute identity because
+early-frame IDs can be immature or reassigned.
 
-Normal forward tracking runs from the selected frame to the next non-tracked
-geometry boundary or clip end. Range and correction modes are also available.
+The interactive tracking request stops inference at the first frame where no
+reasonable continuity match exists. That frame receives an explicit hidden
+boundary and becomes the next reacquisition point. While provisional players
+are visible, the analyst can play or step to a usable frame and select the
+target again. Annotate linearly fills every intervening absolute frame, marks
+the human endpoint as a correction, then waits. `Continue` resumes tracking
+from that correction; `Stop` keeps the current work. Using `Stop` before
+`Start` retains only the selected seed keyframe. Tracking also ends
+automatically at clip end.
+
+While tracking runs, `/track/stream` emits each trusted keyframe as NDJSON. The
+clip editor applies those frames to its in-memory annotation state immediately,
+so the canvas and keyframe timeline grow live, then performs one persisted commit
+from the final result. The original `/track` JSON endpoint remains available.
+
 Returned timestamps are converted to nearest absolute source frames before
 merging. Image-space annotations whose `trackingAnchorId` points at the
 highlight receive the same translated motion, preserving linked arrows, lobs,
@@ -566,6 +580,8 @@ Important live endpoints:
 | `POST` | `/video/register` | Temporary CV/media locator |
 | `DELETE` | `/video/{videoRef}` | Temporary-file cleanup |
 | `POST` | `/track` | Highlight tracking |
+| `POST` | `/track/stream` | Live NDJSON highlight tracking |
+| `POST` | `/track/detect` | Per-frame provisional player detection |
 | `POST` | `/homography` | Clip/pin PnLCalib calibration |
 | `POST` | `/segment` | Available foreground-mask API; no canonical v2 UI |
 | `POST` | `/derived-media/exact-motion` | Prepared presentation motion |
@@ -612,9 +628,8 @@ and both locales.
   motion; authoring can continue without CV once imported media exists.
 - PnLCalib needs its upstream assets/weights at a configured discovery path.
 - The tagging board is file-configurable but has no in-app board designer.
-- Tracking is single-highlight per operation in the current v2 editor; linked
-  followers move with that highlight, but multi-object batch tracking is not
-  exposed.
+- Tracking is single-highlight per interactive session; linked followers move
+  with that highlight, but multi-object batch tracking is not exposed.
 - Foreground segmentation is experimental and not enabled in the canonical pin
   annotation flow.
 - Clip MP4 rendering is not exposed in the current v2 UI.

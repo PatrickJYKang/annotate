@@ -12,6 +12,7 @@ import {
 export type ExportShape = {
   id: string;
   type: 'box' | 'circle' | 'shadow' | 'arrow' | 'lob' | 'text' | 'poly' | 'highlight';
+  name?: string;
   x: number;
   y: number;
   rotation?: number;

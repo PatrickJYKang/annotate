@@ -145,9 +145,29 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   await page.setViewportSize({ width: 1440, height: 1000 });
   page = await openEditor(page);
 
-  await page.getByRole('button', { name: 'Pin at frame 15' }).click();
+  const existingObjectKeyframe = page.getByRole('button', { name: 'Arrow keyframe at frame 15' });
+  const existingPin = page.getByRole('button', { name: 'Pin at frame 15' });
+  await expect(existingObjectKeyframe).toBeVisible();
+  await expect(page.getByTestId('clip-frame-grid')).toHaveAttribute('data-grid-step', '1');
+  const markerPositions = await existingObjectKeyframe.evaluate((element) => {
+    const lane = element.closest<HTMLElement>('[data-testid="clip-timeline-lane"]');
+    if (!lane) throw new Error('Timeline lane missing');
+    const pin = lane.querySelector<HTMLElement>('[aria-label="Pin at frame 15"]');
+    if (!pin) throw new Error('Matching pin missing');
+    return {
+      object: Number.parseFloat((element as HTMLElement).style.left),
+      pin: Number.parseFloat(pin.style.left),
+    };
+  });
+  expect(markerPositions.object).toBeCloseTo(markerPositions.pin, 4);
+
+  await existingPin.click();
+  await page.getByRole('button', { name: 'Step forward' }).click();
+  await expect(page.getByText(/Frame 16 · clip 5–44/)).toBeVisible();
+  await page.getByRole('button', { name: 'Go to pin' }).click();
+  await expect(page.getByText(/Frame 15 · clip 5–44/)).toBeVisible();
   const firstPinPagePromise = page.waitForEvent('popup');
-  await page.getByRole('button', { name: 'Annotate' }).click();
+  await page.getByRole('button', { name: 'Open pin at f15' }).click();
   let pinPage = await firstPinPagePromise;
   await pinPage.bringToFront();
   await pinPage.setViewportSize({ width: 1440, height: 1000 });
@@ -256,6 +276,7 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   await expect(stage).toBeVisible();
   await annotator.getByRole('button', { name: 'Highlight', exact: true }).click();
   await stage.click({ position: { x: 300, y: 220 } });
+  await annotator.getByLabel('Name', { exact: true }).fill('Left back');
   await annotator.getByRole('button', { name: 'Arrow', exact: true }).click();
   await stage.click({ position: { x: 300, y: 220 } });
   await stage.click({ position: { x: 450, y: 170 } });
@@ -282,6 +303,7 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   const highlight = storedPin.document.shapes.find((shape: { type: string }) => shape.type === 'highlight');
   const arrow = storedPin.document.shapes.find((shape: { type: string }) => shape.type === 'arrow');
   const poly = storedPin.document.shapes.find((shape: { type: string }) => shape.type === 'poly');
+  expect(highlight.name).toBe('Left back');
   expect(arrow.vertexRefs[0]).toBe(highlight.id);
   expect(poly.vertexRefs[0]).toBe(highlight.id);
 
@@ -304,8 +326,9 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
       arrowRef: importedArrow?.vertexRefs?.[0] ?? null,
       polyRef: importedPoly?.vertexRefs?.[0] ?? null,
       highlightId: importedHighlight?.id ?? null,
+      highlightName: importedHighlight?.name ?? null,
     };
-  }).toMatchObject({ count: 3 });
+  }).toMatchObject({ count: 3, highlightName: 'Left back' });
   const importedClip = await readClip(page);
   const importedAtSixteen = importedClip.annotations.filter((annotation: { keyframes: Array<{ frame: number }> }) => (
     annotation.keyframes.some((keyframe) => keyframe.frame === 16)

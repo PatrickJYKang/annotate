@@ -5,6 +5,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ClipAnnotation, Clip } from '../../lib/types/clip';
 import { useLocale, type Translate } from '../../lib/i18n';
 import { createTimelineManualOverride } from '../../lib/media/timelineInteraction';
+import {
+  frameGridStep,
+  framePositionX,
+  isDeliberateKeyframeDrag,
+  timelineXToFrame,
+} from '../../lib/clip/timelineGeometry';
 
 export type TimelineKeyframeRef = {
   annotationId: string;
@@ -13,13 +19,25 @@ export type TimelineKeyframeRef = {
   frame: number;
 };
 
+type TimelineRevealRequest = {
+  frame: number;
+  id: number;
+};
+
+type KeyframeDragState = {
+  pointerId: number;
+  ref: TimelineKeyframeRef;
+  startClientX: number;
+  dragging: boolean;
+};
+
 interface TimelineStripProps {
   clip: Clip;
   currentFrame: number;
   selectedAnnotationId: string | null;
   selectedPinId?: string | null;
+  revealRequest?: TimelineRevealRequest | null;
   selectedKeyframe: TimelineKeyframeRef | null;
-  rangeEndFrame?: number | null;
   isPlaying: boolean;
   onSkipBack: () => void;
   onPrevious: () => void;
@@ -44,7 +62,9 @@ function clampFrameToClip(clip: Clip, frame: number): number {
 }
 
 function annotationLabel(annotation: ClipAnnotation, index: number, t: Translate): string {
-  return `${index + 1}. ${t(`tool.${annotation.type}`)}${annotation.coordMode === 'pitch' ? ` · ${t('clip.coordPitch')}` : ''}`;
+  const highlightName = annotation.type === 'highlight' ? annotation.name?.trim() : '';
+  const label = highlightName || t(`tool.${annotation.type}`);
+  return `${index + 1}. ${label}${annotation.coordMode === 'pitch' ? ` · ${t('clip.coordPitch')}` : ''}`;
 }
 
 function annotationAccentColor(annotation: ClipAnnotation): string {
@@ -58,8 +78,8 @@ export default function TimelineStrip({
   currentFrame,
   selectedAnnotationId,
   selectedPinId = null,
+  revealRequest = null,
   selectedKeyframe,
-  rangeEndFrame = null,
   isPlaying,
   onSkipBack,
   onPrevious,
@@ -78,9 +98,14 @@ export default function TimelineStrip({
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const manualOverrideRef = useRef<ReturnType<typeof createTimelineManualOverride> | null>(null);
   const ignoreScrollRef = useRef(false);
+  const handledRevealRequestRef = useRef<number | null>(null);
+  const keyframeDragRef = useRef<KeyframeDragState | null>(null);
   if (!manualOverrideRef.current) manualOverrideRef.current = createTimelineManualOverride();
   const frameCount = clip.endFrame - clip.startFrame;
   const laneWidth = Math.max(640, viewportWidth, frameCount * MIN_FRAME_WIDTH * zoom);
+  const frameSpacing = frameCount > 1 ? laneWidth / (frameCount - 1) : laneWidth;
+  const gridStep = frameGridStep(frameSpacing);
+  const gridSpacing = frameSpacing * gridStep;
 
   const setScrollLeftProgrammatically = useCallback((scroller: HTMLDivElement, scrollLeft: number) => {
     ignoreScrollRef.current = true;
@@ -101,20 +126,66 @@ export default function TimelineStrip({
   }, []);
 
   const frameToX = useCallback((frame: number) => {
-    if (frameCount <= 1) return 0;
-    return ((clampFrameToClip(clip, frame) - clip.startFrame) / (frameCount - 1)) * laneWidth;
-  }, [clip, frameCount, laneWidth]);
+    return framePositionX(frame, clip.startFrame, clip.endFrame, laneWidth);
+  }, [clip.endFrame, clip.startFrame, laneWidth]);
+
+  useEffect(() => {
+    if (!revealRequest || handledRevealRequestRef.current === revealRequest.id) return;
+    const scroller = scrollerRef.current;
+    if (!scroller || viewportWidth <= 0) return;
+    handledRevealRequestRef.current = revealRequest.id;
+    setScrollLeftProgrammatically(
+      scroller,
+      Math.max(0, frameToX(revealRequest.frame) - viewportWidth / 2),
+    );
+  }, [frameToX, revealRequest, setScrollLeftProgrammatically, viewportWidth]);
 
   const pointerToFrame = useCallback((clientX: number) => {
     const scroller = scrollerRef.current;
-    if (!scroller || frameCount <= 1) return clip.startFrame;
+    if (!scroller) return clip.startFrame;
     const rect = scroller.getBoundingClientRect();
     const contentX = clientX - rect.left + scroller.scrollLeft;
-    return clampFrameToClip(
-      clip,
-      clip.startFrame + (contentX / laneWidth) * (frameCount - 1),
-    );
-  }, [clip, frameCount, laneWidth]);
+    return timelineXToFrame(contentX, clip.startFrame, clip.endFrame, laneWidth);
+  }, [clip.endFrame, clip.startFrame, laneWidth]);
+
+  const handleKeyframePointerDown = useCallback((
+    event: React.PointerEvent<HTMLButtonElement>,
+    ref: TimelineKeyframeRef,
+    draggable: boolean,
+  ) => {
+    event.stopPropagation();
+    onSelectAnnotation(ref.annotationId);
+    onSelectKeyframe(ref);
+    onSeek(ref.frame);
+    if (!draggable || event.button !== 0) return;
+    keyframeDragRef.current = {
+      pointerId: event.pointerId,
+      ref,
+      startClientX: event.clientX,
+      dragging: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, [onSeek, onSelectAnnotation, onSelectKeyframe]);
+
+  const handleKeyframePointerMove = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = keyframeDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId
+      || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    if (!drag.dragging && !isDeliberateKeyframeDrag(drag.startClientX, event.clientX)) return;
+    drag.dragging = true;
+    onSeek(pointerToFrame(event.clientX));
+  }, [onSeek, pointerToFrame]);
+
+  const handleKeyframePointerEnd = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = keyframeDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId
+      || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    if (event.type === 'pointerup' && drag.dragging) {
+      onMoveKeyframe(drag.ref, pointerToFrame(event.clientX));
+    }
+    keyframeDragRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }, [onMoveKeyframe, pointerToFrame]);
 
   useEffect(() => {
     if (!isPlaying || manualOverrideRef.current?.isActive()) return;
@@ -320,15 +391,17 @@ export default function TimelineStrip({
                 );
               })}
             </div>
-            {rangeEndFrame != null && (
-              <div
-                className="pointer-events-none absolute top-7 bottom-0 bg-amber-400/10"
-                style={{
-                  left: Math.min(frameToX(currentFrame), frameToX(rangeEndFrame)),
-                  width: Math.abs(frameToX(rangeEndFrame) - frameToX(currentFrame)),
-                }}
-              />
-            )}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-0 top-7 bottom-0"
+              data-testid="clip-frame-grid"
+              data-grid-step={gridStep}
+              style={{
+                backgroundImage: 'linear-gradient(to right, rgba(148, 163, 184, 0.2) 1px, transparent 1px)',
+                backgroundPosition: 'left top',
+                backgroundSize: `${gridSpacing}px 100%`,
+              }}
+            />
             <div
               className="absolute inset-x-0 border-b border-border/70 bg-amber-400/[0.03]"
               style={{ top: 28, height: ROW_HEIGHT }}
@@ -383,28 +456,16 @@ export default function TimelineStrip({
                         left: frameToX(keyframe.frame),
                         transform: 'translate(-50%, -50%) rotate(45deg)',
                         outline: selected ? '2px solid #fff' : undefined,
-                        cursor: draggable ? 'ew-resize' : 'pointer',
+                        cursor: draggable ? 'grab' : 'pointer',
                       }}
                       title={t('timeline.keyframeTitle', {
                         provenance: t(`timeline.provenance.${keyframe.provenance ?? 'manual'}`),
                         frame: formatNumber(keyframe.frame),
                       })}
-                      onPointerDown={(event) => {
-                        event.stopPropagation();
-                        onSelectAnnotation(annotation.id);
-                        onSelectKeyframe(ref);
-                        onSeek(keyframe.frame);
-                        if (draggable && event.button === 0) event.currentTarget.setPointerCapture(event.pointerId);
-                      }}
-                      onPointerMove={(event) => {
-                        if (!draggable || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
-                        onSeek(pointerToFrame(event.clientX));
-                      }}
-                      onPointerUp={(event) => {
-                        if (!draggable || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
-                        onMoveKeyframe(ref, pointerToFrame(event.clientX));
-                        event.currentTarget.releasePointerCapture(event.pointerId);
-                      }}
+                      onPointerDown={(event) => handleKeyframePointerDown(event, ref, draggable)}
+                      onPointerMove={handleKeyframePointerMove}
+                      onPointerUp={handleKeyframePointerEnd}
+                      onPointerCancel={handleKeyframePointerEnd}
                     />
                   );
                 })}
@@ -432,28 +493,16 @@ export default function TimelineStrip({
                         left: frameToX(keyframe.frame),
                         transform: 'translate(-50%, -50%)',
                         outline: selected ? '2px solid #fff' : undefined,
-                        cursor: 'ew-resize',
+                        cursor: 'grab',
                       }}
                       title={t('timeline.visibilityTitle', {
                         action: t(`timeline.action.${keyframe.action}`),
                         frame: formatNumber(keyframe.frame),
                       })}
-                      onPointerDown={(event) => {
-                        event.stopPropagation();
-                        onSelectAnnotation(annotation.id);
-                        onSelectKeyframe(ref);
-                        onSeek(keyframe.frame);
-                        if (event.button === 0) event.currentTarget.setPointerCapture(event.pointerId);
-                      }}
-                      onPointerMove={(event) => {
-                        if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-                        onSeek(pointerToFrame(event.clientX));
-                      }}
-                      onPointerUp={(event) => {
-                        if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-                        onMoveKeyframe(ref, pointerToFrame(event.clientX));
-                        event.currentTarget.releasePointerCapture(event.pointerId);
-                      }}
+                      onPointerDown={(event) => handleKeyframePointerDown(event, ref, true)}
+                      onPointerMove={handleKeyframePointerMove}
+                      onPointerUp={handleKeyframePointerEnd}
+                      onPointerCancel={handleKeyframePointerEnd}
                     />
                   );
                 })}

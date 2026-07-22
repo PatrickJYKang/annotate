@@ -32,13 +32,17 @@ export function bboxToCircle(bbox: Bbox): { cx: number; cy: number; rx: number; 
   };
 }
 
-export function bboxToHighlight(bbox: Bbox): { cx: number; cy: number; radius: number } {
-  const radius = (bbox.w / 2 + bbox.h / 2) / 2;
+export function bboxToHighlight(
+  bbox: Bbox,
+  fixedRadius?: number,
+): { cx: number; cy: number; radius: number } {
+  const radius = fixedRadius ?? (bbox.w / 2 + bbox.h / 2) / 2;
   const radiusY = radius * 0.35;
+  const footOffset = radius * 0.25;
   return {
     cx: bbox.x + bbox.w / 2,
-    // Anchor tracked highlights to the player's feet rather than the bbox centre.
-    cy: bbox.y + bbox.h - radiusY,
+    // Sit the ellipse just below the detected bbox so it reads around the feet.
+    cy: bbox.y + bbox.h - radiusY + footOffset,
     radius,
   };
 }
@@ -65,6 +69,7 @@ export function convertTrackingKeyframes(
   annotationType: ClipAnnotationType,
   videoFps: number,
   frameCount: number,
+  options: { highlightRadius?: number } = {},
 ): ClipKeyframe[] {
   const byFrame = new Map<number, ClipKeyframe>();
 
@@ -89,7 +94,10 @@ export function convertTrackingKeyframes(
         keyframe = { ...base, ...bboxToArrow(raw.bbox) } as ClipKeyframe;
         break;
       case 'highlight':
-        keyframe = { ...base, ...bboxToHighlight(raw.bbox) } as ClipKeyframe;
+        keyframe = {
+          ...base,
+          ...bboxToHighlight(raw.bbox, options.highlightRadius),
+        } as ClipKeyframe;
         break;
       case 'text':
         keyframe = { ...base, x: raw.bbox.x, y: raw.bbox.y } as ClipKeyframe;

@@ -45,6 +45,7 @@ export type { StrokePattern } from "../../lib/annotate/shapeRendering";
 export type Shape = {
   id: string;
   type: 'box' | 'circle' | 'shadow' | 'arrow' | 'lob' | 'text' | 'poly' | 'highlight';
+  name?: string;
   x: number;
   y: number;
   rotation?: number;
@@ -1061,6 +1062,8 @@ export default function Editor({
       const rx = 40;
       const ry = 10;
       setShapes(prev => [...prev, { id, type: 'highlight', x: p.x, y: p.y, rx, ry, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: defFill, fillOpacity: defFillOp } }]);
+      setSelectedId(id);
+      setSelectedIds([]);
       return;
     }
     if (tool === 'text') {
@@ -2729,6 +2732,24 @@ export default function Editor({
 
             return (
               <div className="grid grid-cols-2 gap-1.5 mt-2">
+                {selShapes.length === 1 && first?.type === 'highlight' && (
+                  <>
+                    <label className="status" htmlFor={`highlight-name-${first.id}`}>{t('annotation.name')}</label>
+                    <input
+                      id={`highlight-name-${first.id}`}
+                      type="text"
+                      maxLength={80}
+                      value={first.name ?? ''}
+                      placeholder={t('annotation.name')}
+                      onChange={(event) => {
+                        const name = event.target.value;
+                        setShapes((previous) => previous.map((shape) => (
+                          shape.id === first.id ? { ...shape, name } : shape
+                        )));
+                      }}
+                    />
+                  </>
+                )}
                 {anyFill ? (
                   <>
                     <label className="status">{t('annotation.colors')}</label>

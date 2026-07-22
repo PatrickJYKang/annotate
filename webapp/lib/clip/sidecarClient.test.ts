@@ -6,6 +6,8 @@ import {
   probeVideoImport,
   readNormalizedVideoMetadata,
   requestTracking,
+  requestTrackingStream,
+  requestPlayerDetections,
   requestExactMotionEncode,
 } from './sidecarClient';
 
@@ -279,5 +281,108 @@ describe('requestTracking', () => {
       debugVideoPath: '/tmp/tracking_debug_demo.mp4',
       debugVideoUrl: '/track/debug/tracking_debug_demo.mp4',
     });
+  });
+
+  it('sends stop-on-loss tracking as an opt-in request', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        keyframes: [],
+        trackId: 7,
+        detectionCount: 10,
+        completed: false,
+        stoppedAtMs: 1400,
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await requestTracking({
+      videoRef: 'video-ref-1',
+      startMs: 1000,
+      endMs: 2000,
+      seedBbox: { x: 10, y: 20, w: 30, h: 40 },
+      seedFrameMs: 1000,
+      stopOnLoss: true,
+    }, 'http://127.0.0.1:8321');
+
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:8321/track', expect.objectContaining({
+      body: expect.stringContaining('"stopOnLoss":true'),
+    }));
+  });
+
+  it('delivers streamed keyframes before the final tracking result resolves', async () => {
+    const encoder = new TextEncoder();
+    let finishStream = () => {};
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(`${JSON.stringify({
+          type: 'keyframe',
+          keyframe: { tMs: 1000, x: 10, y: 20, w: 30, h: 40, visible: true },
+        })}\n`));
+        finishStream = () => {
+          controller.enqueue(encoder.encode(`${JSON.stringify({
+            type: 'result',
+            result: {
+              keyframes: [{ tMs: 1000, x: 10, y: 20, w: 30, h: 40, visible: true }],
+              trackId: 7,
+              detectionCount: 1,
+              completed: true,
+              stoppedAtMs: null,
+            },
+          })}\n`));
+          controller.close();
+        };
+      },
+    });
+    const fetchMock = vi.fn(async () => new Response(stream, {
+      status: 200,
+      headers: { 'Content-Type': 'application/x-ndjson' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const keyframes: Array<{ tMs: number }> = [];
+    let resolved = false;
+
+    const resultPromise = requestTrackingStream({
+      videoRef: 'video-ref-1',
+      startMs: 1000,
+      endMs: 2000,
+      seedBbox: { x: 10, y: 20, w: 30, h: 40 },
+      seedFrameMs: 1000,
+      stopOnLoss: true,
+    }, (keyframe) => keyframes.push(keyframe)).then((result) => {
+      resolved = true;
+      return result;
+    });
+
+    await vi.waitFor(() => expect(keyframes).toEqual([{ tMs: 1000, x: 10, y: 20, w: 30, h: 40, visible: true }]));
+    expect(resolved).toBe(false);
+    finishStream();
+    await expect(resultPromise).resolves.toMatchObject({ trackId: 7, completed: true });
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:8321/track/stream', expect.anything());
+  });
+});
+
+describe('requestPlayerDetections', () => {
+  it('requests all player detections at an exact video timestamp', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        frameMs: 1200,
+        detections: [{ x: 10, y: 20, w: 30, h: 40, confidence: 0.9 }],
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(requestPlayerDetections({
+      videoRef: 'video-ref-1',
+      frameMs: 1200,
+    }, 'http://127.0.0.1:8321')).resolves.toEqual({
+      frameMs: 1200,
+      detections: [{ x: 10, y: 20, w: 30, h: 40, confidence: 0.9 }],
+    });
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:8321/track/detect', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ videoRef: 'video-ref-1', frameMs: 1200 }),
+    }));
   });
 });

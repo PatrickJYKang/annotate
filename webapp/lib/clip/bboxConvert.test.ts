@@ -31,8 +31,13 @@ describe('bboxToHighlight', () => {
   it('anchors the highlight ellipse to the bbox foot point', () => {
     const r = bboxToHighlight(bbox);
     expect(r.cx).toBe(130);
-    expect(r.cy).toBe(231.25);
+    expect(r.cy).toBe(237.5);
     expect(r.radius).toBe(25); // (30 + 20) / 2
+  });
+
+  it('preserves an explicitly supplied highlight radius', () => {
+    const r = bboxToHighlight(bbox, 12);
+    expect(r).toEqual({ cx: 130, cy: 238.8, radius: 12 });
   });
 });
 
@@ -89,8 +94,16 @@ describe('convertTrackingKeyframes', () => {
     const kfs = convertTrackingKeyframes(raw.slice(0, 1), 'highlight', videoFps, frameCount);
     const k = kfs[0] as HighlightKeyframe;
     expect(k.cx).toBe(25);
-    expect(k.cy).toBe(53.875);
+    expect(k.cy).toBe(58.25);
     expect(k.radius).toBe(17.5); // (15 + 20) / 2
+  });
+
+  it('keeps tracked highlights at the seed size as detection boxes change', () => {
+    const kfs = convertTrackingKeyframes(raw.slice(0, 2), 'highlight', videoFps, frameCount, {
+      highlightRadius: 20,
+    }) as HighlightKeyframe[];
+    expect(kfs.map((keyframe) => keyframe.radius)).toEqual([20, 20]);
+    expect(kfs.map((keyframe) => keyframe.cy)).toEqual([58, 138]);
   });
 
   it('converts to poly keyframes (4 corners)', () => {

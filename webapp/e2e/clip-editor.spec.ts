@@ -15,6 +15,13 @@ type TrackRequest = {
   seedFrameMs: number;
   fps?: number;
   seedBbox: { x: number; y: number; w: number; h: number };
+  stopOnLoss?: boolean;
+};
+
+type DetectionRequest = {
+  videoRef?: string;
+  videoPath?: string;
+  frameMs: number;
 };
 
 type HomographyRequest = {
@@ -28,7 +35,66 @@ type HomographyRequest = {
 
 async function installMockSidecar(page: Page) {
   const trackRequests: TrackRequest[] = [];
+  const detectionRequests: DetectionRequest[] = [];
   const homographyRequests: HomographyRequest[] = [];
+
+  // Route.fulfill buffers its body. Re-stream tracking events in separate tasks so
+  // React gets the same incremental updates it receives from the real sidecar.
+  await page.context().addInitScript(({ sidecarBaseUrl }) => {
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+      const url = new URL(
+        input instanceof Request ? input.url : String(input),
+        window.location.href,
+      );
+      if (url.href !== `${sidecarBaseUrl}/track/stream`) {
+        return nativeFetch(input, init);
+      }
+
+      const buffered = await nativeFetch(input, init);
+      if (!buffered.ok) return buffered;
+      const lines = (await buffered.text()).split('\n').filter(Boolean);
+      const encoder = new TextEncoder();
+      const signal = init?.signal;
+      const headers = new Headers(buffered.headers);
+      headers.set('Content-Type', 'application/x-ndjson');
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          let index = 0;
+          let timer: ReturnType<typeof setTimeout> | null = null;
+          const cleanUp = () => {
+            if (timer != null) clearTimeout(timer);
+            signal?.removeEventListener('abort', abort);
+          };
+          const abort = () => {
+            cleanUp();
+            controller.error(new DOMException('Tracking request aborted.', 'AbortError'));
+          };
+          const emit = () => {
+            if (signal?.aborted) {
+              abort();
+              return;
+            }
+            if (index >= lines.length) {
+              cleanUp();
+              controller.close();
+              return;
+            }
+            controller.enqueue(encoder.encode(`${lines[index]}\n`));
+            index += 1;
+            timer = setTimeout(emit, 20);
+          };
+          signal?.addEventListener('abort', abort, { once: true });
+          emit();
+        },
+      });
+      return new Response(stream, {
+        status: buffered.status,
+        statusText: buffered.statusText,
+        headers,
+      });
+    };
+  }, { sidecarBaseUrl: SIDECAR_BASE_URL });
 
   await page.context().route(`${SIDECAR_BASE_URL}/**`, async (route) => {
     const request = route.request();
@@ -64,26 +130,56 @@ async function installMockSidecar(page: Page) {
       });
       return;
     }
-    if (url.pathname === '/track') {
-      const body = request.postDataJSON() as TrackRequest;
-      trackRequests.push(body);
-      const timestamps = [body.startMs, body.startMs + 40, body.endMs]
-        .filter((value, index, values) => value <= body.endMs && values.indexOf(value) === index);
+    if (url.pathname === '/track/detect') {
+      const body = request.postDataJSON() as DetectionRequest;
+      detectionRequests.push(body);
+      const frame = Math.round(body.frameMs / 40);
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          keyframes: timestamps.map((tMs, index) => ({
+          frameMs: body.frameMs,
+          detections: [
+            { x: 150 + frame * 2, y: 160, w: 44, h: 100, confidence: 0.94 },
+            { x: 430 - frame, y: 170, w: 42, h: 96, confidence: 0.88 },
+          ],
+        }),
+      });
+      return;
+    }
+    if (url.pathname === '/track' || url.pathname === '/track/stream') {
+      const body = request.postDataJSON() as TrackRequest;
+      trackRequests.push(body);
+      const firstRun = trackRequests.length === 1;
+      const timestamps = firstRun
+        ? [body.startMs, body.startMs + 40]
+        : Array.from(
+            { length: Math.floor((body.endMs - body.startMs) / 40) + 1 },
+            (_, index) => body.startMs + index * 40,
+          );
+      const result = {
+        keyframes: timestamps.map((tMs, index) => ({
             tMs,
             x: body.seedBbox.x + index * 4,
             y: body.seedBbox.y + index * 2,
             w: body.seedBbox.w,
             h: body.seedBbox.h,
             visible: true,
-          })),
-          trackId: 4,
-          detectionCount: timestamps.length,
-        }),
+        })),
+        trackId: 4,
+        detectionCount: timestamps.length,
+        completed: !firstRun,
+        stoppedAtMs: firstRun ? body.startMs + 80 : null,
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: url.pathname.endsWith('/stream') ? 'application/x-ndjson' : 'application/json',
+        body: url.pathname.endsWith('/stream')
+          ? [
+              ...result.keyframes.map((keyframe) => JSON.stringify({ type: 'keyframe', keyframe })),
+              JSON.stringify({ type: 'result', result }),
+            ].join('\n') + '\n'
+          : JSON.stringify(result),
       });
       return;
     }
@@ -111,7 +207,7 @@ async function installMockSidecar(page: Page) {
     await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
   });
 
-  return { trackRequests, homographyRequests };
+  return { trackRequests, detectionRequests, homographyRequests };
 }
 
 async function readClip(page: Page) {
@@ -156,56 +252,102 @@ test('edits and tracks a non-zero-start clip on the absolute frame axis', async 
   await expect(page.getByTestId('clip-editor')).toBeVisible();
   await expect(page.getByText(/frames 5–44 · 25 fps/)).toBeVisible();
   await expect(page.getByText(/Frame 5 · clip 5–44/)).toBeVisible();
-  await expect.poll(() => page.locator('video').evaluate((element) => (element as HTMLVideoElement).currentTime)).toBeCloseTo(0.2, 2);
+  await expect.poll(() => page.locator('video').evaluate((element) => (element as HTMLVideoElement).currentTime)).toBeCloseTo((5 + 0.5) / 25, 4);
   await expect.poll(() => page.locator('video').evaluate((element) => (element as HTMLVideoElement).paused)).toBe(true);
   await expect(page.getByRole('spinbutton', { name: 'Width' })).toHaveCSS('width', '56px');
 
-  await page.getByRole('button', { name: 'Track to next keyframe/end' }).click();
-  await expect(page.getByText('Tracked 3 source frames.')).toBeVisible();
+  const viewerBox = await page.getByTestId('clip-viewer-surface').boundingBox();
+  const overlayBox = await page.getByTestId('clip-overlay-frame').boundingBox();
+  if (!viewerBox || !overlayBox) throw new Error('Clip viewer did not have a layout box.');
+  const containedScale = Math.min(viewerBox.width / 640, viewerBox.height / 360);
+  expect(overlayBox.width).toBeCloseTo(640 * containedScale, 0);
+  expect(overlayBox.height).toBeCloseTo(360 * containedScale, 0);
+  expect(overlayBox.x + overlayBox.width / 2).toBeCloseTo(viewerBox.x + viewerBox.width / 2, 0);
+  expect(overlayBox.y + overlayBox.height / 2).toBeCloseTo(viewerBox.y + viewerBox.height / 2, 0);
+
+  await page.getByRole('button', { name: 'Track', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Player 1' })).toBeVisible();
+  await page.getByRole('button', { name: 'Player 1' }).click();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByText(/Frame 8 · clip 5–44/)).toBeVisible();
+  await page.getByRole('button', { name: 'Stop', exact: true }).click();
+  await expect(page.getByText(/Frame 5 · clip 5–44/)).toBeVisible();
   await expect.poll(async () => {
     const clip = await readClip(page);
-    const annotation = clip.annotations.find((candidate: { id: string }) => candidate.id === 'tracked-player');
-    return annotation.keyframes.map((keyframe: Record<string, unknown>) => ({
+    const annotation = clip.annotations.at(-1);
+    return {
+      frames: annotation.keyframes.map((keyframe: { frame: number }) => keyframe.frame),
+      radius: annotation.keyframes[0].radius,
+    };
+  }).toEqual({ frames: [5], radius: 32 });
+  await page.keyboard.press('Shift+Backspace');
+
+  await page.getByRole('button', { name: 'Track', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Player 1' })).toBeVisible();
+  await page.getByRole('button', { name: 'Player 1' }).click();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect(page.getByText('Tracked 2 source frames.')).toBeVisible();
+  await expect(page.getByText(/Frame 7 · clip 5–44/)).toBeVisible();
+  await expect.poll(async () => {
+    const annotation = (await readClip(page)).annotations.at(-1);
+    return annotation.keyframes.map((keyframe: { frame: number; visible?: boolean }) => ({
       frame: keyframe.frame,
-      hasMilliseconds: 'tMs' in keyframe,
+      visible: keyframe.visible,
     }));
   }).toEqual([
-    { frame: 5, hasMilliseconds: false },
-    { frame: 6, hasMilliseconds: false },
-    { frame: 7, hasMilliseconds: false },
-    { frame: 8, hasMilliseconds: false },
-    { frame: 20, hasMilliseconds: false },
-    { frame: 38, hasMilliseconds: false },
+    { frame: 5, visible: undefined },
+    { frame: 6, visible: undefined },
+    { frame: 7, visible: false },
   ]);
+
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => sidecar.detectionRequests.at(-1)?.frameMs).toBe(400);
+  await page.getByRole('button', { name: 'Player 1' }).click();
+  await expect.poll(() => sidecar.trackRequests.length).toBe(1);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect.poll(() => sidecar.trackRequests.length).toBe(2);
+  await expect(page.getByText(/Frame 44 · clip 5–44/)).toBeVisible();
   await expect.poll(async () => {
     const clip = await readClip(page);
-    const follower = clip.annotations.find((candidate: { id: string }) => candidate.id === 'manual-arrow');
-    return follower.keyframes.map((keyframe: { frame: number }) => keyframe.frame);
-  }).toEqual([5, 6, 7, 15]);
+    const annotation = clip.annotations.at(-1);
+    return {
+      type: annotation.type,
+      frames: annotation.keyframes.map((keyframe: { frame: number }) => keyframe.frame),
+      hidden: annotation.keyframes.filter((keyframe: { visible?: boolean }) => keyframe.visible === false).length,
+    };
+  }).toEqual({
+    type: 'highlight',
+    frames: Array.from({ length: 40 }, (_, index) => index + 5),
+    hidden: 0,
+  });
 
-  expect(sidecar.trackRequests).toHaveLength(1);
+  await page.getByLabel('Name', { exact: true }).fill('Left winger');
+  await page.getByLabel('Name', { exact: true }).blur();
+  await expect(page.getByRole('button', { name: '3. Left winger', exact: true })).toBeVisible();
+  await expect.poll(async () => (await readClip(page)).annotations.at(-1).name).toBe('Left winger');
+
+  expect(sidecar.trackRequests).toHaveLength(2);
   expect(sidecar.trackRequests[0]).toMatchObject({
     videoRef: 'video-ref',
     startMs: 200,
-    endMs: 280,
+    endMs: 1760,
     seedFrameMs: 200,
     fps: 25,
+    stopOnLoss: true,
   });
   expect(sidecar.trackRequests[0].videoPath).toBeUndefined();
-
-  await page.getByRole('button', { name: 'Mark Range End' }).click();
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
-  await page.getByRole('button', { name: 'Re-track range to f5' }).click();
-  await expect.poll(() => sidecar.trackRequests.length).toBe(2);
   expect(sidecar.trackRequests[1]).toMatchObject({
-    startMs: 200,
-    endMs: 280,
-    seedFrameMs: 280,
+    startMs: 400,
+    endMs: 1760,
+    seedFrameMs: 400,
     fps: 25,
+    stopOnLoss: true,
   });
-  await page.keyboard.press('ArrowLeft');
-  await page.keyboard.press('ArrowLeft');
+  await page.getByRole('button', { name: 'Skip back', exact: true }).click();
   await expect(page.getByText(/Frame 5 · clip 5–44/)).toBeVisible();
 
   const stage = page.getByTestId('clip-stage');
@@ -283,17 +425,8 @@ test('edits and tracks a non-zero-start clip on the absolute frame axis', async 
   }).toEqual([5]);
   await page.keyboard.press('Meta+z');
 
-  await page.keyboard.press('ArrowRight');
-  await expect(page.getByText(/Frame 7 · clip 5–44/)).toBeVisible();
-  await page.getByRole('button', { name: 'Hide KF' }).click();
-  await expect.poll(async () => {
-    const stored = await readClip(page);
-    const annotation = stored.annotations[stored.annotations.length - 1];
-    return {
-      keyframes: annotation.keyframes.map((keyframe: { frame: number }) => keyframe.frame),
-      visibility: annotation.visibilityKeyframes,
-    };
-  }).toEqual({ keyframes: [5, 6], visibility: [{ frame: 7, action: 'hide' }] });
+  await expect(page.getByRole('button', { name: 'Show KF' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Hide KF' })).toHaveCount(0);
 
   const timelineLaneBox = await page.getByTestId('clip-timeline-lane').boundingBox();
   if (!timelineLaneBox) throw new Error('Timeline lane did not have a layout box.');
@@ -358,4 +491,11 @@ test('edits and tracks a non-zero-start clip on the absolute frame axis', async 
   await page.getByTestId('clip-delete-homography').click();
   await expect(page.getByText('Homography deleted.')).toBeVisible();
   await expect(showHomography).toBeDisabled();
+
+  await page.getByRole('button', { name: 'Skip back', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Delete object (Shift+Delete)' })).toBeVisible();
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect.poll(() => page.locator('video').evaluate((element) => (element as HTMLVideoElement).paused)).toBe(false);
+  await stage.click({ position: { x: 4, y: 4 } });
+  await expect(page.getByRole('button', { name: 'Delete object (Shift+Delete)' })).toHaveCount(0);
 });
