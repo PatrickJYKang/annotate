@@ -2,6 +2,8 @@ type StrokePattern = 'solid' | 'dashed' | 'dotted' | 'dashdot';
 
 import type { AnnotationDocument, AnnotationPayload } from '../annotate/documentPayload';
 import { annotationPayloadFromDocument } from '../annotate/documentPayload';
+import { measureHighlightLabelText, placeHighlightLabel } from '../annotate/highlightLabel';
+import { contrastStrokeForHex } from '../annotate/shapeRendering';
 
 import {
   buildShadowSectorPoints,
@@ -13,6 +15,7 @@ export type ExportShape = {
   id: string;
   type: 'box' | 'circle' | 'shadow' | 'arrow' | 'lob' | 'text' | 'poly' | 'highlight';
   name?: string;
+  displayName?: boolean;
   x: number;
   y: number;
   rotation?: number;
@@ -377,6 +380,33 @@ function drawHighlight(ctx: CanvasRenderingContext2D, s: ExportShape, homography
   ctx.ellipse(cen.x, cen.y, Math.max(0.5, rx || 40), Math.max(0.5, ry || 10), 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
+  const label = s.displayName ? s.name?.trim() : '';
+  if (label) {
+    const fontSize = s.style?.fontSize || 48;
+    const fontFamily = s.style?.fontFamily || 'Inter, system-ui, sans-serif';
+    ctx.font = `${fontSize}px ${fontFamily}`;
+    const measuredWidth = typeof ctx.measureText === 'function'
+      ? ctx.measureText(label).width
+      : measureHighlightLabelText(label, fontSize, fontFamily);
+    const placement = placeHighlightLabel({
+      centerX: cen.x,
+      centerY: cen.y,
+      radiusX: Math.max(0.5, rx || 40),
+      radiusY: Math.max(0.5, ry || 10),
+      textWidth: measuredWidth,
+      textHeight: fontSize * 1.2,
+      frameWidth: ctx.canvas.width,
+      frameHeight: ctx.canvas.height,
+    });
+    ctx.setLineDash([]);
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+    ctx.strokeStyle = contrastStrokeForHex(stroke);
+    ctx.lineWidth = Math.max(1, fontSize * 0.08);
+    ctx.strokeText(label, placement.x, placement.y, placement.width);
+    ctx.fillStyle = stroke;
+    ctx.fillText(label, placement.x, placement.y, placement.width);
+  }
   ctx.restore();
 }
 

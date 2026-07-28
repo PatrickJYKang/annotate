@@ -10,6 +10,25 @@ async function expectNoRawTranslationKeys(page: Page): Promise<void> {
   expect(visibleText).not.toMatch(/\b(?:app|header|locale|common|project|player|tagBoard|tagTree|video|annotation|clip|pin|timeline|tool|presentation|metadata|export)\.[A-Za-z][A-Za-z0-9.-]*/);
 }
 
+test('switches to French and Spanish and persists the selected locale', async ({ page }) => {
+  await page.goto('/');
+
+  const locale = page.locator('#app-locale');
+  await locale.selectOption('fr');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'fr');
+  await expect(page.getByRole('heading', { name: 'Projets' })).toBeVisible();
+  await expectNoRawTranslationKeys(page);
+
+  await locale.selectOption('es');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'es');
+  await expect(page.getByRole('heading', { name: 'Proyectos' })).toBeVisible();
+  await expectNoRawTranslationKeys(page);
+
+  await page.reload();
+  await expect(page.locator('#app-locale')).toHaveValue('es');
+  await expect(page.getByRole('heading', { name: 'Proyectos' })).toBeVisible();
+});
+
 test('switches every primary route to zh-CN and persists locale-dependent interpolation', async ({ page }) => {
   await installOpfsDirectoryPickerFixture(page, fixture);
   await page.goto('/');

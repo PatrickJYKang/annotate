@@ -4,6 +4,8 @@ import type { ClipAnnotation, ClipKeyframe } from '../types/clip';
 import {
   createDebouncedAsyncScheduler,
   deleteSelectedClipAnnotation,
+  inspectClipAnnotationMerge,
+  mergeClipAnnotations,
   mergeTrackedKeyframesIntoAnnotation,
   recordClipAnnotationHistoryChange,
   redoClipAnnotationHistory,
@@ -72,6 +74,83 @@ describe('frame-native clip annotation history', () => {
     expect(deleteSelectedClipAnnotation(redone.annotations, 'imported')).toMatchObject({
       annotations: [{ id: 'a' }],
       selectedAnnotationId: null,
+    });
+  });
+});
+
+describe('mergeClipAnnotations', () => {
+  it('merges disjoint keyframe lanes into the last selected object and rewires references', () => {
+    const first = {
+      ...annotation('first', [box(10, 1)], 'auto'),
+      visibilityKeyframes: [{ frame: videoFrame(12), action: 'hide' as const }],
+    };
+    const survivor = {
+      ...annotation('survivor', [box(20, 2)]),
+      visibilityKeyframes: [{ frame: videoFrame(22), action: 'show' as const }],
+    };
+    const follower: ClipAnnotation = {
+      ...annotation('follower', [box(30, 3)]),
+      type: 'arrow',
+      trackingAnchorId: 'first',
+      vertexRefs: ['first', 'survivor'],
+    };
+
+    const result = mergeClipAnnotations(
+      [first, survivor, follower],
+      ['first', 'survivor'],
+    );
+
+    expect(result).toMatchObject({
+      didMerge: true,
+      selectedAnnotationId: 'survivor',
+      blocker: null,
+    });
+    expect(result.annotations.map((entry) => entry.id)).toEqual(['survivor', 'follower']);
+    expect(result.annotations[0]).toMatchObject({
+      id: 'survivor',
+      source: 'corrected',
+      keyframes: [{ frame: 10 }, { frame: 20 }],
+      visibilityKeyframes: [{ frame: 12, action: 'hide' }, { frame: 22, action: 'show' }],
+    });
+    expect(result.annotations[1]).toMatchObject({
+      trackingAnchorId: 'survivor',
+      vertexRefs: ['survivor', 'survivor'],
+    });
+  });
+
+  it('rejects overlapping position or visibility frames', () => {
+    const positionOverlap = inspectClipAnnotationMerge([
+      annotation('first', [box(10, 1)]),
+      annotation('second', [box(10, 2)]),
+    ], ['first', 'second']);
+    expect(positionOverlap).toMatchObject({
+      canMerge: false,
+      blocker: 'overlapping-keyframes',
+    });
+
+    const visibilityOverlap = inspectClipAnnotationMerge([
+      {
+        ...annotation('first', [box(10, 1)]),
+        visibilityKeyframes: [{ frame: videoFrame(20), action: 'hide' }],
+      },
+      annotation('second', [box(20, 2)]),
+    ], ['first', 'second']);
+    expect(visibilityOverlap).toMatchObject({
+      canMerge: false,
+      blocker: 'overlapping-keyframes',
+    });
+  });
+
+  it('requires matching annotation types and coordinate modes', () => {
+    const first = annotation('first', [box(10, 1)]);
+    const mixedType = { ...annotation('second', [box(20, 2)]), type: 'circle' as const };
+    expect(inspectClipAnnotationMerge([first, mixedType], ['first', 'second'])).toMatchObject({
+      blocker: 'mixed-type',
+    });
+
+    const pitch = { ...annotation('pitch', [box(20, 2)]), coordMode: 'pitch' as const };
+    expect(inspectClipAnnotationMerge([first, pitch], ['first', 'pitch'])).toMatchObject({
+      blocker: 'mixed-coordinate-mode',
     });
   });
 });

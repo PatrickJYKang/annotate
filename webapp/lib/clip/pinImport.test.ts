@@ -22,7 +22,17 @@ describe('importPinDocumentToClip', () => {
     const result = importPinDocumentToClip(document([
       { id: 'box', type: 'box', x: 10, y: 20, w: 30, h: 40, style: { stroke: '#f00' } },
       { id: 'circle', type: 'circle', x: 50, y: 60, rx: 12, ry: 8 },
-      { id: 'highlight', type: 'highlight', name: 'Left back', x: 100, y: 120, rx: 24, ry: 8 },
+      {
+        id: 'highlight',
+        type: 'highlight',
+        name: 'Left back',
+        displayName: true,
+        x: 100,
+        y: 120,
+        rx: 24,
+        ry: 8,
+        style: { fontSize: 32 },
+      },
       { id: 'shadow', type: 'shadow', x: 100, y: 120, r: 80, rotation: 0.2, spreadDeg: 45, vertexRefs: ['highlight'] },
       { id: 'arrow', type: 'arrow', x: 0, y: 0, points: [100, 120, 300, 200], vertexRefs: ['highlight', null] },
       { id: 'lob', type: 'lob', x: 0, y: 0, points: [100, 120, 200, 80, 300, 200], vertexRefs: ['highlight', null] },
@@ -38,6 +48,8 @@ describe('importPinDocumentToClip', () => {
     expect(result.annotations.every((annotation) => !('tMs' in annotation.keyframes[0]))).toBe(true);
     const highlight = result.annotations.find((annotation) => annotation.type === 'highlight')!;
     expect(highlight.name).toBe('Left back');
+    expect(highlight.displayName).toBe(true);
+    expect(highlight.style.fontSize).toBe(32);
     expect(result.annotations.find((annotation) => annotation.type === 'shadow')?.vertexRefs).toEqual([highlight.id]);
     expect(result.annotations.find((annotation) => annotation.type === 'arrow')?.vertexRefs).toEqual([highlight.id, null]);
     expect(result.annotations.find((annotation) => annotation.type === 'lob')?.vertexRefs).toEqual([highlight.id, null]);

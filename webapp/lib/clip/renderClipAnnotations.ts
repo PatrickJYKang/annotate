@@ -1,4 +1,5 @@
 import { contrastStrokeForHex, dashFromStrokePattern, hexToRgba } from '../annotate/shapeRendering';
+import { measureHighlightLabelText, placeHighlightLabel } from '../annotate/highlightLabel';
 import { buildShadowSectorPoints } from '../annotate/tacticalGeometry';
 import type { ClipAnnotationStyle, ClipAnnotationType, ClipAnnotation } from '../types/clip';
 import {
@@ -15,7 +16,7 @@ import { getProjectedPitchShapeBounds, projectPitchKeyframeToImageShape } from '
 
 export type TemporalClipAnnotation = Pick<
   ClipAnnotation,
-  'id' | 'type' | 'coordMode' | 'style' | 'text' | 'closed' | 'vertexRefs' | 'trackingAnchorId'
+  'id' | 'type' | 'name' | 'displayName' | 'coordMode' | 'style' | 'text' | 'closed' | 'vertexRefs' | 'trackingAnchorId'
 > & {
   keyframes: unknown[];
   visibilityKeyframes?: unknown[];
@@ -48,11 +49,20 @@ type DrawableBase = {
   id: string;
   style: ResolvedDrawableStyle;
   order: number;
+  clipAroundHighlights?: boolean;
 };
 
 export type ClipDrawable =
   | DrawableBase & { kind: 'box'; x: number; y: number; w: number; h: number }
-  | DrawableBase & { kind: 'ellipse'; cx: number; cy: number; rx: number; ry: number }
+  | DrawableBase & {
+      kind: 'ellipse';
+      cx: number;
+      cy: number;
+      rx: number;
+      ry: number;
+      label?: string;
+      occludesLines?: boolean;
+    }
   | DrawableBase & { kind: 'polygon'; points: [number, number][]; closed: boolean }
   | DrawableBase & { kind: 'arrow'; x1: number; y1: number; x2: number; y2: number }
   | DrawableBase & {
@@ -173,6 +183,7 @@ function projectedDrawable(
       y2: projected.points[3],
       style,
       order: 2,
+      clipAroundHighlights: true,
     };
   }
   if (projected.kind === 'lob') {
@@ -184,6 +195,7 @@ function projectedDrawable(
       end: { x: projected.points[4], y: projected.points[5] },
       style,
       order: 2,
+      clipAroundHighlights: true,
     };
   }
   return {
@@ -282,6 +294,7 @@ export function resolveClipDrawables<A extends TemporalClipAnnotation>(
           y2: second.y,
           style,
           order: 2 + sourceOrder,
+          clipAroundHighlights: true,
         });
         break;
       }
@@ -298,6 +311,7 @@ export function resolveClipDrawables<A extends TemporalClipAnnotation>(
           end: { x: end?.x ?? lob.x2, y: end?.y ?? lob.y2 },
           style,
           order: 2 + sourceOrder,
+          clipAroundHighlights: true,
         });
         break;
       }
@@ -320,6 +334,8 @@ export function resolveClipDrawables<A extends TemporalClipAnnotation>(
           cy: props.cy,
           rx: props.radius,
           ry: props.radius * 0.35,
+          label: annotation.displayName ? annotation.name?.trim() || undefined : undefined,
+          occludesLines: true,
           style,
           order: 3 + sourceOrder,
         });
@@ -341,6 +357,7 @@ export function resolveClipDrawables<A extends TemporalClipAnnotation>(
             closed: annotation.closed !== false && points.length >= 3,
             style,
             order: 2 + sourceOrder,
+            clipAroundHighlights: true,
           });
         }
         break;
@@ -364,6 +381,221 @@ function fillAndStroke(context: CanvasRenderingContext2D, style: ResolvedDrawabl
   context.stroke();
 }
 
+function clipLineLayerAroundHighlights(
+  context: CanvasRenderingContext2D,
+  highlights: readonly Extract<ClipDrawable, { kind: 'ellipse' }>[],
+  sourceWidth: number,
+  sourceHeight: number,
+): void {
+  if (highlights.length === 0) return;
+  context.beginPath();
+  context.rect(0, 0, sourceWidth, sourceHeight);
+  for (const highlight of highlights) {
+    context.ellipse(
+      highlight.cx,
+      highlight.cy,
+      Math.max(0.5, highlight.rx),
+      Math.max(0.5, highlight.ry),
+      0,
+      0,
+      Math.PI * 2,
+    );
+  }
+  context.clip('evenodd');
+}
+
+function paintHighlightLabel(
+  context: CanvasRenderingContext2D,
+  drawable: Extract<ClipDrawable, { kind: 'ellipse' }>,
+  sourceWidth: number,
+  sourceHeight: number,
+): void {
+  if (!drawable.label) return;
+  const fontSize = drawable.style.fontSize;
+  const fontFamily = drawable.style.fontFamily;
+  context.font = `${fontSize}px ${fontFamily}`;
+  const measuredWidth = typeof context.measureText === 'function'
+    ? context.measureText(drawable.label).width
+    : measureHighlightLabelText(drawable.label, fontSize, fontFamily);
+  const placement = placeHighlightLabel({
+    centerX: drawable.cx,
+    centerY: drawable.cy,
+    radiusX: drawable.rx,
+    radiusY: drawable.ry,
+    textWidth: measuredWidth,
+    textHeight: fontSize * 1.2,
+    frameWidth: sourceWidth,
+    frameHeight: sourceHeight,
+  });
+
+  context.setLineDash([]);
+  context.textBaseline = 'top';
+  context.textAlign = 'left';
+  context.strokeStyle = contrastStrokeForHex(drawable.style.stroke);
+  context.lineWidth = Math.max(1, fontSize * 0.08);
+  context.strokeText(drawable.label, placement.x, placement.y, placement.width);
+  context.fillStyle = drawable.style.stroke;
+  context.fillText(drawable.label, placement.x, placement.y, placement.width);
+}
+
+const lineLayerCanvasByTarget = new WeakMap<HTMLCanvasElement, HTMLCanvasElement>();
+
+function prepareLineLayer(
+  targetContext: CanvasRenderingContext2D,
+  sourceWidth: number,
+  sourceHeight: number,
+): { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D } | null {
+  const targetCanvas = targetContext.canvas;
+  if (!targetCanvas) return null;
+  const ownerDocument = targetCanvas.ownerDocument
+    ?? (typeof document !== 'undefined' ? document : null);
+  if (!ownerDocument) return null;
+
+  let canvas = lineLayerCanvasByTarget.get(targetCanvas);
+  if (!canvas) {
+    canvas = ownerDocument.createElement('canvas');
+    lineLayerCanvasByTarget.set(targetCanvas, canvas);
+  }
+  const width = Math.max(1, Math.round(sourceWidth));
+  const height = Math.max(1, Math.round(sourceHeight));
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  const context = canvas.getContext('2d');
+  if (!context) return null;
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  return { canvas, context };
+}
+
+function paintDrawableGeometry(
+  context: CanvasRenderingContext2D,
+  drawable: ClipDrawable,
+  sourceWidth: number,
+  sourceHeight: number,
+): void {
+  switch (drawable.kind) {
+    case 'box':
+      if (drawable.style.fill !== 'transparent') context.fillRect(drawable.x, drawable.y, drawable.w, drawable.h);
+      context.strokeRect(drawable.x, drawable.y, drawable.w, drawable.h);
+      break;
+    case 'ellipse':
+      context.beginPath();
+      context.ellipse(drawable.cx, drawable.cy, drawable.rx, drawable.ry, 0, 0, Math.PI * 2);
+      fillAndStroke(context, drawable.style);
+      paintHighlightLabel(context, drawable, sourceWidth, sourceHeight);
+      break;
+    case 'polygon':
+      if (drawable.points.length < 2) break;
+      context.beginPath();
+      context.moveTo(drawable.points[0][0], drawable.points[0][1]);
+      drawable.points.slice(1).forEach(([x, y]) => context.lineTo(x, y));
+      if (drawable.closed) context.closePath();
+      fillAndStroke(context, drawable.style);
+      break;
+    case 'arrow': {
+      context.beginPath();
+      context.moveTo(drawable.x1, drawable.y1);
+      context.lineTo(drawable.x2, drawable.y2);
+      context.stroke();
+      const angle = Math.atan2(drawable.y2 - drawable.y1, drawable.x2 - drawable.x1);
+      const headLength = Math.max(10, drawable.style.strokeWidth * 2.2);
+      context.beginPath();
+      context.moveTo(drawable.x2, drawable.y2);
+      context.lineTo(
+        drawable.x2 - headLength * Math.cos(angle - 0.4),
+        drawable.y2 - headLength * Math.sin(angle - 0.4),
+      );
+      context.lineTo(
+        drawable.x2 - headLength * Math.cos(angle + 0.4),
+        drawable.y2 - headLength * Math.sin(angle + 0.4),
+      );
+      context.closePath();
+      context.fillStyle = drawable.style.stroke;
+      context.fill();
+      break;
+    }
+    case 'lob': {
+      context.beginPath();
+      context.moveTo(drawable.start.x, drawable.start.y);
+      context.quadraticCurveTo(
+        drawable.control.x,
+        drawable.control.y,
+        drawable.end.x,
+        drawable.end.y,
+      );
+      context.stroke();
+      const tx = drawable.end.x - drawable.control.x;
+      const ty = drawable.end.y - drawable.control.y;
+      const length = Math.hypot(tx, ty) || 1;
+      const ux = tx / length;
+      const uy = ty / length;
+      const px = -uy;
+      const py = ux;
+      const headLength = Math.max(10, drawable.style.strokeWidth * 2.2);
+      const headWidth = Math.max(8, drawable.style.strokeWidth * 1.6);
+      const baseX = drawable.end.x - ux * headLength;
+      const baseY = drawable.end.y - uy * headLength;
+      context.beginPath();
+      context.moveTo(drawable.end.x, drawable.end.y);
+      context.lineTo(baseX + px * headWidth * 0.5, baseY + py * headWidth * 0.5);
+      context.lineTo(baseX - px * headWidth * 0.5, baseY - py * headWidth * 0.5);
+      context.closePath();
+      context.fillStyle = drawable.style.stroke;
+      context.fill();
+      break;
+    }
+    case 'text':
+      context.font = `${drawable.style.fontSize}px ${drawable.style.fontFamily}`;
+      if (drawable.style.textHighlight) {
+        context.strokeStyle = contrastStrokeForHex(drawable.style.stroke);
+        context.lineWidth = Math.max(2, Math.round(drawable.style.fontSize * 0.18));
+        context.strokeText(drawable.text, drawable.x, drawable.y + drawable.style.fontSize);
+      }
+      context.fillStyle = drawable.style.stroke;
+      context.fillText(drawable.text, drawable.x, drawable.y + drawable.style.fontSize);
+      break;
+  }
+}
+
+function paintMaskedLineLayer(
+  targetContext: CanvasRenderingContext2D,
+  drawables: readonly ClipDrawable[],
+  highlights: readonly Extract<ClipDrawable, { kind: 'ellipse' }>[],
+  sourceWidth: number,
+  sourceHeight: number,
+): HTMLCanvasElement | null {
+  const layer = prepareLineLayer(targetContext, sourceWidth, sourceHeight);
+  if (!layer) return null;
+
+  for (const drawable of drawables) {
+    layer.context.save();
+    applyStyle(layer.context, drawable.style);
+    paintDrawableGeometry(layer.context, drawable, sourceWidth, sourceHeight);
+    layer.context.restore();
+  }
+  if (highlights.length > 0) {
+    layer.context.save();
+    layer.context.globalCompositeOperation = 'destination-out';
+    layer.context.fillStyle = '#000000';
+    for (const highlight of highlights) {
+      layer.context.beginPath();
+      layer.context.ellipse(
+        highlight.cx,
+        highlight.cy,
+        Math.max(0.5, highlight.rx),
+        Math.max(0.5, highlight.ry),
+        0,
+        0,
+        Math.PI * 2,
+      );
+      layer.context.fill();
+    }
+    layer.context.restore();
+  }
+  return layer.canvas;
+}
+
 export function paintClipDrawablesToCanvas(
   context: CanvasRenderingContext2D,
   drawables: readonly ClipDrawable[],
@@ -371,92 +603,32 @@ export function paintClipDrawablesToCanvas(
 ): void {
   const sourceWidth = size.sourceWidth ?? size.width;
   const sourceHeight = size.sourceHeight ?? size.height;
+  const lineOccluders = drawables.filter(
+    (drawable): drawable is Extract<ClipDrawable, { kind: 'ellipse' }> => (
+      drawable.kind === 'ellipse' && drawable.occludesLines === true
+    ),
+  );
+  const lineDrawables = drawables.filter((drawable) => drawable.clipAroundHighlights === true);
+  const lineLayer = lineDrawables.length > 0
+    ? paintMaskedLineLayer(context, lineDrawables, lineOccluders, sourceWidth, sourceHeight)
+    : null;
+  let lineLayerPainted = false;
   context.save();
   context.scale(size.width / sourceWidth, size.height / sourceHeight);
   for (const drawable of drawables) {
+    if (drawable.clipAroundHighlights && lineLayer) {
+      if (!lineLayerPainted) {
+        context.drawImage(lineLayer, 0, 0, sourceWidth, sourceHeight);
+        lineLayerPainted = true;
+      }
+      continue;
+    }
     context.save();
     applyStyle(context, drawable.style);
-    switch (drawable.kind) {
-      case 'box':
-        if (drawable.style.fill !== 'transparent') context.fillRect(drawable.x, drawable.y, drawable.w, drawable.h);
-        context.strokeRect(drawable.x, drawable.y, drawable.w, drawable.h);
-        break;
-      case 'ellipse':
-        context.beginPath();
-        context.ellipse(drawable.cx, drawable.cy, drawable.rx, drawable.ry, 0, 0, Math.PI * 2);
-        fillAndStroke(context, drawable.style);
-        break;
-      case 'polygon':
-        if (drawable.points.length < 2) break;
-        context.beginPath();
-        context.moveTo(drawable.points[0][0], drawable.points[0][1]);
-        drawable.points.slice(1).forEach(([x, y]) => context.lineTo(x, y));
-        if (drawable.closed) context.closePath();
-        fillAndStroke(context, drawable.style);
-        break;
-      case 'arrow': {
-        context.beginPath();
-        context.moveTo(drawable.x1, drawable.y1);
-        context.lineTo(drawable.x2, drawable.y2);
-        context.stroke();
-        const angle = Math.atan2(drawable.y2 - drawable.y1, drawable.x2 - drawable.x1);
-        const headLength = Math.max(10, drawable.style.strokeWidth * 2.2);
-        context.beginPath();
-        context.moveTo(drawable.x2, drawable.y2);
-        context.lineTo(
-          drawable.x2 - headLength * Math.cos(angle - 0.4),
-          drawable.y2 - headLength * Math.sin(angle - 0.4),
-        );
-        context.lineTo(
-          drawable.x2 - headLength * Math.cos(angle + 0.4),
-          drawable.y2 - headLength * Math.sin(angle + 0.4),
-        );
-        context.closePath();
-        context.fillStyle = drawable.style.stroke;
-        context.fill();
-        break;
-      }
-      case 'lob': {
-        context.beginPath();
-        context.moveTo(drawable.start.x, drawable.start.y);
-        context.quadraticCurveTo(
-          drawable.control.x,
-          drawable.control.y,
-          drawable.end.x,
-          drawable.end.y,
-        );
-        context.stroke();
-        const tx = drawable.end.x - drawable.control.x;
-        const ty = drawable.end.y - drawable.control.y;
-        const length = Math.hypot(tx, ty) || 1;
-        const ux = tx / length;
-        const uy = ty / length;
-        const px = -uy;
-        const py = ux;
-        const headLength = Math.max(10, drawable.style.strokeWidth * 2.2);
-        const headWidth = Math.max(8, drawable.style.strokeWidth * 1.6);
-        const baseX = drawable.end.x - ux * headLength;
-        const baseY = drawable.end.y - uy * headLength;
-        context.beginPath();
-        context.moveTo(drawable.end.x, drawable.end.y);
-        context.lineTo(baseX + px * headWidth * 0.5, baseY + py * headWidth * 0.5);
-        context.lineTo(baseX - px * headWidth * 0.5, baseY - py * headWidth * 0.5);
-        context.closePath();
-        context.fillStyle = drawable.style.stroke;
-        context.fill();
-        break;
-      }
-      case 'text':
-        context.font = `${drawable.style.fontSize}px ${drawable.style.fontFamily}`;
-        if (drawable.style.textHighlight) {
-          context.strokeStyle = contrastStrokeForHex(drawable.style.stroke);
-          context.lineWidth = Math.max(2, Math.round(drawable.style.fontSize * 0.18));
-          context.strokeText(drawable.text, drawable.x, drawable.y + drawable.style.fontSize);
-        }
-        context.fillStyle = drawable.style.stroke;
-        context.fillText(drawable.text, drawable.x, drawable.y + drawable.style.fontSize);
-        break;
+    if (drawable.clipAroundHighlights) {
+      clipLineLayerAroundHighlights(context, lineOccluders, sourceWidth, sourceHeight);
     }
+    paintDrawableGeometry(context, drawable, sourceWidth, sourceHeight);
     context.restore();
   }
   context.restore();

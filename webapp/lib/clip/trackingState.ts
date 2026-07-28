@@ -11,6 +11,15 @@ import type { FrameBoundary, VideoFrame } from './frameMath';
 export type ClipFrameTrackingState = 'manual' | 'tracked' | 'correction' | 'lost';
 export const MAX_INTERPOLATED_TRACK_GAP_FRAMES = 6;
 
+type HiddenSpanCacheEntry = {
+  clipEndFrame: FrameBoundary;
+  keyframes: ClipAnnotation['keyframes'];
+  visibilityKeyframes: ClipAnnotation['visibilityKeyframes'];
+  spans: FrameSpan[];
+};
+
+const hiddenSpanCache = new WeakMap<ClipAnnotation, HiddenSpanCacheEntry>();
+
 function fallbackProvenanceFromSource(source: AnnotationSource): ClipKeyframeProvenance {
   if (source === 'auto' || source === 'corrected') return 'tracked';
   return 'manual';
@@ -119,29 +128,65 @@ export function getHiddenSpans(
   annotation: ClipAnnotation,
   clipEndFrame: FrameBoundary,
 ): FrameSpan[] {
-  return mergeFrameSpans([
+  const cached = hiddenSpanCache.get(annotation);
+  if (
+    cached
+    && cached.clipEndFrame === clipEndFrame
+    && cached.keyframes === annotation.keyframes
+    && cached.visibilityKeyframes === annotation.visibilityKeyframes
+  ) {
+    return cached.spans;
+  }
+  const spans = mergeFrameSpans([
     ...getLossSpans(annotation, clipEndFrame),
     ...getDerivedHiddenGapSpans(annotation),
     ...getManualVisibilitySpans(annotation, clipEndFrame),
   ]);
+  hiddenSpanCache.set(annotation, {
+    clipEndFrame,
+    keyframes: annotation.keyframes,
+    visibilityKeyframes: annotation.visibilityKeyframes,
+    spans,
+  });
+  return spans;
 }
 
 export function isFrameWithinHiddenSpan(spans: FrameSpan[], frame: VideoFrame): boolean {
   return spans.some((span) => frame > span.startFrame && frame < span.endFrame);
 }
 
+function findFrameFloorIndex<T extends { frame: number }>(
+  keyframes: readonly T[],
+  frame: VideoFrame,
+): number {
+  if (keyframes.length === 0 || frame < keyframes[0].frame) return -1;
+  let low = 0;
+  let high = keyframes.length - 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (keyframes[middle].frame <= frame) low = middle;
+    else high = middle - 1;
+  }
+  return low;
+}
+
 export function getCurrentKeyframe(
   annotation: ClipAnnotation,
   frame: VideoFrame,
 ): ClipKeyframe | null {
-  return annotation.keyframes.find((keyframe) => keyframe.frame === frame) ?? null;
+  const index = findFrameFloorIndex(annotation.keyframes, frame);
+  return index >= 0 && annotation.keyframes[index].frame === frame
+    ? annotation.keyframes[index]
+    : null;
 }
 
 export function getCurrentVisibilityKeyframe(
   annotation: ClipAnnotation,
   frame: VideoFrame,
 ): ClipVisibilityKeyframe | null {
-  return annotation.visibilityKeyframes?.find((keyframe) => keyframe.frame === frame) ?? null;
+  const keyframes = annotation.visibilityKeyframes ?? [];
+  const index = findFrameFloorIndex(keyframes, frame);
+  return index >= 0 && keyframes[index].frame === frame ? keyframes[index] : null;
 }
 
 export function getVisibilityAction(
@@ -192,16 +237,14 @@ export function getFrameTrackingState(
     return provenanceToState(getKeyframeProvenance(annotation, keyframes[keyframes.length - 1]));
   }
 
-  for (let index = 0; index < keyframes.length - 1; index += 1) {
-    const left = keyframes[index];
-    const right = keyframes[index + 1];
-    if (frame < left.frame || frame > right.frame) continue;
-    const leftState = provenanceToState(getKeyframeProvenance(annotation, left));
-    const rightState = provenanceToState(getKeyframeProvenance(annotation, right));
-    if (leftState === 'lost' || rightState === 'lost') return 'lost';
-    if (leftState === 'correction' || rightState === 'correction') return 'correction';
-    if (leftState === 'tracked' || rightState === 'tracked') return 'tracked';
-    return 'manual';
-  }
+  const leftIndex = findFrameFloorIndex(keyframes, frame);
+  const left = keyframes[leftIndex];
+  const right = keyframes[leftIndex + 1];
+  const leftState = provenanceToState(getKeyframeProvenance(annotation, left));
+  const rightState = provenanceToState(getKeyframeProvenance(annotation, right));
+  if (leftState === 'lost' || rightState === 'lost') return 'lost';
+  if (leftState === 'correction' || rightState === 'correction') return 'correction';
+  if (leftState === 'tracked' || rightState === 'tracked') return 'tracked';
+  if (leftState === 'manual' && rightState === 'manual') return 'manual';
   return annotation.source === 'manual' ? 'manual' : annotation.source === 'corrected' ? 'correction' : 'tracked';
 }

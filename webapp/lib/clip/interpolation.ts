@@ -374,7 +374,10 @@ export function interpolateAnnotation(
   if (annotation.keyframes.length === 0) return null;
   if (!isAnnotationVisible(annotation, frame)) return null;
 
-  const exact = annotation.keyframes.find((keyframe) => keyframe.frame === frame);
+  const exactIndex = findFrameBracketIndex(annotation.keyframes, frame);
+  const exact = annotation.keyframes[exactIndex]?.frame === frame
+    ? annotation.keyframes[exactIndex]
+    : null;
   if (exact) {
     if (exact.visible === false) return null;
     return clampToKeyframe(exact as unknown as ClipKeyframe, annotation.type);

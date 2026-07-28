@@ -16,6 +16,7 @@ import type { VideoFrame } from "../../lib/clip/frameMath";
 import { computePersonForegroundCutout } from "../../lib/segmentation/personSegmentation";
 import { computeEdgeForegroundCutout } from "../../lib/segmentation/edgeSegmentation";
 import { makeId, hexToRgba, contrastStrokeForHex, dashFromStrokePattern } from "../../lib/annotate/shapeRendering";
+import { measureHighlightLabelText, placeHighlightLabel } from "../../lib/annotate/highlightLabel";
 import type { StrokePattern } from "../../lib/annotate/shapeRendering";
 import { consumeManualSaveTick } from "./saveTick";
 import {
@@ -46,6 +47,7 @@ export type Shape = {
   id: string;
   type: 'box' | 'circle' | 'shadow' | 'arrow' | 'lob' | 'text' | 'poly' | 'highlight';
   name?: string;
+  displayName?: boolean;
   x: number;
   y: number;
   rotation?: number;
@@ -1893,6 +1895,47 @@ export default function Editor({
     );
   });
 
+  const highlightLabelNodes = shapes.filter((shape) => (
+    shape.type === 'highlight' && shape.displayName && shape.name?.trim()
+  )).map((shape) => {
+    const text = shape.name!.trim();
+    const center = getHighlightCenter(shape);
+    const bounds = getShapeBounds(shape);
+    const fontSize = shape.style?.fontSize || defFontSz;
+    const fontFamily = shape.style?.fontFamily || 'Inter, system-ui, sans-serif';
+    const placement = placeHighlightLabel({
+      centerX: center.x,
+      centerY: center.y,
+      radiusX: bounds.w / 2,
+      radiusY: bounds.h / 2,
+      textWidth: measureHighlightLabelText(text, fontSize, fontFamily),
+      textHeight: fontSize * 1.2,
+      frameWidth: imageInfo.width,
+      frameHeight: imageInfo.height,
+    });
+    const color = shape.style?.stroke || defaultAnnColor;
+
+    return (
+      <KText
+        key={`highlight-label-${shape.id}`}
+        x={placement.x}
+        y={placement.y}
+        width={placement.width}
+        height={placement.height}
+        text={text}
+        fontSize={fontSize}
+        fontFamily={fontFamily}
+        lineHeight={1.2}
+        wrap="none"
+        ellipsis
+        fill={color}
+        stroke={contrastStrokeForHex(color)}
+        strokeWidth={Math.max(1, fontSize * 0.08)}
+        listening={false}
+      />
+    );
+  });
+
   // Render shapes
   const disableNonHighlightHit = tool === 'arrow' || tool === 'lob' || tool === 'poly';
 
@@ -2576,6 +2619,11 @@ export default function Editor({
           )}
         </Layer>
         {showAnnotations && (
+          <Layer listening={false}>
+            {highlightLabelNodes}
+          </Layer>
+        )}
+        {showAnnotations && (
           <Layer>
             {textNodes}
           </Layer>
@@ -2748,6 +2796,54 @@ export default function Editor({
                         )));
                       }}
                     />
+                    <label
+                      className="status col-span-2 inline-flex w-fit items-center gap-2"
+                      htmlFor={`highlight-display-name-${first.id}`}
+                    >
+                      <span>{t('annotation.displayName')}</span>
+                      <input
+                        id={`highlight-display-name-${first.id}`}
+                        aria-label={t('annotation.displayName')}
+                        type="checkbox"
+                        checked={!!first.displayName}
+                        onChange={(event) => {
+                          const displayName = event.target.checked;
+                          setShapes((previous) => previous.map((shape) => (
+                            shape.id === first.id
+                              ? {
+                                  ...shape,
+                                  displayName,
+                                  style: displayName && !shape.style?.fontSize
+                                    ? { ...shape.style, fontSize: defFontSz }
+                                    : shape.style,
+                                }
+                              : shape
+                          )));
+                        }}
+                      />
+                    </label>
+                    {first.displayName && (
+                      <>
+                        <label className="status" htmlFor={`highlight-text-size-${first.id}`}>{t('annotation.textSize')}</label>
+                        <input
+                          id={`highlight-text-size-${first.id}`}
+                          aria-label={t('annotation.textSize')}
+                          type="number"
+                          min={8}
+                          max={300}
+                          step={1}
+                          value={first.style?.fontSize || defFontSz}
+                          onChange={(event) => {
+                            const fontSize = Math.max(8, Math.min(300, Number(event.target.value) || defFontSz));
+                            setShapes((previous) => previous.map((shape) => (
+                              shape.id === first.id
+                                ? { ...shape, style: { ...shape.style, fontSize } }
+                                : shape
+                            )));
+                          }}
+                        />
+                      </>
+                    )}
                   </>
                 )}
                 {anyFill ? (

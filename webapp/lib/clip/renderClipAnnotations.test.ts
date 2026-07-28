@@ -42,7 +42,9 @@ function recordingContext(): { context: CanvasRenderingContext2D; commands: unkn
     fillRect: method('fillRect'),
     strokeRect: method('strokeRect'),
     beginPath: method('beginPath'),
+    rect: method('rect'),
     ellipse: method('ellipse'),
+    clip: method('clip'),
     fill: method('fill'),
     stroke: method('stroke'),
     moveTo: method('moveTo'),
@@ -51,6 +53,7 @@ function recordingContext(): { context: CanvasRenderingContext2D; commands: unkn
     quadraticCurveTo: method('quadraticCurveTo'),
     strokeText: method('strokeText'),
     fillText: method('fillText'),
+    measureText: (text: string) => ({ width: text.length * 10 }),
   } as unknown as CanvasRenderingContext2D;
   return { context, commands };
 }
@@ -67,6 +70,26 @@ describe('renderClipAnnotations', () => {
     expect(drawables.map((drawable) => drawable.id)).toEqual(['pass', 'player_one']);
     expect(arrow).toMatchObject({ kind: 'arrow', y1: 100, x2: 200, y2: 100 });
     expect(arrow && arrow.kind === 'arrow' ? arrow.x1 : 0).toBeGreaterThan(120);
+  });
+
+  it('clips the line layer around visible highlights', () => {
+    const drawables = resolveClipDrawables(
+      annotations(),
+      0,
+      frameTemporalAdapter(frameBoundary(10)),
+    );
+    const { context, commands } = recordingContext();
+
+    paintClipDrawablesToCanvas(context, drawables, {
+      width: 400,
+      height: 200,
+      sourceWidth: 400,
+      sourceHeight: 200,
+    });
+
+    expect(commands).toContainEqual(['rect', 0, 0, 400, 200]);
+    expect(commands).toContainEqual(['ellipse', 100, 100, 20, 7, 0, 0, Math.PI * 2]);
+    expect(commands).toContainEqual(['clip', 'evenodd']);
   });
 
   it('drops lost linked vertices and converts a formerly closed polygon to a line below three points', () => {
@@ -156,5 +179,30 @@ describe('renderClipAnnotations', () => {
       ['restore'],
       ['restore'],
     ]);
+  });
+
+  it('renders a displayed highlight name beside the highlight without adding a drawable', () => {
+    const source = annotations();
+    source[0] = {
+      ...source[0],
+      name: 'Player',
+      displayName: true,
+      style: { ...source[0].style, fontSize: 20 },
+    };
+    const drawables = resolveClipDrawables(source, 0, frameTemporalAdapter(frameBoundary(10)));
+    const highlight = drawables.find((drawable) => drawable.id === 'player_one')!;
+    const { context, commands } = recordingContext();
+
+    expect(drawables).toHaveLength(2);
+    expect(highlight).toMatchObject({ kind: 'ellipse', label: 'Player' });
+    paintClipDrawablesToCanvas(context, [highlight], {
+      width: 400,
+      height: 200,
+      sourceWidth: 400,
+      sourceHeight: 200,
+    });
+
+    expect(commands).toContainEqual(['strokeText', 'Player', 126, 88, 60]);
+    expect(commands).toContainEqual(['fillText', 'Player', 126, 88, 60]);
   });
 });

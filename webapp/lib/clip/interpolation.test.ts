@@ -123,6 +123,70 @@ describe('frame-native interpolation', () => {
     });
   });
 
+  it('resolves dense exact tracked frames without a linear keyframe scan', () => {
+    let frameReads = 0;
+    const keyframes = Array.from({ length: 1024 }, (_, index) => {
+      const keyframe = {
+        x: index,
+        y: index,
+        w: 10,
+        h: 10,
+        provenance: 'tracked' as const,
+      } as ClipKeyframe;
+      Object.defineProperty(keyframe, 'frame', {
+        enumerable: true,
+        get: () => {
+          frameReads += 1;
+          return frame(index);
+        },
+      });
+      return keyframe;
+    });
+    const tracked = annotation(keyframes, { source: 'auto' });
+
+    expect(interpolateAnnotation(tracked, frame(900), frameBoundary(1024))).toEqual({
+      type: 'box',
+      x: 900,
+      y: 900,
+      w: 10,
+      h: 10,
+    });
+    expect(frameReads).toBeLessThan(40);
+  });
+
+  it('reuses hidden-span analysis until an annotation keyframe array changes', () => {
+    let frameReads = 0;
+    const keyframes = Array.from({ length: 512 }, (_, index) => {
+      const keyframe = {
+        x: index,
+        y: index,
+        w: 10,
+        h: 10,
+        provenance: 'tracked' as const,
+      } as ClipKeyframe;
+      Object.defineProperty(keyframe, 'frame', {
+        enumerable: true,
+        get: () => {
+          frameReads += 1;
+          return frame(index * 2);
+        },
+      });
+      return keyframe;
+    });
+    const tracked = annotation(keyframes, { source: 'auto' });
+
+    expect(interpolateAnnotation(tracked, frame(501), frameBoundary(1024))).not.toBeNull();
+    frameReads = 0;
+    expect(interpolateAnnotation(tracked, frame(503), frameBoundary(1024))).not.toBeNull();
+    expect(frameReads).toBeLessThan(50);
+
+    tracked.keyframes = [
+      { frame: frame(0), x: 0, y: 0, w: 10, h: 10, provenance: 'tracked' },
+      { frame: frame(10), x: 10, y: 10, w: 10, h: 10, provenance: 'tracked' },
+    ];
+    expect(interpolateAnnotation(tracked, frame(5), frameBoundary(1024))).toBeNull();
+  });
+
   it('keeps scalar interpolation helpers deterministic', () => {
     expect(lerp(10, 20, 0.25)).toBe(12.5);
     expect(catmullRom(0, 10, 20, 30, 0.5)).toBe(15);

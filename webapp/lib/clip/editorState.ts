@@ -107,6 +107,125 @@ export function deleteSelectedClipAnnotation(
   };
 }
 
+export type ClipAnnotationMergeBlocker =
+  | 'minimum-selection'
+  | 'missing-annotation'
+  | 'mixed-type'
+  | 'mixed-coordinate-mode'
+  | 'overlapping-keyframes';
+
+export type ClipAnnotationMergeInspection =
+  | {
+      canMerge: true;
+      blocker: null;
+      selected: ClipAnnotation[];
+      survivor: ClipAnnotation;
+    }
+  | {
+      canMerge: false;
+      blocker: ClipAnnotationMergeBlocker;
+      selected: ClipAnnotation[];
+      survivor: null;
+    };
+
+export function inspectClipAnnotationMerge(
+  annotations: ClipAnnotation[],
+  selectedAnnotationIds: readonly string[],
+): ClipAnnotationMergeInspection {
+  const selected = selectedAnnotationIds.flatMap((annotationId) => {
+    const annotation = annotations.find((candidate) => candidate.id === annotationId);
+    return annotation ? [annotation] : [];
+  });
+  if (selectedAnnotationIds.length < 2) {
+    return { canMerge: false, blocker: 'minimum-selection', selected, survivor: null };
+  }
+  if (selected.length !== selectedAnnotationIds.length) {
+    return { canMerge: false, blocker: 'missing-annotation', selected, survivor: null };
+  }
+  const survivor = selected.at(-1)!;
+  if (selected.some((annotation) => annotation.type !== survivor.type)) {
+    return { canMerge: false, blocker: 'mixed-type', selected, survivor: null };
+  }
+  if (selected.some((annotation) => annotation.coordMode !== survivor.coordMode)) {
+    return { canMerge: false, blocker: 'mixed-coordinate-mode', selected, survivor: null };
+  }
+
+  const occupiedFrames = new Set<number>();
+  for (const annotation of selected) {
+    const frames = [
+      ...annotation.keyframes.map((keyframe) => keyframe.frame),
+      ...(annotation.visibilityKeyframes ?? []).map((keyframe) => keyframe.frame),
+    ];
+    for (const frame of frames) {
+      if (occupiedFrames.has(frame)) {
+        return { canMerge: false, blocker: 'overlapping-keyframes', selected, survivor: null };
+      }
+      occupiedFrames.add(frame);
+    }
+  }
+  return { canMerge: true, blocker: null, selected, survivor };
+}
+
+export function mergeClipAnnotations(
+  annotations: ClipAnnotation[],
+  selectedAnnotationIds: readonly string[],
+): {
+  annotations: ClipAnnotation[];
+  selectedAnnotationId: string | null;
+  didMerge: boolean;
+  blocker: ClipAnnotationMergeBlocker | null;
+} {
+  const inspection = inspectClipAnnotationMerge(annotations, selectedAnnotationIds);
+  if (!inspection.canMerge) {
+    return {
+      annotations,
+      selectedAnnotationId: selectedAnnotationIds.at(-1) ?? null,
+      didMerge: false,
+      blocker: inspection.blocker,
+    };
+  }
+
+  const survivorId = inspection.survivor.id;
+  const mergedIds = new Set(inspection.selected.map((annotation) => annotation.id));
+  const removedIds = new Set([...mergedIds].filter((annotationId) => annotationId !== survivorId));
+  const keyframes = inspection.selected
+    .flatMap((annotation) => annotation.keyframes)
+    .sort((left, right) => left.frame - right.frame);
+  const visibilityKeyframes = inspection.selected
+    .flatMap((annotation) => annotation.visibilityKeyframes ?? [])
+    .sort((left, right) => left.frame - right.frame);
+  const source = inspection.selected.every(
+    (annotation) => annotation.source === inspection.survivor.source,
+  )
+    ? inspection.survivor.source
+    : 'corrected';
+  const rewriteReference = (annotationId: string | null | undefined) => (
+    annotationId && removedIds.has(annotationId) ? survivorId : annotationId
+  );
+
+  const merged: ClipAnnotation = {
+    ...inspection.survivor,
+    source,
+    keyframes,
+    visibilityKeyframes: visibilityKeyframes.length > 0 ? visibilityKeyframes : undefined,
+  };
+  const next = annotations.flatMap((annotation) => {
+    if (removedIds.has(annotation.id)) return [];
+    const candidate = annotation.id === survivorId ? merged : annotation;
+    return [{
+      ...candidate,
+      trackingAnchorId: rewriteReference(candidate.trackingAnchorId),
+      vertexRefs: candidate.vertexRefs?.map((annotationId) => rewriteReference(annotationId) ?? null),
+    }];
+  });
+  return {
+    annotations: next,
+    selectedAnnotationId: survivorId,
+    didMerge: true,
+    blocker: null,
+  };
+}
+
 export function mergeTrackedKeyframesIntoAnnotation(
   annotation: ClipAnnotation,
   newKeyframes: ClipKeyframe[],

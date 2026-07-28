@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ClipAnnotation, HighlightKeyframe } from '../types/clip';
-import { videoFrame } from './frameMath';
-import { bridgeTrackingHighlight } from './trackingWorkflow';
+import { frameBoundary, videoFrame } from './frameMath';
+import {
+  bridgeTrackingHighlight,
+  reusableTrackingHighlight,
+  seedTrackingHighlightSegment,
+  stopTrackingHighlightSegment,
+} from './trackingWorkflow';
 
 function highlight(keyframes: HighlightKeyframe[]): ClipAnnotation {
   return {
@@ -66,6 +71,72 @@ describe('bridgeTrackingHighlight', () => {
 
     expect(result.keyframes).toEqual([
       { frame: 8, cx: 80, cy: 90, radius: 20, provenance: 'manual' },
+    ]);
+  });
+});
+
+describe('reusableTrackingHighlight', () => {
+  it('reuses a selected image-space highlight on an unkeyed frame', () => {
+    const annotation = highlight([
+      { frame: videoFrame(10), cx: 100, cy: 200, radius: 22 },
+    ]);
+
+    expect(reusableTrackingHighlight(annotation, videoFrame(14))).toBe(annotation);
+  });
+
+  it('rejects occupied frames and incompatible annotations', () => {
+    const annotation = highlight([
+      { frame: videoFrame(10), cx: 100, cy: 200, radius: 22 },
+    ]);
+    expect(reusableTrackingHighlight(annotation, videoFrame(10))).toBeNull();
+    expect(reusableTrackingHighlight({
+      ...annotation,
+      visibilityKeyframes: [{ frame: videoFrame(14), action: 'hide' }],
+    }, videoFrame(14))).toBeNull();
+    expect(reusableTrackingHighlight({ ...annotation, type: 'circle' }, videoFrame(14))).toBeNull();
+    expect(reusableTrackingHighlight({ ...annotation, coordMode: 'pitch' }, videoFrame(14))).toBeNull();
+  });
+});
+
+describe('tracking segment boundaries', () => {
+  it('preserves an earlier lost span when a selected highlight starts a new segment', () => {
+    const result = seedTrackingHighlightSegment(
+      highlight([
+        { frame: videoFrame(5), cx: 100, cy: 200, radius: 22, provenance: 'tracked' },
+        { frame: videoFrame(7), cx: 110, cy: 205, radius: 22, provenance: 'lost', visible: false },
+      ]),
+      videoFrame(10),
+      { cx: 140, cy: 220, radius: 22 },
+    );
+
+    expect(result.keyframes).toEqual([
+      { frame: 5, cx: 100, cy: 200, radius: 22, provenance: 'tracked' },
+      { frame: 7, cx: 110, cy: 205, radius: 22, provenance: 'lost', visible: false },
+      { frame: 10, cx: 140, cy: 220, radius: 22, provenance: 'correction' },
+    ]);
+  });
+
+  it('ends a manual tracking segment with a hidden stop frame', () => {
+    const result = stopTrackingHighlightSegment(
+      highlight([
+        { frame: videoFrame(5), cx: 100, cy: 200, radius: 22, provenance: 'manual' },
+      ]),
+      videoFrame(8),
+      videoFrame(5),
+      frameBoundary(20),
+    );
+
+    expect(result.keyframes).toEqual([
+      { frame: 5, cx: 100, cy: 200, radius: 22, provenance: 'manual' },
+      { frame: 7, cx: 100, cy: 200, radius: 22, provenance: 'tracked' },
+      {
+        frame: 8,
+        cx: 100,
+        cy: 200,
+        radius: 22,
+        provenance: 'lost',
+        visible: false,
+      },
     ]);
   });
 });

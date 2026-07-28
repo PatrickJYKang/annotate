@@ -3,6 +3,8 @@
   "header.fullscreen": "Fullscreen",
   "header.locale": "Language",
   "locale.en": "English",
+  "locale.fr": "Français",
+  "locale.es": "Español",
   "locale.zh-CN": "简体中文",
   "common.cancel": "Cancel",
   "common.create": "Create",
@@ -186,9 +188,11 @@
   ,"annotation.fill": "Fill"
   ,"annotation.fillColor": "Annotation fill color"
   ,"annotation.fillOpacity": "Fill Opacity"
-  ,"annotation.font": "Font"
+  ,"annotation.font": "Font size"
   ,"annotation.inspector": "Inspector"
   ,"annotation.name": "Name"
+  ,"annotation.displayName": "Display name"
+  ,"annotation.textSize": "Text size"
   ,"annotation.linkColors": "Link stroke and fill colors"
   ,"annotation.linkedColorsTitle": "Stroke and fill change together"
   ,"annotation.manualHomography": "Manual H"
@@ -248,10 +252,12 @@
   ,"clip.keyframeLocationRequired": "An object must retain at least one location keyframe."
   ,"clip.keyframeHere": "KF Here"
   ,"clip.loading": "Loading frame-native clip editor…"
+  ,"clip.mergeObjects": "Merge objects"
   ,"clip.nextFrame": "Next frame"
   ,"clip.noGeometry": "The object has no visible geometry at this frame."
   ,"clip.noPinImport": "No pin is open for import."
   ,"clip.objectInspector": "Object inspector"
+  ,"clip.objectsMerged": "Merged {count} objects."
   ,"clip.objectPrompt": "Pause playback and select or draw an object."
   ,"clip.openPin": "Open pin at f{frame}"
   ,"clip.openedPin": "Opened pin at frame {frame}."

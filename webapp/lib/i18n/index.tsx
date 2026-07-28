@@ -10,9 +10,11 @@ import {
   type ReactNode,
 } from 'react';
 import en from './messages/en.json';
+import es from './messages/es.json';
+import fr from './messages/fr.json';
 import zhCN from './messages/zh-CN.json';
 
-export const SUPPORTED_LOCALES = ['en', 'zh-CN'] as const;
+export const SUPPORTED_LOCALES = ['en', 'fr', 'es', 'zh-CN'] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 export type TranslationParams = Readonly<Record<string, string | number>>;
 export type Translate = (key: string, params?: TranslationParams) => string;
@@ -20,6 +22,8 @@ export type Translate = (key: string, params?: TranslationParams) => string;
 const LOCALE_STORAGE_KEY = 'annotate:locale';
 const messages: Record<Locale, Record<string, string>> = {
   en,
+  fr,
+  es,
   'zh-CN': zhCN,
 };
 const reportedMissingKeys = new Set<string>();

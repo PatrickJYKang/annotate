@@ -190,6 +190,12 @@ export function AnnotationInspector({
   onStartTracking,
   onStopTracking,
   onRenameHighlight,
+  onDisplayHighlightName,
+  onHighlightNameFontSize,
+  defaultFontSize,
+  selectedObjectCount,
+  canMergeObjects,
+  onMergeObjects,
   onDeleteObject,
 }: {
   annotation: ClipAnnotation | null;
@@ -207,6 +213,12 @@ export function AnnotationInspector({
   onStartTracking: () => void;
   onStopTracking: () => void;
   onRenameHighlight: (name?: string) => void;
+  onDisplayHighlightName: (displayName: boolean) => void;
+  onHighlightNameFontSize: (fontSize: number) => void;
+  defaultFontSize: number;
+  selectedObjectCount: number;
+  canMergeObjects: boolean;
+  onMergeObjects: () => void;
   onDeleteObject: () => void;
 }) {
   const { t, formatNumber } = useLocale();
@@ -240,22 +252,52 @@ export function AnnotationInspector({
         <div className="space-y-2">
           <div className="property-section">
             {annotation.type === 'highlight' && (
-              <label className="block px-2 py-1.5 text-muted">
-                <span className="mb-1 block">{t('annotation.name')}</span>
-                <input
-                  aria-label={t('annotation.name')}
-                  className="w-full"
-                  type="text"
-                  maxLength={80}
-                  value={nameDraft}
-                  placeholder={t('annotation.name')}
-                  onChange={(event) => setNameDraft(event.target.value)}
-                  onBlur={commitHighlightName}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') event.currentTarget.blur();
-                  }}
-                />
-              </label>
+              <>
+                <label className="block px-2 py-1.5 text-muted">
+                  <span className="mb-1 block">{t('annotation.name')}</span>
+                  <input
+                    aria-label={t('annotation.name')}
+                    className="w-full"
+                    type="text"
+                    maxLength={80}
+                    value={nameDraft}
+                    placeholder={t('annotation.name')}
+                    onChange={(event) => setNameDraft(event.target.value)}
+                    onBlur={commitHighlightName}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') event.currentTarget.blur();
+                    }}
+                  />
+                </label>
+                <label
+                  className="inline-flex w-fit items-center gap-2 px-2 py-1.5 text-muted"
+                  htmlFor={`clip-highlight-display-name-${annotation.id}`}
+                >
+                  <span>{t('annotation.displayName')}</span>
+                  <input
+                    id={`clip-highlight-display-name-${annotation.id}`}
+                    aria-label={t('annotation.displayName')}
+                    type="checkbox"
+                    checked={!!annotation.displayName}
+                    onChange={(event) => onDisplayHighlightName(event.target.checked)}
+                  />
+                </label>
+                {annotation.displayName && (
+                  <label className="block px-2 py-1.5 text-muted">
+                    <span className="mb-1 block">{t('annotation.textSize')}</span>
+                    <input
+                      aria-label={t('annotation.textSize')}
+                      className="w-full"
+                      type="number"
+                      min={8}
+                      max={300}
+                      step={1}
+                      value={annotation.style.fontSize || defaultFontSize}
+                      onChange={(event) => onHighlightNameFontSize(Number(event.target.value) || defaultFontSize)}
+                    />
+                  </label>
+                )}
+              </>
             )}
             <div className="property-row">
               <strong className="capitalize text-primary">{t(`tool.${annotation.type}`)}</strong>
@@ -281,6 +323,16 @@ export function AnnotationInspector({
             <button onClick={onAddKeyframe} disabled={hasPositionKeyframe}>{t('clip.keyframeHere')}</button>
             <button onClick={onDeleteKeyframe} disabled={!hasPositionKeyframe && !hasVisibilityKeyframe}>{t('clip.deleteKeyframe')}</button>
           </div>
+          {selectedObjectCount >= 2 && (
+            <button
+              className="button-primary w-full"
+              data-testid="clip-merge-objects"
+              disabled={!canMergeObjects}
+              onClick={onMergeObjects}
+            >
+              {t('clip.mergeObjects')}
+            </button>
+          )}
           <button className="button-danger w-full" onClick={onDeleteObject}>{t('clip.deleteObject')}</button>
         </div>
       ) : (

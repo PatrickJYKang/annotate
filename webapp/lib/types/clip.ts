@@ -63,6 +63,7 @@ export interface ClipAnnotation {
   id: string;
   type: ClipAnnotationType;
   name?: string;
+  displayName?: boolean;
   coordMode: CoordMode;
   source: AnnotationSource;
   trackingAnchorId?: string | null;
@@ -547,6 +548,9 @@ export function parseClip(raw: unknown, options: ValidateClipOptions = {}): Clip
     }
     if (annotation.name !== undefined && typeof annotation.name !== 'string') {
       throw new Error(`${annotationPath}.name must be a string.`);
+    }
+    if (annotation.displayName !== undefined && typeof annotation.displayName !== 'boolean') {
+      throw new Error(`${annotationPath}.displayName must be boolean.`);
     }
     if (
       annotation.trackingAnchorId !== undefined

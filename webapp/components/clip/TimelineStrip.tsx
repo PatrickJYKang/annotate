@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ClipAnnotation, Clip } from '../../lib/types/clip';
 import { useLocale, type Translate } from '../../lib/i18n';
@@ -34,7 +34,7 @@ type KeyframeDragState = {
 interface TimelineStripProps {
   clip: Clip;
   currentFrame: number;
-  selectedAnnotationId: string | null;
+  selectedAnnotationIds: readonly string[];
   selectedPinId?: string | null;
   revealRequest?: TimelineRevealRequest | null;
   selectedKeyframe: TimelineKeyframeRef | null;
@@ -45,7 +45,7 @@ interface TimelineStripProps {
   onNext: () => void;
   onSkipForward: () => void;
   onSeek: (frame: number) => void;
-  onSelectAnnotation: (annotationId: string) => void;
+  onSelectAnnotation: (annotationId: string, additive?: boolean) => void;
   onSelectPin?: (pinId: string, frame: number) => void;
   onSelectKeyframe: (keyframe: TimelineKeyframeRef) => void;
   onMoveKeyframe: (keyframe: TimelineKeyframeRef, frame: number) => void;
@@ -73,10 +73,130 @@ function annotationAccentColor(annotation: ClipAnnotation): string {
   return '#e5e7eb';
 }
 
+interface TimelineAnnotationRowsProps {
+  annotations: readonly ClipAnnotation[];
+  selectedAnnotationIds: readonly string[];
+  selectedKeyframe: TimelineKeyframeRef | null;
+  frameToX: (frame: number) => number;
+  formatNumber: (value: number) => string;
+  t: Translate;
+  onKeyframePointerDown: (
+    event: React.PointerEvent<HTMLButtonElement>,
+    ref: TimelineKeyframeRef,
+    draggable: boolean,
+  ) => void;
+  onKeyframePointerMove: (event: React.PointerEvent<HTMLButtonElement>) => void;
+  onKeyframePointerEnd: (event: React.PointerEvent<HTMLButtonElement>) => void;
+}
+
+const TimelineAnnotationRows = memo(function TimelineAnnotationRows({
+  annotations,
+  selectedAnnotationIds,
+  selectedKeyframe,
+  frameToX,
+  formatNumber,
+  t,
+  onKeyframePointerDown,
+  onKeyframePointerMove,
+  onKeyframePointerEnd,
+}: TimelineAnnotationRowsProps) {
+  const selectedAnnotationIdSet = useMemo(
+    () => new Set(selectedAnnotationIds),
+    [selectedAnnotationIds],
+  );
+
+  return annotations.map((annotation, rowIndex) => (
+    <div
+      key={annotation.id}
+      className={`absolute inset-x-0 border-b border-border/70 ${
+        selectedAnnotationIdSet.has(annotation.id) ? 'bg-white/[0.04]' : ''
+      }`}
+      data-timeline-annotation-id={annotation.id}
+      style={{ top: 28 + (rowIndex + 1) * ROW_HEIGHT, height: ROW_HEIGHT }}
+    >
+      {annotation.keyframes.map((keyframe, index) => {
+        const ref: TimelineKeyframeRef = {
+          annotationId: annotation.id,
+          kind: 'position',
+          index,
+          frame: keyframe.frame,
+        };
+        const selected = selectedKeyframe?.annotationId === annotation.id
+          && selectedKeyframe.kind === 'position'
+          && selectedKeyframe.frame === keyframe.frame;
+        const draggable = keyframe.provenance !== 'tracked' && keyframe.provenance !== 'lost';
+        return (
+          <button
+            key={`position-${keyframe.frame}`}
+            aria-label={t('timeline.keyframeAria', {
+              type: t(`tool.${annotation.type}`),
+              frame: formatNumber(keyframe.frame),
+            })}
+            aria-pressed={selected}
+            className="absolute top-1/2 h-3.5 w-3.5 rotate-45 border border-white bg-sky-400 p-0"
+            style={{
+              left: frameToX(keyframe.frame),
+              transform: 'translate(-50%, -50%) rotate(45deg)',
+              outline: selected ? '2px solid #fff' : undefined,
+              cursor: draggable ? 'grab' : 'pointer',
+            }}
+            title={t('timeline.keyframeTitle', {
+              provenance: t(`timeline.provenance.${keyframe.provenance ?? 'manual'}`),
+              frame: formatNumber(keyframe.frame),
+            })}
+            onPointerDown={(event) => onKeyframePointerDown(event, ref, draggable)}
+            onPointerMove={onKeyframePointerMove}
+            onPointerUp={onKeyframePointerEnd}
+            onPointerCancel={onKeyframePointerEnd}
+          />
+        );
+      })}
+      {(annotation.visibilityKeyframes ?? []).map((keyframe, index) => {
+        const ref: TimelineKeyframeRef = {
+          annotationId: annotation.id,
+          kind: 'visibility',
+          index,
+          frame: keyframe.frame,
+        };
+        const selected = selectedKeyframe?.annotationId === annotation.id
+          && selectedKeyframe.kind === 'visibility'
+          && selectedKeyframe.frame === keyframe.frame;
+        return (
+          <button
+            key={`visibility-${keyframe.frame}`}
+            aria-label={t('timeline.visibilityAria', {
+              action: t(`timeline.action.${keyframe.action}`),
+              frame: formatNumber(keyframe.frame),
+            })}
+            aria-pressed={selected}
+            className={`absolute top-1/2 h-3 w-3 rounded-full border border-white p-0 ${
+              keyframe.action === 'hide' ? 'bg-rose-500' : 'bg-emerald-500'
+            }`}
+            style={{
+              left: frameToX(keyframe.frame),
+              transform: 'translate(-50%, -50%)',
+              outline: selected ? '2px solid #fff' : undefined,
+              cursor: 'grab',
+            }}
+            title={t('timeline.visibilityTitle', {
+              action: t(`timeline.action.${keyframe.action}`),
+              frame: formatNumber(keyframe.frame),
+            })}
+            onPointerDown={(event) => onKeyframePointerDown(event, ref, true)}
+            onPointerMove={onKeyframePointerMove}
+            onPointerUp={onKeyframePointerEnd}
+            onPointerCancel={onKeyframePointerEnd}
+          />
+        );
+      })}
+    </div>
+  ));
+});
+
 export default function TimelineStrip({
   clip,
   currentFrame,
-  selectedAnnotationId,
+  selectedAnnotationIds,
   selectedPinId = null,
   revealRequest = null,
   selectedKeyframe,
@@ -93,6 +213,10 @@ export default function TimelineStrip({
   onMoveKeyframe,
 }: TimelineStripProps) {
   const { t, formatNumber } = useLocale();
+  const selectedAnnotationIdSet = useMemo(
+    () => new Set(selectedAnnotationIds),
+    [selectedAnnotationIds],
+  );
   const [zoom, setZoom] = useState(1);
   const [viewportWidth, setViewportWidth] = useState(0);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -246,7 +370,7 @@ export default function TimelineStrip({
     event.preventDefault();
     const annotationRow = target.closest<HTMLElement>('[data-timeline-annotation-id]');
     const annotationId = annotationRow?.dataset.timelineAnnotationId;
-    if (annotationId) onSelectAnnotation(annotationId);
+    if (annotationId) onSelectAnnotation(annotationId, event.shiftKey);
     onSeek(pointerToFrame(event.clientX));
     event.currentTarget.setPointerCapture(event.pointerId);
   }, [onSeek, onSelectAnnotation, pointerToFrame]);
@@ -343,10 +467,11 @@ export default function TimelineStrip({
             <button
               key={annotation.id}
               className={`relative block w-full truncate border-0 border-b border-solid border-border py-0 pl-3 pr-2 text-left text-xs ${
-                selectedAnnotationId === annotation.id ? 'bg-white/10 font-semibold' : ''
+                selectedAnnotationIdSet.has(annotation.id) ? 'bg-white/10 font-semibold' : ''
               }`}
               style={{ height: ROW_HEIGHT }}
-              onClick={() => onSelectAnnotation(annotation.id)}
+              aria-pressed={selectedAnnotationIdSet.has(annotation.id)}
+              onClick={(event) => onSelectAnnotation(annotation.id, event.shiftKey)}
               title={annotation.id}
             >
               <span
@@ -424,93 +549,20 @@ export default function TimelineStrip({
                 />
               ))}
             </div>
-            {clip.annotations.map((annotation, rowIndex) => (
-              <div
-                key={annotation.id}
-                className={`absolute inset-x-0 border-b border-border/70 ${
-                  selectedAnnotationId === annotation.id ? 'bg-white/[0.04]' : ''
-                }`}
-                data-timeline-annotation-id={annotation.id}
-                style={{ top: 28 + (rowIndex + 1) * ROW_HEIGHT, height: ROW_HEIGHT }}
-              >
-                {annotation.keyframes.map((keyframe, index) => {
-                  const ref: TimelineKeyframeRef = {
-                    annotationId: annotation.id,
-                    kind: 'position',
-                    index,
-                    frame: keyframe.frame,
-                  };
-                  const selected = selectedKeyframe?.annotationId === annotation.id
-                    && selectedKeyframe.kind === 'position'
-                    && selectedKeyframe.frame === keyframe.frame;
-                  const draggable = keyframe.provenance !== 'tracked' && keyframe.provenance !== 'lost';
-                  return (
-                    <button
-                      key={`position-${keyframe.frame}`}
-                      aria-label={t('timeline.keyframeAria', {
-                        type: t(`tool.${annotation.type}`),
-                        frame: formatNumber(keyframe.frame),
-                      })}
-                      className="absolute top-1/2 h-3.5 w-3.5 rotate-45 border border-white bg-sky-400 p-0"
-                      style={{
-                        left: frameToX(keyframe.frame),
-                        transform: 'translate(-50%, -50%) rotate(45deg)',
-                        outline: selected ? '2px solid #fff' : undefined,
-                        cursor: draggable ? 'grab' : 'pointer',
-                      }}
-                      title={t('timeline.keyframeTitle', {
-                        provenance: t(`timeline.provenance.${keyframe.provenance ?? 'manual'}`),
-                        frame: formatNumber(keyframe.frame),
-                      })}
-                      onPointerDown={(event) => handleKeyframePointerDown(event, ref, draggable)}
-                      onPointerMove={handleKeyframePointerMove}
-                      onPointerUp={handleKeyframePointerEnd}
-                      onPointerCancel={handleKeyframePointerEnd}
-                    />
-                  );
-                })}
-                {(annotation.visibilityKeyframes ?? []).map((keyframe, index) => {
-                  const ref: TimelineKeyframeRef = {
-                    annotationId: annotation.id,
-                    kind: 'visibility',
-                    index,
-                    frame: keyframe.frame,
-                  };
-                  const selected = selectedKeyframe?.annotationId === annotation.id
-                    && selectedKeyframe.kind === 'visibility'
-                    && selectedKeyframe.frame === keyframe.frame;
-                  return (
-                    <button
-                      key={`visibility-${keyframe.frame}`}
-                      aria-label={t('timeline.visibilityAria', {
-                        action: t(`timeline.action.${keyframe.action}`),
-                        frame: formatNumber(keyframe.frame),
-                      })}
-                      className={`absolute top-1/2 h-3 w-3 rounded-full border border-white p-0 ${
-                        keyframe.action === 'hide' ? 'bg-rose-500' : 'bg-emerald-500'
-                      }`}
-                      style={{
-                        left: frameToX(keyframe.frame),
-                        transform: 'translate(-50%, -50%)',
-                        outline: selected ? '2px solid #fff' : undefined,
-                        cursor: 'grab',
-                      }}
-                      title={t('timeline.visibilityTitle', {
-                        action: t(`timeline.action.${keyframe.action}`),
-                        frame: formatNumber(keyframe.frame),
-                      })}
-                      onPointerDown={(event) => handleKeyframePointerDown(event, ref, true)}
-                      onPointerMove={handleKeyframePointerMove}
-                      onPointerUp={handleKeyframePointerEnd}
-                      onPointerCancel={handleKeyframePointerEnd}
-                    />
-                  );
-                })}
-              </div>
-            ))}
+            <TimelineAnnotationRows
+              annotations={clip.annotations}
+              selectedAnnotationIds={selectedAnnotationIds}
+              selectedKeyframe={selectedKeyframe}
+              frameToX={frameToX}
+              formatNumber={formatNumber}
+              t={t}
+              onKeyframePointerDown={handleKeyframePointerDown}
+              onKeyframePointerMove={handleKeyframePointerMove}
+              onKeyframePointerEnd={handleKeyframePointerEnd}
+            />
             <div
-              className="pointer-events-none absolute top-0 bottom-0 w-px bg-red-400"
-              style={{ left: frameToX(currentFrame) }}
+              className="pointer-events-none absolute left-0 top-0 bottom-0 w-px bg-red-400 will-change-transform"
+              style={{ transform: `translateX(${frameToX(currentFrame)}px)` }}
             />
           </div>
         </div>

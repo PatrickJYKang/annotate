@@ -44,6 +44,7 @@ const canonicalClip = {
       id: 'animated_highlight',
       type: 'highlight',
       name: 'Left winger',
+      displayName: true,
       coordMode: 'image',
       source: 'auto',
       style: { stroke: '#ffffff', strokeWidth: 4 },
@@ -178,6 +179,10 @@ describe('validateClip', () => {
     const invalidName = cloneClip() as unknown as Record<string, any>;
     invalidName.annotations[0].name = 8;
     expect(() => parseClip(invalidName)).toThrow('annotations[0].name must be a string');
+
+    const invalidDisplayName = cloneClip() as unknown as Record<string, any>;
+    invalidDisplayName.annotations[0].displayName = 'yes';
+    expect(() => parseClip(invalidDisplayName)).toThrow('annotations[0].displayName must be boolean');
   });
 
   it('enforces unique, sorted, in-range pins with one default document', () => {

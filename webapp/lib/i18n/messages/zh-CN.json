@@ -3,6 +3,8 @@
   "header.fullscreen": "全屏",
   "header.locale": "语言",
   "locale.en": "English",
+  "locale.fr": "Français",
+  "locale.es": "Español",
   "locale.zh-CN": "简体中文",
   "common.cancel": "取消",
   "common.create": "创建",
@@ -189,6 +191,8 @@
   ,"annotation.font": "字体大小"
   ,"annotation.inspector": "检查器"
   ,"annotation.name": "名称"
+  ,"annotation.displayName": "显示名称"
+  ,"annotation.textSize": "文字大小"
   ,"annotation.linkColors": "链接描边和填充颜色"
   ,"annotation.linkedColorsTitle": "描边与填充一起变化"
   ,"annotation.manualHomography": "手动 H"
@@ -248,10 +252,12 @@
   ,"clip.keyframeLocationRequired": "对象必须至少保留一个位置关键帧。"
   ,"clip.keyframeHere": "在此添加关键帧"
   ,"clip.loading": "正在加载逐帧片段编辑器…"
+  ,"clip.mergeObjects": "合并对象"
   ,"clip.nextFrame": "下一帧"
   ,"clip.noGeometry": "此对象在当前帧没有可见几何形状。"
   ,"clip.noPinImport": "当前没有打开可供导入的帧标记。"
   ,"clip.objectInspector": "对象检查器"
+  ,"clip.objectsMerged": "已合并 {count} 个对象。"
   ,"clip.objectPrompt": "暂停播放，然后选择或绘制对象。"
   ,"clip.openPin": "打开 f{frame} 的帧标记"
   ,"clip.openedPin": "已打开第 {frame} 帧的帧标记。"

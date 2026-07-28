@@ -277,6 +277,8 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   await annotator.getByRole('button', { name: 'Highlight', exact: true }).click();
   await stage.click({ position: { x: 300, y: 220 } });
   await annotator.getByLabel('Name', { exact: true }).fill('Left back');
+  await annotator.getByLabel('Display name', { exact: true }).check();
+  await annotator.getByLabel('Text size', { exact: true }).fill('32');
   await annotator.getByRole('button', { name: 'Arrow', exact: true }).click();
   await stage.click({ position: { x: 300, y: 220 } });
   await stage.click({ position: { x: 450, y: 170 } });
@@ -304,11 +306,19 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   const arrow = storedPin.document.shapes.find((shape: { type: string }) => shape.type === 'arrow');
   const poly = storedPin.document.shapes.find((shape: { type: string }) => shape.type === 'poly');
   expect(highlight.name).toBe('Left back');
+  expect(highlight.displayName).toBe(true);
+  expect(highlight.style.fontSize).toBe(32);
   expect(arrow.vertexRefs[0]).toBe(highlight.id);
   expect(poly.vertexRefs[0]).toBe(highlight.id);
 
   await annotator.getByRole('button', { name: 'Import into clip' }).click();
   await expect(annotator.getByText('Annotations imported into the animated clip layer.')).toBeVisible();
+  await expect.poll(async () => {
+    const clip = await readClip(page);
+    return clip.annotations.filter((annotation: { keyframes: Array<{ frame: number }> }) => (
+      annotation.keyframes.some((keyframe) => keyframe.frame === 16)
+    )).length;
+  }).toBe(3);
   const secondPinClosed = pinPage.waitForEvent('close');
   await annotator.getByRole('button', { name: 'Close pin' }).click();
   await secondPinClosed;
@@ -327,8 +337,15 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
       polyRef: importedPoly?.vertexRefs?.[0] ?? null,
       highlightId: importedHighlight?.id ?? null,
       highlightName: importedHighlight?.name ?? null,
+      highlightDisplayName: importedHighlight?.displayName ?? null,
+      highlightFontSize: importedHighlight?.style?.fontSize ?? null,
     };
-  }).toMatchObject({ count: 3, highlightName: 'Left back' });
+  }).toMatchObject({
+    count: 3,
+    highlightName: 'Left back',
+    highlightDisplayName: true,
+    highlightFontSize: 32,
+  });
   const importedClip = await readClip(page);
   const importedAtSixteen = importedClip.annotations.filter((annotation: { keyframes: Array<{ frame: number }> }) => (
     annotation.keyframes.some((keyframe) => keyframe.frame === 16)

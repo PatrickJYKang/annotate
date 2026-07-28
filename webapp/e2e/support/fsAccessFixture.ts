@@ -416,16 +416,24 @@ export async function installDirectoryPickerFixture(page: Page, fixturePath: str
   }, { root: serializedRoot, fixtureStorageKey: storageKey });
 }
 
-export async function installOpfsDirectoryPickerFixture(page: Page, fixturePath: string): Promise<void> {
+export async function installOpfsDirectoryPickerFixture(
+  page: Page,
+  fixturePath: string,
+  options: { rootName?: string } = {},
+): Promise<void> {
   const absoluteFixturePath = path.isAbsolute(fixturePath)
     ? fixturePath
     : path.resolve(fixturePath);
-  const storageKey = `playwright-opfs-fixture:${absoluteFixturePath}`;
-  const permissionKey = `playwright-opfs-permission:${absoluteFixturePath}`;
+  const storageSuffix = options.rootName ? `${absoluteFixturePath}:${options.rootName}` : absoluteFixturePath;
+  const storageKey = `playwright-opfs-fixture:${storageSuffix}`;
+  const permissionKey = `playwright-opfs-permission:${storageSuffix}`;
   const serializedRoot = await serializeFixtureEntry(absoluteFixturePath);
   if (serializedRoot.kind !== 'directory') {
     throw new Error(`Fixture path is not a directory: ${absoluteFixturePath}`);
   }
+  const fixtureRoot = options.rootName
+    ? { ...serializedRoot, name: options.rootName }
+    : serializedRoot;
 
   await page.context().addInitScript(({ root, fixtureStorageKey, fixturePermissionKey }: {
     root: SerializedFixtureDirectory;
@@ -502,7 +510,7 @@ export async function installOpfsDirectoryPickerFixture(page: Page, fixturePath:
       (window as Window & { __playwrightProjectHandle?: FileSystemDirectoryHandle })
         .__playwrightProjectHandle = handle;
     });
-  }, { root: serializedRoot, fixtureStorageKey: storageKey, fixturePermissionKey: permissionKey });
+  }, { root: fixtureRoot, fixtureStorageKey: storageKey, fixturePermissionKey: permissionKey });
 }
 
 export async function setOpfsProjectPermission(

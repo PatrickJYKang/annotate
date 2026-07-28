@@ -24,7 +24,7 @@ export interface AppliedPinImportResult {
 
 type BuiltShape = Pick<
   ClipAnnotation,
-  'type' | 'coordMode' | 'name' | 'text' | 'closed' | 'vertexRefs'
+  'type' | 'coordMode' | 'name' | 'displayName' | 'text' | 'closed' | 'vertexRefs'
 > & {
   sourceShapeId: string;
   geometry: Record<string, unknown> & { provenance: 'manual' };
@@ -255,6 +255,7 @@ export function importPinDocumentToClip(
     built.push({
       ...converted,
       name: shape.type === 'highlight' ? shape.name : undefined,
+      displayName: shape.type === 'highlight' ? shape.displayName : undefined,
       style: normalizeStyle(shape),
     });
   }
@@ -263,6 +264,7 @@ export function importPinDocumentToClip(
     id: makeId(),
     type: shape.type,
     name: shape.name,
+    displayName: shape.displayName,
     coordMode: shape.coordMode,
     source: 'manual',
     text: shape.text,

@@ -14,7 +14,8 @@ import { PITCH_LENGTH_M, PITCH_WIDTH_M } from '../../lib/annotate/pitchCalibrati
 import { bboxToHighlight, convertTrackingKeyframes } from '../../lib/clip/bboxConvert';
 import {
   cloneClipAnnotations,
-  deleteSelectedClipAnnotation,
+  inspectClipAnnotationMerge,
+  mergeClipAnnotations,
   mergeTrackedKeyframesIntoAnnotation,
   recordClipAnnotationHistoryChange,
   redoClipAnnotationHistory,
@@ -61,7 +62,12 @@ import {
   getCurrentVisibilityKeyframe,
   getFrameTrackingState,
 } from '../../lib/clip/trackingState';
-import { bridgeTrackingHighlight } from '../../lib/clip/trackingWorkflow';
+import {
+  bridgeTrackingHighlight,
+  reusableTrackingHighlight,
+  seedTrackingHighlightSegment,
+  stopTrackingHighlightSegment,
+} from '../../lib/clip/trackingWorkflow';
 import {
   deleteOverlappingHomographyCache,
   findOverlappingCache,
@@ -119,13 +125,40 @@ interface ClipEditorProps {
 }
 
 type Point = { x: number; y: number };
+type LinkedDraftPoint = Point & { refId?: string | null };
+type PolyDraftCursor = {
+  raw: Point;
+  snapped: LinkedDraftPoint;
+};
 type PointerDraft = {
   mode: 'draw' | 'move';
   start: Point;
   current: Point;
   annotationId?: string;
   baseGeometry?: Record<string, unknown>;
+  startClient?: Point;
+  hasMoved?: boolean;
 };
+
+const POLY_VERTEX_SNAP_DISTANCE = 10;
+
+function nearestPolyVertexIndex(points: LinkedDraftPoint[], point: Point): number {
+  let nearestIndex = -1;
+  let nearestDistance = Infinity;
+  points.forEach((candidate, index) => {
+    const distance = Math.hypot(point.x - candidate.x, point.y - candidate.y);
+    if (distance <= POLY_VERTEX_SNAP_DISTANCE && distance < nearestDistance) {
+      nearestIndex = index;
+      nearestDistance = distance;
+    }
+  });
+  return nearestIndex;
+}
+
+function isDuplicatePolyPoint(left: LinkedDraftPoint, right: LinkedDraftPoint): boolean {
+  return (left.refId ?? null) === (right.refId ?? null)
+    && Math.hypot(left.x - right.x, left.y - right.y) <= 1;
+}
 
 type TrackingSession = {
   phase: 'choosing' | 'running';
@@ -356,7 +389,9 @@ export default function ClipEditor({
   const [color, setColor] = useState('#ffffff');
   const [strokeWidth, setStrokeWidth] = useState(() => defaultAnnotationStrokeWidth(video.width, video.height));
   const defaultFontSize = defaultAnnotationFontSize(video.width, video.height);
-  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(clip.annotations[0]?.id ?? null);
+  const [selectedAnnotationIds, setSelectedAnnotationIds] = useState<string[]>(
+    () => clip.annotations[0]?.id ? [clip.annotations[0].id] : [],
+  );
   const [selectedKeyframe, setSelectedKeyframe] = useState<TimelineKeyframeRef | null>(null);
   const [selectedPinId, setSelectedPinId] = useState<string | null>(initialPinId ?? clip.pins[0]?.id ?? null);
   const [timelineRevealRequest, setTimelineRevealRequest] = useState<{ frame: number; id: number } | null>(null);
@@ -364,7 +399,10 @@ export default function ClipEditor({
   const [deletedPin, setDeletedPin] = useState<TrashOperationRecord | null>(null);
   const [pinLabelDraft, setPinLabelDraft] = useState('');
   const [pointerDraft, setPointerDraft] = useState<PointerDraft | null>(null);
-  const [polyPoints, setPolyPoints] = useState<[number, number][]>([]);
+  const [polyPoints, setPolyPoints] = useState<LinkedDraftPoint[]>([]);
+  const [polyCursor, setPolyCursor] = useState<PolyDraftCursor | null>(null);
+  const [arrowStart, setArrowStart] = useState<LinkedDraftPoint | null>(null);
+  const [arrowCursor, setArrowCursor] = useState<LinkedDraftPoint | null>(null);
   const [saveStatus, setSaveStatus] = useState<ClipEditorSaveStatus>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const [trackingSession, setTrackingSession] = useState<TrackingSession | null>(null);
@@ -386,13 +424,39 @@ export default function ClipEditor({
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const saveGenerationRef = useRef(0);
   const activeTrackingRunRef = useRef(0);
+  const activeTrackingFrameRef = useRef<number | null>(null);
   const desiredDetectionFrameRef = useRef<number | null>(null);
   const detectionInFlightRef = useRef(false);
   const detectionGenerationRef = useRef(0);
 
+  const selectedAnnotationId = selectedAnnotationIds.at(-1) ?? null;
+  const selectedAnnotationIdSet = useMemo(
+    () => new Set(selectedAnnotationIds),
+    [selectedAnnotationIds],
+  );
+  const selectOnlyAnnotation = useCallback((annotationId: string | null) => {
+    setSelectedAnnotationIds(annotationId ? [annotationId] : []);
+  }, []);
+  const selectAnnotationFromUi = useCallback((
+    annotationId: string | null,
+    additive = false,
+  ) => {
+    setSelectedAnnotationIds((current) => {
+      if (!annotationId) return additive ? current : [];
+      if (!additive) return [annotationId];
+      return current.includes(annotationId)
+        ? current.filter((candidate) => candidate !== annotationId)
+        : [...current, annotationId];
+    });
+    setSelectedKeyframe(null);
+  }, []);
   const selectedAnnotation = useMemo(
     () => annotations.find((annotation) => annotation.id === selectedAnnotationId) ?? null,
     [annotations, selectedAnnotationId],
+  );
+  const objectMergeInspection = useMemo(
+    () => inspectClipAnnotationMerge(annotations, selectedAnnotationIds),
+    [annotations, selectedAnnotationIds],
   );
   const selectedPin = useMemo(
     () => currentClip.pins.find((pin) => pin.id === selectedPinId) ?? null,
@@ -419,6 +483,14 @@ export default function ClipEditor({
   useEffect(() => {
     setPinLabelDraft(selectedPin?.label ?? '');
   }, [selectedPin?.id, selectedPin?.label]);
+
+  useEffect(() => {
+    const available = new Set(annotations.map((annotation) => annotation.id));
+    setSelectedAnnotationIds((current) => {
+      const next = current.filter((annotationId) => available.has(annotationId));
+      return next.length === current.length ? current : next;
+    });
+  }, [annotations]);
 
   useEffect(() => {
     if (!projectDir || currentClip.endFrame - currentClip.startFrame < 2) return;
@@ -754,18 +826,94 @@ export default function ClipEditor({
         visibilityKeyframes: undefined,
       };
     }
-    if (tool === 'select' || tool === 'poly') return null;
+    if (tool === 'select' || tool === 'poly' || tool === 'arrow') return null;
     let geometry = geometryFromDrag(tool, pointerDraft.start, pointerDraft.current);
     const usePitch = drawCoordMode === 'pitch' && activeToolSupportsPitch && !!currentHomographyInverse;
     if (usePitch) geometry = convertImageGeometryToPitchGeometry(tool, geometry, currentHomographyInverse);
     return createAnnotation(tool, currentFrame, geometry, color, strokeWidth, usePitch ? 'pitch' : 'image', defaultFontSize);
   }, [activeToolSupportsPitch, annotations, color, currentFrame, currentHomographyInverse, defaultFontSize, drawCoordMode, pointerDraft, strokeWidth, tool]);
 
+  const findHighlightHit = useCallback((point: Point): (LinkedDraftPoint & { refId: string }) | null => {
+    for (let index = drawablesRef.current.length - 1; index >= 0; index -= 1) {
+      const drawable = drawablesRef.current[index];
+      const annotation = annotationsRef.current.find((candidate) => candidate.id === drawable.id);
+      if (annotation?.type !== 'highlight' || drawable.kind !== 'ellipse') continue;
+      const dx = point.x - drawable.cx;
+      const dy = point.y - drawable.cy;
+      const normalizedDistance = (dx * dx) / Math.max(drawable.rx * drawable.rx, 1e-6)
+        + (dy * dy) / Math.max(drawable.ry * drawable.ry, 1e-6);
+      if (normalizedDistance <= 1) {
+        return { x: drawable.cx, y: drawable.cy, refId: annotation.id };
+      }
+    }
+    return null;
+  }, []);
+
+  const polyPreviewAnnotation = useMemo((): ClipAnnotation | null => {
+    if (polyPoints.length === 0) return null;
+    const nearVertexIndex = polyCursor
+      ? nearestPolyVertexIndex(polyPoints, polyCursor.raw)
+      : -1;
+    const closed = nearVertexIndex === 0 && polyPoints.length >= 3;
+    const points = nearVertexIndex < 0 && polyCursor
+      ? [...polyPoints, polyCursor.snapped]
+      : polyPoints;
+    const refs = points.map((point) => point.refId ?? null);
+    return {
+      id: '__draft-poly__',
+      type: 'poly',
+      coordMode: 'image',
+      source: 'manual',
+      closed,
+      vertexRefs: refs.some(Boolean) ? refs : undefined,
+      style: {
+        stroke: color,
+        strokeWidth,
+        strokePattern: 'solid',
+        fill: closed ? color : 'transparent',
+        fillOpacity: closed ? 0.3 : undefined,
+      },
+      keyframes: [{
+        frame: videoFrame(currentFrame),
+        provenance: 'manual',
+        points: points.map((point) => [point.x, point.y] as [number, number]),
+      }],
+    };
+  }, [color, currentFrame, polyCursor, polyPoints, strokeWidth]);
+
+  const arrowPreviewAnnotation = useMemo((): ClipAnnotation | null => {
+    if (!arrowStart || !arrowCursor) return null;
+    const refs = [arrowStart.refId ?? null, arrowCursor.refId ?? null];
+    return {
+      id: '__draft-arrow__',
+      type: 'arrow',
+      coordMode: 'image',
+      source: 'manual',
+      vertexRefs: refs.some(Boolean) ? refs : undefined,
+      style: {
+        stroke: color,
+        fill: 'transparent',
+        strokeWidth,
+        strokePattern: 'solid',
+      },
+      keyframes: [{
+        frame: videoFrame(currentFrame),
+        provenance: 'manual',
+        x1: arrowStart.x,
+        y1: arrowStart.y,
+        x2: arrowCursor.x,
+        y2: arrowCursor.y,
+      }],
+    };
+  }, [arrowCursor, arrowStart, color, currentFrame, strokeWidth]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    canvas.width = videoSize.width;
-    canvas.height = videoSize.height;
+    if (canvas.width !== videoSize.width || canvas.height !== videoSize.height) {
+      canvas.width = videoSize.width;
+      canvas.height = videoSize.height;
+    }
     const context = canvas.getContext('2d');
     if (!context) return;
     context.clearRect(0, 0, canvas.width, canvas.height);
@@ -790,11 +938,16 @@ export default function ClipEditor({
       }
       context.restore();
     }
-    const renderedAnnotations = pointerDraft?.mode === 'move' && previewAnnotation
+    const baseAnnotations = pointerDraft?.mode === 'move' && previewAnnotation
       ? [...annotations.filter((annotation) => annotation.id !== previewAnnotation.id), previewAnnotation]
       : previewAnnotation
         ? [...annotations, previewAnnotation]
         : annotations;
+    const renderedAnnotations = [
+      ...baseAnnotations,
+      ...(polyPreviewAnnotation ? [polyPreviewAnnotation] : []),
+      ...(arrowPreviewAnnotation ? [arrowPreviewAnnotation] : []),
+    ];
     const drawables = resolveClipDrawables(
       renderedAnnotations,
       currentFrame,
@@ -809,7 +962,9 @@ export default function ClipEditor({
       sourceHeight: videoSize.height,
     });
     drawablesRef.current = drawables;
-    drawSelection(context, drawables.find((drawable) => drawable.id === selectedAnnotationId));
+    for (const annotationId of selectedAnnotationIds) {
+      drawSelection(context, drawables.find((drawable) => drawable.id === annotationId));
+    }
     if (trackingSession?.phase === 'choosing' && provisionalPlayers) {
       context.save();
       provisionalPlayers.detections.forEach((detection, index) => {
@@ -827,18 +982,7 @@ export default function ClipEditor({
       });
       context.restore();
     }
-    if (polyPoints.length > 0) {
-      context.save();
-      context.strokeStyle = color;
-      context.lineWidth = strokeWidth;
-      context.setLineDash([8, 5]);
-      context.beginPath();
-      context.moveTo(polyPoints[0][0], polyPoints[0][1]);
-      polyPoints.slice(1).forEach(([x, y]) => context.lineTo(x, y));
-      context.stroke();
-      context.restore();
-    }
-  }, [annotations, color, currentClip.endFrame, currentFrame, currentHomography, defaultFontSize, pointerDraft?.mode, polyPoints, previewAnnotation, provisionalPlayers, selectedAnnotationId, showHomography, strokeWidth, trackingSession, videoSize]);
+  }, [annotations, arrowPreviewAnnotation, color, currentClip.endFrame, currentFrame, currentHomography, defaultFontSize, pointerDraft?.mode, polyPreviewAnnotation, previewAnnotation, provisionalPlayers, selectedAnnotationIds, showHomography, strokeWidth, trackingSession, videoSize]);
 
   const pointFromClient = useCallback((clientX: number, clientY: number): Point | null => {
     const canvas = canvasRef.current;
@@ -851,18 +995,91 @@ export default function ClipEditor({
     };
   }, [videoSize]);
 
-  const finishPoly = useCallback(() => {
-    if (polyPoints.length < 2) {
+  const findSelectionHit = useCallback((point: Point, additive: boolean): ClipDrawable | undefined => {
+    const reversed = [...drawablesRef.current]
+      .reverse()
+      .filter((drawable) => annotationsRef.current.some((annotation) => annotation.id === drawable.id));
+    if (additive) {
+      const unselectedHit = reversed.find(
+        (drawable) => !selectedAnnotationIdSet.has(drawable.id) && hitDrawable(drawable, point),
+      );
+      if (unselectedHit) return unselectedHit;
+      return reversed.find((drawable) => hitDrawable(drawable, point));
+    }
+    const primary = selectedAnnotationId
+      ? drawablesRef.current.find((drawable) => drawable.id === selectedAnnotationId)
+      : undefined;
+    return primary && hitDrawable(primary, point)
+      ? primary
+      : reversed.find((drawable) => hitDrawable(drawable, point));
+  }, [selectedAnnotationId, selectedAnnotationIdSet]);
+
+  const finishPoly = useCallback((
+    closed = polyPoints.length >= 3,
+    points = polyPoints,
+  ) => {
+    if (points.length < 2) {
       setPolyPoints([]);
+      setPolyCursor(null);
       return;
     }
-    const annotation = createAnnotation('poly', currentFrame, { points: polyPoints }, color, strokeWidth, 'image', defaultFontSize);
+    const refs = points.map((point) => point.refId ?? null);
+    const annotation = createAnnotation(
+      'poly',
+      currentFrame,
+      { points: points.map((point) => [point.x, point.y] as [number, number]) },
+      color,
+      strokeWidth,
+      'image',
+      defaultFontSize,
+    );
+    annotation.closed = closed;
+    annotation.vertexRefs = refs.some(Boolean) ? refs : undefined;
+    annotation.style = {
+      ...annotation.style,
+      fill: closed ? color : 'transparent',
+      fillOpacity: closed ? 0.3 : undefined,
+      strokePattern: 'solid',
+    };
     const next = [...annotations, annotation];
-    setSelectedAnnotationId(annotation.id);
+    selectOnlyAnnotation(annotation.id);
     setSelectedKeyframe({ annotationId: annotation.id, kind: 'position', index: 0, frame: currentFrame });
     setPolyPoints([]);
+    setPolyCursor(null);
     commitAnnotations(next);
-  }, [annotations, color, commitAnnotations, currentFrame, defaultFontSize, polyPoints, strokeWidth]);
+  }, [annotations, color, commitAnnotations, currentFrame, defaultFontSize, polyPoints, selectOnlyAnnotation, strokeWidth]);
+
+  const finishArrow = useCallback((end: LinkedDraftPoint) => {
+    if (!arrowStart) return;
+    const refs = [arrowStart.refId ?? null, end.refId ?? null];
+    const annotation = createAnnotation(
+      'arrow',
+      currentFrame,
+      {
+        x1: arrowStart.x,
+        y1: arrowStart.y,
+        x2: end.x,
+        y2: end.y,
+      },
+      color,
+      strokeWidth,
+      'image',
+      defaultFontSize,
+    );
+    annotation.vertexRefs = refs.some(Boolean) ? refs : undefined;
+    annotation.style = { ...annotation.style, strokePattern: 'solid' };
+    const next = [...annotations, annotation];
+    selectOnlyAnnotation(annotation.id);
+    setSelectedKeyframe({
+      annotationId: annotation.id,
+      kind: 'position',
+      index: 0,
+      frame: currentFrame,
+    });
+    setArrowStart(null);
+    setArrowCursor(null);
+    commitAnnotations(next);
+  }, [annotations, arrowStart, color, commitAnnotations, currentFrame, defaultFontSize, selectOnlyAnnotation, strokeWidth]);
 
   const upsertKeyframe = useCallback((annotationId: string, frame = currentFrame) => {
     const annotation = annotations.find((candidate) => candidate.id === annotationId);
@@ -919,12 +1136,21 @@ export default function ClipEditor({
   }, [annotations, commitAnnotations, currentFrame, selectedAnnotation, selectedKeyframe, t]);
 
   const deleteSelectedObject = useCallback(() => {
-    if (!selectedAnnotationId) return;
-    const result = deleteSelectedClipAnnotation(annotations, selectedAnnotationId);
-    commitAnnotations(result.annotations);
-    setSelectedAnnotationId(result.selectedAnnotationId);
+    if (selectedAnnotationIds.length === 0) return;
+    const selectedIds = new Set(selectedAnnotationIds);
+    commitAnnotations(annotations.filter((annotation) => !selectedIds.has(annotation.id)));
+    setSelectedAnnotationIds([]);
     setSelectedKeyframe(null);
-  }, [annotations, commitAnnotations, selectedAnnotationId]);
+  }, [annotations, commitAnnotations, selectedAnnotationIds]);
+
+  const mergeSelectedObjects = useCallback(() => {
+    const result = mergeClipAnnotations(annotations, selectedAnnotationIds);
+    if (!result.didMerge || !result.selectedAnnotationId) return;
+    commitAnnotations(result.annotations);
+    selectOnlyAnnotation(result.selectedAnnotationId);
+    setSelectedKeyframe(null);
+    setMessage(t('clip.objectsMerged', { count: formatNumber(selectedAnnotationIds.length) }));
+  }, [annotations, commitAnnotations, formatNumber, selectOnlyAnnotation, selectedAnnotationIds, t]);
 
   const renameSelectedHighlight = useCallback((name?: string) => {
     if (!selectedAnnotation || selectedAnnotation.type !== 'highlight') return;
@@ -933,6 +1159,33 @@ export default function ClipEditor({
     commitAnnotations(annotations.map((annotation) => (
       annotation.id === selectedAnnotation.id
         ? { ...annotation, name: normalized }
+        : annotation
+    )));
+  }, [annotations, commitAnnotations, selectedAnnotation]);
+
+  const setSelectedHighlightDisplayName = useCallback((displayName: boolean) => {
+    if (!selectedAnnotation || selectedAnnotation.type !== 'highlight') return;
+    if (displayName === !!selectedAnnotation.displayName) return;
+    commitAnnotations(annotations.map((annotation) => (
+      annotation.id === selectedAnnotation.id
+        ? {
+            ...annotation,
+            displayName,
+            style: displayName && !annotation.style.fontSize
+              ? { ...annotation.style, fontSize: defaultFontSize }
+              : annotation.style,
+          }
+        : annotation
+    )));
+  }, [annotations, commitAnnotations, defaultFontSize, selectedAnnotation]);
+
+  const setSelectedHighlightNameFontSize = useCallback((requestedFontSize: number) => {
+    if (!selectedAnnotation || selectedAnnotation.type !== 'highlight') return;
+    const fontSize = Math.max(8, Math.min(300, requestedFontSize));
+    if (fontSize === selectedAnnotation.style.fontSize) return;
+    commitAnnotations(annotations.map((annotation) => (
+      annotation.id === selectedAnnotation.id
+        ? { ...annotation, style: { ...annotation.style, fontSize } }
         : annotation
     )));
   }, [annotations, commitAnnotations, selectedAnnotation]);
@@ -947,12 +1200,12 @@ export default function ClipEditor({
     if (!result.didUndo) return;
     historyPastRef.current = result.past;
     historyFutureRef.current = result.future;
-    setSelectedAnnotationId(result.selectedAnnotationId);
+    selectOnlyAnnotation(result.selectedAnnotationId);
     setSelectedKeyframe(null);
     replaceAnnotations(result.annotations);
     setCurrentClip((previous) => ({ ...previous, annotations: result.annotations }));
     queuePersist(result.annotations);
-  }, [annotations, queuePersist, replaceAnnotations, selectedAnnotationId]);
+  }, [annotations, queuePersist, replaceAnnotations, selectOnlyAnnotation, selectedAnnotationId]);
 
   const redo = useCallback(() => {
     const result = redoClipAnnotationHistory({
@@ -964,12 +1217,12 @@ export default function ClipEditor({
     if (!result.didRedo) return;
     historyPastRef.current = result.past;
     historyFutureRef.current = result.future;
-    setSelectedAnnotationId(result.selectedAnnotationId);
+    selectOnlyAnnotation(result.selectedAnnotationId);
     setSelectedKeyframe(null);
     replaceAnnotations(result.annotations);
     setCurrentClip((previous) => ({ ...previous, annotations: result.annotations }));
     queuePersist(result.annotations);
-  }, [annotations, queuePersist, replaceAnnotations, selectedAnnotationId]);
+  }, [annotations, queuePersist, replaceAnnotations, selectOnlyAnnotation, selectedAnnotationId]);
 
   const moveTimelineKeyframe = useCallback((ref: TimelineKeyframeRef, targetFrame: number) => {
     const frame = clampToClip(currentClip, targetFrame);
@@ -1053,32 +1306,89 @@ export default function ClipEditor({
       setMessage(t('clip.videoNotRegistered'));
       return;
     }
+    const reusableAnnotation = reusableTrackingHighlight(
+      selectedAnnotation,
+      videoFrame(currentFrame),
+    );
+    const reusableGeometry = reusableAnnotation
+      ? interpolateAnnotation(
+        reusableAnnotation,
+        videoFrame(currentFrame),
+        frameBoundary(currentClip.endFrame),
+      )
+      : null;
     videoElementRef.current?.pause();
     setIsPlaying(false);
     setTool('select');
     setPointerDraft(null);
     setPolyPoints([]);
+    setPolyCursor(null);
+    setArrowStart(null);
+    setArrowCursor(null);
     setMessage(null);
     setProvisionalPlayers(null);
+    activeTrackingFrameRef.current = null;
     setTrackingSession({
       phase: 'choosing',
-      annotationId: null,
+      annotationId: reusableAnnotation?.id ?? null,
       hasStarted: false,
       selectedDetection: null,
       selectedCandidateIndex: null,
       selectedFrame: null,
       originFrame: null,
-      radius: defaultTrackingRadius(videoSize.width, videoSize.height),
+      radius: reusableGeometry?.type === 'highlight'
+        ? reusableGeometry.radius
+        : defaultTrackingRadius(videoSize.width, videoSize.height),
       runId: activeTrackingRunRef.current,
     });
-  }, [t, videoPath, videoRef, videoSize.height, videoSize.width]);
+  }, [
+    currentClip.endFrame,
+    currentFrame,
+    selectedAnnotation,
+    t,
+    videoPath,
+    videoRef,
+    videoSize.height,
+    videoSize.width,
+  ]);
 
   const stopTracking = useCallback(() => {
-    if (trackingSession?.originFrame != null) seekFrame(trackingSession.originFrame);
+    const session = trackingSession;
+    if (session?.annotationId) {
+      const current = annotationsRef.current;
+      const target = current.find((annotation) => annotation.id === session.annotationId);
+      if (target?.type === 'highlight') {
+        const stopFrame = videoFrame(
+          session.phase === 'running'
+            ? activeTrackingFrameRef.current ?? currentFrame
+            : currentFrame,
+        );
+        const stopped = stopTrackingHighlightSegment(
+          target,
+          stopFrame,
+          videoFrame(currentClip.startFrame),
+          frameBoundary(currentClip.endFrame),
+        );
+        if (stopped !== target) {
+          commitAnnotations(current.map((annotation) => (
+            annotation.id === stopped.id ? stopped : annotation
+          )));
+        }
+      }
+    }
+    activeTrackingFrameRef.current = null;
+    if (session?.originFrame != null) seekFrame(session.originFrame);
     setTrackingSession(null);
     setProvisionalPlayers(null);
     setDetectingPlayers(false);
-  }, [seekFrame, trackingSession?.originFrame]);
+  }, [
+    commitAnnotations,
+    currentClip.endFrame,
+    currentClip.startFrame,
+    currentFrame,
+    seekFrame,
+    trackingSession,
+  ]);
 
   const startTracking = useCallback(() => {
     setTrackingSession((session) => {
@@ -1122,11 +1432,13 @@ export default function ClipEditor({
       const previous = [...existing.keyframes]
         .reverse()
         .find((keyframe) => keyframe.frame < frame && keyframe.visible !== false && keyframe.provenance !== 'lost') as HighlightKeyframe | undefined;
-      const bridged = bridgeTrackingHighlight(existing, frame, geometry);
-      next = annotations.map((annotation) => annotation.id === annotationId ? bridged : annotation);
+      const updated = session.hasStarted
+        ? bridgeTrackingHighlight(existing, frame, geometry)
+        : seedTrackingHighlightSegment(existing, frame, geometry);
+      next = annotations.map((annotation) => annotation.id === annotationId ? updated : annotation);
 
-      if (previous) {
-        const primaryBridge = (bridged.keyframes as HighlightKeyframe[]).filter(
+      if (previous && session.hasStarted) {
+        const primaryBridge = (updated.keyframes as HighlightKeyframe[]).filter(
           (keyframe) => keyframe.frame > previous.frame && keyframe.frame <= frame,
         );
         const seedAnchor = { x: previous.cx, y: previous.cy + previous.radius * 0.35 };
@@ -1159,7 +1471,7 @@ export default function ClipEditor({
 
     seekFrame(candidateFrame);
     commitAnnotations(next);
-    setSelectedAnnotationId(annotationId);
+    selectOnlyAnnotation(annotationId);
     const selected = next.find((annotation) => annotation.id === annotationId);
     const selectedIndex = selected?.keyframes.findIndex((keyframe) => keyframe.frame === frame) ?? -1;
     if (selectedIndex >= 0) {
@@ -1175,7 +1487,7 @@ export default function ClipEditor({
       originFrame: session.originFrame ?? candidateFrame,
       runId: session.runId,
     });
-  }, [annotations, color, commitAnnotations, currentClip.endFrame, defaultFontSize, provisionalPlayers, seekFrame, strokeWidth, trackingSession]);
+  }, [annotations, color, commitAnnotations, currentClip.endFrame, defaultFontSize, provisionalPlayers, seekFrame, selectOnlyAnnotation, strokeWidth, trackingSession]);
 
   useEffect(() => {
     const session = trackingSession;
@@ -1266,7 +1578,9 @@ export default function ClipEditor({
           stopOnLoss: true,
         }, (keyframe) => {
           liveKeyframes.push(keyframe);
-          setAnnotations(annotationsWithTrackedFrames(convertKeyframes(liveKeyframes)));
+          const converted = convertKeyframes(liveKeyframes);
+          activeTrackingFrameRef.current = converted.at(-1)?.frame ?? activeTrackingFrameRef.current;
+          replaceAnnotations(annotationsWithTrackedFrames(converted));
         }, sidecar.baseUrl, controller.signal);
 
         let tracked = convertKeyframes(result.keyframes);
@@ -1323,7 +1637,7 @@ export default function ClipEditor({
     })();
 
     return () => controller.abort();
-  }, [commitAnnotations, currentClip.endFrame, formatNumber, seekFrame, sidecar.baseUrl, t, trackingSession, video.fps, video.frameCount, videoPath, videoRef]);
+  }, [commitAnnotations, currentClip.endFrame, formatNumber, replaceAnnotations, seekFrame, sidecar.baseUrl, t, trackingSession, video.fps, video.frameCount, videoPath, videoRef]);
 
   const computeHomography = useCallback(async () => {
     if (!videoRef && !videoPath) {
@@ -1402,12 +1716,16 @@ export default function ClipEditor({
       }
       if (event.key === 'Enter' && tool === 'poly') {
         event.preventDefault();
-        finishPoly();
+        finishPoly(!event.shiftKey && polyPoints.length >= 3);
         return;
       }
       if (event.key === 'Escape') {
+        event.preventDefault();
         setPointerDraft(null);
         setPolyPoints([]);
+        setPolyCursor(null);
+        setArrowStart(null);
+        setArrowCursor(null);
         return;
       }
       if (event.key === 'Delete' || event.key === 'Backspace') {
@@ -1418,7 +1736,7 @@ export default function ClipEditor({
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [currentFrame, deleteSelectedKeyframe, deleteSelectedObject, editingPinId, finishPoly, redo, seekFrame, selectedAnnotationId, togglePlayback, tool, undo, upsertKeyframe]);
+  }, [currentFrame, deleteSelectedKeyframe, deleteSelectedObject, editingPinId, finishPoly, polyPoints.length, redo, seekFrame, selectedAnnotationId, togglePlayback, tool, undo, upsertKeyframe]);
 
   const selectedCurrentKeyframe = selectedAnnotation
     ? getCurrentKeyframe(selectedAnnotation, videoFrame(currentFrame))
@@ -1429,6 +1747,18 @@ export default function ClipEditor({
   const selectedTrackingState = selectedAnnotation
     ? getFrameTrackingState(selectedAnnotation, videoFrame(currentFrame), frameBoundary(currentClip.endFrame))
     : null;
+  const timelineClip = useMemo(
+    () => ({ ...currentClip, annotations }),
+    [annotations, currentClip],
+  );
+  const selectTimelineAnnotation = useCallback((annotationId: string, additive = false) => {
+    selectAnnotationFromUi(annotationId, additive);
+    setTool('select');
+  }, [selectAnnotationFromUi]);
+  const selectTimelinePin = useCallback((pinId: string, frame: number) => {
+    setSelectedPinId(pinId);
+    seekFrame(frame);
+  }, [seekFrame]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-black" data-testid="clip-editor">
@@ -1442,6 +1772,9 @@ export default function ClipEditor({
               setTool(entry.id);
               setPointerDraft(null);
               setPolyPoints([]);
+              setPolyCursor(null);
+              setArrowStart(null);
+              setArrowCursor(null);
             }}
           >
             {t(`tool.${entry.id}`)}
@@ -1516,55 +1849,103 @@ export default function ClipEditor({
                   if (!point) return;
                   if (isPlaying) {
                     if (tool === 'select') {
-                      const selectedDrawable = drawablesRef.current.find((drawable) => drawable.id === selectedAnnotationId);
-                      const hit = selectedDrawable && hitDrawable(selectedDrawable, point)
-                        ? selectedDrawable
-                        : [...drawablesRef.current].reverse().find((drawable) => hitDrawable(drawable, point));
-                      setSelectedAnnotationId(hit?.id ?? null);
-                      setSelectedKeyframe(null);
+                      const hit = findSelectionHit(point, event.shiftKey);
+                      selectAnnotationFromUi(hit?.id ?? null, event.shiftKey);
                     }
                     return;
                   }
-                  event.currentTarget.setPointerCapture(event.pointerId);
+                  if (tool === 'arrow') {
+                    const nextPoint = findHighlightHit(point) ?? point;
+                    if (arrowStart) finishArrow(nextPoint);
+                    else {
+                      setArrowStart(nextPoint);
+                      setArrowCursor(nextPoint);
+                    }
+                    return;
+                  }
                   if (tool === 'poly') {
-                    if (polyPoints.length >= 3 && Math.hypot(point.x - polyPoints[0][0], point.y - polyPoints[0][1]) < 16) {
-                      finishPoly();
+                    const highlight = findHighlightHit(point);
+                    const nextPoint = highlight ?? point;
+                    const nearVertexIndex = nearestPolyVertexIndex(polyPoints, point);
+                    if (nearVertexIndex >= 0 && polyPoints.length >= 2) {
+                      finishPoly(nearVertexIndex === 0 && polyPoints.length >= 3);
                     } else {
-                      setPolyPoints((points) => [...points, [point.x, point.y]]);
+                      setPolyPoints((points) => {
+                        const previous = points.at(-1);
+                        return previous && isDuplicatePolyPoint(previous, nextPoint)
+                          ? points
+                          : [...points, nextPoint];
+                      });
+                      setPolyCursor({ raw: point, snapped: nextPoint });
                     }
                     return;
                   }
                   if (tool === 'select') {
-                    const selectedDrawable = drawablesRef.current.find((drawable) => drawable.id === selectedAnnotationId);
-                    const hit = selectedDrawable && hitDrawable(selectedDrawable, point)
-                      ? selectedDrawable
-                      : [...drawablesRef.current].reverse().find((drawable) => hitDrawable(drawable, point));
+                    const hit = findSelectionHit(point, event.shiftKey);
                     if (!hit) {
-                      setSelectedAnnotationId(null);
-                      setSelectedKeyframe(null);
+                      selectAnnotationFromUi(null, event.shiftKey);
                       return;
                     }
+                    selectAnnotationFromUi(hit.id, event.shiftKey);
+                    if (event.shiftKey) return;
                     const annotation = annotations.find((candidate) => candidate.id === hit.id);
                     if (!annotation) return;
                     const value = interpolateAnnotation(annotation, videoFrame(currentFrame), frameBoundary(currentClip.endFrame));
                     if (!value) return;
-                    setSelectedAnnotationId(annotation.id);
+                    event.currentTarget.setPointerCapture(event.pointerId);
                     setPointerDraft({
                       mode: 'move',
                       start: point,
                       current: point,
                       annotationId: annotation.id,
                       baseGeometry: geometryFromInterpolated(value),
+                      startClient: { x: event.clientX, y: event.clientY },
+                      hasMoved: false,
                     });
                     return;
                   }
+                  event.currentTarget.setPointerCapture(event.pointerId);
                   setPointerDraft({ mode: 'draw', start: point, current: point });
                 }}
                 onPointerMove={(event) => {
-                  if (!pointerDraft || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
                   const point = pointFromClient(event.clientX, event.clientY);
                   if (!point) return;
-                  setPointerDraft((draft) => draft ? { ...draft, current: point } : null);
+                  if (tool === 'arrow' && arrowStart && !trackingSession && !isPlaying) {
+                    setArrowCursor(findHighlightHit(point) ?? point);
+                    return;
+                  }
+                  if (tool === 'poly' && !trackingSession && !isPlaying) {
+                    setPolyCursor({ raw: point, snapped: findHighlightHit(point) ?? point });
+                    return;
+                  }
+                  if (!pointerDraft || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                  setPointerDraft((draft) => {
+                    if (!draft) return null;
+                    if (draft.mode !== 'move' || !draft.startClient) return { ...draft, current: point };
+                    const hasMoved = draft.hasMoved
+                      || Math.hypot(
+                        event.clientX - draft.startClient.x,
+                        event.clientY - draft.startClient.y,
+                      ) >= 4;
+                    return hasMoved ? { ...draft, current: point, hasMoved: true } : draft;
+                  });
+                }}
+                onPointerLeave={() => {
+                  if (tool === 'poly') setPolyCursor(null);
+                  if (tool === 'arrow') setArrowCursor(null);
+                }}
+                onDoubleClick={(event) => {
+                  if (tool !== 'poly' || trackingSession || isPlaying) return;
+                  event.preventDefault();
+                  finishPoly(false);
+                }}
+                onContextMenu={(event) => {
+                  if (tool !== 'poly' && tool !== 'arrow') return;
+                  event.preventDefault();
+                  setPolyPoints([]);
+                  setPolyCursor(null);
+                  setArrowStart(null);
+                  setArrowCursor(null);
                 }}
                 onPointerUp={(event) => {
                   if (!pointerDraft) return;
@@ -1574,6 +1955,17 @@ export default function ClipEditor({
                     return;
                   }
                   if (pointerDraft.mode === 'move') {
+                    const hasMoved = pointerDraft.hasMoved || (
+                      pointerDraft.startClient
+                      && Math.hypot(
+                        event.clientX - pointerDraft.startClient.x,
+                        event.clientY - pointerDraft.startClient.y,
+                      ) >= 4
+                    );
+                    if (!hasMoved) {
+                      setPointerDraft(null);
+                      return;
+                    }
                     const annotation = annotations.find((candidate) => candidate.id === pointerDraft.annotationId);
                     if (annotation && pointerDraft.baseGeometry) {
                       let dx = end.x - pointerDraft.start.x;
@@ -1610,7 +2002,7 @@ export default function ClipEditor({
                     if (usePitch) geometry = convertImageGeometryToPitchGeometry(tool, geometry, currentHomographyInverse);
                     const annotation = createAnnotation(tool, currentFrame, geometry, color, strokeWidth, usePitch ? 'pitch' : 'image', defaultFontSize);
                     commitAnnotations([...annotations, annotation]);
-                    setSelectedAnnotationId(annotation.id);
+                    selectOnlyAnnotation(annotation.id);
                     setSelectedKeyframe({ annotationId: annotation.id, kind: 'position', index: 0, frame: currentFrame });
                     setTool('select');
                   }
@@ -1674,6 +2066,12 @@ export default function ClipEditor({
             onStartTracking={startTracking}
             onStopTracking={stopTracking}
             onRenameHighlight={renameSelectedHighlight}
+            onDisplayHighlightName={setSelectedHighlightDisplayName}
+            onHighlightNameFontSize={setSelectedHighlightNameFontSize}
+            defaultFontSize={defaultFontSize}
+            selectedObjectCount={selectedAnnotationIds.length}
+            canMergeObjects={objectMergeInspection.canMerge}
+            onMergeObjects={mergeSelectedObjects}
             onDeleteObject={deleteSelectedObject}
           />
           <hr className="my-3 border-border" />
@@ -1720,9 +2118,9 @@ export default function ClipEditor({
         )}
         timeline={(
           <TimelineStrip
-            clip={{ ...currentClip, annotations }}
+            clip={timelineClip}
             currentFrame={currentFrame}
-            selectedAnnotationId={selectedAnnotationId}
+            selectedAnnotationIds={selectedAnnotationIds}
             selectedPinId={selectedPinId}
             revealRequest={timelineRevealRequest}
             selectedKeyframe={selectedKeyframe}
@@ -1733,14 +2131,8 @@ export default function ClipEditor({
             onNext={() => seekFrame(currentFrame + 1)}
             onSkipForward={() => seekFrame(currentFrame + Math.round(video.fps * 2))}
             onSeek={seekFrame}
-            onSelectAnnotation={(annotationId) => {
-              setSelectedAnnotationId(annotationId);
-              setTool('select');
-            }}
-            onSelectPin={(pinId, frame) => {
-              setSelectedPinId(pinId);
-              seekFrame(frame);
-            }}
+            onSelectAnnotation={selectTimelineAnnotation}
+            onSelectPin={selectTimelinePin}
             onSelectKeyframe={setSelectedKeyframe}
             onMoveKeyframe={moveTimelineKeyframe}
           />
