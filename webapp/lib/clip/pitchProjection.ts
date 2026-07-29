@@ -2,7 +2,6 @@ import {
   applyHomography,
   applyHomographyInv,
   ellipsePlaneToImagePoints,
-  rectPlaneToImagePoints,
 } from '../annotate/homography';
 import { getBoundsForFlatPoints } from '../annotate/tacticalGeometry';
 import type { ClipAnnotationType } from '../types/clip';
@@ -22,6 +21,30 @@ export type PitchProjectedShape =
   | { kind: 'arrow'; points: number[] }
   | { kind: 'lob'; points: number[] }
   | { kind: 'text'; x: number; y: number };
+
+function rotatePitchOffset(
+  x: number,
+  y: number,
+  rotationDegrees: number,
+): { x: number; y: number } {
+  const radians = rotationDegrees * Math.PI / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  return {
+    x: x * cosine - y * sine,
+    y: x * sine + y * cosine,
+  };
+}
+
+function projectPitchPoints(
+  homography: number[],
+  points: Array<[number, number]>,
+): number[] {
+  return points.flatMap(([x, y]) => {
+    const point = applyHomography(homography, x, y);
+    return [point.x, point.y];
+  });
+}
 
 export function annotationTypeSupportsPitchCoords(type: ClipAnnotationType): boolean {
   return type === 'box' || type === 'circle';
@@ -138,16 +161,36 @@ export function projectPitchKeyframeToImageShape(
   switch (props.type) {
     case 'box': {
       const box = props as InterpolatedBox;
+      const centerX = box.x + box.w / 2;
+      const centerY = box.y + box.h / 2;
+      const corners = [
+        [-box.w / 2, -box.h / 2],
+        [box.w / 2, -box.h / 2],
+        [box.w / 2, box.h / 2],
+        [-box.w / 2, box.h / 2],
+      ].map(([x, y]) => {
+        const offset = rotatePitchOffset(x, y, box.rotation);
+        return [centerX + offset.x, centerY + offset.y] as [number, number];
+      });
       return {
         kind: 'polygon',
-        points: rectPlaneToImagePoints(homography, box.x + box.w / 2, box.y + box.h / 2, box.w, box.h),
+        points: projectPitchPoints(homography, corners),
       };
     }
     case 'circle': {
       const circle = props as InterpolatedCircle;
+      const points = Array.from({ length: 48 }, (_, index) => {
+        const angle = index / 48 * Math.PI * 2;
+        const offset = rotatePitchOffset(
+          Math.cos(angle) * circle.rx,
+          Math.sin(angle) * circle.ry,
+          circle.rotation,
+        );
+        return [circle.cx + offset.x, circle.cy + offset.y] as [number, number];
+      });
       return {
         kind: 'polygon',
-        points: ellipsePlaneToImagePoints(homography, circle.cx, circle.cy, circle.rx, circle.ry),
+        points: projectPitchPoints(homography, points),
       };
     }
     case 'highlight': {

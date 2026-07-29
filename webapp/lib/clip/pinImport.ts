@@ -102,7 +102,14 @@ function buildShape(shape: ExportShape, matrix: number[] | null): BuiltShape | n
         type: 'box',
         coordMode: 'image',
         sourceShapeId: shape.id,
-        geometry: { x: shape.x, y: shape.y, w: shape.w!, h: shape.h!, provenance: 'manual' },
+        geometry: {
+          x: shape.x,
+          y: shape.y,
+          w: shape.w!,
+          h: shape.h!,
+          rotation: Number.isFinite(shape.rotation) ? shape.rotation! : 0,
+          provenance: 'manual',
+        },
       };
     }
     case 'circle': {
@@ -123,7 +130,14 @@ function buildShape(shape: ExportShape, matrix: number[] | null): BuiltShape | n
         type: 'circle',
         coordMode: 'image',
         sourceShapeId: shape.id,
-        geometry: { cx: shape.x, cy: shape.y, rx: rx!, ry: ry!, provenance: 'manual' },
+        geometry: {
+          cx: shape.x,
+          cy: shape.y,
+          rx: rx!,
+          ry: ry!,
+          rotation: Number.isFinite(shape.rotation) ? shape.rotation! : 0,
+          provenance: 'manual',
+        },
       };
     }
     case 'shadow': {

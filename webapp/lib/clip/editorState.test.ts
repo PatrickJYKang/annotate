@@ -10,6 +10,8 @@ import {
   recordClipAnnotationHistoryChange,
   redoClipAnnotationHistory,
   undoClipAnnotationHistory,
+  updateClipAnnotationSelection,
+  updateSelectedClipAnnotationStyles,
 } from './editorState';
 import { frameBoundary, videoFrame } from './frameMath';
 
@@ -75,6 +77,35 @@ describe('frame-native clip annotation history', () => {
       annotations: [{ id: 'a' }],
       selectedAnnotationId: null,
     });
+  });
+});
+
+describe('clip annotation selection and object-level styles', () => {
+  it('uses replace, additive, and subtractive selection without toggling additive items', () => {
+    expect(updateClipAnnotationSelection(['a'], ['b', 'b'], 'replace')).toEqual(['b']);
+    expect(updateClipAnnotationSelection(['a'], ['a', 'b'], 'add')).toEqual(['a', 'b']);
+    expect(updateClipAnnotationSelection(['a', 'b', 'c'], ['b'], 'subtract')).toEqual(['a', 'c']);
+  });
+
+  it('updates selected styles without changing geometry or visibility keyframes', () => {
+    const first = {
+      ...annotation('first', [box(10, 1)]),
+      visibilityKeyframes: [{ frame: videoFrame(12), action: 'hide' as const }],
+    };
+    const second = annotation('second', [box(20, 2)]);
+    const keyframes = first.keyframes;
+    const visibilityKeyframes = first.visibilityKeyframes;
+
+    const result = updateSelectedClipAnnotationStyles(
+      [first, second],
+      ['first'],
+      (entry) => ({ ...entry.style, stroke: '#ff0000', strokeWidth: 9 }),
+    );
+
+    expect(result[0].style).toMatchObject({ stroke: '#ff0000', strokeWidth: 9 });
+    expect(result[0].keyframes).toBe(keyframes);
+    expect(result[0].visibilityKeyframes).toBe(visibilityKeyframes);
+    expect(result[1]).toBe(second);
   });
 });
 

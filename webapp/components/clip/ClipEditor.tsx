@@ -8,7 +8,7 @@ import {
   useState,
 } from 'react';
 
-import { invert3 } from '../../lib/annotate/homography';
+import { applyHomography, invert3 } from '../../lib/annotate/homography';
 import { buildHomographyGrid } from '../../lib/annotate/homographyOverlay';
 import { PITCH_LENGTH_M, PITCH_WIDTH_M } from '../../lib/annotate/pitchCalibration';
 import { bboxToHighlight, convertTrackingKeyframes } from '../../lib/clip/bboxConvert';
@@ -20,6 +20,9 @@ import {
   recordClipAnnotationHistoryChange,
   redoClipAnnotationHistory,
   undoClipAnnotationHistory,
+  updateClipAnnotationSelection,
+  updateSelectedClipAnnotationStyles,
+  type ClipAnnotationSelectionMode,
 } from '../../lib/clip/editorState';
 import {
   canRunRangeSidecarAction,
@@ -42,6 +45,7 @@ import { applyPinImportToClip, importPinDocumentToClip } from '../../lib/clip/pi
 import {
   annotationTypeSupportsPitchCoords,
   convertImageGeometryToPitchGeometry,
+  projectImagePointToPitchPoint,
 } from '../../lib/clip/pitchProjection';
 import {
   frameTemporalAdapter,
@@ -49,6 +53,22 @@ import {
   resolveClipDrawables,
   type ClipDrawable,
 } from '../../lib/clip/renderClipAnnotations';
+import {
+  buildShapeTransformOverlay,
+  clipGeometryFromOrientedShape,
+  hitShapeTransformHandle,
+  orientedClipShapeFromGeometry,
+  rotationPointerOffset,
+  transformOrientedClipShape,
+  type ShapeTransformHandleId,
+  type ShapeTransformOverlay,
+} from '../../lib/clip/shapeTransform';
+import {
+  advancePinPauseMachine,
+  resumePinPauseMachine,
+  seekPinPauseMachine,
+  type PinPauseMachine,
+} from '../../lib/presentation/playback';
 import {
   requestHomography,
   requestPlayerDetections,
@@ -131,13 +151,16 @@ type PolyDraftCursor = {
   snapped: LinkedDraftPoint;
 };
 type PointerDraft = {
-  mode: 'draw' | 'move';
+  mode: 'draw' | 'move' | 'select' | 'transform';
   start: Point;
   current: Point;
   annotationId?: string;
   baseGeometry?: Record<string, unknown>;
+  transformHandle?: ShapeTransformHandleId;
+  rotationOffset?: number;
   startClient?: Point;
   hasMoved?: boolean;
+  selectionMode?: ClipAnnotationSelectionMode;
 };
 
 const POLY_VERTEX_SNAP_DISTANCE = 10;
@@ -226,8 +249,20 @@ function defaultTrackingRadius(width: number, height: number): number {
 
 function geometryFromInterpolated(value: InterpolatedKeyframe): Record<string, unknown> {
   switch (value.type) {
-    case 'box': return { x: value.x, y: value.y, w: value.w, h: value.h };
-    case 'circle': return { cx: value.cx, cy: value.cy, rx: value.rx, ry: value.ry };
+    case 'box': return {
+      x: value.x,
+      y: value.y,
+      w: value.w,
+      h: value.h,
+      rotation: value.rotation,
+    };
+    case 'circle': return {
+      cx: value.cx,
+      cy: value.cy,
+      rx: value.rx,
+      ry: value.ry,
+      rotation: value.rotation,
+    };
     case 'shadow': return { x: value.x, y: value.y, r: value.r, rotation: value.rotation, spreadDeg: value.spreadDeg };
     case 'arrow': return { x1: value.x1, y1: value.y1, x2: value.x2, y2: value.y2 };
     case 'lob': return { x1: value.x1, y1: value.y1, cx: value.cx, cy: value.cy, x2: value.x2, y2: value.y2 };
@@ -296,10 +331,52 @@ function geometryFromDrag(tool: ClipTool, start: Point, end: Point): Record<stri
   }
 }
 
+function rotatePointAround(
+  point: Point,
+  center: Point,
+  rotationDegrees: number,
+): Point {
+  const radians = rotationDegrees * Math.PI / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const dx = point.x - center.x;
+  const dy = point.y - center.y;
+  return {
+    x: center.x + dx * cosine - dy * sine,
+    y: center.y + dx * sine + dy * cosine,
+  };
+}
+
 function drawableBounds(drawable: ClipDrawable): { x: number; y: number; w: number; h: number } {
   switch (drawable.kind) {
-    case 'box': return { x: drawable.x, y: drawable.y, w: drawable.w, h: drawable.h };
-    case 'ellipse': return { x: drawable.cx - drawable.rx, y: drawable.cy - drawable.ry, w: drawable.rx * 2, h: drawable.ry * 2 };
+    case 'box': {
+      const center = { x: drawable.x + drawable.w / 2, y: drawable.y + drawable.h / 2 };
+      const corners = [
+        { x: drawable.x, y: drawable.y },
+        { x: drawable.x + drawable.w, y: drawable.y },
+        { x: drawable.x + drawable.w, y: drawable.y + drawable.h },
+        { x: drawable.x, y: drawable.y + drawable.h },
+      ].map((point) => rotatePointAround(point, center, drawable.rotation));
+      const xs = corners.map((point) => point.x);
+      const ys = corners.map((point) => point.y);
+      return {
+        x: Math.min(...xs),
+        y: Math.min(...ys),
+        w: Math.max(...xs) - Math.min(...xs),
+        h: Math.max(...ys) - Math.min(...ys),
+      };
+    }
+    case 'ellipse': {
+      const radians = drawable.rotation * Math.PI / 180;
+      const halfWidth = Math.hypot(drawable.rx * Math.cos(radians), drawable.ry * Math.sin(radians));
+      const halfHeight = Math.hypot(drawable.rx * Math.sin(radians), drawable.ry * Math.cos(radians));
+      return {
+        x: drawable.cx - halfWidth,
+        y: drawable.cy - halfHeight,
+        w: halfWidth * 2,
+        h: halfHeight * 2,
+      };
+    }
     case 'polygon': {
       const xs = drawable.points.map(([x]) => x);
       const ys = drawable.points.map(([, y]) => y);
@@ -321,12 +398,55 @@ function drawableBounds(drawable: ClipDrawable): { x: number; y: number; w: numb
 }
 
 function hitDrawable(drawable: ClipDrawable, point: Point): boolean {
-  const bounds = drawableBounds(drawable);
   const padding = Math.max(8, drawable.style.strokeWidth * 2);
+  if (drawable.kind === 'box') {
+    const center = { x: drawable.x + drawable.w / 2, y: drawable.y + drawable.h / 2 };
+    const local = rotatePointAround(point, center, -drawable.rotation);
+    return local.x >= drawable.x - padding
+      && local.x <= drawable.x + drawable.w + padding
+      && local.y >= drawable.y - padding
+      && local.y <= drawable.y + drawable.h + padding;
+  }
+  if (drawable.kind === 'ellipse') {
+    const local = rotatePointAround(point, { x: drawable.cx, y: drawable.cy }, -drawable.rotation);
+    const rx = Math.max(0.5, drawable.rx + padding);
+    const ry = Math.max(0.5, drawable.ry + padding);
+    return ((local.x - drawable.cx) ** 2) / (rx ** 2)
+      + ((local.y - drawable.cy) ** 2) / (ry ** 2) <= 1;
+  }
+  const bounds = drawableBounds(drawable);
   return point.x >= bounds.x - padding
     && point.x <= bounds.x + bounds.w + padding
     && point.y >= bounds.y - padding
     && point.y <= bounds.y + bounds.h + padding;
+}
+
+function selectionModeFromModifiers(
+  shiftKey: boolean,
+  subtractKey: boolean,
+): ClipAnnotationSelectionMode {
+  if (shiftKey) return 'add';
+  if (subtractKey) return 'subtract';
+  return 'replace';
+}
+
+function selectionBounds(start: Point, end: Point) {
+  return {
+    x: Math.min(start.x, end.x),
+    y: Math.min(start.y, end.y),
+    w: Math.abs(end.x - start.x),
+    h: Math.abs(end.y - start.y),
+  };
+}
+
+function boundsIntersect(
+  left: { x: number; y: number; w: number; h: number },
+  right: { x: number; y: number; w: number; h: number },
+): boolean {
+  return left.x < right.x + right.w
+    && left.x + left.w > right.x
+    && left.y < right.y + right.h
+    && left.y + left.h > right.y;
 }
 
 function drawSelection(context: CanvasRenderingContext2D, drawable: ClipDrawable | undefined): void {
@@ -337,6 +457,50 @@ function drawSelection(context: CanvasRenderingContext2D, drawable: ClipDrawable
   context.lineWidth = 2;
   context.setLineDash([7, 5]);
   context.strokeRect(bounds.x - 5, bounds.y - 5, bounds.w + 10, bounds.h + 10);
+  context.restore();
+}
+
+function drawShapeTransformOverlay(
+  context: CanvasRenderingContext2D,
+  overlay: ShapeTransformOverlay,
+  handleRadius: number,
+): void {
+  if (overlay.outline.length < 2) return;
+  context.save();
+  context.strokeStyle = '#60a5fa';
+  context.fillStyle = '#ffffff';
+  context.lineWidth = Math.max(1.5, handleRadius * 0.3);
+  context.setLineDash([]);
+  context.beginPath();
+  context.moveTo(overlay.outline[0].x, overlay.outline[0].y);
+  overlay.outline.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+  context.closePath();
+  context.stroke();
+  context.beginPath();
+  context.moveTo(overlay.rotationStem[0].x, overlay.rotationStem[0].y);
+  context.lineTo(overlay.rotationStem[1].x, overlay.rotationStem[1].y);
+  context.stroke();
+  for (const handle of overlay.resizeHandles) {
+    context.beginPath();
+    context.rect(
+      handle.x - handleRadius,
+      handle.y - handleRadius,
+      handleRadius * 2,
+      handleRadius * 2,
+    );
+    context.fill();
+    context.stroke();
+  }
+  context.beginPath();
+  context.arc(
+    overlay.rotationHandle.x,
+    overlay.rotationHandle.y,
+    handleRadius * 1.08,
+    0,
+    Math.PI * 2,
+  );
+  context.fill();
+  context.stroke();
   context.restore();
 }
 
@@ -385,6 +549,11 @@ export default function ClipEditor({
   const [annotations, setAnnotations] = useState(() => cloneClipAnnotations(clip.annotations));
   const [currentFrame, setCurrentFrame] = useState<number>(initialPinFrame);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackPausedPinId, setPlaybackPausedPinId] = useState<string | null>(null);
+  const [pinPlaybackAnnotations, setPinPlaybackAnnotations] = useState<Map<string, ClipAnnotation[]>>(
+    () => new Map(),
+  );
+  const [pinPlaybackRevision, setPinPlaybackRevision] = useState(0);
   const [tool, setTool] = useState<ClipTool>('select');
   const [color, setColor] = useState('#ffffff');
   const [strokeWidth, setStrokeWidth] = useState(() => defaultAnnotationStrokeWidth(video.width, video.height));
@@ -418,16 +587,29 @@ export default function ClipEditor({
   const viewerSurfaceRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawablesRef = useRef<ClipDrawable[]>([]);
+  const transformOverlayRef = useRef<ShapeTransformOverlay | null>(null);
   const historyPastRef = useRef<ClipAnnotation[][]>([]);
   const historyFutureRef = useRef<ClipAnnotation[][]>([]);
   const annotationsRef = useRef(annotations);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const saveGenerationRef = useRef(0);
+  const styleEditHistoryBaseRef = useRef<ClipAnnotation[] | null>(null);
+  const styleEditLatestRef = useRef<ClipAnnotation[] | null>(null);
+  const styleEditTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeTrackingRunRef = useRef(0);
   const activeTrackingFrameRef = useRef<number | null>(null);
   const desiredDetectionFrameRef = useRef<number | null>(null);
   const detectionInFlightRef = useRef(false);
   const detectionGenerationRef = useRef(0);
+  const pinPauseMachineRef = useRef<PinPauseMachine | null>(null);
+  const currentFrameRef = useRef<number>(initialPinFrame);
+  const clipPinsRef = useRef(currentClip.pins);
+  clipPinsRef.current = currentClip.pins;
+
+  const updateCurrentFrame = useCallback((frame: number) => {
+    currentFrameRef.current = frame;
+    setCurrentFrame(frame);
+  }, []);
 
   const selectedAnnotationId = selectedAnnotationIds.at(-1) ?? null;
   const selectedAnnotationIdSet = useMemo(
@@ -439,20 +621,36 @@ export default function ClipEditor({
   }, []);
   const selectAnnotationFromUi = useCallback((
     annotationId: string | null,
-    additive = false,
+    mode: ClipAnnotationSelectionMode = 'replace',
   ) => {
-    setSelectedAnnotationIds((current) => {
-      if (!annotationId) return additive ? current : [];
-      if (!additive) return [annotationId];
-      return current.includes(annotationId)
-        ? current.filter((candidate) => candidate !== annotationId)
-        : [...current, annotationId];
-    });
+    setSelectedAnnotationIds((current) => updateClipAnnotationSelection(
+      current,
+      annotationId ? [annotationId] : [],
+      mode,
+    ));
+    setSelectedKeyframe(null);
+  }, []);
+  const selectAnnotationsFromUi = useCallback((
+    annotationIds: readonly string[],
+    mode: ClipAnnotationSelectionMode,
+  ) => {
+    setSelectedAnnotationIds((current) => updateClipAnnotationSelection(
+      current,
+      annotationIds,
+      mode,
+    ));
     setSelectedKeyframe(null);
   }, []);
   const selectedAnnotation = useMemo(
     () => annotations.find((annotation) => annotation.id === selectedAnnotationId) ?? null,
     [annotations, selectedAnnotationId],
+  );
+  const selectedAnnotations = useMemo(
+    () => selectedAnnotationIds.flatMap((annotationId) => {
+      const annotation = annotations.find((candidate) => candidate.id === annotationId);
+      return annotation ? [annotation] : [];
+    }),
+    [annotations, selectedAnnotationIds],
   );
   const objectMergeInspection = useMemo(
     () => inspectClipAnnotationMerge(annotations, selectedAnnotationIds),
@@ -469,6 +667,10 @@ export default function ClipEditor({
   const pinAtCurrentFrame = useMemo(
     () => currentClip.pins.find((pin) => pin.frame === currentFrame) ?? null,
     [currentClip.pins, currentFrame],
+  );
+  const playbackPausedPin = useMemo(
+    () => currentClip.pins.find((pin) => pin.id === playbackPausedPinId) ?? null,
+    [currentClip.pins, playbackPausedPinId],
   );
   const currentHomography = useMemo(
     () => resolveUsableHomographyAtTime(homographyFrames, Number(frameToMs(videoFrame(currentFrame), video.fps))),
@@ -511,6 +713,39 @@ export default function ClipEditor({
       active = false;
     };
   }, [currentClip.endFrame, currentClip.startFrame, projectDir, video.fps, video.id]);
+
+  useEffect(() => {
+    let active = true;
+    if (!projectDir || currentClip.pins.length === 0) {
+      setPinPlaybackAnnotations(new Map());
+      return () => {
+        active = false;
+      };
+    }
+    void Promise.all(currentClip.pins.map(async (pin) => {
+      const documents = await Promise.all(pin.annotations.map(async (reference) => {
+        try {
+          const result = await readPinAnnotationDocument(projectDir, currentClip.id, reference.id);
+          if (!result.document || result.error) return [];
+          return importPinDocumentToClip(result.document, pin.frame).annotations;
+        } catch {
+          return [];
+        }
+      }));
+      return [pin.id, documents.flat()] as const;
+    })).then((entries) => {
+      if (active) setPinPlaybackAnnotations(new Map(entries));
+    });
+    return () => {
+      active = false;
+    };
+  }, [currentClip.id, currentClip.pins, pinPlaybackRevision, projectDir]);
+
+  useEffect(() => {
+    const refreshPinDocuments = () => setPinPlaybackRevision((revision) => revision + 1);
+    window.addEventListener('focus', refreshPinDocuments);
+    return () => window.removeEventListener('focus', refreshPinDocuments);
+  }, []);
 
   useEffect(() => {
     if (!currentHomography || !activeToolSupportsPitch) {
@@ -559,11 +794,30 @@ export default function ClipEditor({
     setAnnotations(next);
   }, []);
 
+  const finalizePendingStyleEdit = useCallback((persist = true) => {
+    if (styleEditTimerRef.current) clearTimeout(styleEditTimerRef.current);
+    styleEditTimerRef.current = null;
+    const historyBase = styleEditHistoryBaseRef.current;
+    const latest = styleEditLatestRef.current;
+    styleEditHistoryBaseRef.current = null;
+    styleEditLatestRef.current = null;
+    if (!historyBase || !latest) return;
+    const history = recordClipAnnotationHistoryChange(
+      historyBase,
+      latest,
+      historyPastRef.current,
+    );
+    historyPastRef.current = history.past;
+    historyFutureRef.current = history.future;
+    if (persist) queuePersist(latest);
+  }, [queuePersist]);
+
   const commitAnnotations = useCallback((
     next: ClipAnnotation[],
     recordHistory = true,
     historyBase: ClipAnnotation[] = annotationsRef.current,
   ) => {
+    finalizePendingStyleEdit(false);
     if (recordHistory) {
       const history = recordClipAnnotationHistoryChange(historyBase, next, historyPastRef.current);
       historyPastRef.current = history.past;
@@ -572,7 +826,29 @@ export default function ClipEditor({
     replaceAnnotations(next);
     setCurrentClip((previous) => ({ ...previous, annotations: next }));
     queuePersist(next);
-  }, [queuePersist, replaceAnnotations]);
+  }, [finalizePendingStyleEdit, queuePersist, replaceAnnotations]);
+
+  const updateSelectedAnnotationStyles = useCallback((
+    updateStyle: Parameters<typeof updateSelectedClipAnnotationStyles>[2],
+  ) => {
+    if (selectedAnnotationIds.length === 0) return;
+    const current = annotationsRef.current;
+    if (!styleEditHistoryBaseRef.current) {
+      styleEditHistoryBaseRef.current = current;
+      setSaveStatus('saving');
+    }
+    const next = updateSelectedClipAnnotationStyles(
+      current,
+      selectedAnnotationIds,
+      updateStyle,
+    );
+    styleEditLatestRef.current = next;
+    replaceAnnotations(next);
+    if (styleEditTimerRef.current) clearTimeout(styleEditTimerRef.current);
+    styleEditTimerRef.current = setTimeout(finalizePendingStyleEdit, 180);
+  }, [finalizePendingStyleEdit, replaceAnnotations, selectedAnnotationIds]);
+
+  useEffect(() => () => finalizePendingStyleEdit(), [finalizePendingStyleEdit]);
 
   const acceptPinClipUpdate = useCallback((next: Clip) => {
     const visibleClip = { ...next, annotations };
@@ -725,9 +1001,20 @@ export default function ClipEditor({
       element.pause();
       setIsPlaying(false);
     }
-    setCurrentFrame(frame);
+    const targetFrame = videoFrame(frame);
+    pinPauseMachineRef.current = seekPinPauseMachine(
+      pinPauseMachineRef.current ?? {
+        previousFrame: targetFrame,
+        pausedPinId: null,
+        consumedPinIds: new Set(),
+      },
+      targetFrame,
+      clipPinsRef.current,
+    );
+    setPlaybackPausedPinId(null);
+    updateCurrentFrame(frame);
     if (element) element.currentTime = frameToCenterSeconds(videoFrame(frame), video.fps);
-  }, [currentClip, video.fps]);
+  }, [currentClip, updateCurrentFrame, video.fps]);
 
   const goToPin = useCallback((frame: number) => {
     seekFrame(frame);
@@ -741,9 +1028,20 @@ export default function ClipEditor({
     const startFrame = initialPinFrame;
     element.pause();
     element.currentTime = frameToCenterSeconds(videoFrame(startFrame), video.fps);
-    setCurrentFrame(startFrame);
+    const targetFrame = videoFrame(startFrame);
+    pinPauseMachineRef.current = seekPinPauseMachine(
+      pinPauseMachineRef.current ?? {
+        previousFrame: targetFrame,
+        pausedPinId: null,
+        consumedPinIds: new Set(),
+      },
+      targetFrame,
+      clipPinsRef.current,
+    );
+    setPlaybackPausedPinId(null);
+    updateCurrentFrame(startFrame);
     setIsPlaying(false);
-  }, [initialPinFrame, video.fps]);
+  }, [initialPinFrame, updateCurrentFrame, video.fps]);
 
   useEffect(() => {
     const element = videoElementRef.current;
@@ -754,9 +1052,28 @@ export default function ClipEditor({
     return () => element.removeEventListener('loadedmetadata', synchronize);
   }, [synchronizeMediaToClipStart, videoUrl]);
 
+  const resumePlaybackFromPin = useCallback(async () => {
+    const element = videoElementRef.current;
+    if (!element || !playbackPausedPinId) return;
+    if (pinPauseMachineRef.current) {
+      pinPauseMachineRef.current = resumePinPauseMachine(pinPauseMachineRef.current);
+    }
+    setPlaybackPausedPinId(null);
+    try {
+      await element.play();
+      setIsPlaying(true);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }, [playbackPausedPinId]);
+
   const togglePlayback = useCallback(async () => {
     const element = videoElementRef.current;
     if (!element) return;
+    if (playbackPausedPinId) {
+      await resumePlaybackFromPin();
+      return;
+    }
     if (!element.paused) {
       element.pause();
       setIsPlaying(false);
@@ -764,20 +1081,33 @@ export default function ClipEditor({
     }
     const clipStartSeconds = frameToSeconds(videoFrame(currentClip.startFrame), video.fps);
     const clipEndSeconds = frameToSeconds(videoFrame(currentClip.endFrame), video.fps);
+    const playbackStartFrame = currentFrame >= currentClip.endFrame - 1
+      ? currentClip.startFrame
+      : currentFrame;
     if (
       currentFrame >= currentClip.endFrame - 1
       || element.currentTime < clipStartSeconds - (0.5 / video.fps)
       || element.currentTime >= clipEndSeconds
     ) {
-      seekFrame(currentFrame >= currentClip.endFrame - 1 ? currentClip.startFrame : currentFrame, false);
+      seekFrame(playbackStartFrame, false);
     }
+    const playbackFrame = videoFrame(playbackStartFrame);
+    pinPauseMachineRef.current = seekPinPauseMachine(
+      pinPauseMachineRef.current ?? {
+        previousFrame: playbackFrame,
+        pausedPinId: null,
+        consumedPinIds: new Set(),
+      },
+      playbackFrame,
+      currentClip.pins,
+    );
     try {
       await element.play();
       setIsPlaying(true);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     }
-  }, [currentClip.endFrame, currentClip.startFrame, currentFrame, seekFrame, video.fps]);
+  }, [currentClip.endFrame, currentClip.pins, currentClip.startFrame, currentFrame, playbackPausedPinId, resumePlaybackFromPin, seekFrame, video.fps]);
 
   useEffect(() => {
     const element = videoElementRef.current;
@@ -787,13 +1117,33 @@ export default function ClipEditor({
     const update = (_now: number, metadata: VideoFrameCallbackMetadata) => {
       if (cancelled) return;
       const frame = mediaTimeToVideoFrame(metadata.mediaTime, video.fps, video.frameCount);
+      const playbackFrame = videoFrame(Math.min(frame, currentClip.endFrame - 1));
+      if (frame >= currentClip.startFrame && pinPauseMachineRef.current) {
+        const step = advancePinPauseMachine(
+          pinPauseMachineRef.current,
+          playbackFrame,
+          currentClip.pins,
+        );
+        pinPauseMachineRef.current = step.state;
+        if (step.triggeredPinId) {
+          const pin = currentClip.pins.find((candidate) => candidate.id === step.triggeredPinId);
+          if (pin) {
+            element.pause();
+            element.currentTime = frameToCenterSeconds(pin.frame, video.fps);
+            updateCurrentFrame(pin.frame);
+            setPlaybackPausedPinId(pin.id);
+            setIsPlaying(false);
+            return;
+          }
+        }
+      }
       if (frame >= currentClip.endFrame) {
         element.pause();
         setIsPlaying(false);
         seekFrame(currentClip.endFrame - 1, false);
         return;
       }
-      if (frame >= currentClip.startFrame) setCurrentFrame(frame);
+      if (frame >= currentClip.startFrame) updateCurrentFrame(frame);
       callbackId = element.requestVideoFrameCallback(update);
     };
     callbackId = element.requestVideoFrameCallback(update);
@@ -801,27 +1151,64 @@ export default function ClipEditor({
       cancelled = true;
       element.cancelVideoFrameCallback(callbackId);
     };
-  }, [currentClip.endFrame, currentClip.startFrame, isPlaying, seekFrame, video.fps, video.frameCount]);
+  }, [currentClip.endFrame, currentClip.pins, currentClip.startFrame, isPlaying, seekFrame, updateCurrentFrame, video.fps, video.frameCount]);
 
   const previewAnnotation = useMemo((): ClipAnnotation | null => {
     if (!pointerDraft) return null;
-    if (pointerDraft.mode === 'move') {
+    if (pointerDraft.mode === 'move' || pointerDraft.mode === 'transform') {
       const annotation = annotations.find((candidate) => candidate.id === pointerDraft.annotationId);
       if (!annotation || !pointerDraft.baseGeometry) return null;
-      let dx = pointerDraft.current.x - pointerDraft.start.x;
-      let dy = pointerDraft.current.y - pointerDraft.start.y;
-      if (annotation.coordMode === 'pitch' && currentHomographyInverse) {
-        const start = convertImageGeometryToPitchGeometry('text', pointerDraft.start, currentHomographyInverse);
-        const end = convertImageGeometryToPitchGeometry('text', pointerDraft.current, currentHomographyInverse);
-        dx = Number(end.x) - Number(start.x);
-        dy = Number(end.y) - Number(start.y);
+      let geometry: Record<string, unknown>;
+      if (pointerDraft.mode === 'transform') {
+        if (!pointerDraft.transformHandle) return null;
+        if (annotation.coordMode === 'pitch' && !currentHomographyInverse) return null;
+        const shape = orientedClipShapeFromGeometry(annotation.type, pointerDraft.baseGeometry);
+        if (!shape) return null;
+        const pitchPointer = annotation.coordMode === 'pitch'
+          ? projectImagePointToPitchPoint(
+              currentHomographyInverse,
+              pointerDraft.current.x,
+              pointerDraft.current.y,
+            )
+          : null;
+        const pointer = pitchPointer
+          ? { x: pitchPointer.u, y: pitchPointer.v }
+          : pointerDraft.current;
+        geometry = clipGeometryFromOrientedShape(transformOrientedClipShape(
+          shape,
+          pointerDraft.transformHandle,
+          pointer,
+          {
+            minWidth: annotation.coordMode === 'pitch' ? 0.1 : 2,
+            minHeight: annotation.coordMode === 'pitch' ? 0.1 : 2,
+            rotationOffset: pointerDraft.rotationOffset,
+          },
+        ));
+      } else {
+        let dx = pointerDraft.current.x - pointerDraft.start.x;
+        let dy = pointerDraft.current.y - pointerDraft.start.y;
+        if (annotation.coordMode === 'pitch' && currentHomographyInverse) {
+          const start = projectImagePointToPitchPoint(
+            currentHomographyInverse,
+            pointerDraft.start.x,
+            pointerDraft.start.y,
+          );
+          const end = projectImagePointToPitchPoint(
+            currentHomographyInverse,
+            pointerDraft.current.x,
+            pointerDraft.current.y,
+          );
+          dx = end.u - start.u;
+          dy = end.v - start.v;
+        }
+        geometry = translateGeometry(annotation.type, pointerDraft.baseGeometry, dx, dy);
       }
       return {
         ...annotation,
         keyframes: [{
           frame: videoFrame(currentFrame),
           provenance: annotation.source === 'manual' ? 'manual' : 'correction',
-          ...translateGeometry(annotation.type, pointerDraft.baseGeometry, dx, dy),
+          ...geometry,
         } as ClipKeyframe],
         visibilityKeyframes: undefined,
       };
@@ -832,6 +1219,68 @@ export default function ClipEditor({
     if (usePitch) geometry = convertImageGeometryToPitchGeometry(tool, geometry, currentHomographyInverse);
     return createAnnotation(tool, currentFrame, geometry, color, strokeWidth, usePitch ? 'pitch' : 'image', defaultFontSize);
   }, [activeToolSupportsPitch, annotations, color, currentFrame, currentHomographyInverse, defaultFontSize, drawCoordMode, pointerDraft, strokeWidth, tool]);
+
+  const transformHandleRadius = useMemo(() => {
+    const displayScale = mediaRect.width > 0 && videoSize.width > 0
+      ? mediaRect.width / videoSize.width
+      : 1;
+    return Math.max(4, 6 / Math.max(displayScale, 0.01));
+  }, [mediaRect.width, videoSize.width]);
+
+  const selectedTransformOverlay = useMemo((): ShapeTransformOverlay | null => {
+    if (
+      tool !== 'select'
+      || isPlaying
+      || trackingSession
+      || playbackPausedPin
+      || selectedAnnotationIds.length !== 1
+      || !selectedAnnotation
+      || (selectedAnnotation.type !== 'box' && selectedAnnotation.type !== 'circle')
+    ) {
+      return null;
+    }
+    const source = previewAnnotation?.id === selectedAnnotation.id
+      ? previewAnnotation
+      : selectedAnnotation;
+    const value = interpolateAnnotation(
+      source,
+      videoFrame(currentFrame),
+      frameBoundary(currentClip.endFrame),
+    );
+    if (!value) return null;
+    const shape = orientedClipShapeFromGeometry(
+      selectedAnnotation.type,
+      geometryFromInterpolated(value),
+    );
+    if (!shape) return null;
+    if (selectedAnnotation.coordMode === 'pitch' && !currentHomography) return null;
+    const project = selectedAnnotation.coordMode === 'pitch'
+      ? (point: Point) => {
+          const projected = applyHomography(currentHomography!, point.x, point.y);
+          return Number.isFinite(projected.x) && Number.isFinite(projected.y)
+            ? projected
+            : null;
+        }
+      : (point: Point) => point;
+    return buildShapeTransformOverlay(
+      shape,
+      project,
+      transformHandleRadius * 4,
+    );
+  }, [
+    currentClip.endFrame,
+    currentFrame,
+    currentHomography,
+    isPlaying,
+    playbackPausedPin,
+    previewAnnotation,
+    selectedAnnotation,
+    selectedAnnotationIds.length,
+    tool,
+    trackingSession,
+    transformHandleRadius,
+  ]);
+  transformOverlayRef.current = selectedTransformOverlay;
 
   const findHighlightHit = useCallback((point: Point): (LinkedDraftPoint & { refId: string }) | null => {
     for (let index = drawablesRef.current.length - 1; index >= 0; index -= 1) {
@@ -917,7 +1366,7 @@ export default function ClipEditor({
     const context = canvas.getContext('2d');
     if (!context) return;
     context.clearRect(0, 0, canvas.width, canvas.height);
-    if (showHomography && currentHomography) {
+    if (!playbackPausedPin && showHomography && currentHomography) {
       const grid = buildHomographyGrid(currentHomography, {
         width: PITCH_LENGTH_M,
         height: PITCH_WIDTH_M,
@@ -938,16 +1387,20 @@ export default function ClipEditor({
       }
       context.restore();
     }
-    const baseAnnotations = pointerDraft?.mode === 'move' && previewAnnotation
-      ? [...annotations.filter((annotation) => annotation.id !== previewAnnotation.id), previewAnnotation]
-      : previewAnnotation
-        ? [...annotations, previewAnnotation]
-        : annotations;
-    const renderedAnnotations = [
-      ...baseAnnotations,
-      ...(polyPreviewAnnotation ? [polyPreviewAnnotation] : []),
-      ...(arrowPreviewAnnotation ? [arrowPreviewAnnotation] : []),
-    ];
+    const baseAnnotations = playbackPausedPin
+      ? pinPlaybackAnnotations.get(playbackPausedPin.id) ?? []
+      : pointerDraft?.mode === 'move' && previewAnnotation
+        ? [...annotations.filter((annotation) => annotation.id !== previewAnnotation.id), previewAnnotation]
+        : previewAnnotation
+          ? [...annotations, previewAnnotation]
+          : annotations;
+    const renderedAnnotations = playbackPausedPin
+      ? baseAnnotations
+      : [
+          ...baseAnnotations,
+          ...(polyPreviewAnnotation ? [polyPreviewAnnotation] : []),
+          ...(arrowPreviewAnnotation ? [arrowPreviewAnnotation] : []),
+        ];
     const drawables = resolveClipDrawables(
       renderedAnnotations,
       currentFrame,
@@ -961,11 +1414,28 @@ export default function ClipEditor({
       sourceWidth: videoSize.width,
       sourceHeight: videoSize.height,
     });
-    drawablesRef.current = drawables;
-    for (const annotationId of selectedAnnotationIds) {
-      drawSelection(context, drawables.find((drawable) => drawable.id === annotationId));
+    drawablesRef.current = playbackPausedPin ? [] : drawables;
+    if (!playbackPausedPin) {
+      for (const annotationId of selectedAnnotationIds) {
+        if (selectedTransformOverlay && annotationId === selectedAnnotation?.id) continue;
+        drawSelection(context, drawables.find((drawable) => drawable.id === annotationId));
+      }
+      if (selectedTransformOverlay) {
+        drawShapeTransformOverlay(context, selectedTransformOverlay, transformHandleRadius);
+      }
     }
-    if (trackingSession?.phase === 'choosing' && provisionalPlayers) {
+    if (!playbackPausedPin && pointerDraft?.mode === 'select' && pointerDraft.hasMoved) {
+      const bounds = selectionBounds(pointerDraft.start, pointerDraft.current);
+      context.save();
+      context.fillStyle = 'rgba(59, 130, 246, 0.15)';
+      context.strokeStyle = '#60a5fa';
+      context.lineWidth = 2;
+      context.setLineDash([6, 5]);
+      context.fillRect(bounds.x, bounds.y, bounds.w, bounds.h);
+      context.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h);
+      context.restore();
+    }
+    if (!playbackPausedPin && trackingSession?.phase === 'choosing' && provisionalPlayers) {
       context.save();
       provisionalPlayers.detections.forEach((detection, index) => {
         const preview = bboxToHighlight(detection, trackingSession.radius);
@@ -982,7 +1452,7 @@ export default function ClipEditor({
       });
       context.restore();
     }
-  }, [annotations, arrowPreviewAnnotation, color, currentClip.endFrame, currentFrame, currentHomography, defaultFontSize, pointerDraft?.mode, polyPreviewAnnotation, previewAnnotation, provisionalPlayers, selectedAnnotationIds, showHomography, strokeWidth, trackingSession, videoSize]);
+  }, [annotations, arrowPreviewAnnotation, color, currentClip.endFrame, currentFrame, currentHomography, defaultFontSize, pinPlaybackAnnotations, playbackPausedPin, pointerDraft, polyPreviewAnnotation, previewAnnotation, provisionalPlayers, selectedAnnotation, selectedAnnotationIds, selectedTransformOverlay, showHomography, strokeWidth, trackingSession, transformHandleRadius, videoSize]);
 
   const pointFromClient = useCallback((clientX: number, clientY: number): Point | null => {
     const canvas = canvasRef.current;
@@ -995,16 +1465,24 @@ export default function ClipEditor({
     };
   }, [videoSize]);
 
-  const findSelectionHit = useCallback((point: Point, additive: boolean): ClipDrawable | undefined => {
+  const findSelectionHit = useCallback((
+    point: Point,
+    mode: ClipAnnotationSelectionMode,
+  ): ClipDrawable | undefined => {
     const reversed = [...drawablesRef.current]
       .reverse()
       .filter((drawable) => annotationsRef.current.some((annotation) => annotation.id === drawable.id));
-    if (additive) {
+    if (mode === 'add') {
       const unselectedHit = reversed.find(
         (drawable) => !selectedAnnotationIdSet.has(drawable.id) && hitDrawable(drawable, point),
       );
       if (unselectedHit) return unselectedHit;
       return reversed.find((drawable) => hitDrawable(drawable, point));
+    }
+    if (mode === 'subtract') {
+      return reversed.find(
+        (drawable) => selectedAnnotationIdSet.has(drawable.id) && hitDrawable(drawable, point),
+      ) ?? reversed.find((drawable) => hitDrawable(drawable, point));
     }
     const primary = selectedAnnotationId
       ? drawablesRef.current.find((drawable) => drawable.id === selectedAnnotationId)
@@ -1109,6 +1587,54 @@ export default function ClipEditor({
     setSelectedKeyframe({ annotationId, kind: 'position', index, frame });
   }, [annotations, commitAnnotations, currentClip.endFrame, currentFrame, t]);
 
+  const updateSelectedShadowGeometry = useCallback((patch: {
+    r?: number;
+    spreadDeg?: number;
+  }) => {
+    if (!selectedAnnotation || selectedAnnotation.type !== 'shadow') return;
+    const value = interpolateAnnotation(
+      selectedAnnotation,
+      videoFrame(currentFrame),
+      frameBoundary(currentClip.endFrame),
+    );
+    if (!value) return;
+    const geometry = { ...geometryFromInterpolated(value), ...patch };
+    const provenance: ClipKeyframeProvenance = selectedAnnotation.source === 'manual'
+      ? 'manual'
+      : 'correction';
+    const keyframes = selectedAnnotation.keyframes
+      .filter((keyframe) => keyframe.frame !== currentFrame);
+    keyframes.push({
+      frame: videoFrame(currentFrame),
+      provenance,
+      ...geometry,
+    } as ClipKeyframe);
+    keyframes.sort((left, right) => left.frame - right.frame);
+    commitAnnotations(annotations.map((annotation) => (
+      annotation.id === selectedAnnotation.id
+        ? {
+            ...annotation,
+            keyframes,
+            visibilityKeyframes: annotation.visibilityKeyframes?.filter(
+              (keyframe) => keyframe.frame !== currentFrame,
+            ),
+          }
+        : annotation
+    )));
+    setSelectedKeyframe({
+      annotationId: selectedAnnotation.id,
+      kind: 'position',
+      index: keyframes.findIndex((keyframe) => keyframe.frame === currentFrame),
+      frame: currentFrame,
+    });
+  }, [
+    annotations,
+    commitAnnotations,
+    currentClip.endFrame,
+    currentFrame,
+    selectedAnnotation,
+  ]);
+
   const deleteSelectedKeyframe = useCallback(() => {
     if (!selectedAnnotation) return;
     const ref = selectedKeyframe;
@@ -1191,10 +1717,11 @@ export default function ClipEditor({
   }, [annotations, commitAnnotations, selectedAnnotation]);
 
   const undo = useCallback(() => {
+    finalizePendingStyleEdit(false);
     const result = undoClipAnnotationHistory({
       past: historyPastRef.current,
       future: historyFutureRef.current,
-      currentAnnotations: annotations,
+      currentAnnotations: annotationsRef.current,
       selectedAnnotationId,
     });
     if (!result.didUndo) return;
@@ -1205,13 +1732,20 @@ export default function ClipEditor({
     replaceAnnotations(result.annotations);
     setCurrentClip((previous) => ({ ...previous, annotations: result.annotations }));
     queuePersist(result.annotations);
-  }, [annotations, queuePersist, replaceAnnotations, selectOnlyAnnotation, selectedAnnotationId]);
+  }, [
+    finalizePendingStyleEdit,
+    queuePersist,
+    replaceAnnotations,
+    selectOnlyAnnotation,
+    selectedAnnotationId,
+  ]);
 
   const redo = useCallback(() => {
+    finalizePendingStyleEdit(false);
     const result = redoClipAnnotationHistory({
       past: historyPastRef.current,
       future: historyFutureRef.current,
-      currentAnnotations: annotations,
+      currentAnnotations: annotationsRef.current,
       selectedAnnotationId,
     });
     if (!result.didRedo) return;
@@ -1222,7 +1756,13 @@ export default function ClipEditor({
     replaceAnnotations(result.annotations);
     setCurrentClip((previous) => ({ ...previous, annotations: result.annotations }));
     queuePersist(result.annotations);
-  }, [annotations, queuePersist, replaceAnnotations, selectOnlyAnnotation, selectedAnnotationId]);
+  }, [
+    finalizePendingStyleEdit,
+    queuePersist,
+    replaceAnnotations,
+    selectOnlyAnnotation,
+    selectedAnnotationId,
+  ]);
 
   const moveTimelineKeyframe = useCallback((ref: TimelineKeyframeRef, targetFrame: number) => {
     const frame = clampToClip(currentClip, targetFrame);
@@ -1319,6 +1859,17 @@ export default function ClipEditor({
       : null;
     videoElementRef.current?.pause();
     setIsPlaying(false);
+    const trackingFrame = videoFrame(currentFrame);
+    pinPauseMachineRef.current = seekPinPauseMachine(
+      pinPauseMachineRef.current ?? {
+        previousFrame: trackingFrame,
+        pausedPinId: null,
+        consumedPinIds: new Set(),
+      },
+      trackingFrame,
+      currentClip.pins,
+    );
+    setPlaybackPausedPinId(null);
     setTool('select');
     setPointerDraft(null);
     setPolyPoints([]);
@@ -1343,6 +1894,7 @@ export default function ClipEditor({
     });
   }, [
     currentClip.endFrame,
+    currentClip.pins,
     currentFrame,
     selectedAnnotation,
     t,
@@ -1360,8 +1912,8 @@ export default function ClipEditor({
       if (target?.type === 'highlight') {
         const stopFrame = videoFrame(
           session.phase === 'running'
-            ? activeTrackingFrameRef.current ?? currentFrame
-            : currentFrame,
+            ? activeTrackingFrameRef.current ?? currentFrameRef.current
+            : currentFrameRef.current,
         );
         const stopped = stopTrackingHighlightSegment(
           target,
@@ -1385,7 +1937,6 @@ export default function ClipEditor({
     commitAnnotations,
     currentClip.endFrame,
     currentClip.startFrame,
-    currentFrame,
     seekFrame,
     trackingSession,
   ]);
@@ -1744,6 +2295,23 @@ export default function ClipEditor({
   const selectedVisibilityKeyframe = selectedAnnotation
     ? getCurrentVisibilityKeyframe(selectedAnnotation, videoFrame(currentFrame))
     : null;
+  const selectedInterpolatedGeometry = selectedAnnotation
+    ? interpolateAnnotation(
+        selectedAnnotation,
+        videoFrame(currentFrame),
+        frameBoundary(currentClip.endFrame),
+      )
+    : null;
+  const selectedShadowRadius = selectedAnnotation?.type === 'shadow'
+    && selectedInterpolatedGeometry
+    && 'r' in selectedInterpolatedGeometry
+    ? Number(selectedInterpolatedGeometry.r)
+    : null;
+  const selectedShadowSpread = selectedAnnotation?.type === 'shadow'
+    && selectedInterpolatedGeometry
+    && 'spreadDeg' in selectedInterpolatedGeometry
+    ? Number(selectedInterpolatedGeometry.spreadDeg)
+    : null;
   const selectedTrackingState = selectedAnnotation
     ? getFrameTrackingState(selectedAnnotation, videoFrame(currentFrame), frameBoundary(currentClip.endFrame))
     : null;
@@ -1751,8 +2319,15 @@ export default function ClipEditor({
     () => ({ ...currentClip, annotations }),
     [annotations, currentClip],
   );
-  const selectTimelineAnnotation = useCallback((annotationId: string, additive = false) => {
-    selectAnnotationFromUi(annotationId, additive);
+  const selectTimelineAnnotation = useCallback((
+    annotationId: string,
+    additive = false,
+    subtractive = false,
+  ) => {
+    selectAnnotationFromUi(
+      annotationId,
+      selectionModeFromModifiers(additive, subtractive),
+    );
     setTool('select');
   }, [selectAnnotationFromUi]);
   const selectTimelinePin = useCallback((pinId: string, frame: number) => {
@@ -1761,7 +2336,11 @@ export default function ClipEditor({
   }, [seekFrame]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-black" data-testid="clip-editor">
+    <div
+      className="flex min-h-0 flex-1 flex-col overflow-hidden bg-black"
+      data-testid="clip-editor"
+      data-playback-paused-pin-id={playbackPausedPinId ?? undefined}
+    >
       <div className="workspace-bar overflow-x-auto">
         {TOOLS.map((entry) => (
           <button
@@ -1844,13 +2423,22 @@ export default function ClipEditor({
                   data-testid="clip-stage"
                   className="absolute inset-0 h-full w-full touch-none"
                 onPointerDown={(event) => {
+                  if (playbackPausedPin) {
+                    event.preventDefault();
+                    void resumePlaybackFromPin();
+                    return;
+                  }
                   if (trackingSession || event.button !== 0) return;
                   const point = pointFromClient(event.clientX, event.clientY);
                   if (!point) return;
+                  const selectionMode = selectionModeFromModifiers(
+                    event.shiftKey,
+                    event.metaKey || event.ctrlKey,
+                  );
                   if (isPlaying) {
                     if (tool === 'select') {
-                      const hit = findSelectionHit(point, event.shiftKey);
-                      selectAnnotationFromUi(hit?.id ?? null, event.shiftKey);
+                      const hit = findSelectionHit(point, selectionMode);
+                      selectAnnotationFromUi(hit?.id ?? null, selectionMode);
                     }
                     return;
                   }
@@ -1881,13 +2469,70 @@ export default function ClipEditor({
                     return;
                   }
                   if (tool === 'select') {
-                    const hit = findSelectionHit(point, event.shiftKey);
-                    if (!hit) {
-                      selectAnnotationFromUi(null, event.shiftKey);
+                    const overlay = transformOverlayRef.current;
+                    const transformHandle = overlay
+                      ? hitShapeTransformHandle(overlay, point, transformHandleRadius * 1.8)
+                      : null;
+                    if (
+                      transformHandle
+                      && selectedAnnotation
+                      && (selectedAnnotation.type === 'box' || selectedAnnotation.type === 'circle')
+                    ) {
+                      if (selectedAnnotation.coordMode === 'pitch' && !currentHomographyInverse) return;
+                      const value = interpolateAnnotation(
+                        selectedAnnotation,
+                        videoFrame(currentFrame),
+                        frameBoundary(currentClip.endFrame),
+                      );
+                      if (!value) return;
+                      const baseGeometry = geometryFromInterpolated(value);
+                      const shape = orientedClipShapeFromGeometry(
+                        selectedAnnotation.type,
+                        baseGeometry,
+                      );
+                      if (!shape) return;
+                      const pitchPoint = selectedAnnotation.coordMode === 'pitch'
+                        ? projectImagePointToPitchPoint(
+                            currentHomographyInverse,
+                            point.x,
+                            point.y,
+                          )
+                        : null;
+                      const nativePoint = pitchPoint
+                        ? { x: pitchPoint.u, y: pitchPoint.v }
+                        : point;
+                      event.preventDefault();
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      setPointerDraft({
+                        mode: 'transform',
+                        start: point,
+                        current: point,
+                        annotationId: selectedAnnotation.id,
+                        baseGeometry,
+                        transformHandle: transformHandle.id,
+                        rotationOffset: transformHandle.id === 'rotate'
+                          ? rotationPointerOffset(shape, nativePoint)
+                          : undefined,
+                        startClient: { x: event.clientX, y: event.clientY },
+                        hasMoved: false,
+                      });
                       return;
                     }
-                    selectAnnotationFromUi(hit.id, event.shiftKey);
-                    if (event.shiftKey) return;
+                    const hit = findSelectionHit(point, selectionMode);
+                    if (!hit) {
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      setPointerDraft({
+                        mode: 'select',
+                        start: point,
+                        current: point,
+                        startClient: { x: event.clientX, y: event.clientY },
+                        hasMoved: false,
+                        selectionMode,
+                      });
+                      return;
+                    }
+                    selectAnnotationFromUi(hit.id, selectionMode);
+                    if (selectionMode !== 'replace') return;
                     const annotation = annotations.find((candidate) => candidate.id === hit.id);
                     if (!annotation) return;
                     const value = interpolateAnnotation(annotation, videoFrame(currentFrame), frameBoundary(currentClip.endFrame));
@@ -1918,10 +2563,18 @@ export default function ClipEditor({
                     setPolyCursor({ raw: point, snapped: findHighlightHit(point) ?? point });
                     return;
                   }
-                  if (!pointerDraft || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                  if (!pointerDraft) {
+                    const overlay = transformOverlayRef.current;
+                    const handle = overlay
+                      ? hitShapeTransformHandle(overlay, point, transformHandleRadius * 1.8)
+                      : null;
+                    event.currentTarget.style.cursor = handle?.cursor ?? (tool === 'select' ? 'default' : 'crosshair');
+                    return;
+                  }
+                  if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
                   setPointerDraft((draft) => {
                     if (!draft) return null;
-                    if (draft.mode !== 'move' || !draft.startClient) return { ...draft, current: point };
+                    if (draft.mode === 'draw' || !draft.startClient) return { ...draft, current: point };
                     const hasMoved = draft.hasMoved
                       || Math.hypot(
                         event.clientX - draft.startClient.x,
@@ -1933,6 +2586,9 @@ export default function ClipEditor({
                 onPointerLeave={() => {
                   if (tool === 'poly') setPolyCursor(null);
                   if (tool === 'arrow') setArrowCursor(null);
+                  if (canvasRef.current && !pointerDraft) {
+                    canvasRef.current.style.cursor = tool === 'select' ? 'default' : 'crosshair';
+                  }
                 }}
                 onDoubleClick={(event) => {
                   if (tool !== 'poly' || trackingSession || isPlaying) return;
@@ -1954,7 +2610,33 @@ export default function ClipEditor({
                     setPointerDraft(null);
                     return;
                   }
-                  if (pointerDraft.mode === 'move') {
+                  if (pointerDraft.mode === 'select') {
+                    const hasMoved = pointerDraft.hasMoved || (
+                      pointerDraft.startClient
+                      && Math.hypot(
+                        event.clientX - pointerDraft.startClient.x,
+                        event.clientY - pointerDraft.startClient.y,
+                      ) >= 4
+                    );
+                    if (hasMoved) {
+                      const bounds = selectionBounds(pointerDraft.start, end);
+                      const hits = drawablesRef.current
+                        .filter((drawable) => annotationsRef.current.some(
+                          (annotation) => annotation.id === drawable.id,
+                        ))
+                        .filter((drawable) => boundsIntersect(drawableBounds(drawable), bounds))
+                        .map((drawable) => drawable.id);
+                      selectAnnotationsFromUi(
+                        hits,
+                        pointerDraft.selectionMode ?? 'replace',
+                      );
+                    } else if ((pointerDraft.selectionMode ?? 'replace') === 'replace') {
+                      selectAnnotationsFromUi([], 'replace');
+                    }
+                  } else if (
+                    pointerDraft.mode === 'move'
+                    || pointerDraft.mode === 'transform'
+                  ) {
                     const hasMoved = pointerDraft.hasMoved || (
                       pointerDraft.startClient
                       && Math.hypot(
@@ -1968,15 +2650,66 @@ export default function ClipEditor({
                     }
                     const annotation = annotations.find((candidate) => candidate.id === pointerDraft.annotationId);
                     if (annotation && pointerDraft.baseGeometry) {
-                      let dx = end.x - pointerDraft.start.x;
-                      let dy = end.y - pointerDraft.start.y;
-                      if (annotation.coordMode === 'pitch' && currentHomographyInverse) {
-                        const startPitch = convertImageGeometryToPitchGeometry('text', pointerDraft.start, currentHomographyInverse);
-                        const endPitch = convertImageGeometryToPitchGeometry('text', end, currentHomographyInverse);
-                        dx = Number(endPitch.x) - Number(startPitch.x);
-                        dy = Number(endPitch.y) - Number(startPitch.y);
+                      let geometry: Record<string, unknown> | null = null;
+                      if (pointerDraft.mode === 'transform' && pointerDraft.transformHandle) {
+                        if (annotation.coordMode !== 'pitch' || currentHomographyInverse) {
+                          const shape = orientedClipShapeFromGeometry(
+                            annotation.type,
+                            pointerDraft.baseGeometry,
+                          );
+                          const pitchEnd = annotation.coordMode === 'pitch'
+                            ? projectImagePointToPitchPoint(
+                                currentHomographyInverse,
+                                end.x,
+                                end.y,
+                              )
+                            : null;
+                          const nativeEnd = pitchEnd
+                            ? { x: pitchEnd.u, y: pitchEnd.v }
+                            : end;
+                          if (shape) {
+                            geometry = clipGeometryFromOrientedShape(
+                              transformOrientedClipShape(
+                                shape,
+                                pointerDraft.transformHandle,
+                                nativeEnd,
+                                {
+                                  minWidth: annotation.coordMode === 'pitch' ? 0.1 : 2,
+                                  minHeight: annotation.coordMode === 'pitch' ? 0.1 : 2,
+                                  rotationOffset: pointerDraft.rotationOffset,
+                                },
+                              ),
+                            );
+                          }
+                        }
+                      } else {
+                        let dx = end.x - pointerDraft.start.x;
+                        let dy = end.y - pointerDraft.start.y;
+                        if (annotation.coordMode === 'pitch' && currentHomographyInverse) {
+                          const startPitch = projectImagePointToPitchPoint(
+                            currentHomographyInverse,
+                            pointerDraft.start.x,
+                            pointerDraft.start.y,
+                          );
+                          const endPitch = projectImagePointToPitchPoint(
+                            currentHomographyInverse,
+                            end.x,
+                            end.y,
+                          );
+                          dx = endPitch.u - startPitch.u;
+                          dy = endPitch.v - startPitch.v;
+                        }
+                        geometry = translateGeometry(
+                          annotation.type,
+                          pointerDraft.baseGeometry,
+                          dx,
+                          dy,
+                        );
                       }
-                      const geometry = translateGeometry(annotation.type, pointerDraft.baseGeometry, dx, dy);
+                      if (!geometry) {
+                        setPointerDraft(null);
+                        return;
+                      }
                       const provenance: ClipKeyframeProvenance = annotation.source === 'manual' ? 'manual' : 'correction';
                       const keyframes = annotation.keyframes.filter((keyframe) => keyframe.frame !== currentFrame);
                       keyframes.push({ frame: videoFrame(currentFrame), provenance, ...geometry } as ClipKeyframe);
@@ -2008,6 +2741,7 @@ export default function ClipEditor({
                   }
                   setPointerDraft(null);
                 }}
+                onPointerCancel={() => setPointerDraft(null)}
                 />
                 {trackingSession?.phase === 'choosing' && provisionalPlayers?.detections.map((detection, index) => {
                   const preview = bboxToHighlight(detection, trackingSession.radius);
@@ -2050,6 +2784,7 @@ export default function ClipEditor({
           <hr className="my-3 border-border" />
           <AnnotationInspector
             annotation={selectedAnnotation}
+            selectedAnnotations={selectedAnnotations}
             trackingState={selectedTrackingState}
             hasPositionKeyframe={!!selectedCurrentKeyframe}
             hasVisibilityKeyframe={!!selectedVisibilityKeyframe}
@@ -2068,6 +2803,10 @@ export default function ClipEditor({
             onRenameHighlight={renameSelectedHighlight}
             onDisplayHighlightName={setSelectedHighlightDisplayName}
             onHighlightNameFontSize={setSelectedHighlightNameFontSize}
+            onUpdateSelectedStyles={updateSelectedAnnotationStyles}
+            shadowRadius={selectedShadowRadius}
+            shadowSpread={selectedShadowSpread}
+            onUpdateShadowGeometry={updateSelectedShadowGeometry}
             defaultFontSize={defaultFontSize}
             selectedObjectCount={selectedAnnotationIds.length}
             canMergeObjects={objectMergeInspection.canMerge}

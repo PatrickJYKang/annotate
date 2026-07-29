@@ -38,6 +38,8 @@ function recordingContext(): { context: CanvasRenderingContext2D; commands: unkn
     save: method('save'),
     restore: method('restore'),
     scale: method('scale'),
+    translate: method('translate'),
+    rotate: method('rotate'),
     setLineDash: method('setLineDash'),
     fillRect: method('fillRect'),
     strokeRect: method('strokeRect'),
@@ -151,6 +153,7 @@ describe('renderClipAnnotations', () => {
       y: 20,
       w: 30,
       h: 40,
+      rotation: 0,
       order: 1,
       style: {
         stroke: '#ffffff',
@@ -179,6 +182,40 @@ describe('renderClipAnnotations', () => {
       ['restore'],
       ['restore'],
     ]);
+  });
+
+  it('renders rotated image-coordinate geometry around its center', () => {
+    const { context, commands } = recordingContext();
+    const drawable: ClipDrawable = {
+      id: 'rotated-box',
+      kind: 'box',
+      x: 10,
+      y: 20,
+      w: 30,
+      h: 40,
+      rotation: 30,
+      order: 1,
+      style: {
+        stroke: '#ffffff',
+        strokeWidth: 4,
+        fill: 'transparent',
+        dash: [],
+        fontSize: 48,
+        fontFamily: 'sans-serif',
+        textHighlight: false,
+      },
+    };
+
+    paintClipDrawablesToCanvas(context, [drawable], {
+      width: 640,
+      height: 360,
+      sourceWidth: 640,
+      sourceHeight: 360,
+    });
+
+    expect(commands).toContainEqual(['translate', 25, 40]);
+    expect(commands).toContainEqual(['rotate', Math.PI / 6]);
+    expect(commands).toContainEqual(['strokeRect', -15, -20, 30, 40]);
   });
 
   it('renders a displayed highlight name beside the highlight without adding a drawable', () => {

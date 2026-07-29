@@ -29,12 +29,12 @@ import {
 
 export interface InterpolatedBox {
   type: 'box';
-  x: number; y: number; w: number; h: number;
+  x: number; y: number; w: number; h: number; rotation: number;
 }
 
 export interface InterpolatedCircle {
   type: 'circle';
-  cx: number; cy: number; rx: number; ry: number;
+  cx: number; cy: number; rx: number; ry: number; rotation: number;
 }
 
 export interface InterpolatedShadow {
@@ -85,6 +85,11 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
+function lerpAngleDegrees(a: number, b: number, t: number): number {
+  const delta = ((b - a + 540) % 360) - 180;
+  return a + delta * t;
+}
+
 // Catmull-Rom spline for a single scalar value given 4 control points
 function catmullRom(p0: number, p1: number, p2: number, p3: number, t: number): number {
   const t2 = t * t;
@@ -109,6 +114,7 @@ function interpolateBox(a: BoxKeyframe, b: BoxKeyframe, t: number, useCubic: boo
       y: catmullRom(prev.y, a.y, b.y, next.y, t),
       w: catmullRom(prev.w, a.w, b.w, next.w, t),
       h: catmullRom(prev.h, a.h, b.h, next.h, t),
+      rotation: lerpAngleDegrees(a.rotation ?? 0, b.rotation ?? 0, t),
     };
   }
   return {
@@ -117,6 +123,7 @@ function interpolateBox(a: BoxKeyframe, b: BoxKeyframe, t: number, useCubic: boo
     y: lerp(a.y, b.y, t),
     w: lerp(a.w, b.w, t),
     h: lerp(a.h, b.h, t),
+    rotation: lerpAngleDegrees(a.rotation ?? 0, b.rotation ?? 0, t),
   };
 }
 
@@ -128,6 +135,7 @@ function interpolateCircle(a: CircleKeyframe, b: CircleKeyframe, t: number, useC
       cy: catmullRom(prev.cy, a.cy, b.cy, next.cy, t),
       rx: catmullRom(prev.rx, a.rx, b.rx, next.rx, t),
       ry: catmullRom(prev.ry, a.ry, b.ry, next.ry, t),
+      rotation: lerpAngleDegrees(a.rotation ?? 0, b.rotation ?? 0, t),
     };
   }
   return {
@@ -136,6 +144,7 @@ function interpolateCircle(a: CircleKeyframe, b: CircleKeyframe, t: number, useC
     cy: lerp(a.cy, b.cy, t),
     rx: lerp(a.rx, b.rx, t),
     ry: lerp(a.ry, b.ry, t),
+    rotation: lerpAngleDegrees(a.rotation ?? 0, b.rotation ?? 0, t),
   };
 }
 
@@ -399,9 +408,23 @@ function clampToKeyframe(kf: ClipKeyframe, type: ClipAnnotationType): Interpolat
       if ('points' in kf) {
         return { type: 'poly', points: (kf as PolyKeyframe).points.map(p => [...p] as [number, number]) };
       }
-      return { type: 'box', x: (kf as BoxKeyframe).x, y: (kf as BoxKeyframe).y, w: (kf as BoxKeyframe).w, h: (kf as BoxKeyframe).h };
+      return {
+        type: 'box',
+        x: (kf as BoxKeyframe).x,
+        y: (kf as BoxKeyframe).y,
+        w: (kf as BoxKeyframe).w,
+        h: (kf as BoxKeyframe).h,
+        rotation: (kf as BoxKeyframe).rotation ?? 0,
+      };
     case 'circle':
-      return { type: 'circle', cx: (kf as CircleKeyframe).cx, cy: (kf as CircleKeyframe).cy, rx: (kf as CircleKeyframe).rx, ry: (kf as CircleKeyframe).ry };
+      return {
+        type: 'circle',
+        cx: (kf as CircleKeyframe).cx,
+        cy: (kf as CircleKeyframe).cy,
+        rx: (kf as CircleKeyframe).rx,
+        ry: (kf as CircleKeyframe).ry,
+        rotation: (kf as CircleKeyframe).rotation ?? 0,
+      };
     case 'shadow':
       return {
         type: 'shadow',

@@ -175,6 +175,9 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   await expect(annotator).toBeVisible();
   await expect(pinPage).toHaveURL(/\/clip\/clip-sequence\?pinId=pin-shape/);
   await expect(pinPage.getByText(/Frame 15 · clip 5–44/)).toBeVisible();
+  await pinPage.keyboard.press('Escape');
+  expect(pinPage.isClosed()).toBe(false);
+  await expect(annotator).toBeVisible();
   for (const tool of ['Select', 'Box', 'Circle', 'Highlight', 'Shadow', 'Arrow', 'Lob', 'Poly', 'Text', 'Manual H']) {
     await expect(annotator.getByRole('button', { name: tool, exact: true })).toBeVisible();
   }
@@ -274,6 +277,14 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
 
   const stage = annotator.locator('canvas').last();
   await expect(stage).toBeVisible();
+  await annotator.getByRole('button', { name: 'Select', exact: true }).click();
+  const stageBox = await stage.boundingBox();
+  if (!stageBox) throw new Error('Annotation stage did not have a layout box.');
+  await pinPage.mouse.move(stageBox.x + 120, stageBox.y + 120);
+  await pinPage.mouse.down({ button: 'middle' });
+  await pinPage.mouse.move(stageBox.x + 260, stageBox.y + 240, { steps: 5 });
+  await expect(annotator.getByTestId('annotation-marquee')).toHaveCount(0);
+  await pinPage.mouse.up({ button: 'middle' });
   await annotator.getByRole('button', { name: 'Highlight', exact: true }).click();
   await stage.click({ position: { x: 300, y: 220 } });
   await annotator.getByLabel('Name', { exact: true }).fill('Left back');

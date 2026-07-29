@@ -6,11 +6,22 @@ import {
   PanelResizeHandle,
   Panels,
 } from '../panels/Panels';
+import ColorLinkToggle from '../annotate/ColorLinkToggle';
 import type {
   ClipAnnotation,
+  ClipAnnotationStyle,
   ClipPin,
+  StrokePattern,
 } from '../../lib/types/clip';
 import { useLocale } from '../../lib/i18n';
+
+function isFillCapable(annotation: ClipAnnotation): boolean {
+  return annotation.type === 'box'
+    || annotation.type === 'circle'
+    || annotation.type === 'highlight'
+    || annotation.type === 'shadow'
+    || (annotation.type === 'poly' && !!annotation.closed);
+}
 
 export function ClipEditorShell({
   viewer,
@@ -176,6 +187,7 @@ export function TrackingToolbar({
 
 export function AnnotationInspector({
   annotation,
+  selectedAnnotations,
   trackingState,
   hasPositionKeyframe,
   hasVisibilityKeyframe,
@@ -192,6 +204,10 @@ export function AnnotationInspector({
   onRenameHighlight,
   onDisplayHighlightName,
   onHighlightNameFontSize,
+  onUpdateSelectedStyles,
+  shadowRadius,
+  shadowSpread,
+  onUpdateShadowGeometry,
   defaultFontSize,
   selectedObjectCount,
   canMergeObjects,
@@ -199,6 +215,7 @@ export function AnnotationInspector({
   onDeleteObject,
 }: {
   annotation: ClipAnnotation | null;
+  selectedAnnotations: ClipAnnotation[];
   trackingState: string | null;
   hasPositionKeyframe: boolean;
   hasVisibilityKeyframe: boolean;
@@ -215,6 +232,12 @@ export function AnnotationInspector({
   onRenameHighlight: (name?: string) => void;
   onDisplayHighlightName: (displayName: boolean) => void;
   onHighlightNameFontSize: (fontSize: number) => void;
+  onUpdateSelectedStyles: (
+    updateStyle: (annotation: ClipAnnotation) => ClipAnnotationStyle,
+  ) => void;
+  shadowRadius: number | null;
+  shadowSpread: number | null;
+  onUpdateShadowGeometry: (patch: { r?: number; spreadDeg?: number }) => void;
   defaultFontSize: number;
   selectedObjectCount: number;
   canMergeObjects: boolean;
@@ -223,16 +246,67 @@ export function AnnotationInspector({
 }) {
   const { t, formatNumber } = useLocale();
   const [nameDraft, setNameDraft] = useState('');
+  const [colorsLinked, setColorsLinked] = useState(true);
 
   useEffect(() => {
     setNameDraft(annotation?.type === 'highlight' ? annotation.name ?? '' : '');
   }, [annotation?.id, annotation?.name, annotation?.type]);
+
+  const first = selectedAnnotations[0] ?? annotation;
+  const fillSample = selectedAnnotations.find(isFillCapable);
+  const textSample = selectedAnnotations.find((candidate) => candidate.type === 'text');
+  const strokeColor = first?.style.stroke ?? '#ffffff';
+  const fillColor = fillSample?.style.fill && fillSample.style.fill !== 'transparent'
+    ? fillSample.style.fill
+    : fillSample?.style.stroke ?? strokeColor;
+  const patterns = new Set(
+    selectedAnnotations
+      .filter((candidate) => candidate.type !== 'text')
+      .map((candidate) => candidate.style.strokePattern ?? 'solid'),
+  );
+  const strokePattern: StrokePattern = patterns.size === 1
+    ? [...patterns][0]
+    : 'solid';
 
   const commitHighlightName = () => {
     if (annotation?.type !== 'highlight') return;
     const name = nameDraft.trim();
     setNameDraft(name);
     if (name !== (annotation.name ?? '')) onRenameHighlight(name || undefined);
+  };
+
+  const updateStrokeColor = (stroke: string) => {
+    onUpdateSelectedStyles((candidate) => ({
+      ...candidate.style,
+      stroke,
+      ...(colorsLinked && isFillCapable(candidate) ? { fill: stroke } : {}),
+    }));
+  };
+
+  const updateFillColor = (fill: string) => {
+    onUpdateSelectedStyles((candidate) => {
+      if (colorsLinked) {
+        return {
+          ...candidate.style,
+          stroke: fill,
+          ...(isFillCapable(candidate) ? { fill } : {}),
+        };
+      }
+      return isFillCapable(candidate)
+        ? { ...candidate.style, fill }
+        : candidate.style;
+    });
+  };
+
+  const toggleColorsLinked = () => {
+    const linked = !colorsLinked;
+    setColorsLinked(linked);
+    if (!linked) return;
+    onUpdateSelectedStyles((candidate) => (
+      isFillCapable(candidate)
+        ? { ...candidate.style, fill: strokeColor }
+        : candidate.style
+    ));
   };
 
   return (
@@ -251,7 +325,7 @@ export function AnnotationInspector({
       {annotation ? (
         <div className="space-y-2">
           <div className="property-section">
-            {annotation.type === 'highlight' && (
+            {selectedObjectCount === 1 && annotation.type === 'highlight' && (
               <>
                 <label className="block px-2 py-1.5 text-muted">
                   <span className="mb-1 block">{t('annotation.name')}</span>
@@ -299,6 +373,199 @@ export function AnnotationInspector({
                 )}
               </>
             )}
+            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] items-center gap-x-2 gap-y-1.5 px-2 py-1.5">
+              {fillSample ? (
+                <>
+                  <span className="text-muted">{t('annotation.colors')}</span>
+                  <div className="flex min-w-0 items-center gap-1">
+                    <input
+                      data-testid="clip-inspector-stroke-color"
+                      aria-label={t('annotation.strokeColor')}
+                      type="color"
+                      value={strokeColor}
+                      onChange={(event) => updateStrokeColor(event.target.value)}
+                    />
+                    <ColorLinkToggle linked={colorsLinked} onToggle={toggleColorsLinked} />
+                    <input
+                      data-testid="clip-inspector-fill-color"
+                      aria-label={t('annotation.fillColor')}
+                      type="color"
+                      value={fillColor}
+                      onChange={(event) => updateFillColor(event.target.value)}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <label className="text-muted" htmlFor="clip-inspector-stroke-color">
+                    {t('annotation.stroke')}
+                  </label>
+                  <input
+                    id="clip-inspector-stroke-color"
+                    data-testid="clip-inspector-stroke-color"
+                    aria-label={t('annotation.strokeColor')}
+                    type="color"
+                    value={strokeColor}
+                    onChange={(event) => updateStrokeColor(event.target.value)}
+                  />
+                </>
+              )}
+
+              <label className="text-muted" htmlFor="clip-inspector-stroke-width">
+                {t('annotation.width')}
+              </label>
+              <input
+                id="clip-inspector-stroke-width"
+                data-testid="clip-inspector-stroke-width"
+                aria-label={t('annotation.width')}
+                className="clip-stroke-width-input w-full"
+                style={{ width: '100%' }}
+                type="number"
+                min={1}
+                max={16}
+                step={1}
+                value={first?.style.strokeWidth ?? 4}
+                onChange={(event) => {
+                  const strokeWidth = Math.max(1, Math.min(16, Number(event.target.value) || 1));
+                  onUpdateSelectedStyles((candidate) => ({ ...candidate.style, strokeWidth }));
+                }}
+              />
+
+              <label className="text-muted" htmlFor="clip-inspector-stroke-pattern">
+                {t('annotation.style')}
+              </label>
+              <select
+                id="clip-inspector-stroke-pattern"
+                data-testid="clip-inspector-stroke-pattern"
+                value={strokePattern}
+                onChange={(event) => {
+                  const nextPattern = (event.target.value || 'solid') as StrokePattern;
+                  onUpdateSelectedStyles((candidate) => (
+                    candidate.type === 'text'
+                      ? candidate.style
+                      : { ...candidate.style, strokePattern: nextPattern }
+                  ));
+                }}
+              >
+                <option value="solid">{t('annotation.patternSolid')}</option>
+                <option value="dashed">{t('annotation.patternDashed')}</option>
+                <option value="dotted">{t('annotation.patternDotted')}</option>
+                <option value="dashdot">{t('annotation.patternDashdot')}</option>
+              </select>
+
+              {fillSample && (
+                <>
+                  <label className="text-muted" htmlFor="clip-inspector-fill-opacity">
+                    {t('annotation.fillOpacity')}
+                  </label>
+                  <input
+                    id="clip-inspector-fill-opacity"
+                    data-testid="clip-inspector-fill-opacity"
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={Math.round((fillSample.style.fillOpacity ?? 0.3) * 100)}
+                    onChange={(event) => {
+                      const fillOpacity = Math.max(0, Math.min(100, Number(event.target.value) || 0)) / 100;
+                      onUpdateSelectedStyles((candidate) => (
+                        isFillCapable(candidate)
+                          ? { ...candidate.style, fillOpacity }
+                          : candidate.style
+                      ));
+                    }}
+                  />
+                </>
+              )}
+
+              {textSample && (
+                <>
+                  <label className="text-muted" htmlFor="clip-inspector-font-size">
+                    {t('annotation.font')}
+                  </label>
+                  <input
+                    id="clip-inspector-font-size"
+                    data-testid="clip-inspector-font-size"
+                    aria-label={t('annotation.font')}
+                    className="clip-stroke-width-input w-full"
+                    style={{ width: '100%' }}
+                    type="number"
+                    min={1}
+                    max={300}
+                    step={1}
+                    value={textSample.style.fontSize ?? 48}
+                    onChange={(event) => {
+                      const fontSize = Math.max(1, Math.min(300, Number(event.target.value) || 48));
+                      onUpdateSelectedStyles((candidate) => (
+                        candidate.type === 'text'
+                          ? { ...candidate.style, fontSize }
+                          : candidate.style
+                      ));
+                    }}
+                  />
+
+                  <label className="text-muted" htmlFor="clip-inspector-text-highlight">
+                    {t('annotation.textHighlight')}
+                  </label>
+                  <input
+                    id="clip-inspector-text-highlight"
+                    data-testid="clip-inspector-text-highlight"
+                    aria-label={t('annotation.textHighlight')}
+                    type="checkbox"
+                    checked={selectedAnnotations
+                      .filter((candidate) => candidate.type === 'text')
+                      .every((candidate) => !!candidate.style.textHighlight)}
+                    onChange={(event) => {
+                      const textHighlight = event.target.checked;
+                      onUpdateSelectedStyles((candidate) => (
+                        candidate.type === 'text'
+                          ? { ...candidate.style, textHighlight }
+                          : candidate.style
+                      ));
+                    }}
+                  />
+                </>
+              )}
+
+              {selectedObjectCount === 1 && annotation.type === 'shadow' && (
+                <>
+                  <label className="text-muted" htmlFor="clip-inspector-shadow-radius">
+                    {t('annotation.radius')}
+                  </label>
+                  <input
+                    id="clip-inspector-shadow-radius"
+                    data-testid="clip-inspector-shadow-radius"
+                    className="clip-stroke-width-input w-full"
+                    style={{ width: '100%' }}
+                    type="number"
+                    min={1}
+                    max={2000}
+                    step={1}
+                    value={Math.round(shadowRadius ?? 1)}
+                    onChange={(event) => {
+                      onUpdateShadowGeometry({ r: Math.max(1, Number(event.target.value) || 1) });
+                    }}
+                  />
+
+                  <label className="text-muted" htmlFor="clip-inspector-shadow-spread">
+                    {t('annotation.spread')}
+                  </label>
+                  <input
+                    id="clip-inspector-shadow-spread"
+                    data-testid="clip-inspector-shadow-spread"
+                    type="range"
+                    min={5}
+                    max={180}
+                    step={1}
+                    value={Math.round(shadowSpread ?? 50)}
+                    onChange={(event) => {
+                      const spreadDeg = Math.max(5, Math.min(180, Number(event.target.value) || 50));
+                      onUpdateShadowGeometry({ spreadDeg });
+                    }}
+                  />
+                </>
+              )}
+            </div>
             <div className="property-row">
               <strong className="capitalize text-primary">{t(`tool.${annotation.type}`)}</strong>
               <span>{t('clip.source', {
@@ -319,10 +586,12 @@ export function AnnotationInspector({
               })}</span>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-1">
-            <button onClick={onAddKeyframe} disabled={hasPositionKeyframe}>{t('clip.keyframeHere')}</button>
-            <button onClick={onDeleteKeyframe} disabled={!hasPositionKeyframe && !hasVisibilityKeyframe}>{t('clip.deleteKeyframe')}</button>
-          </div>
+          {selectedObjectCount === 1 && (
+            <div className="grid grid-cols-2 gap-1">
+              <button onClick={onAddKeyframe} disabled={hasPositionKeyframe}>{t('clip.keyframeHere')}</button>
+              <button onClick={onDeleteKeyframe} disabled={!hasPositionKeyframe && !hasVisibilityKeyframe}>{t('clip.deleteKeyframe')}</button>
+            </div>
+          )}
           {selectedObjectCount >= 2 && (
             <button
               className="button-primary w-full"

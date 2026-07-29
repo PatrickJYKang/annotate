@@ -232,6 +232,30 @@ async function readClip(page: Page) {
   }, CLIP_ID);
 }
 
+async function summarizeCanvasColors(
+  page: Page,
+): Promise<{ nonTransparent: number; green: number; yellow: number }> {
+  return page.getByTestId('clip-stage').evaluate((element) => {
+    const canvas = element as HTMLCanvasElement;
+    const context = canvas.getContext('2d');
+    if (!context) return { nonTransparent: 0, green: 0, yellow: 0 };
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let nonTransparent = 0;
+    let green = 0;
+    let yellow = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      const red = pixels[index];
+      const greenChannel = pixels[index + 1];
+      const blue = pixels[index + 2];
+      const alpha = pixels[index + 3];
+      if (alpha > 20) nonTransparent += 1;
+      if (alpha > 20 && greenChannel > red + 60 && greenChannel > blue + 20) green += 1;
+      if (alpha > 20 && red > 180 && greenChannel > 130 && blue < 150) yellow += 1;
+    }
+    return { nonTransparent, green, yellow };
+  });
+}
+
 test('edits and tracks a non-zero-start clip on the absolute frame axis', async ({ page }) => {
   await installOpfsDirectoryPickerFixture(
     page,
@@ -254,7 +278,7 @@ test('edits and tracks a non-zero-start clip on the absolute frame axis', async 
   await expect(page.getByText(/Frame 5 · clip 5–44/)).toBeVisible();
   await expect.poll(() => page.locator('video').evaluate((element) => (element as HTMLVideoElement).currentTime)).toBeCloseTo((5 + 0.5) / 25, 4);
   await expect.poll(() => page.locator('video').evaluate((element) => (element as HTMLVideoElement).paused)).toBe(true);
-  await expect(page.getByRole('spinbutton', { name: 'Width' })).toHaveCSS('width', '56px');
+  await expect(page.getByRole('spinbutton', { name: 'Width' }).first()).toHaveCSS('width', '56px');
 
   const viewerBox = await page.getByTestId('clip-viewer-surface').boundingBox();
   const overlayBox = await page.getByTestId('clip-overlay-frame').boundingBox();
@@ -265,7 +289,7 @@ test('edits and tracks a non-zero-start clip on the absolute frame axis', async 
   expect(overlayBox.x + overlayBox.width / 2).toBeCloseTo(viewerBox.x + viewerBox.width / 2, 0);
   expect(overlayBox.y + overlayBox.height / 2).toBeCloseTo(viewerBox.y + viewerBox.height / 2, 0);
 
-  await page.getByRole('button', { name: '1. Highlight', exact: true }).click({ modifiers: ['Shift'] });
+  await page.getByRole('button', { name: '1. Highlight', exact: true }).click({ modifiers: ['Meta'] });
   await page.getByRole('button', { name: 'Track', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Player 1' })).toBeVisible();
   await page.getByRole('button', { name: 'Player 1' }).click();
@@ -498,7 +522,7 @@ test('edits and tracks a non-zero-start clip on the absolute frame axis', async 
   await expect(firstObjectRow).toHaveAttribute('aria-pressed', 'true');
   await expect(arrowObjectRow).toHaveAttribute('aria-pressed', 'true');
   await expect(trackedObjectRow).toHaveAttribute('aria-pressed', 'true');
-  await arrowObjectRow.click({ modifiers: ['Shift'] });
+  await arrowObjectRow.click({ modifiers: ['Meta'] });
   await expect(firstObjectRow).toHaveAttribute('aria-pressed', 'true');
   await expect(arrowObjectRow).toHaveAttribute('aria-pressed', 'false');
   await expect(trackedObjectRow).toHaveAttribute('aria-pressed', 'true');
@@ -573,7 +597,7 @@ test('edits and tracks a non-zero-start clip on the absolute frame axis', async 
   const trackedHighlightFrame = trackedHighlight.keyframes.find(
     (keyframe: { frame: number }) => keyframe.frame === 5,
   );
-  await page.getByLabel('Annotation stroke color').fill('#ff0000');
+  await page.getByLabel('Annotation stroke color').first().fill('#ff0000');
   await page.getByRole('button', { name: 'Poly' }).click();
   const linkedPoint = sourcePoint(trackedHighlightFrame.cx, trackedHighlightFrame.cy);
   const linkedHighlightPixel = await canvasPixelAt(trackedHighlightFrame.cx, trackedHighlightFrame.cy);
@@ -629,10 +653,13 @@ test('edits and tracks a non-zero-start clip on the absolute frame axis', async 
   expect(pageErrors).toEqual([]);
   await page.keyboard.press('Shift+Backspace');
 
-  await page.getByLabel('Annotation stroke color').fill('#ffffff');
+  await page.getByLabel('Annotation stroke color').first().fill('#ffffff');
   await page.getByRole('button', { name: 'Highlight', exact: true }).click();
+  const annotationCountBeforeTarget = (await readClip(page)).annotations.length;
   const arrowTargetPoint = sourcePoint(500, 250);
   await page.mouse.click(arrowTargetPoint.x, arrowTargetPoint.y);
+  await expect.poll(async () => (await readClip(page)).annotations.length)
+    .toBe(annotationCountBeforeTarget + 1);
   await expect.poll(async () => {
     const annotation = (await readClip(page)).annotations.at(-1);
     return annotation.type === 'highlight' ? annotation : null;
@@ -642,7 +669,7 @@ test('edits and tracks a non-zero-start clip on the absolute frame axis', async 
   const targetFrame = targetHighlight.keyframes[0];
   const annotationCountBeforeArrow = storedAfterTarget.annotations.length;
 
-  await page.getByLabel('Annotation stroke color').fill('#ff0000');
+  await page.getByLabel('Annotation stroke color').first().fill('#ff0000');
   await page.getByRole('button', { name: 'Arrow', exact: true }).click();
   await page.mouse.click(linkedPoint.x, linkedPoint.y);
   await page.mouse.move(arrowTargetPoint.x, arrowTargetPoint.y);
@@ -683,7 +710,7 @@ test('edits and tracks a non-zero-start clip on the absolute frame axis', async 
   await page.getByRole('button', { name: 'Select', exact: true }).click();
   await page.mouse.click(arrowTargetPoint.x, arrowTargetPoint.y);
   await page.keyboard.press('Shift+Backspace');
-  await page.getByLabel('Annotation stroke color').fill('#ffffff');
+  await page.getByLabel('Annotation stroke color').first().fill('#ffffff');
   expect(pageErrors).toEqual([]);
 
   await page.getByRole('button', { name: 'Compute H' }).click();
@@ -816,4 +843,302 @@ test('edits and tracks a non-zero-start clip on the absolute frame axis', async 
   await expect.poll(() => page.locator('video').evaluate((element) => (element as HTMLVideoElement).paused)).toBe(false);
   await stage.click({ position: { x: 4, y: 4 } });
   await expect(page.getByRole('button', { name: 'Delete object (Shift+Delete)' })).toHaveCount(0);
+});
+
+test('marquee-selects objects and applies inspector styles without keyframing them', async ({ page }) => {
+  await installOpfsDirectoryPickerFixture(
+    page,
+    path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project'),
+    { rootName: 'clip-marquee-style-project' },
+  );
+  await installMockSidecar(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open Existing Project' }).click();
+  await page.getByRole('button', { name: 'Open capture player' }).click();
+  await page.getByTestId(`clip-tree-row-${CLIP_ID}`).click();
+  const editorPagePromise = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Open editor' }).click();
+  page = await editorPagePromise;
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(page.getByTestId('clip-editor')).toBeVisible();
+
+  for (let index = 0; index < 3; index += 1) await page.keyboard.press('ArrowRight');
+  await expect(page.getByText(/Frame 8 · clip 5–44/)).toBeVisible();
+  await expect(page.getByTestId('clip-editor')).not.toHaveAttribute('data-playback-paused-pin-id');
+  await expect.poll(async () => (await summarizeCanvasColors(page)).nonTransparent)
+    .toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+
+  const stage = page.getByTestId('clip-stage');
+  const stageBox = await stage.boundingBox();
+  if (!stageBox) throw new Error('Clip stage did not have a layout box.');
+  const marqueeStart = { x: stageBox.x + 5, y: stageBox.y + 5 };
+  const marqueeEnd = {
+    x: stageBox.x + stageBox.width - 5,
+    y: stageBox.y + stageBox.height - 5,
+  };
+  await page.mouse.move(marqueeStart.x, marqueeStart.y);
+  await page.mouse.down();
+  await page.mouse.move(marqueeEnd.x, marqueeEnd.y, { steps: 8 });
+  await page.mouse.up();
+
+  const highlightRow = page.getByRole('button', { name: '1. Highlight', exact: true });
+  const arrowRow = page.getByRole('button', { name: '2. Arrow', exact: true });
+  await expect(highlightRow).toHaveAttribute('aria-pressed', 'true');
+  await expect(arrowRow).toHaveAttribute('aria-pressed', 'true');
+
+  const before = await readClip(page);
+  const keyframesBefore = before.annotations.map(
+    (annotation: { id: string; keyframes: unknown[]; visibilityKeyframes?: unknown[] }) => ({
+      id: annotation.id,
+      keyframes: annotation.keyframes,
+      visibilityKeyframes: annotation.visibilityKeyframes,
+    }),
+  );
+  await page.getByTestId('clip-inspector-stroke-color').fill('#00ff00');
+  await page.getByTestId('clip-inspector-stroke-width').fill('9');
+  await page.getByTestId('clip-inspector-stroke-pattern').selectOption('dashed');
+  await page.getByTestId('clip-inspector-fill-opacity').fill('60');
+
+  await expect.poll(async () => {
+    const stored = await readClip(page);
+    return stored.annotations.map((annotation: {
+      id: string;
+      type: string;
+      style: Record<string, unknown>;
+    }) => ({
+      id: annotation.id,
+      stroke: annotation.style.stroke,
+      fill: annotation.style.fill,
+      strokeWidth: annotation.style.strokeWidth,
+      strokePattern: annotation.style.strokePattern,
+      fillOpacity: annotation.style.fillOpacity,
+    }));
+  }).toEqual([
+    {
+      id: 'tracked-player',
+      stroke: '#00ff00',
+      fill: '#00ff00',
+      strokeWidth: 9,
+      strokePattern: 'dashed',
+      fillOpacity: 0.6,
+    },
+    {
+      id: 'manual-arrow',
+      stroke: '#00ff00',
+      fill: undefined,
+      strokeWidth: 9,
+      strokePattern: 'dashed',
+      fillOpacity: undefined,
+    },
+  ]);
+  const after = await readClip(page);
+  expect(after.annotations.map(
+    (annotation: { id: string; keyframes: unknown[]; visibilityKeyframes?: unknown[] }) => ({
+      id: annotation.id,
+      keyframes: annotation.keyframes,
+      visibilityKeyframes: annotation.visibilityKeyframes,
+    }),
+  )).toEqual(keyframesBefore);
+
+  await arrowRow.click({ modifiers: ['Meta'] });
+  await expect(highlightRow).toHaveAttribute('aria-pressed', 'true');
+  await expect(arrowRow).toHaveAttribute('aria-pressed', 'false');
+  await arrowRow.click({ modifiers: ['Shift'] });
+  await expect(highlightRow).toHaveAttribute('aria-pressed', 'true');
+  await expect(arrowRow).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('resizes and rotates image and pitch shapes through canvas handles', async ({ page }) => {
+  await installOpfsDirectoryPickerFixture(
+    page,
+    path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project'),
+    { rootName: 'clip-transform-handles-project' },
+  );
+  await installMockSidecar(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open Existing Project' }).click();
+  await page.getByRole('button', { name: 'Open capture player' }).click();
+  await page.getByTestId(`clip-tree-row-${CLIP_ID}`).click();
+  const editorPagePromise = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Open editor' }).click();
+  page = await editorPagePromise;
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(page.getByTestId('clip-editor')).toBeVisible();
+
+  const stage = page.getByTestId('clip-stage');
+  const stageBox = await stage.boundingBox();
+  if (!stageBox) throw new Error('Clip stage did not have a layout box.');
+  const sourcePoint = (x: number, y: number) => ({
+    x: stageBox.x + (x / 640) * stageBox.width,
+    y: stageBox.y + (y / 360) * stageBox.height,
+  });
+
+  await page.getByRole('button', { name: 'Box', exact: true }).click();
+  const boxStart = sourcePoint(100, 100);
+  const boxEnd = sourcePoint(220, 180);
+  await page.mouse.move(boxStart.x, boxStart.y);
+  await page.mouse.down();
+  await page.mouse.move(boxEnd.x, boxEnd.y, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => {
+    const annotation = (await readClip(page)).annotations.at(-1);
+    return { type: annotation.type, coordMode: annotation.coordMode };
+  }).toEqual({ type: 'box', coordMode: 'image' });
+
+  const resizedBoxEnd = sourcePoint(260, 210);
+  await page.mouse.move(boxEnd.x, boxEnd.y);
+  await page.mouse.down();
+  await page.mouse.move(resizedBoxEnd.x, resizedBoxEnd.y, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => {
+    const keyframe = (await readClip(page)).annotations.at(-1).keyframes[0];
+    return {
+      x: Math.round(keyframe.x),
+      y: Math.round(keyframe.y),
+      w: Math.round(keyframe.w),
+      h: Math.round(keyframe.h),
+      rotation: Math.round(keyframe.rotation ?? 0),
+    };
+  }).toEqual({ x: 100, y: 100, w: 160, h: 110, rotation: 0 });
+
+  const resizedBoxCenter = sourcePoint(180, 155);
+  const resizedBoxTop = sourcePoint(180, 100);
+  const boxRotationHandle = {
+    x: resizedBoxTop.x,
+    y: resizedBoxTop.y - 24,
+  };
+  const boxRotationTarget = sourcePoint(280, 155);
+  await page.mouse.move(boxRotationHandle.x, boxRotationHandle.y);
+  await page.mouse.down();
+  await page.mouse.move(boxRotationTarget.x, boxRotationTarget.y, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(async () => {
+    const keyframe = (await readClip(page)).annotations.at(-1).keyframes[0];
+    return Math.round(keyframe.rotation ?? 0);
+  }).toBe(90);
+  expect(resizedBoxCenter.x).toBeLessThan(boxRotationTarget.x);
+
+  await page.getByRole('button', { name: 'Compute H', exact: true }).click();
+  await expect(page.getByText('Loaded 3 homography samples.')).toBeVisible();
+  await page.getByRole('button', { name: 'Circle', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Draw: pitch', exact: true })).toBeVisible();
+  const circleStart = sourcePoint(300, 120);
+  const circleEnd = sourcePoint(380, 200);
+  await page.mouse.move(circleStart.x, circleStart.y);
+  await page.mouse.down();
+  await page.mouse.move(circleEnd.x, circleEnd.y, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => {
+    const annotation = (await readClip(page)).annotations.at(-1);
+    return { type: annotation.type, coordMode: annotation.coordMode };
+  }).toEqual({ type: 'circle', coordMode: 'pitch' });
+
+  const circleEast = sourcePoint(380, 160);
+  const resizedCircleEast = sourcePoint(420, 160);
+  await page.mouse.move(circleEast.x, circleEast.y);
+  await page.mouse.down();
+  await page.mouse.move(resizedCircleEast.x, resizedCircleEast.y, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => {
+    const keyframe = (await readClip(page)).annotations.at(-1).keyframes[0];
+    return {
+      cx: Math.round(keyframe.cx),
+      cy: Math.round(keyframe.cy),
+      rx: Math.round(keyframe.rx),
+      ry: Math.round(keyframe.ry),
+      rotation: Math.round(keyframe.rotation ?? 0),
+    };
+  }).toEqual({ cx: 360, cy: 160, rx: 60, ry: 40, rotation: 0 });
+
+  const circleTop = sourcePoint(360, 120);
+  const circleRotationHandle = {
+    x: circleTop.x,
+    y: circleTop.y - 24,
+  };
+  const circleRotationTarget = sourcePoint(450, 160);
+  await page.mouse.move(circleRotationHandle.x, circleRotationHandle.y);
+  await page.mouse.down();
+  await page.mouse.move(circleRotationTarget.x, circleRotationTarget.y, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(async () => {
+    const keyframe = (await readClip(page)).annotations.at(-1).keyframes[0];
+    return Math.round(keyframe.rotation ?? 0);
+  }).toBe(90);
+});
+
+test('pauses ordinary playback at pins and temporarily swaps in pin annotations', async ({ page }) => {
+  await installOpfsDirectoryPickerFixture(
+    page,
+    path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project'),
+    { rootName: 'clip-pin-playback-project' },
+  );
+  await installMockSidecar(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open Existing Project' }).click();
+  await page.getByRole('button', { name: 'Open capture player' }).click();
+  await page.getByTestId(`clip-tree-row-${CLIP_ID}`).click();
+  const editorPagePromise = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Open editor' }).click();
+  page = await editorPagePromise;
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(page.getByTestId('clip-editor')).toBeVisible();
+
+  for (let index = 0; index < 10; index += 1) await page.keyboard.press('ArrowRight');
+  await expect(page.getByText(/Frame 15 · clip 5–44/)).toBeVisible();
+  await expect(page.getByTestId('clip-editor')).not.toHaveAttribute('data-playback-paused-pin-id');
+  await expect.poll(async () => (await summarizeCanvasColors(page)).green).toBe(0);
+
+  for (let index = 0; index < 10; index += 1) await page.keyboard.press('ArrowLeft');
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute(
+    'data-playback-paused-pin-id',
+    'pin-shape',
+  );
+  await expect(page.getByText(/Frame 15 · clip 5–44/)).toBeVisible();
+  await expect.poll(() => page.getByTestId('clip-source-video').evaluate(
+    (element) => (element as HTMLVideoElement).paused,
+  )).toBe(true);
+  await expect.poll(() => page.getByTestId('clip-source-video').evaluate(
+    (element) => (element as HTMLVideoElement).currentTime,
+  )).toBeCloseTo((15 + 0.5) / 25, 4);
+  await expect.poll(async () => (await summarizeCanvasColors(page)).green).toBeGreaterThan(0);
+  await expect.poll(async () => (await summarizeCanvasColors(page)).yellow).toBe(0);
+
+  await page.keyboard.press('Space');
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute(
+    'data-playback-paused-pin-id',
+    'pin-release',
+  );
+  await expect(page.getByText(/Frame 32 · clip 5–44/)).toBeVisible();
+  await expect.poll(() => page.getByTestId('clip-source-video').evaluate(
+    (element) => (element as HTMLVideoElement).currentTime,
+  )).toBeCloseTo((32 + 0.5) / 25, 4);
+  await expect.poll(async () => (await summarizeCanvasColors(page)).nonTransparent)
+    .toBeGreaterThan(0);
+
+  const stageBox = await page.getByTestId('clip-stage').boundingBox();
+  if (!stageBox) throw new Error('Clip stage did not have a layout box.');
+  await page.mouse.click(stageBox.x + 20, stageBox.y + 20);
+  await expect(page.getByTestId('clip-editor')).not.toHaveAttribute('data-playback-paused-pin-id');
+  await expect(page.getByText(/Frame 44 · clip 5–44/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Skip back', exact: true }).click();
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute(
+    'data-playback-paused-pin-id',
+    'pin-shape',
+  );
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute(
+    'data-playback-paused-pin-id',
+    'pin-release',
+  );
 });

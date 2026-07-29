@@ -354,9 +354,6 @@ export default function PinAnnotator({
         event.preventDefault();
         event.stopImmediatePropagation();
         startPreview(1);
-      } else if (event.key === 'Escape') {
-        event.preventDefault();
-        onClose();
       }
     };
     const onUp = (event: KeyboardEvent) => {
@@ -373,7 +370,7 @@ export default function PinAnnotator({
       window.removeEventListener('keyup', onUp, true);
       stopPreview();
     };
-  }, [onClose, returnToPin, startPreview, stopPreview]);
+  }, [returnToPin, startPreview, stopPreview]);
 
   const autoCalibrate = useCallback(async () => {
     if (!videoRef || video.frameCount < 2) return;

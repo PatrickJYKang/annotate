@@ -46,7 +46,7 @@ describe('projectPitchKeyframeToImageShape', () => {
 
   it('projects pitch-space boxes into image polygons', () => {
     const projected = projectPitchKeyframeToImageShape(
-      { type: 'box', x: 0, y: 0, w: 20, h: 10 },
+      { type: 'box', x: 0, y: 0, w: 20, h: 10, rotation: 0 },
       translate,
     );
 
@@ -55,6 +55,22 @@ describe('projectPitchKeyframeToImageShape', () => {
       points: [10, 20, 30, 20, 30, 30, 10, 30],
     });
     expect(getProjectedPitchShapeBounds(projected!, 16)).toEqual({ x: 10, y: 20, w: 20, h: 10 });
+  });
+
+  it('rotates pitch geometry before applying the image projection', () => {
+    const projected = projectPitchKeyframeToImageShape(
+      { type: 'box', x: 0, y: 0, w: 20, h: 10, rotation: 90 },
+      translate,
+    );
+
+    expect(projected?.kind).toBe('polygon');
+    if (projected?.kind !== 'polygon') throw new Error('Expected a projected polygon.');
+    expect(projected.points.map((value) => Math.round(value))).toEqual([
+      25, 15,
+      25, 35,
+      15, 35,
+      15, 15,
+    ]);
   });
 
   it('projects pitch-space arrows and text at playback time', () => {

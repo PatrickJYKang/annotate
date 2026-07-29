@@ -53,13 +53,14 @@ type DrawableBase = {
 };
 
 export type ClipDrawable =
-  | DrawableBase & { kind: 'box'; x: number; y: number; w: number; h: number }
+  | DrawableBase & { kind: 'box'; x: number; y: number; w: number; h: number; rotation: number }
   | DrawableBase & {
       kind: 'ellipse';
       cx: number;
       cy: number;
       rx: number;
       ry: number;
+      rotation: number;
       label?: string;
       occludesLines?: boolean;
     }
@@ -334,6 +335,7 @@ export function resolveClipDrawables<A extends TemporalClipAnnotation>(
           cy: props.cy,
           rx: props.radius,
           ry: props.radius * 0.35,
+          rotation: 0,
           label: annotation.displayName ? annotation.name?.trim() || undefined : undefined,
           occludesLines: true,
           style,
@@ -396,7 +398,7 @@ function clipLineLayerAroundHighlights(
       highlight.cy,
       Math.max(0.5, highlight.rx),
       Math.max(0.5, highlight.ry),
-      0,
+      highlight.rotation * Math.PI / 180,
       0,
       Math.PI * 2,
     );
@@ -476,12 +478,33 @@ function paintDrawableGeometry(
 ): void {
   switch (drawable.kind) {
     case 'box':
-      if (drawable.style.fill !== 'transparent') context.fillRect(drawable.x, drawable.y, drawable.w, drawable.h);
-      context.strokeRect(drawable.x, drawable.y, drawable.w, drawable.h);
+      if (Math.abs(drawable.rotation) < 1e-8) {
+        if (drawable.style.fill !== 'transparent') {
+          context.fillRect(drawable.x, drawable.y, drawable.w, drawable.h);
+        }
+        context.strokeRect(drawable.x, drawable.y, drawable.w, drawable.h);
+        break;
+      }
+      context.save();
+      context.translate(drawable.x + drawable.w / 2, drawable.y + drawable.h / 2);
+      context.rotate(drawable.rotation * Math.PI / 180);
+      if (drawable.style.fill !== 'transparent') {
+        context.fillRect(-drawable.w / 2, -drawable.h / 2, drawable.w, drawable.h);
+      }
+      context.strokeRect(-drawable.w / 2, -drawable.h / 2, drawable.w, drawable.h);
+      context.restore();
       break;
     case 'ellipse':
       context.beginPath();
-      context.ellipse(drawable.cx, drawable.cy, drawable.rx, drawable.ry, 0, 0, Math.PI * 2);
+      context.ellipse(
+        drawable.cx,
+        drawable.cy,
+        drawable.rx,
+        drawable.ry,
+        drawable.rotation * Math.PI / 180,
+        0,
+        Math.PI * 2,
+      );
       fillAndStroke(context, drawable.style);
       paintHighlightLabel(context, drawable, sourceWidth, sourceHeight);
       break;
@@ -585,7 +608,7 @@ function paintMaskedLineLayer(
         highlight.cy,
         Math.max(0.5, highlight.rx),
         Math.max(0.5, highlight.ry),
-        0,
+        highlight.rotation * Math.PI / 180,
         0,
         Math.PI * 2,
       );

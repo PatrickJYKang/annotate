@@ -1006,6 +1006,7 @@ export default function Editor({
       }
       return;
     }
+    if (typeof evt?.button === 'number' && evt.button !== 0) return;
     const tgt = e?.target;
     const isStage = tgt && tgt.getStage && (tgt === tgt.getStage());
     const isLayer = tgt && (typeof tgt.getClassName === 'function' ? tgt.getClassName() === 'Layer' : tgt?.className === 'Layer');
@@ -1051,7 +1052,7 @@ export default function Editor({
     if (annotationsLocked) return;
     const p = getPointerPos(); if (!p) return;
     const evt = (e && (e.evt || e)) as any;
-    if (evt?.button === 2) return;
+    if (typeof evt?.button === 'number' && evt.button !== 0) return;
     if (suppressNextClickRef.current) { suppressNextClickRef.current = false; return; }
     const tgt = e?.target;
     const isStage = tgt && tgt.getStage && (tgt === tgt.getStage());
@@ -1365,6 +1366,7 @@ export default function Editor({
     if (annotationsLocked) return;
     const p = getPointerPos();
     const evt = (e && (e.evt || e)) as any;
+    if (typeof evt?.button === 'number' && evt.button !== 0) return;
     const shiftKey = !!evt?.shiftKey;
     const constrainKey = !!(evt?.metaKey || evt?.ctrlKey);
     if (tool === 'select' && (selStartRef.current || selCandidateRef.current)) {
@@ -1675,6 +1677,7 @@ export default function Editor({
     if (annotationsLocked) return;
     if (tool === 'calibrate') return;
     const evt = (e && (e.evt || e)) as any;
+    if (typeof evt?.button === 'number' && evt.button !== 0) return;
     const addKey = !!evt?.shiftKey;
     const subKey = !!(evt?.metaKey || evt?.ctrlKey);
 
@@ -2718,7 +2721,7 @@ export default function Editor({
         </div>
       )}
       {isSelecting && selRect && (
-        <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute inset-0 pointer-events-none" data-testid="annotation-marquee">
           <svg width="100%" height="100%" className="absolute inset-0">
             <rect x={selRect.x * stageScale + stageOffset.x} y={selRect.y * stageScale + stageOffset.y} width={selRect.w * stageScale} height={selRect.h * stageScale} fill="rgba(59,130,246,0.15)" stroke="#60a5fa" strokeDasharray="4,4" />
           </svg>

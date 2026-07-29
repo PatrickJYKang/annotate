@@ -1,5 +1,47 @@
-import type { ClipAnnotation, ClipKeyframe } from '../types/clip';
+import type {
+  ClipAnnotation,
+  ClipAnnotationStyle,
+  ClipKeyframe,
+} from '../types/clip';
 import type { FrameBoundary, VideoFrame } from './frameMath';
+
+export type ClipAnnotationSelectionMode = 'replace' | 'add' | 'subtract';
+
+export function updateClipAnnotationSelection(
+  currentIds: readonly string[],
+  candidateIds: readonly string[],
+  mode: ClipAnnotationSelectionMode,
+): string[] {
+  const uniqueCandidates = [...new Set(candidateIds)];
+  if (mode === 'replace') return uniqueCandidates;
+  if (mode === 'subtract') {
+    const removed = new Set(uniqueCandidates);
+    return currentIds.filter((annotationId) => !removed.has(annotationId));
+  }
+
+  const next = [...currentIds];
+  const included = new Set(currentIds);
+  for (const annotationId of uniqueCandidates) {
+    if (included.has(annotationId)) continue;
+    included.add(annotationId);
+    next.push(annotationId);
+  }
+  return next;
+}
+
+export function updateSelectedClipAnnotationStyles(
+  annotations: ClipAnnotation[],
+  selectedAnnotationIds: readonly string[],
+  updateStyle: (annotation: ClipAnnotation) => ClipAnnotationStyle,
+): ClipAnnotation[] {
+  if (selectedAnnotationIds.length === 0) return annotations;
+  const selected = new Set(selectedAnnotationIds);
+  return annotations.map((annotation) => (
+    selected.has(annotation.id)
+      ? { ...annotation, style: updateStyle(annotation) }
+      : annotation
+  ));
+}
 
 export function createDebouncedAsyncScheduler<T>(
   delayMs: number,

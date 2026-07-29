@@ -22,9 +22,9 @@ interface FrameKeyframeBase {
   provenance?: ClipKeyframeProvenance;
 }
 
-export interface BoxKeyframe extends FrameKeyframeBase { x: number; y: number; w: number; h: number }
+export interface BoxKeyframe extends FrameKeyframeBase { x: number; y: number; w: number; h: number; rotation?: number }
 export interface BoxQuadKeyframe extends FrameKeyframeBase { points: [number, number][] }
-export interface CircleKeyframe extends FrameKeyframeBase { cx: number; cy: number; rx: number; ry: number }
+export interface CircleKeyframe extends FrameKeyframeBase { cx: number; cy: number; rx: number; ry: number; rotation?: number }
 export interface ShadowKeyframe extends FrameKeyframeBase { x: number; y: number; r: number; rotation: number; spreadDeg: number }
 export interface ArrowKeyframe extends FrameKeyframeBase { x1: number; y1: number; x2: number; y2: number }
 export interface LobKeyframe extends FrameKeyframeBase { x1: number; y1: number; cx: number; cy: number; x2: number; y2: number }
@@ -429,10 +429,16 @@ function validateAnnotationKeyframe(
       if (validPointList(raw.points, 4, 4)) return;
       requireNumbers(raw, ['x', 'y', 'w', 'h'], path);
       if (Number(raw.w) < 0 || Number(raw.h) < 0) throw new Error(`${path} box dimensions cannot be negative.`);
+      if (raw.rotation !== undefined && !isFiniteNumber(raw.rotation)) {
+        throw new Error(`${path}.rotation must be a finite number.`);
+      }
       return;
     case 'circle':
       requireNumbers(raw, ['cx', 'cy', 'rx', 'ry'], path);
       if (Number(raw.rx) < 0 || Number(raw.ry) < 0) throw new Error(`${path} circle radii cannot be negative.`);
+      if (raw.rotation !== undefined && !isFiniteNumber(raw.rotation)) {
+        throw new Error(`${path}.rotation must be a finite number.`);
+      }
       return;
     case 'shadow':
       requireNumbers(raw, ['x', 'y', 'r', 'rotation', 'spreadDeg'], path);

@@ -35,7 +35,14 @@ describe('frame-native interpolation', () => {
     expect(interpolateKeyframes([], frame(0), 'box')).toBeNull();
     expect(interpolateKeyframes([
       { frame: frame(4), x: 1, y: 2, w: 3, h: 4 },
-    ], frame(0), 'box')).toEqual({ type: 'box', x: 1, y: 2, w: 3, h: 4 });
+    ], frame(0), 'box')).toEqual({
+      type: 'box',
+      x: 1,
+      y: 2,
+      w: 3,
+      h: 4,
+      rotation: 0,
+    });
   });
 
   it('interpolates boxes and pitch box quads', () => {
@@ -43,12 +50,17 @@ describe('frame-native interpolation', () => {
       'box',
       { frame: frame(0), x: 0, y: 10, w: 20, h: 30 },
       { frame: frame(2), x: 10, y: 20, w: 40, h: 50 },
-    )).toEqual({ type: 'box', x: 5, y: 15, w: 30, h: 40 });
+    )).toEqual({ type: 'box', x: 5, y: 15, w: 30, h: 40, rotation: 0 });
     expect(resolve(
       'box',
       { frame: frame(0), points: [[0, 0], [2, 0], [2, 2], [0, 2]] },
       { frame: frame(2), points: [[2, 2], [4, 2], [4, 4], [2, 4]] },
     )).toEqual({ type: 'poly', points: [[1, 1], [3, 1], [3, 3], [1, 3]] });
+    expect(resolve(
+      'box',
+      { frame: frame(0), x: 0, y: 0, w: 10, h: 10, rotation: 350 },
+      { frame: frame(2), x: 0, y: 0, w: 10, h: 10, rotation: 10 },
+    )).toEqual({ type: 'box', x: 0, y: 0, w: 10, h: 10, rotation: 360 });
   });
 
   it('interpolates circles, shadows, and highlights', () => {
@@ -56,7 +68,7 @@ describe('frame-native interpolation', () => {
       'circle',
       { frame: frame(0), cx: 0, cy: 10, rx: 4, ry: 6 },
       { frame: frame(2), cx: 10, cy: 20, rx: 8, ry: 10 },
-    )).toEqual({ type: 'circle', cx: 5, cy: 15, rx: 6, ry: 8 });
+    )).toEqual({ type: 'circle', cx: 5, cy: 15, rx: 6, ry: 8, rotation: 0 });
     expect(resolve(
       'shadow',
       { frame: frame(0), x: 0, y: 10, r: 20, rotation: 10, spreadDeg: 30 },
@@ -119,7 +131,7 @@ describe('frame-native interpolation', () => {
     ], { source: 'auto' });
     expect(interpolateAnnotation(tracked, frame(5), frameBoundary(20))).toBeNull();
     expect(interpolateAnnotation(tracked, frame(10), frameBoundary(20))).toEqual({
-      type: 'box', x: 10, y: 10, w: 10, h: 10,
+      type: 'box', x: 10, y: 10, w: 10, h: 10, rotation: 0,
     });
   });
 
@@ -150,6 +162,7 @@ describe('frame-native interpolation', () => {
       y: 900,
       w: 10,
       h: 10,
+      rotation: 0,
     });
     expect(frameReads).toBeLessThan(40);
   });

@@ -45,7 +45,11 @@ interface TimelineStripProps {
   onNext: () => void;
   onSkipForward: () => void;
   onSeek: (frame: number) => void;
-  onSelectAnnotation: (annotationId: string, additive?: boolean) => void;
+  onSelectAnnotation: (
+    annotationId: string,
+    additive?: boolean,
+    subtractive?: boolean,
+  ) => void;
   onSelectPin?: (pinId: string, frame: number) => void;
   onSelectKeyframe: (keyframe: TimelineKeyframeRef) => void;
   onMoveKeyframe: (keyframe: TimelineKeyframeRef, frame: number) => void;
@@ -87,6 +91,39 @@ interface TimelineAnnotationRowsProps {
   ) => void;
   onKeyframePointerMove: (event: React.PointerEvent<HTMLButtonElement>) => void;
   onKeyframePointerEnd: (event: React.PointerEvent<HTMLButtonElement>) => void;
+}
+
+function sameTimelineAnnotationRows(
+  previous: TimelineAnnotationRowsProps,
+  next: TimelineAnnotationRowsProps,
+): boolean {
+  if (
+    previous.selectedKeyframe?.annotationId !== next.selectedKeyframe?.annotationId
+    || previous.selectedKeyframe?.kind !== next.selectedKeyframe?.kind
+    || previous.selectedKeyframe?.frame !== next.selectedKeyframe?.frame
+    || previous.selectedAnnotationIds.length !== next.selectedAnnotationIds.length
+    || previous.annotations.length !== next.annotations.length
+    || previous.frameToX !== next.frameToX
+    || previous.formatNumber !== next.formatNumber
+    || previous.t !== next.t
+    || previous.onKeyframePointerDown !== next.onKeyframePointerDown
+    || previous.onKeyframePointerMove !== next.onKeyframePointerMove
+    || previous.onKeyframePointerEnd !== next.onKeyframePointerEnd
+  ) {
+    return false;
+  }
+  if (previous.selectedAnnotationIds.some(
+    (annotationId, index) => annotationId !== next.selectedAnnotationIds[index],
+  )) {
+    return false;
+  }
+  return previous.annotations.every((annotation, index) => {
+    const nextAnnotation = next.annotations[index];
+    return annotation.id === nextAnnotation.id
+      && annotation.type === nextAnnotation.type
+      && annotation.keyframes === nextAnnotation.keyframes
+      && annotation.visibilityKeyframes === nextAnnotation.visibilityKeyframes;
+  });
 }
 
 const TimelineAnnotationRows = memo(function TimelineAnnotationRows({
@@ -191,7 +228,7 @@ const TimelineAnnotationRows = memo(function TimelineAnnotationRows({
       })}
     </div>
   ));
-});
+}, sameTimelineAnnotationRows);
 
 export default function TimelineStrip({
   clip,
@@ -224,6 +261,14 @@ export default function TimelineStrip({
   const ignoreScrollRef = useRef(false);
   const handledRevealRequestRef = useRef<number | null>(null);
   const keyframeDragRef = useRef<KeyframeDragState | null>(null);
+  const onSeekRef = useRef(onSeek);
+  const onSelectAnnotationRef = useRef(onSelectAnnotation);
+  const onSelectKeyframeRef = useRef(onSelectKeyframe);
+  const onMoveKeyframeRef = useRef(onMoveKeyframe);
+  onSeekRef.current = onSeek;
+  onSelectAnnotationRef.current = onSelectAnnotation;
+  onSelectKeyframeRef.current = onSelectKeyframe;
+  onMoveKeyframeRef.current = onMoveKeyframe;
   if (!manualOverrideRef.current) manualOverrideRef.current = createTimelineManualOverride();
   const frameCount = clip.endFrame - clip.startFrame;
   const laneWidth = Math.max(640, viewportWidth, frameCount * MIN_FRAME_WIDTH * zoom);
@@ -278,9 +323,9 @@ export default function TimelineStrip({
     draggable: boolean,
   ) => {
     event.stopPropagation();
-    onSelectAnnotation(ref.annotationId);
-    onSelectKeyframe(ref);
-    onSeek(ref.frame);
+    onSelectAnnotationRef.current(ref.annotationId);
+    onSelectKeyframeRef.current(ref);
+    onSeekRef.current(ref.frame);
     if (!draggable || event.button !== 0) return;
     keyframeDragRef.current = {
       pointerId: event.pointerId,
@@ -289,7 +334,7 @@ export default function TimelineStrip({
       dragging: false,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
-  }, [onSeek, onSelectAnnotation, onSelectKeyframe]);
+  }, []);
 
   const handleKeyframePointerMove = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
     const drag = keyframeDragRef.current;
@@ -297,19 +342,19 @@ export default function TimelineStrip({
       || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
     if (!drag.dragging && !isDeliberateKeyframeDrag(drag.startClientX, event.clientX)) return;
     drag.dragging = true;
-    onSeek(pointerToFrame(event.clientX));
-  }, [onSeek, pointerToFrame]);
+    onSeekRef.current(pointerToFrame(event.clientX));
+  }, [pointerToFrame]);
 
   const handleKeyframePointerEnd = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
     const drag = keyframeDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId
       || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
     if (event.type === 'pointerup' && drag.dragging) {
-      onMoveKeyframe(drag.ref, pointerToFrame(event.clientX));
+      onMoveKeyframeRef.current(drag.ref, pointerToFrame(event.clientX));
     }
     keyframeDragRef.current = null;
     event.currentTarget.releasePointerCapture(event.pointerId);
-  }, [onMoveKeyframe, pointerToFrame]);
+  }, [pointerToFrame]);
 
   useEffect(() => {
     if (!isPlaying || manualOverrideRef.current?.isActive()) return;
@@ -370,7 +415,13 @@ export default function TimelineStrip({
     event.preventDefault();
     const annotationRow = target.closest<HTMLElement>('[data-timeline-annotation-id]');
     const annotationId = annotationRow?.dataset.timelineAnnotationId;
-    if (annotationId) onSelectAnnotation(annotationId, event.shiftKey);
+    if (annotationId) {
+      onSelectAnnotation(
+        annotationId,
+        event.shiftKey,
+        event.metaKey || event.ctrlKey,
+      );
+    }
     onSeek(pointerToFrame(event.clientX));
     event.currentTarget.setPointerCapture(event.pointerId);
   }, [onSeek, onSelectAnnotation, pointerToFrame]);
@@ -471,7 +522,11 @@ export default function TimelineStrip({
               }`}
               style={{ height: ROW_HEIGHT }}
               aria-pressed={selectedAnnotationIdSet.has(annotation.id)}
-              onClick={(event) => onSelectAnnotation(annotation.id, event.shiftKey)}
+              onClick={(event) => onSelectAnnotation(
+                annotation.id,
+                event.shiftKey,
+                event.metaKey || event.ctrlKey,
+              )}
               title={annotation.id}
             >
               <span
