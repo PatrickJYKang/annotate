@@ -645,9 +645,10 @@ pause-at-pin crossings, animated overlays, export contents, panel persistence,
 handle restoration, and locale switching across the four aligned catalogs.
 The temporary v1/v2 spec sets were renamed or deleted at the canonical flip.
 
-The latest 2026-08-08 gate passed 259 Vitest tests across 44 files, 41 sidecar
-pytest tests, and 30 Playwright Chromium flows, plus TypeScript, production
-build, `git diff --check`, and local Markdown-link validation. ESLint has no
-errors and one warning in the experimental segmentation page. The remaining
-manual check is native-speaker editorial review of the French, Spanish, and
-Simplified Chinese catalogs.
+The latest 2026-08-09 release-candidate gate passed 263 Vitest tests across 44
+files, 42 sidecar pytest tests, and 30 Playwright Chromium flows against both
+development and production servers, plus TypeScript, strict zero-warning
+ESLint, the production build and launcher, clean JavaScript lockfile
+installation, dependency audits, and real PnLCalib and YOLO provider smoke
+tests. The remaining manual check is native-speaker editorial review of the
+French, Spanish, and Simplified Chinese catalogs.

@@ -2,6 +2,7 @@
 # Trackers
 # Copyright (c) 2026 Roboflow. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 [see LICENSE for details]
+# Modified by Annotate contributors for application integration.
 # ------------------------------------------------------------------------
 # Modified and adapted from OC-SORT https://github.com/noahcao/OC_SORT/
 # Licensed under the MIT License [see LICENSE for details]

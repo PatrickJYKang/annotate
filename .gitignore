@@ -27,6 +27,7 @@ Pods/
 **/exports/*
 !**/exports/.gitkeep
 sidecar/yolov8n.pt
+sidecar/third_party/
 
 # Launcher runtime logs (written by start-annotate.sh)
 .runtime/

@@ -4,26 +4,30 @@ Annotate is a self-hosted football video analysis application for capturing
 passages of play, drawing frame-accurate tactical analysis, tracking players,
 and assembling presentations.
 
-The released stable pre-release is
-[Annotate 0.1](https://github.com/PatrickJYKang/annotate/releases/tag/v0.1.0-pre.3).
-This checkout contains the in-development **0.2 implementation**, which uses a
-new frame-native project format and is not data-compatible with 0.1 projects.
+The current release is
+[Annotate 0.2](https://github.com/PatrickJYKang/annotate/releases/tag/v0.2.0).
+It uses a frame-native project format and is not data-compatible with 0.1
+projects.
 
 Annotate requires a **Chromium-based browser** such as Chrome, Edge, Brave,
 Arc, or Chromium because project folders use the File System Access API.
 
-## Released install (0.1)
+## Install
 
-For a non-technical local install on macOS, download the 0.1 release bundle and
-double-click `Install Annotate.command`. From a terminal, run:
+On macOS, this one-liner downloads the pinned 0.2 installer, installs Annotate,
+creates a Desktop launcher, and starts the app. The same installer supports
+common Linux distributions when their package manager provides Node.js 18.18+
+and Python 3.10-3.12:
 
 ```bash
-bash install.sh
+(curl -fsSL https://raw.githubusercontent.com/PatrickJYKang/annotate/v0.2.0/install.sh -o /tmp/install-annotate.sh || wget -qO /tmp/install-annotate.sh https://raw.githubusercontent.com/PatrickJYKang/annotate/v0.2.0/install.sh) && bash /tmp/install-annotate.sh
 ```
 
-The installer is pinned to `v0.1.0-pre.3`, bootstraps missing prerequisites
-where possible, installs locked dependencies, and creates a Desktop launcher.
-It stops with a link to Chrome if no supported browser is installed.
+The installer is pinned to `v0.2.0`, bootstraps missing prerequisites where
+possible, installs locked dependencies and checksum-verified PnLCalib models,
+builds the production app, and creates a Desktop launcher. It stops with a link
+to Chrome if no supported browser is installed. Set `ANNOTATE_AUTO_START=0` if
+the installer should finish without launching Annotate.
 
 If the installer fails after cloning the repository, run the dependency and
 startup commands directly from the installation folder:
@@ -33,18 +37,20 @@ cd ~/Documents/annotate
 cd webapp && npm ci && cd ..
 python3.12 -m venv sidecar/.venv
 sidecar/.venv/bin/python -m pip install -r sidecar/requirements.lock.txt
-npm run dev
+./scripts/setup-pnlcalib.sh
+npm run build
+npm run start
 ```
 
-If cloning itself failed, first install Git, Node.js 18.17 or newer, Python
+If cloning itself failed, first install Git, Node.js 18.18 or newer, Python
 3.10-3.12, ffmpeg, and a Chromium browser, then clone the release:
 
 ```bash
-git clone --branch v0.1.0-pre.3 --single-branch \
+git clone --branch v0.2.0 --single-branch \
   https://github.com/PatrickJYKang/annotate.git ~/Documents/annotate
 ```
 
-## Development setup (0.2)
+## Development setup
 
 Install the webapp and sidecar dependencies from the checked-in lockfiles:
 
@@ -56,6 +62,7 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.lock.txt
 cd ..
+./scripts/setup-pnlcalib.sh
 ```
 
 Run both services from the repository root:
@@ -131,7 +138,7 @@ requirements.
 
 ## Technology
 
-- Next.js 14 App Router, React 18, and TypeScript
+- Next.js 15 App Router, React 19, and TypeScript
 - Konva and React-Konva for tactical annotation
 - Tailwind CSS 4 and `react-resizable-panels`
 - File System Access API, IndexedDB, and OPFS
@@ -145,6 +152,7 @@ requirements.
 - [Annotate 0.2 implementation ledger](plans/v0.2/implementation-plan.md)
 - [Project v2 schema and migration decisions](plans/v0.2/project-v2-schema-and-migration.md)
 - [Python sidecar setup and API](sidecar/README.md)
+- [Third-party software notices](THIRD_PARTY_NOTICES.md)
 - [Documentation and historical-plan index](plans/README.md)
 - [Historical MVP plan](MVP_Implementation_Plan.md)
 

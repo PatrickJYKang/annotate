@@ -8,7 +8,8 @@ import { frameBoundary } from '../clip/frameMath';
 import type { ProjectManifest, VideoEntry } from '../types/project';
 import { uniqueFileName } from './utils';
 import { getDirectoryPath, removePath } from './fsAccess';
-import { parseProjectManifest, writeProjectManifest } from './projectFolder';
+import { parseProjectManifest } from './projectFolder';
+import { mutateProjectManifestExclusive } from './projectManifestRepository';
 
 export type PrepareVideoFor = (
   file: File,
@@ -39,7 +40,7 @@ export async function importVideoIntoProject(
   source: File,
   options: ImportVideoOptions = {},
 ): Promise<{ manifest: ProjectManifest; video: VideoEntry }> {
-  const manifest = parseProjectManifest(manifestInput);
+  parseProjectManifest(manifestInput);
   const prepare = options.prepare ?? prepareVideoImportWithMetadata;
 
   // Authoritative metadata must exist before any project file is created.
@@ -62,35 +63,41 @@ export async function importVideoIntoProject(
     throw new Error('Prepared video metadata does not define a valid per-video frame contract.');
   }
 
-  const mediaDirectory = await getDirectoryPath(projectDir, ['media'], false);
-  const fileName = await uniqueFileName(mediaDirectory, normalizedFileName(source.name));
   const videoId = options.videoId ?? generatedVideoId();
-  const video: VideoEntry = {
-    id: videoId,
-    label: source.name || fileName,
-    file: `media/${fileName}`,
-    fps: metadata.fps,
-    frameCount: frameBoundary(metadata.frameCount),
-    frameCountSource: metadata.frameCountSource,
-    width: metadata.width,
-    height: metadata.height,
-  };
-  const next = parseProjectManifest({
-    ...manifest,
-    videos: [...manifest.videos, video],
-  });
-
+  let video: VideoEntry | null = null;
+  let fileName: string | null = null;
   let mediaCreated = false;
   try {
-    const destination = await mediaDirectory.getFileHandle(fileName, { create: true });
-    mediaCreated = true;
-    const writable = await destination.createWritable();
-    await writable.write(prepared.blob);
-    await writable.close();
-    await writeProjectManifest(projectDir, next);
+    const next = await mutateProjectManifestExclusive(projectDir, async (latest) => {
+      if (latest.videos.some((entry) => entry.id === videoId)) {
+        throw new Error(`A video with id "${videoId}" already exists.`);
+      }
+      const mediaDirectory = await getDirectoryPath(projectDir, ['media'], false);
+      fileName = await uniqueFileName(mediaDirectory, normalizedFileName(source.name));
+      video = {
+        id: videoId,
+        label: source.name || fileName,
+        file: `media/${fileName}`,
+        fps: metadata.fps,
+        frameCount: frameBoundary(metadata.frameCount),
+        frameCountSource: metadata.frameCountSource,
+        width: metadata.width,
+        height: metadata.height,
+      };
+      const destination = await mediaDirectory.getFileHandle(fileName, { create: true });
+      mediaCreated = true;
+      const writable = await destination.createWritable();
+      await writable.write(prepared.blob);
+      await writable.close();
+      return {
+        ...latest,
+        videos: [...latest.videos, video],
+      };
+    });
+    if (!video) throw new Error('Video import completed without creating a manifest entry.');
     return { manifest: next, video };
   } catch (error) {
-    if (mediaCreated) {
+    if (mediaCreated && fileName) {
       await removePath(projectDir, ['media', fileName]).catch(() => undefined);
     }
     throw error;

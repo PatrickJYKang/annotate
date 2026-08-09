@@ -42,11 +42,14 @@ export interface CreateProjectOptions {
   defaultBoardSource?: string;
 }
 
-const REQUIRED_DIRECTORIES = [
+const AUTHORITATIVE_DIRECTORIES = [
   ['media'],
   ['analysis'],
   ['analysis', 'clips'],
   ['presentations'],
+] as const;
+
+const RECREATABLE_DIRECTORIES = [
   ['homography-cache'],
   ['derived-media'],
   ['exports'],
@@ -56,6 +59,11 @@ const REQUIRED_DIRECTORIES = [
   ['.trash', 'pins'],
   ['.trash', 'annotations'],
   ['.trash', 'tombstones'],
+] as const;
+
+const PROJECT_DIRECTORIES = [
+  ...AUTHORITATIVE_DIRECTORIES,
+  ...RECREATABLE_DIRECTORIES,
 ] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -178,7 +186,7 @@ export async function createProject(
   };
   parseProjectManifest(manifest);
 
-  for (const path of REQUIRED_DIRECTORIES) {
+  for (const path of PROJECT_DIRECTORIES) {
     await getDirectoryPath(projectDir, path, true);
   }
   await writeTextFile(projectDir, [TAGGING_BOARD_FILENAME], boardSource);
@@ -204,13 +212,20 @@ export async function validateProjectFolder(
 ): Promise<ProjectOpenResult> {
   const manifestResult = await readProjectManifest(projectDir);
   if (!manifestResult.ok) return manifestResult;
-  for (const path of REQUIRED_DIRECTORIES) {
+  for (const path of AUTHORITATIVE_DIRECTORIES) {
     try {
       await getDirectoryPath(projectDir, path, false);
     } catch (error) {
       if (isNotFoundError(error)) {
         return { ok: false, code: 'missing-folder', reason: `Missing required folder: ${path.join('/')}/` };
       }
+      return { ok: false, code: 'io-error', reason: error instanceof Error ? error.message : String(error) };
+    }
+  }
+  for (const path of RECREATABLE_DIRECTORIES) {
+    try {
+      await getDirectoryPath(projectDir, path, true);
+    } catch (error) {
       return { ok: false, code: 'io-error', reason: error instanceof Error ? error.message : String(error) };
     }
   }

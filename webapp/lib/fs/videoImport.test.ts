@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import defaultBoardDocument from '../../public/tagging/board.json';
 import { createProject, readProjectManifest } from './projectFolder';
-import { MockFileSystem } from './test/mockFileSystem';
+import { createSerialLockManager, MockFileSystem } from './test/mockFileSystem';
 import { importVideoIntoProject } from './videoImport';
 
 async function project(fileSystem: MockFileSystem) {
@@ -21,6 +21,14 @@ const normalized = async () => ({
     durationMs: 30100 / 3,
     frameCountSource: 'normalize' as const,
   },
+});
+
+beforeEach(() => {
+  vi.stubGlobal('navigator', { locks: createSerialLockManager() });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('importVideoIntoProject', () => {
@@ -125,5 +133,33 @@ describe('importVideoIntoProject', () => {
     )).rejects.toThrow('manifest commit failed');
     expect(fileSystem.list('media')).toEqual([]);
     expect(await readProjectManifest(fileSystem.root)).toMatchObject({ ok: true, manifest: { videos: [] } });
+  });
+
+  it('serializes concurrent imports against the latest manifest and media names', async () => {
+    const fileSystem = new MockFileSystem();
+    const { manifest } = await project(fileSystem);
+    const source = new File(['source'], 'match.mov');
+
+    await Promise.all([
+      importVideoIntoProject(fileSystem.root, manifest, source, {
+        prepare: normalized,
+        videoId: 'video_one',
+      }),
+      importVideoIntoProject(fileSystem.root, manifest, source, {
+        prepare: normalized,
+        videoId: 'video_two',
+      }),
+    ]);
+
+    expect(fileSystem.list('media')).toEqual(['match (2).mp4', 'match.mp4']);
+    expect(await readProjectManifest(fileSystem.root)).toMatchObject({
+      ok: true,
+      manifest: {
+        videos: [
+          { id: 'video_one', file: 'media/match.mp4' },
+          { id: 'video_two', file: 'media/match (2).mp4' },
+        ],
+      },
+    });
   });
 });

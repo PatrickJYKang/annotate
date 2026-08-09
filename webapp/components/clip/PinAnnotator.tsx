@@ -38,7 +38,7 @@ interface PinAnnotatorProps {
   clip: Clip;
   pin: ClipPin;
   video: VideoEntry;
-  sourceVideoRef: RefObject<HTMLVideoElement>;
+  sourceVideoRef: RefObject<HTMLVideoElement | null>;
   videoRef?: string;
   onClipUpdate: (clip: Clip) => void;
   onImportDocument: (annotationId: string) => Promise<void>;

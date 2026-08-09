@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from 'next/dynamic';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ClipEditorSaveStatus } from '../../../components/clip/ClipEditor';
@@ -16,16 +16,12 @@ import { useLocale } from '../../../lib/i18n';
 
 const ClipEditor = dynamic(() => import('../../../components/clip/ClipEditor'), { ssr: false });
 
-export default function ClipPage({
-  params,
-  searchParams,
-}: {
-  params: { clipId: string };
-  searchParams?: { pinId?: string };
-}) {
+export default function ClipPage() {
   const router = useRouter();
+  const params = useParams<{ clipId: string }>();
+  const searchParams = useSearchParams();
   const { t, formatNumber } = useLocale();
-  const { clipId } = params;
+  const clipId = params?.clipId ?? '';
   const {
     projectDir,
     manifest,
@@ -190,7 +186,7 @@ export default function ClipPage({
           projectDir={projectDir}
           persistAnnotations={persistAnnotations}
           onClipUpdate={setClip}
-          initialPinId={searchParams?.pinId ?? null}
+          initialPinId={searchParams?.get('pinId') ?? null}
         />
       </div>
     </SidecarProvider>

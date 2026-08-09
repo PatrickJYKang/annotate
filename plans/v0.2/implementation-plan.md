@@ -240,6 +240,17 @@ playback with no exact-motion requests, pins-only authoring transport,
 slide-switch timeline and animation reset, cross-tab clip editing entry, dense
 tracked-timeline performance, and four-catalog locale switching coverage.
 
+Release-hardening amendment gate on 2026-08-09: production startup now
+supervises the built webapp and sidecar, PnLCalib source and weights are pinned
+and mandatory, large video uploads stream to disk, project-manifest writes are
+serialized, disposable project folders self-heal, and third-party notices are
+included. Exact JavaScript and Python environments were refreshed and locked.
+The clean-install gate passes 263 Vitest tests across 44 files, 42 sidecar
+pytest tests, all 30 Playwright Chromium flows against both development and
+production servers, TypeScript, strict zero-warning ESLint, the production
+build and launcher smoke, npm and Python dependency audits, and real
+PnLCalib/YOLO provider smoke tests.
+
 The browser pixel assertion from 0.7 and route-level atomic-import assertion
 from 0.9 attach to the first runnable v2 routes in 1.1–1.3; their unit and
 service boundaries are already covered.

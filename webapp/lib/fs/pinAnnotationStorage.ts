@@ -59,6 +59,16 @@ async function withDocumentExclusive<T>(
   return locks.request(documentLockName(clipId, annotationId), { mode: 'exclusive' }, operation);
 }
 
+async function withDocumentShared<T>(
+  clipId: string,
+  annotationId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const locks = globalThis.navigator?.locks;
+  if (!locks) throw new Error('Web Locks are required to read pin annotations safely.');
+  return locks.request(documentLockName(clipId, annotationId), { mode: 'shared' }, operation);
+}
+
 async function requireClip(projectDir: FileSystemDirectoryHandle, clipId: string): Promise<Clip> {
   const result = await readClip(projectDir, clipId);
   if (!result.ok) throw new Error(result.error.message);
@@ -101,8 +111,10 @@ export async function readPinAnnotationDocument(
   annotationId: string,
 ): Promise<PinAnnotationReadResult> {
   try {
-    const raw = JSON.parse(await readTextFile(projectDir, pinAnnotationPath(clipId, annotationId)));
-    return { document: parseAnnotations(raw) };
+    return await withDocumentShared(clipId, annotationId, async () => {
+      const raw = JSON.parse(await readTextFile(projectDir, pinAnnotationPath(clipId, annotationId)));
+      return { document: parseAnnotations(raw) };
+    });
   } catch (error) {
     if (isNotFoundError(error)) return { document: null };
     return { document: null, error: error instanceof Error ? error.message : String(error) };

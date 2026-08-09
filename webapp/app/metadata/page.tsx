@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useProject } from "../../lib/state/ProjectContext";
 import type { MatchInfo } from "../../lib/types/metadata";
 import { defaultMatchInfo } from "../../lib/types/metadata";
-import { writeProjectManifest } from "../../lib/fs/projectFolder";
+import { mutateProjectManifestExclusive } from "../../lib/fs/projectManifestRepository";
 import MatchDetailsForm from "../../components/metadata/MatchDetailsForm";
 import TeamPanel from "../../components/metadata/TeamPanel";
 import FootballDataImporter from "../../components/metadata/FootballDataImporter";
@@ -20,6 +20,15 @@ export default function MetadataPage() {
   const [apiImporterOpen, setApiImporterOpen] = useState(false);
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const infoRef = useRef(info);
+
+  const saveMatchInfo = useCallback(async (next: MatchInfo) => {
+    if (!projectDir) return;
+    const updated = await mutateProjectManifestExclusive(projectDir, (latest) => ({
+      ...latest,
+      matchInfo: next,
+    }));
+    setManifest(updated);
+  }, [projectDir, setManifest]);
 
   // Sync local state from manifest on mount / manifest change
   useEffect(() => {
@@ -37,12 +46,10 @@ export default function MetadataPage() {
       if (!projectDir || !manifest) return;
       if (flushTimer.current) clearTimeout(flushTimer.current);
       flushTimer.current = setTimeout(async () => {
-        const updated = { ...manifest, matchInfo: infoRef.current };
-        setManifest(updated);
-        await writeProjectManifest(projectDir, updated);
+        await saveMatchInfo(infoRef.current);
       }, DEBOUNCE_MS);
     },
-    [projectDir, manifest, setManifest],
+    [projectDir, manifest, saveMatchInfo],
   );
 
   // Flush on unmount
@@ -52,12 +59,11 @@ export default function MetadataPage() {
         clearTimeout(flushTimer.current);
         // Synchronous best-effort flush — writeManifest is async but we fire-and-forget
         if (projectDir && manifest) {
-          const updated = { ...manifest, matchInfo: infoRef.current };
-          writeProjectManifest(projectDir, updated).catch(() => {});
+          saveMatchInfo(infoRef.current).catch(() => {});
         }
       }
     };
-  }, [projectDir, manifest]);
+  }, [projectDir, manifest, saveMatchInfo]);
 
   if (!projectDir || !manifest) {
     return (
@@ -92,9 +98,7 @@ export default function MetadataPage() {
         <button
           onClick={async () => {
             if (flushTimer.current) clearTimeout(flushTimer.current);
-            const updated = { ...manifest, matchInfo: infoRef.current };
-            setManifest(updated);
-            await writeProjectManifest(projectDir, updated);
+            await saveMatchInfo(infoRef.current);
           }}
           className="button-primary border-y-0 border-r-0 px-5"
         >

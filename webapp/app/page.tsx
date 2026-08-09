@@ -11,7 +11,8 @@ import PresentationLibrary from '../components/presentation/PresentationLibrary'
 import ProjectSetupScreen, {
   type ProjectSetupValues,
 } from '../components/project/ProjectSetupScreen';
-import { createProject, writeProjectManifest } from '../lib/fs/projectFolder';
+import { createProject } from '../lib/fs/projectFolder';
+import { mutateProjectManifestExclusive } from '../lib/fs/projectManifestRepository';
 import { emptyTrash } from '../lib/fs/trash';
 import { importVideoIntoProject } from '../lib/fs/videoImport';
 import {
@@ -195,11 +196,11 @@ export default function HomePage() {
   const saveNow = useCallback(async () => {
     await run(async () => {
       if (!projectDir || !manifest) return;
-      await writeProjectManifest(projectDir, manifest);
-      await refreshIntegrity();
+      await mutateProjectManifestExclusive(projectDir, (latest) => latest);
+      await openProject(projectDir, false);
       setMessage(t('project.saved'));
     });
-  }, [manifest, projectDir, refreshIntegrity, run, t]);
+  }, [manifest, openProject, projectDir, run, t]);
 
   const clearTrash = useCallback(async () => {
     await run(async () => {

@@ -2,8 +2,8 @@
 
 set -euo pipefail
 
-ANNOTATE_VERSION="0.1 pre-release"
-DEFAULT_REF="v0.1.0-pre.3"
+ANNOTATE_VERSION="0.2"
+DEFAULT_REF="v0.2.0"
 REPO_URL="${ANNOTATE_REPO_URL:-https://github.com/PatrickJYKang/annotate.git}"
 REF="${ANNOTATE_REF:-$DEFAULT_REF}"
 DEFAULT_INSTALL_DIR="${HOME}/Documents/annotate"
@@ -13,6 +13,7 @@ LOG_FILE="${ANNOTATE_INSTALL_LOG:-${TMPDIR:-/tmp}/annotate-install-$(date +%Y%m%
 VERBOSE_INSTALL="${ANNOTATE_VERBOSE_INSTALL:-0}"
 RUN_TESTS="${ANNOTATE_RUN_TESTS:-0}"
 BREW_UPDATE="${ANNOTATE_BREW_UPDATE:-0}"
+AUTO_START="${ANNOTATE_AUTO_START:-1}"
 
 # Overall progress. Percentages are weighted by how long each phase actually
 # takes (dependency installs dominate wall-clock time), not by step count.
@@ -407,9 +408,9 @@ EOF
 
 verify_node_version() {
   command_exists node || die "node was not found after dependency installation."
-  node - <<'NODE' || die "Node.js 18.17 or newer is required."
+  node - <<'NODE' || die "Node.js 18.18 or newer is required."
 const [major, minor] = process.versions.node.split(".").map(Number);
-process.exit(major > 18 || (major === 18 && minor >= 17) ? 0 : 1);
+process.exit(major > 18 || (major === 18 && minor >= 18) ? 0 : 1);
 NODE
 }
 
@@ -417,9 +418,9 @@ verify_python_version() {
   local python_bin
   python_bin="$(find_python_bin)"
   [[ -n "$python_bin" ]] || die "Python 3 was not found after dependency installation."
-  "$python_bin" - <<'PY' || die "Python 3.10 or newer is required for the sidecar."
+  "$python_bin" - <<'PY' || die "Python 3.10-3.12 is required for the sidecar."
 import sys
-raise SystemExit(0 if sys.version_info >= (3, 10) else 1)
+raise SystemExit(0 if (3, 10) <= sys.version_info < (3, 13) else 1)
 PY
 }
 
@@ -441,6 +442,8 @@ ensure_prerequisites() {
   local os_name
   os_name="$(uname -s)"
 
+  ensure_chromium_browser
+
   case "$os_name" in
     Darwin)
       install_macos_prerequisites
@@ -459,7 +462,6 @@ ensure_prerequisites() {
   command_exists ffmpeg || warn "ffmpeg was not found. Clip export and derived media will not work until ffmpeg is installed."
   verify_node_version
   verify_python_version
-  ensure_chromium_browser
 }
 
 prompt_install_dir() {
@@ -530,9 +532,31 @@ install_sidecar_dependencies() {
   printf "This is the slowest step: it downloads PyTorch, TensorFlow, and OpenCV wheels (2+ GB on first install).\n"
 
   run_logged "Creating Python sidecar environment" "$python_bin" -m venv "$INSTALL_DIR/sidecar/.venv"
-  run_logged "Installing locked Python packaging tools" "$INSTALL_DIR/sidecar/.venv/bin/python" -m pip install --disable-pip-version-check --progress-bar off --upgrade pip==26.0.1 setuptools==82.0.0 wheel==0.46.3
+  run_logged "Installing locked Python packaging tools" "$INSTALL_DIR/sidecar/.venv/bin/python" -m pip install --disable-pip-version-check --progress-bar off --upgrade pip==26.2.1 setuptools==83.0.0 wheel==0.46.3
   run_pip_logged "Installing locked Python sidecar dependencies" "$total_packages" "$INSTALL_DIR/sidecar/.venv/bin/python" -m pip install --disable-pip-version-check --progress-bar off -r "$requirements_file"
   printf "%s" "$requirements_hash" > "$stamp_file"
+}
+
+install_pnlcalib() {
+  [[ -x "$INSTALL_DIR/scripts/setup-pnlcalib.sh" ]] || die "Missing PnLCalib setup script."
+  run_logged "Installing PnLCalib source and model weights" "$INSTALL_DIR/scripts/setup-pnlcalib.sh"
+}
+
+build_webapp() {
+  local revision
+  local stamp_file="$INSTALL_DIR/webapp/.next/.annotate-build-revision"
+  revision="$(git -C "$INSTALL_DIR" rev-parse HEAD)"
+
+  if [[ -f "$INSTALL_DIR/webapp/.next/BUILD_ID" ]] \
+    && [[ -f "$stamp_file" ]] \
+    && [[ "$(cat "$stamp_file")" == "$revision" ]]; then
+    printf "Production web build already matches %s; skipping rebuild.\n" "$revision"
+    return
+  fi
+
+  run_logged "Building the production web application" bash -lc 'cd "$1" && npm run build' _ "$INSTALL_DIR"
+  mkdir -p "$(dirname "$stamp_file")"
+  printf "%s" "$revision" > "$stamp_file"
 }
 
 run_tests() {
@@ -572,8 +596,8 @@ write_linux_desktop_launcher() {
   cat > "$output_path" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Annotate 0.1
-Comment=Launch Football Analysis Annotator 0.1 pre-release
+Name=Annotate 0.2
+Comment=Launch Football Analysis Annotator 0.2
 Terminal=true
 Exec=bash -lc 'export ANNOTATE_APP_DIR="$INSTALL_DIR"; export ANNOTATE_VERSION="$ANNOTATE_VERSION"; exec "$INSTALL_DIR/start-annotate.sh"'
 EOF
@@ -623,7 +647,7 @@ maybe_remove_standalone_installer() {
 }
 
 main() {
-  printf "Annotate stable pre-release installer\n"
+  printf "Annotate 0.2 installer\n"
   printf "Version: %s\n" "$ANNOTATE_VERSION"
   printf "Repository: %s\n" "$REPO_URL"
   printf "Git ref: %s\n" "$REF"
@@ -631,6 +655,7 @@ main() {
   printf "Verbose install output: %s\n" "$VERBOSE_INSTALL"
   printf "Run install-time tests: %s\n" "$RUN_TESTS"
   printf "Run Homebrew update: %s\n" "$BREW_UPDATE"
+  printf "Launch after install: %s\n" "$AUTO_START"
 
   progress 2 "Installing prerequisites"
   ensure_prerequisites
@@ -647,10 +672,16 @@ main() {
   progress 42 "Creating Python sidecar environment"
   install_sidecar_dependencies
 
-  progress 92 "Running tests"
+  progress 80 "Installing homography models"
+  install_pnlcalib
+
+  progress 88 "Building production application"
+  build_webapp
+
+  progress 94 "Running tests"
   run_tests
 
-  progress 95 "Creating desktop launchers"
+  progress 96 "Creating desktop launchers"
   create_desktop_launchers
 
   progress 97 "Checking launcher script"
@@ -663,6 +694,12 @@ main() {
   printf "\nInstall complete.\n"
   printf "Double-click Annotate.command on your Desktop, or run:\n"
   printf "  %s/start-annotate.sh\n" "$INSTALL_DIR"
+  if [[ "$AUTO_START" == "1" ]]; then
+    printf "\nStarting Annotate now...\n"
+    export ANNOTATE_APP_DIR="$INSTALL_DIR"
+    export ANNOTATE_VERSION
+    exec "$INSTALL_DIR/start-annotate.sh"
+  fi
 }
 
 # Test hook: set ANNOTATE_INSTALL_NO_MAIN=1 to source this file without

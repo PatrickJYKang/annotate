@@ -38,6 +38,17 @@ def register_video_file(filename: Optional[str], data: bytes) -> str:
     return video_ref
 
 
+def register_video_path(path: str | Path) -> str:
+    """Register an existing temp file and transfer cleanup ownership to the registry."""
+    source = Path(path).resolve()
+    if not source.is_file():
+        raise FileNotFoundError(f"Video file does not exist: {source}")
+    video_ref = uuid.uuid4().hex[:16]
+    _registry[video_ref] = str(source)
+    logger.info("Registered videoRef %s -> %s", video_ref, source)
+    return video_ref
+
+
 def resolve_video_ref(video_ref: Optional[str]) -> Optional[str]:
     """Return the absolute temp file path for a registered videoRef, if present."""
     if not video_ref:

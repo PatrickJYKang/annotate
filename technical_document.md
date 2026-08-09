@@ -1,9 +1,9 @@
 # Annotate 0.2 As-Built Technical Reference
 
-Date: 2026-08-08
+Date: 2026-08-09
 
-Status: current implementation on the Annotate 0.2 development branch. The
-code is authoritative if this document drifts.
+Status: Annotate 0.2 release candidate. The code is authoritative if this
+document drifts.
 
 ## 1. Product model
 
@@ -42,8 +42,8 @@ project.
 
 ### Web application
 
-- Next.js 14.2.5 App Router
-- React 18.2 and TypeScript
+- Next.js 15.5.21 App Router
+- React 19.2 and TypeScript
 - Konva / React-Konva for drawing
 - Tailwind CSS 4 for styling
 - `react-resizable-panels` for persisted editor layouts
@@ -80,9 +80,10 @@ The local FastAPI service runs on `http://127.0.0.1:8321` by default. It owns:
 - ffmpeg export-session encoding APIs; and
 - an available exact-motion segment primitive retained for future exports.
 
-`npm run dev` starts the webapp and sidecar together. The client base URL can
-be changed with `NEXT_PUBLIC_SIDECAR_URL`. See `sidecar/README.md` for the full
-HTTP contract and model requirements.
+`npm run dev` starts both development services. `npm run build` followed by
+`npm run start` runs the production web build with the sidecar. The client base
+URL can be changed with `NEXT_PUBLIC_SIDECAR_URL`. See `sidecar/README.md` for
+the full HTTP contract and model requirements.
 
 ## 4. Frame contract
 
@@ -148,6 +149,11 @@ MyMatch/
 non-empty destination, creates the directory structure and default board, then
 writes the manifest last. A partial tree without a valid manifest is not an
 openable project.
+
+`media/`, `analysis/`, `analysis/clips/`, and `presentations/` are authoritative
+and must exist when a project opens. Generated stores (`homography-cache/`,
+`derived-media/`, `exports/`, `cache/`, and the `.trash/` subtree) are recreated
+if missing. A missing tagging board is restored from the release default.
 
 Clips and presentations are discovered by directory scan rather than indexed
 in `project.json`. Homography files are regenerable caches. The legacy
@@ -324,6 +330,16 @@ clean up their temporary directory, and successful jobs clean up after preserve
 acknowledgement or file delivery.
 
 There is no browser-duration multiplication fallback in v2.
+
+### Project manifest mutation boundary
+
+Every post-creation `project.json` write uses the exclusive
+`annotate:project-manifest` Web Lock through
+`webapp/lib/fs/projectManifestRepository.ts`. Mutators read the latest manifest
+inside the lock and replace only their owned field. Video preparation remains
+outside the lock; filename allocation, media commit, and the video-entry append
+are serialized together so concurrent imports cannot collide or discard match
+metadata.
 
 ### Clip mutation boundary
 
@@ -601,9 +617,10 @@ There is no period-boundary feature or period-aware timestamp model.
 ## 16. Sidecar boundary details
 
 The browser normally uploads a `File` to `POST /video/register`, receives a
-temporary opaque `videoRef`, and unregisters it when no longer needed. Absolute
-`videoPath` is retained only as a legacy/manual sidecar option; relative paths
-are rejected.
+temporary opaque `videoRef`, and unregisters it when no longer needed. Uploads
+are streamed to a temporary file in 1 MiB chunks rather than copied into one
+sidecar memory buffer. Absolute `videoPath` is retained only as a legacy/manual
+sidecar option; relative paths are rejected.
 
 Important live endpoints:
 
@@ -632,16 +649,18 @@ to invent a frame count.
 
 ## 17. Verification
 
-The 2026-08-08 implementation/documentation gate completed with:
+The 2026-08-09 release-candidate gate completed with:
 
-- 259 Vitest tests across 44 files;
-- 41 sidecar pytest tests;
-- 30 Playwright Chromium flows;
+- 263 Vitest tests across 44 files;
+- 42 sidecar pytest tests;
+- 30 Playwright Chromium flows against both development and production
+  servers;
 - clean TypeScript checking;
 - clean production build;
-- clean `git diff --check` and local Markdown-link audit; and
-- ESLint with no errors and one raw-`<img>` warning in the experimental
-  segmentation page.
+- a clean install from both JavaScript lockfiles;
+- zero known npm or Python dependency vulnerabilities;
+- successful real PnLCalib and YOLO provider smoke tests; and
+- strict ESLint with no errors or warnings.
 
 Commands:
 
@@ -666,7 +685,9 @@ and locale switching across the four aligned catalogs.
   authoring can continue without CV once imported media exists. Exact-motion
   encoding is dormant and matters only to direct API consumers or future
   export work.
-- PnLCalib needs its upstream assets/weights at a configured discovery path.
+- PnLCalib is mandatory. The installer provisions its source and
+  checksum-verified weights; the release launcher refuses to start if the
+  provider is unavailable.
 - The tagging board is file-configurable but has no in-app board designer.
 - Tracking is single-highlight per interactive session; linked followers move
   with that highlight, but multi-object batch tracking is not exposed.

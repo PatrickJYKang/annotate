@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from 'next/dynamic';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { readPresentation } from '../../../lib/fs/presentationStorage';
 import { useProject } from '../../../lib/state/ProjectContext';
@@ -13,8 +13,10 @@ const PresentationAuthoringEditor = dynamic(
   { ssr: false },
 );
 
-export default function PresentationPage({ params }: { params: { presentationId: string } }) {
+export default function PresentationPage() {
   const router = useRouter();
+  const params = useParams<{ presentationId: string }>();
+  const presentationId = params?.presentationId ?? '';
   const t = useT();
   const { projectDir, manifest, board, isRestoring } = useProject();
   const [presentation, setPresentation] = useState<Presentation | null>(null);
@@ -23,7 +25,8 @@ export default function PresentationPage({ params }: { params: { presentationId:
   useEffect(() => {
     if (!projectDir) return;
     let active = true;
-    void readPresentation(projectDir, params.presentationId).then((result) => {
+    if (!presentationId) return;
+    void readPresentation(projectDir, presentationId).then((result) => {
       if (!active) return;
       if (result.ok) {
         setPresentation(result.presentation);
@@ -34,7 +37,7 @@ export default function PresentationPage({ params }: { params: { presentationId:
       }
     });
     return () => { active = false; };
-  }, [params.presentationId, projectDir]);
+  }, [presentationId, projectDir]);
 
   if (isRestoring) return <div className="flex flex-1 items-center justify-center text-sm text-muted">{t('project.restore')}</div>;
   if (!projectDir || !manifest || !board) return <div className="panel"><p>{t('project.noOpen')}</p><button onClick={() => router.push('/')}>{t('player.backProject')}</button></div>;

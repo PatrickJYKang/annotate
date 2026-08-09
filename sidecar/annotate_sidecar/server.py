@@ -54,7 +54,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="annotate-sidecar",
         description="ML sidecar for the annotate tool",
-        version="0.2.0-pre.0",
+        version="0.2.0",
         lifespan=lifespan,
     )
 

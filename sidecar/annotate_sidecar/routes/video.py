@@ -20,23 +20,45 @@ from ..services.normalization_jobs import (
     start_normalization_job,
 )
 from ..services.video_probe import probe_video_metadata
-from ..video_registry import register_video_file, unregister_video_ref
+from ..video_registry import register_video_path, unregister_video_ref
 
 router = APIRouter()
 
 
+async def _write_upload_to_path(file: UploadFile, destination: Path) -> int:
+    size_bytes = 0
+    try:
+        with destination.open("wb") as output:
+            while chunk := await file.read(1024 * 1024):
+                output.write(chunk)
+                size_bytes += len(chunk)
+    finally:
+        await file.close()
+    return size_bytes
+
+
 @router.post("/register")
 async def register_video(file: UploadFile = File(...)):
-    data = await file.read()
-    if not data:
-        raise HTTPException(status_code=400, detail="Uploaded video file is empty")
-
-    video_ref = register_video_file(file.filename, data)
-    return {
-        "videoRef": video_ref,
-        "filename": file.filename,
-        "sizeBytes": len(data),
-    }
+    suffix = Path(file.filename or "video").suffix or ".mp4"
+    with tempfile.NamedTemporaryFile(prefix="annotate_video_", suffix=suffix, delete=False) as temp_file:
+        temp_path = Path(temp_file.name)
+    video_ref: str | None = None
+    try:
+        size_bytes = await _write_upload_to_path(file, temp_path)
+        if size_bytes <= 0:
+            raise HTTPException(status_code=400, detail="Uploaded video file is empty")
+        video_ref = register_video_path(temp_path)
+        return {
+            "videoRef": video_ref,
+            "filename": file.filename,
+            "sizeBytes": size_bytes,
+        }
+    except Exception:
+        if video_ref is not None:
+            unregister_video_ref(video_ref)
+        else:
+            temp_path.unlink(missing_ok=True)
+        raise
 
 
 @router.post("/normalize")
@@ -56,8 +78,7 @@ async def normalize_video(
         suffix = Path(file.filename or "video").suffix or ".mp4"
         input_path = Path(tmp_dir) / f"source{suffix}"
         output_path = Path(tmp_dir) / "normalized.mp4"
-        input_path.write_bytes(await file.read())
-        if input_path.stat().st_size <= 0:
+        if await _write_upload_to_path(file, input_path) <= 0:
             raise HTTPException(status_code=400, detail="Uploaded video file is empty")
 
         result_path = normalize_video_fps(str(input_path), str(output_path), fps=fps, width=width, height=height)
@@ -105,11 +126,7 @@ async def start_video_normalization(
     suffix = Path(file.filename or "video").suffix or ".mp4"
     input_path = Path(tmp_dir) / f"source{suffix}"
     try:
-        with input_path.open("wb") as destination:
-            while chunk := await file.read(1024 * 1024):
-                destination.write(chunk)
-        await file.close()
-        if input_path.stat().st_size <= 0:
+        if await _write_upload_to_path(file, input_path) <= 0:
             raise HTTPException(status_code=400, detail="Uploaded video file is empty")
         return start_normalization_job(
             tmp_dir,
@@ -180,8 +197,7 @@ async def probe_video(file: UploadFile = File(...)):
     try:
         suffix = Path(file.filename or "video").suffix or ".mp4"
         input_path = Path(tmp_dir) / f"source{suffix}"
-        input_path.write_bytes(await file.read())
-        if input_path.stat().st_size <= 0:
+        if await _write_upload_to_path(file, input_path) <= 0:
             raise HTTPException(status_code=400, detail="Uploaded video file is empty")
         metadata = probe_video_metadata(str(input_path))
         return {

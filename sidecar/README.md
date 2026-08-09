@@ -39,8 +39,12 @@ python3.12 -m venv .venv
 source .venv/bin/activate   # macOS/Linux
 # .venv\Scripts\activate    # Windows
 
-# Install pinned pre-release dependencies
+# Install pinned release dependencies
 pip install -r requirements.lock.txt
+
+# Return to the repository root and install the required homography provider
+cd ..
+./scripts/setup-pnlcalib.sh
 
 # Optional: install MobileSAM for person segmentation
 pip install git+https://github.com/ChaoningZhang/MobileSAM.git
@@ -49,13 +53,11 @@ pip install git+https://github.com/ChaoningZhang/MobileSAM.git
 > **Note:** `requirements.lock.txt` pins the verified application environment. Use
 > `requirements.txt` only when intentionally refreshing dependency versions.
 >
-> Tracking now depends on `supervision`, and homography now depends on
-> `lsq-ellipse` plus an accessible `PnLCalib` checkout + weights. Those Python
-> dependencies are included in `requirements.lock.txt`; the upstream `PnLCalib`
-> assets are discovered from either:
-> - `sidecar/third_party/pnlcalib`
-> - a sibling checkout at `../trackers/third_party/pnlcalib`
-> - `ANNOTATE_PNLCALIB_ROOT`
+> Tracking depends on `supervision`. Homography is a required 0.2 capability:
+> `scripts/setup-pnlcalib.sh` installs the pinned PnLCalib source and verifies
+> both model weights by SHA-256 under `sidecar/third_party/pnlcalib`. Developers
+> may override that path with `ANNOTATE_PNLCALIB_ROOT`; the release launcher
+> refuses to start when the pinned provider is missing or invalid.
 
 ## Running
 
@@ -255,9 +257,9 @@ dev server on any port.
   inside the sidecar venv.
 - **TensorFlow not installing** — Use Python 3.12. TensorFlow does not
   yet support 3.13+.
-- **PnLCalib unavailable** — ensure `lsq-ellipse` is installed and that the
-  upstream checkout + weights are reachable via `sidecar/third_party/pnlcalib`,
-  `../trackers/third_party/pnlcalib`, or `ANNOTATE_PNLCALIB_ROOT`.
+- **PnLCalib unavailable** — from the repository root, rerun
+  `./scripts/setup-pnlcalib.sh`. It repairs the pinned source and verifies both
+  model weights before the next launch.
 - **YOLO model download fails** — The first `/track` or `/segment` call
   downloads `yolov8n.pt` (~6MB). Check internet connectivity.
 - **Need to inspect tracker behavior frame-by-frame** — `/track` can optionally

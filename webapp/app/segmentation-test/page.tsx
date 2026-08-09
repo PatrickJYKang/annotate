@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { computePersonForegroundCutout } from "../../lib/segmentation/personSegmentation";
 import { computeEdgeForegroundCutout } from "../../lib/segmentation/edgeSegmentation";
@@ -286,10 +287,13 @@ export default function SegmentationTestPage() {
       </div>
 
       {imgUrl && (
-        <img
+        <Image
           ref={imgRef}
           src={imgUrl}
           alt="Segmentation input"
+          width={1}
+          height={1}
+          unoptimized
           onLoad={() => {
             setFileError(null);
             setRatio(null);

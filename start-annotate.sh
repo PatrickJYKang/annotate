@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-ANNOTATE_VERSION="${ANNOTATE_VERSION:-0.1 pre-release}"
+ANNOTATE_VERSION="${ANNOTATE_VERSION:-0.2}"
 ROOT_DIR="${ANNOTATE_APP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 WEB_PORT="${PORT:-3000}"
 SIDECAR_PORT="${SIDECAR_PORT:-8321}"
@@ -10,7 +10,7 @@ APP_URL="${ANNOTATE_APP_URL:-http://127.0.0.1:${WEB_PORT}}"
 SIDECAR_URL="${NEXT_PUBLIC_SIDECAR_URL:-http://127.0.0.1:${SIDECAR_PORT}}"
 LOG_DIR="$ROOT_DIR/.runtime"
 LOG_FILE="$LOG_DIR/app.log"
-DEV_PID=""
+APP_PID=""
 
 progress() {
   local percent="$1"
@@ -41,9 +41,9 @@ die() {
 }
 
 cleanup() {
-  if [[ -n "$DEV_PID" ]] && kill -0 "$DEV_PID" 2>/dev/null; then
-    kill "$DEV_PID" 2>/dev/null || true
-    wait "$DEV_PID" 2>/dev/null || true
+  if [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" 2>/dev/null; then
+    kill "$APP_PID" 2>/dev/null || true
+    wait "$APP_PID" 2>/dev/null || true
   fi
 }
 
@@ -68,8 +68,8 @@ wait_for_url() {
       finish_progress_line
       return 0
     fi
-    if [[ -n "$DEV_PID" ]] && ! kill -0 "$DEV_PID" 2>/dev/null; then
-      wait "$DEV_PID" || true
+    if [[ -n "$APP_PID" ]] && ! kill -0 "$APP_PID" 2>/dev/null; then
+      wait "$APP_PID" || true
       die "Annotate stopped before ${label} became ready."
     fi
     percent=$((start_percent + (elapsed * (end_percent - start_percent) / timeout_seconds)))
@@ -148,6 +148,13 @@ open_app_url() {
   printf "%s\n" "$url"
 }
 
+verify_homography_capability() {
+  if ! curl -fsS --max-time 10 "${SIDECAR_URL}/health" \
+    | "$ROOT_DIR/sidecar/.venv/bin/python" -c 'import json, sys; raise SystemExit(0 if json.load(sys.stdin).get("models", {}).get("pnlcalib") is True else 1)'; then
+    die "The sidecar started without PnLCalib. Rerun ./install.sh to restore the pinned homography source and weights."
+  fi
+}
+
 main() {
   printf "Annotate %s\n" "$ANNOTATE_VERSION"
   cd "$ROOT_DIR"
@@ -160,9 +167,13 @@ main() {
   [[ -f "$ROOT_DIR/package.json" ]] || die "Could not find package.json in $ROOT_DIR."
   [[ -d "$ROOT_DIR/webapp/node_modules" ]] || die "Web dependencies are missing. Run ./install.sh from $ROOT_DIR."
   [[ -x "$ROOT_DIR/sidecar/.venv/bin/python" ]] || die "Python sidecar environment is missing. Run ./install.sh from $ROOT_DIR."
+  [[ -f "$ROOT_DIR/webapp/.next/BUILD_ID" ]] || die "The production web build is missing. Run ./install.sh from $ROOT_DIR."
+  "$ROOT_DIR/scripts/setup-pnlcalib.sh" --check >/dev/null || die "PnLCalib is missing or invalid. Run ./install.sh from $ROOT_DIR."
   finish_progress_line
 
   if url_ready "$APP_URL"; then
+    url_ready "${SIDECAR_URL}/health" || die "The web app is running, but its sidecar is unavailable at $SIDECAR_URL."
+    verify_homography_capability
     progress 100 "Annotate is already running"
     finish_progress_line
     open_app_url "$APP_URL"
@@ -173,11 +184,12 @@ main() {
   export NEXT_PUBLIC_SIDECAR_URL="$SIDECAR_URL"
 
   progress 15 "Starting Annotate services"
-  npm run dev > "$LOG_FILE" 2>&1 &
-  DEV_PID=$!
+  npm run start > "$LOG_FILE" 2>&1 &
+  APP_PID=$!
   finish_progress_line
 
   wait_for_url "${SIDECAR_URL}/health" "sidecar" 20 55 120
+  verify_homography_capability
   wait_for_url "$APP_URL" "web app" 55 90 120
 
   progress 100 "Opening browser"
@@ -188,7 +200,7 @@ main() {
   printf "Keep this terminal window open. Press Ctrl+C here to stop Annotate.\n"
   printf "Logs: %s\n\n" "$LOG_FILE"
 
-  wait "$DEV_PID"
+  wait "$APP_PID"
 }
 
 main "$@"

@@ -2,6 +2,7 @@ import shutil
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -11,6 +12,7 @@ from annotate_sidecar.routes import video as video_route
 from annotate_sidecar.server import create_app
 from annotate_sidecar.services import normalization_jobs
 from annotate_sidecar.services.video_probe import probe_video_metadata
+from annotate_sidecar.video_registry import resolve_video_ref
 
 
 def make_route_client() -> TestClient:
@@ -40,6 +42,25 @@ def fake_metadata(_path: str):
         "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
         "constant_frame_rate": True,
     }
+
+
+def test_video_registration_streams_to_registry_and_cleans_up():
+    client = make_route_client()
+    payload = b"a" * (2 * 1024 * 1024 + 17)
+
+    response = client.post(
+        "/video/register",
+        files={"file": ("long-match.mp4", payload, "video/mp4")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sizeBytes"] == len(payload)
+    registered_path = resolve_video_ref(body["videoRef"])
+    assert registered_path is not None
+    assert Path(registered_path).read_bytes() == payload
+    assert client.delete(f'/video/{body["videoRef"]}').status_code == 200
+    assert resolve_video_ref(body["videoRef"]) is None
 
 
 def test_normalize_exposes_authoritative_frame_headers(monkeypatch):

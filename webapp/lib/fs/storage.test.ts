@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import defaultBoardDocument from '../../public/tagging/board.json';
 import { frameBoundary, videoFrame } from '../clip/frameMath';
 import type { Clip } from '../types/clip';
+import { defaultMatchInfo } from '../types/metadata';
 import { createDefaultPresentation } from '../types/presentation';
 import {
   createClipExclusive,
@@ -18,6 +19,7 @@ import {
   readProjectManifest,
   validateProjectFolder,
 } from './projectFolder';
+import { mutateProjectManifestExclusive } from './projectManifestRepository';
 import {
   deletePresentation,
   duplicatePresentation,
@@ -138,6 +140,61 @@ describe('projectFolder', () => {
     const opened = await validateProjectFolder(fileSystem.root, boardSource);
     expect(opened.ok).toBe(true);
     expect(fileSystem.exists('tagging-board.json')).toBe(true);
+  });
+
+  it('recreates missing disposable project folders during open validation', async () => {
+    const fileSystem = new MockFileSystem();
+    await createEmptyProject(fileSystem);
+    await fileSystem.root.removeEntry('cache', { recursive: true });
+    await fileSystem.root.removeEntry('exports', { recursive: true });
+    await fileSystem.root.removeEntry('.trash', { recursive: true });
+
+    const opened = await validateProjectFolder(fileSystem.root, boardSource);
+
+    expect(opened.ok).toBe(true);
+    expect(fileSystem.exists('cache')).toBe(true);
+    expect(fileSystem.exists('exports')).toBe(true);
+    expect(fileSystem.exists('.trash/clips')).toBe(true);
+    expect(fileSystem.exists('.trash/pins')).toBe(true);
+    expect(fileSystem.exists('.trash/annotations')).toBe(true);
+    expect(fileSystem.exists('.trash/tombstones')).toBe(true);
+  });
+
+  it('still rejects a project missing authoritative analysis storage', async () => {
+    const fileSystem = new MockFileSystem();
+    await createEmptyProject(fileSystem);
+    await fileSystem.root.removeEntry('analysis', { recursive: true });
+
+    await expect(validateProjectFolder(fileSystem.root, boardSource)).resolves.toMatchObject({
+      ok: false,
+      code: 'missing-folder',
+      reason: 'Missing required folder: analysis/',
+    });
+  });
+
+  it('merges racing field-owned project-manifest mutations', async () => {
+    const fileSystem = new MockFileSystem();
+    await createEmptyProject(fileSystem);
+    vi.stubGlobal('navigator', { locks: createSerialLockManager() });
+
+    await Promise.all([
+      mutateProjectManifestExclusive(fileSystem.root, (latest) => ({
+        ...latest,
+        name: 'Renamed project',
+      })),
+      mutateProjectManifestExclusive(fileSystem.root, (latest) => ({
+        ...latest,
+        matchInfo: defaultMatchInfo(),
+      })),
+    ]);
+
+    expect(await readProjectManifest(fileSystem.root)).toMatchObject({
+      ok: true,
+      manifest: {
+        name: 'Renamed project',
+        matchInfo: expect.any(Object),
+      },
+    });
   });
 });
 

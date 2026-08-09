@@ -90,6 +90,7 @@ test('player panel hotkeys remain active after resizing and layouts persist', as
   await page.keyboard.press('p');
   await expect(page.getByText(/Captured Possession/)).toBeVisible();
 
+  await page.waitForTimeout(150);
   await page.reload();
   await expect(page.getByTestId('capture-player')).toBeVisible();
   await expect.poll(async () => (await panelSize(page, 'player-video')).width).toBeCloseTo(resizedVideo.width, -1);
