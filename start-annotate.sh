@@ -159,7 +159,6 @@ main() {
   printf "Annotate %s\n" "$ANNOTATE_VERSION"
   cd "$ROOT_DIR"
   mkdir -p "$LOG_DIR"
-  : > "$LOG_FILE"
 
   progress 5 "Checking local install"
   command -v npm >/dev/null 2>&1 || die "npm was not found. Install Node.js, then rerun this launcher."
@@ -181,6 +180,7 @@ main() {
     return 0
   fi
 
+  : > "$LOG_FILE"
   export NEXT_PUBLIC_SIDECAR_URL="$SIDECAR_URL"
 
   progress 15 "Starting Annotate services"
