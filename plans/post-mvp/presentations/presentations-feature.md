@@ -1,5 +1,9 @@
 # Presentations Feature
 
+> **Historical feature plan.** Use the
+> [current presentation reference](../../../technical_document.md#12-presentations)
+> and [0.2 implementation ledger](../../v0.2/implementation-plan.md).
+
 ## Goal
 
 Add a new **presentations** feature and page after stills/clips where the user can build a deck-like sequence of analysis slides.

@@ -1,13 +1,17 @@
 # Clips Feature
 
+> **Historical implementation record.** Current clip behavior is documented in
+> the [as-built reference](../../../technical_document.md) and
+> [0.2 implementation ledger](../../v0.2/implementation-plan.md).
+
 > **Goal:** Add video clip support — time-range segments with keyframed,
 > trackable annotations. This is the prerequisite for the presentation
 > feature.
 
 > **Status note:** This is now mainly a historical planning/spec document.
 > The active implementation truth lives in
-> [clips-implementation-checklist.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/clips/clips-implementation-checklist.md)
-> and [clips-roadmap.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/clips/clips-roadmap.md).
+> [clips-implementation-checklist.md](clips-implementation-checklist.md)
+> and [clips-roadmap.md](clips-roadmap.md).
 > Some detailed assumptions below are now outdated, especially around
 > trackable tool types, pitch/image coexistence, and how the sidecar treats raw
 > tracker IDs.

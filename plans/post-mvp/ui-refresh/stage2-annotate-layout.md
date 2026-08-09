@@ -1,5 +1,9 @@
 # Stage 2 — Annotate Page Layout Redesign
 
+> **Historical project.v1 UI plan.** The former still annotator route was
+> replaced by clip-local pin annotation. See the
+> [current route reference](../../../technical_document.md#8-routes-and-user-visible-behavior).
+
 > **Goal:** Replace the old `.toolbar` / `.panel` wrapper with a centred,
 > context-sensitive toolbar and dynamic height sizing. The toolbar should
 > show only the properties relevant to the current tool, matching the full

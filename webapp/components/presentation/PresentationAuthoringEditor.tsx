@@ -1,17 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { frameBoundary, frameToMs, videoFrame } from '../../lib/clip/frameMath';
-import { registerVideoFile, requestExactMotionEncode, unregisterVideoRef } from '../../lib/clip/sidecarClient';
 import { listClips } from '../../lib/fs/clipStorage';
+import { subscribeToClipChanges } from '../../lib/fs/clipEvents';
 import { getFilePath, splitSafeRelativePath } from '../../lib/fs/fsAccess';
-import {
-  preparedPresentationAssetKey,
-  readPreparedPresentationAssetFile,
-  readPresentationMediaIndex,
-  writePreparedPresentationAsset,
-  type PreparedPresentationAssetKind,
-} from '../../lib/fs/presentationMedia';
 import { writePresentation } from '../../lib/fs/presentationStorage';
 import {
   buildPresentationAssetIndex,
@@ -36,13 +28,11 @@ import {
 } from '../panels/Panels';
 import PresentationAssetBrowser from './PresentationAssetBrowser';
 import PresentationCanvas, {
-  transitionOwnerId,
-  type PreparedPresentationResource,
   type PresentationScene,
   type PresentationVideoResource,
 } from './PresentationCanvas';
 import PresentationDeck from './PresentationDeck';
-import PresentationInspector from './PresentationInspector';
+import PresentationInspector, { type PresentationSourcePreview } from './PresentationInspector';
 import { useLocale } from '../../lib/i18n';
 
 interface PresentationAuthoringEditorProps {
@@ -52,14 +42,6 @@ interface PresentationAuthoringEditorProps {
   presentation: Presentation;
   onBack: () => void;
 }
-
-type ExactRequest = {
-  kind: PreparedPresentationAssetKind;
-  ownerId: string;
-  videoId: string;
-  startFrame: number;
-  endFrame: number;
-};
 
 export default function PresentationAuthoringEditor({
   projectDir,
@@ -73,26 +55,33 @@ export default function PresentationAuthoringEditor({
   const draftRef = useRef(presentation);
   const [clips, setClips] = useState<Clip[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [previewSource, setPreviewSource] = useState<PresentationAssetDrag | null>(null);
   const [saveState, setSaveState] = useState<'idle' | 'dirty' | 'saving' | 'saved' | 'error'>('idle');
   const [message, setMessage] = useState<string | null>(null);
-  const [preparing, setPreparing] = useState(false);
   const [isPresenting, setIsPresenting] = useState(false);
   const [presentScene, setPresentScene] = useState<PresentationScene>({ kind: 'slide', index: 0 });
   const [videoResources, setVideoResources] = useState<Map<string, PresentationVideoResource>>(new Map());
-  const [preparedResources, setPreparedResources] = useState<Map<string, PreparedPresentationResource>>(new Map());
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const writeTailRef = useRef<Promise<void>>(Promise.resolve());
-  const preparedUrlsRef = useRef<string[]>([]);
   const videoUrlsRef = useRef<string[]>([]);
 
   useEffect(() => {
     let active = true;
-    void listClips(projectDir).then((result) => {
+    const load = async () => {
+      const result = await listClips(projectDir);
       if (!active) return;
       setClips(result.clips);
       if (result.errors.length) setMessage(result.errors.map((entry) => entry.error.message).join(' '));
-    });
-    return () => { active = false; };
+    };
+    void load();
+    const refreshAfterClipEdit = () => void load();
+    const unsubscribeClipChanges = subscribeToClipChanges(() => void load());
+    window.addEventListener('focus', refreshAfterClipEdit);
+    return () => {
+      active = false;
+      unsubscribeClipChanges();
+      window.removeEventListener('focus', refreshAfterClipEdit);
+    };
   }, [projectDir]);
 
   useEffect(() => {
@@ -115,32 +104,6 @@ export default function PresentationAuthoringEditor({
       urls.forEach((url) => URL.revokeObjectURL(url));
     };
   }, [manifest.videos, projectDir]);
-
-  const reloadPreparedResources = useCallback(async () => {
-    const index = await readPresentationMediaIndex(projectDir, draftRef.current.id);
-    const resources = new Map<string, PreparedPresentationResource>();
-    const urls: string[] = [];
-    for (const entry of index.assets) {
-      try {
-        const file = await readPreparedPresentationAssetFile(projectDir, draftRef.current.id, entry);
-        const url = URL.createObjectURL(file);
-        urls.push(url);
-        resources.set(entry.key, { entry, url });
-      } catch {
-      }
-    }
-    preparedUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-    preparedUrlsRef.current = urls;
-    setPreparedResources(resources);
-  }, [projectDir]);
-
-  useEffect(() => {
-    void reloadPreparedResources().catch((error) => setMessage(error instanceof Error ? error.message : String(error)));
-    return () => {
-      preparedUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-      preparedUrlsRef.current = [];
-    };
-  }, [reloadPreparedResources]);
 
   const persistLatest = useCallback(() => {
     const target = draftRef.current;
@@ -185,6 +148,30 @@ export default function PresentationAuthoringEditor({
   const transitionError = transitionValidation && !transitionValidation.ok
     ? t(`presentation.validation.${transitionValidation.code}`)
     : null;
+  const previewSlide = useMemo(() => {
+    if (!previewSource) return null;
+    return previewSource.kind === 'clip'
+      ? createClipSlide(previewSource.clipId, `preview-clip-${previewSource.clipId}`)
+      : createPinSlide(previewSource.clipId, previewSource.pinId, `preview-pin-${previewSource.clipId}-${previewSource.pinId}`);
+  }, [previewSource]);
+  const canvasPresentation = useMemo<Presentation>(() => (
+    previewSlide
+      ? { ...draft, slides: [previewSlide], transitions: [] }
+      : draft
+  ), [draft, previewSlide]);
+  const sourcePreview = useMemo<PresentationSourcePreview | null>(() => {
+    if (!previewSource) return null;
+    const clip = clips.find((candidate) => candidate.id === previewSource.clipId);
+    if (!clip) return null;
+    return {
+      kind: previewSource.kind,
+      clip,
+      pin: previewSource.kind === 'pin'
+        ? clip.pins.find((candidate) => candidate.id === previewSource.pinId) ?? null
+        : null,
+      video: manifest.videos.find((candidate) => candidate.id === clip.videoId) ?? null,
+    };
+  }, [clips, manifest.videos, previewSource]);
 
   const updateSlide = useCallback((slide: PresentationSlide) => {
     const slides = draftRef.current.slides.map((candidate, index) => index === selectedIndex ? slide : candidate);
@@ -196,101 +183,21 @@ export default function PresentationAuthoringEditor({
       ? createClipSlide(payload.clipId)
       : createPinSlide(payload.clipId, payload.pinId);
     commit(insertSlide(draftRef.current, slide, index), true);
+    setPreviewSource(null);
     setSelectedIndex(index);
   }, [commit]);
 
   const moveSlide = useCallback((fromIndex: number, toIndex: number) => {
     commit(movePresentationSlide(draftRef.current, fromIndex, toIndex), true);
+    setPreviewSource(null);
     setSelectedIndex(Math.max(0, Math.min(draftRef.current.slides.length - 1, toIndex)));
   }, [commit]);
 
   const deleteSelected = useCallback(() => {
     commit(removeSlide(draftRef.current, selectedIndex), true);
+    setPreviewSource(null);
     setSelectedIndex((index) => Math.max(0, Math.min(index, draftRef.current.slides.length - 1)));
   }, [commit, selectedIndex]);
-
-  const prepareRequests = useCallback(async (requests: ExactRequest[]) => {
-    if (requests.length === 0) return;
-    setPreparing(true);
-    setMessage(t('presentation.mediaPreparing'));
-    const refs = new Map<string, string>();
-    try {
-      const currentIndex = await readPresentationMediaIndex(projectDir, draftRef.current.id);
-      for (let index = 0; index < requests.length; index += 1) {
-        const request = requests[index]!;
-        const key = preparedPresentationAssetKey({
-          kind: request.kind,
-          ownerId: request.ownerId,
-          videoId: request.videoId,
-          sourceStartFrame: request.startFrame,
-          sourceEndFrame: request.endFrame,
-        });
-        const indexed = currentIndex.assets.find((entry) => entry.key === key);
-        if (indexed) {
-          try {
-            await readPreparedPresentationAssetFile(projectDir, draftRef.current.id, indexed);
-            continue;
-          } catch {
-            // Regenerate when an index entry outlives its derived media file.
-          }
-        }
-        const resource = videoResources.get(request.videoId);
-        if (!resource) throw new Error(t('presentation.mediaUnavailable', { id: request.videoId }));
-        let videoRef = refs.get(request.videoId);
-        if (!videoRef) {
-          videoRef = (await registerVideoFile(resource.file)).videoRef;
-          refs.set(request.videoId, videoRef);
-        }
-        setMessage(t('presentation.mediaProgress', {
-          current: formatNumber(index + 1),
-          total: formatNumber(requests.length),
-        }));
-        const blob = await requestExactMotionEncode({
-          videoRef,
-          startMs: Number(frameToMs(videoFrame(request.startFrame), resource.video.fps)),
-          endMs: Number(frameToMs(frameBoundary(request.endFrame), resource.video.fps)),
-        });
-        await writePreparedPresentationAsset(projectDir, draftRef.current.id, {
-          kind: request.kind,
-          ownerId: request.ownerId,
-          videoId: request.videoId,
-          sourceStartFrame: videoFrame(request.startFrame),
-          sourceEndFrame: frameBoundary(request.endFrame),
-        }, blob);
-      }
-      await reloadPreparedResources();
-      setMessage(t('presentation.exactReady'));
-    } finally {
-      await Promise.all(Array.from(refs.values()).map((videoRef) => unregisterVideoRef(videoRef).catch(() => undefined)));
-      setPreparing(false);
-    }
-  }, [formatNumber, projectDir, reloadPreparedResources, t, videoResources]);
-
-  const collectExactRequests = useCallback((target: Presentation): ExactRequest[] => {
-    const requests: ExactRequest[] = [];
-    for (const slide of target.slides) {
-      if (slide.kind !== 'clip') continue;
-      const clip = clips.find((candidate) => candidate.id === slide.clipId);
-      if (!clip) continue;
-      requests.push({ kind: 'clip_slide', ownerId: slide.id, videoId: clip.videoId, startFrame: clip.startFrame, endFrame: clip.endFrame });
-    }
-    target.transitions.forEach((transition, index) => {
-      if (transition.mode !== 'match_video') return;
-      const from = target.slides[index];
-      const to = target.slides[index + 1];
-      if (!from || !to) return;
-      const valid = validateMatchVideoEdge(from, to, transition, clips, manifest);
-      if (!valid.ok) throw new Error(t(`presentation.validation.${valid.code}`));
-      requests.push({
-        kind: 'transition',
-        ownerId: transitionOwnerId(from, to),
-        videoId: valid.video.id,
-        startFrame: valid.range.startFrame,
-        endFrame: valid.range.endFrame,
-      });
-    });
-    return requests;
-  }, [clips, manifest, t]);
 
   const updateTransition = useCallback((transition: PresentationTransition) => {
     const transitions = draftRef.current.transitions.map((candidate, index) => index === selectedIndex ? transition : candidate);
@@ -303,31 +210,18 @@ export default function PresentationAuthoringEditor({
       const valid = validateMatchVideoEdge(from, to, transition, clips, manifest);
       if (!valid.ok) {
         setMessage(t(`presentation.validation.${valid.code}`));
-        return;
       }
-      void prepareRequests([{
-        kind: 'transition',
-        ownerId: transitionOwnerId(from, to),
-        videoId: valid.video.id,
-        startFrame: valid.range.startFrame,
-        endFrame: valid.range.endFrame,
-      }]).catch((error) => setMessage(error instanceof Error ? error.message : String(error)));
     }
-  }, [clips, commit, manifest, prepareRequests, selectedIndex, t]);
+  }, [clips, commit, manifest, selectedIndex, t]);
 
-  const beginPresenting = useCallback(async () => {
+  const beginPresenting = useCallback(() => {
     if (draftRef.current.slides.length === 0) {
       setMessage(t('presentation.addSlideFirst'));
       return;
     }
-    try {
-      await prepareRequests(collectExactRequests(draftRef.current));
-      setPresentScene({ kind: 'slide', index: 0 });
-      setIsPresenting(true);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-  }, [collectExactRequests, prepareRequests, t]);
+    setPresentScene({ kind: 'slide', index: 0 });
+    setIsPresenting(true);
+  }, [t]);
 
   const advanceScene = useCallback(() => {
     setPresentScene((current) => {
@@ -358,13 +252,22 @@ export default function PresentationAuthoringEditor({
     return () => window.removeEventListener('keydown', onKey);
   }, [advanceScene, isPresenting, previousScene]);
 
-  const previewClip = useCallback((clipId: string) => {
-    const index = draftRef.current.slides.findIndex((slide) => slide.kind !== 'title' && slide.clipId === clipId);
-    if (index >= 0) setSelectedIndex(index);
+  const authoringScene: PresentationScene = { kind: 'slide', index: previewSlide ? 0 : selectedIndex };
+  const authoringCanvasKey = previewSlide
+    ? `preview-${previewSlide.id}`
+    : `slide-${selectedSlide?.id ?? selectedIndex}`;
+  const presentCanvasKey = presentScene.kind === 'slide'
+    ? `slide-${draft.slides[presentScene.index]?.id ?? presentScene.index}`
+    : `transition-${presentScene.index}-${draft.slides[presentScene.index]?.id ?? 'missing'}-${draft.slides[presentScene.index + 1]?.id ?? 'missing'}`;
+
+  const selectDeckSlide = useCallback((index: number) => {
+    setPreviewSource(null);
+    setSelectedIndex(index);
   }, []);
 
-  const authoringScene: PresentationScene = { kind: 'slide', index: selectedIndex };
-  const selectedClipId = selectedSlide && selectedSlide.kind !== 'title' ? selectedSlide.clipId : null;
+  const openClipEditor = useCallback((clipId: string) => {
+    window.open(`/clip/${encodeURIComponent(clipId)}`, '_blank', 'noopener,noreferrer');
+  }, []);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="presentation-editor">
@@ -380,11 +283,12 @@ export default function PresentationAuthoringEditor({
           const slide = createTitleSlide('section');
           const index = Math.min(draftRef.current.slides.length, selectedIndex + 1);
           commit(insertSlide(draftRef.current, slide, index), true);
+          setPreviewSource(null);
           setSelectedIndex(index);
         }}>{t('presentation.addTitle')}</button>
         <span className="flex-1" />
         <span className="flex items-center px-3 text-xs text-muted">{saveState === 'dirty' ? t('presentation.unsaved') : saveState === 'saving' ? t('presentation.saving') : saveState === 'saved' ? t('presentation.saved') : saveState === 'error' ? t('presentation.saveFailed') : ''}</span>
-        <button className="button-primary border-y-0 border-r-0" disabled={preparing || draft.slides.length === 0} onClick={() => void beginPresenting()}>{preparing ? t('presentation.mediaPreparingShort') : t('presentation.present')}</button>
+        <button className="button-primary border-y-0 border-r-0" disabled={draft.slides.length === 0} onClick={beginPresenting}>{t('presentation.present')}</button>
       </header>
       <Panels
         autoSaveId="annotate:presentation:assets-canvas-inspector"
@@ -393,7 +297,7 @@ export default function PresentationAuthoringEditor({
         data-testid="presentation-panel-group-horizontal"
       >
         <Panel id="presentation-assets-panel" defaultSize={20} minSize={13} maxSize={36}>
-          <PresentationAssetBrowser index={assetIndex} selectedClipId={selectedClipId} onPreviewClip={previewClip} />
+          <PresentationAssetBrowser index={assetIndex} selectedAsset={previewSource} onPreviewAsset={setPreviewSource} />
         </Panel>
         <PanelResizeHandle direction="horizontal" data-testid="presentation-assets-resize-handle" />
         <Panel id="presentation-canvas-deck" defaultSize={60} minSize={34}>
@@ -404,15 +308,15 @@ export default function PresentationAuthoringEditor({
           >
             <Panel id="presentation-canvas-panel" defaultSize={76} minSize={38}>
               <main className="h-full min-h-0 min-w-0 bg-black">
-                {selectedSlide ? (
+                {canvasPresentation.slides.length > 0 ? (
                   <PresentationCanvas
+                    key={authoringCanvasKey}
                     projectDir={projectDir}
                     manifest={manifest}
-                    presentation={draft}
+                    presentation={canvasPresentation}
                     clips={clips}
                     scene={authoringScene}
                     videoResources={videoResources}
-                    preparedResources={preparedResources}
                     isPresenting={false}
                     onComplete={() => undefined}
                   />
@@ -426,8 +330,9 @@ export default function PresentationAuthoringEditor({
               <PresentationDeck
                 slides={draft.slides}
                 clips={clips}
-                selectedIndex={selectedIndex}
-                onSelect={setSelectedIndex}
+                videoResources={videoResources}
+                selectedIndex={previewSource ? -1 : selectedIndex}
+                onSelect={selectDeckSlide}
                 onInsertAsset={insertAsset}
                 onMoveSlide={moveSlide}
               />
@@ -439,8 +344,10 @@ export default function PresentationAuthoringEditor({
           <PresentationInspector
             slide={selectedSlide}
             clip={selectedClip}
+            sourcePreview={sourcePreview}
             transitionAfter={transitionAfter}
             transitionError={transitionError}
+            onEditClip={openClipEditor}
             onSlideChange={updateSlide}
             onTransitionChange={updateTransition}
             onDelete={deleteSelected}
@@ -453,13 +360,13 @@ export default function PresentationAuthoringEditor({
         <div className="fixed inset-0 z-50 flex flex-col bg-black" data-testid="presentation-present">
           <div className="min-h-0 flex-1">
             <PresentationCanvas
+              key={presentCanvasKey}
               projectDir={projectDir}
               manifest={manifest}
               presentation={draft}
               clips={clips}
               scene={presentScene}
               videoResources={videoResources}
-              preparedResources={preparedResources}
               isPresenting
               onComplete={advanceScene}
             />

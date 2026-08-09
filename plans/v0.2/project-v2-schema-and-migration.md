@@ -1,6 +1,6 @@
 # project.v2 – Schema Sketch and Migration Plan
 
-Date: 2026-07-11 (per-video media amendment)
+Date: 2026-08-08 (documentation sync amendment)
 Status: Locked and implemented
 Parent: [v0.2-scope.md](v0.2-scope.md)
 
@@ -96,16 +96,17 @@ Frozen before phase 0 code; later changes are explicit amendments.
    annotations via the shared frame-parameterized renderer; pin pauses use
    a crossing state machine (forward-crossing detection, consumed-pin set
    per playback, resume without retrigger, seek re-arms pins ahead of the
-   target). Every resolved exact-motion asset stores its absolute
-   `sourceStartFrame`/`sourceEndFrame`; local media frame 0 maps to that
-   recorded source start. Original assets map their presented media time
-   directly to an absolute source frame.
-8. **Board semantics (middle path)** — flat groups/buttons, plus
-   per-button `facetGroupIds` (applicability) and per-facet-group
-   `requiresAny` ported from the YAML schema. Deep primary-tree nesting is
-   not ported. Re-tagging prunes *inapplicable* facets rather than
-   clearing all. **A v2 project always has a board** — the default is
-   auto-installed when missing.
+   target). Clip and match-video scenes always seek and play their absolute
+   `sourceStartFrame`/`sourceEndFrame` range directly from the owning original
+   video. Prepared media is neither preferred nor a compatibility fallback.
+8. **Board semantics (middle path)** — a fixed coordinate surface of flat
+   groups/buttons, plus per-button `facetGroupIds` (applicability) and
+   per-facet-group `requiresAny` ported from the YAML schema. Deep primary-tree
+   nesting is not ported. Every primary button is an exact-frame start/stop
+   range toggle with no automatic lead/lag; different buttons may be armed
+   concurrently. Re-tagging prunes *inapplicable* facets rather than clearing
+   all. **A v2 project always has a board** — the default is auto-installed
+   when missing.
 9. **Per-video media authority** — FPS, frame count, width, and height belong
    to each `VideoEntry`; there is no project-wide FPS/resolution contract.
    Sidecar import/probe metadata is authoritative and `frameCountSource:
@@ -397,9 +398,9 @@ to the slide's effective pins/documents; invalid ids are integrity issues.
   shared frame-parameterized renderer extracted from the clip editor — a
   required deliverable, not an assumption); at a pause point the pin's
   documents are shown. The two annotation layers stay independent (§3.2).
-- Pin pauses follow the crossing state machine. Resolved exact-motion assets
-  carry their own absolute source range, so local playback maps from
-  `sourceStartFrame` rather than assuming every asset begins at the clip.
+- Pin pauses follow the crossing state machine. Every scene carries an
+  absolute source range on its owning video; playback media time maps directly
+  to that video's absolute frame before pin and annotation evaluation.
 - Asset browsing filters by **clip tags** (replacing mark-tag browsing).
 
 ### 3.5 Tagging board (`tagging-board.json`, replaces `tagging-schema.yaml`)
@@ -413,36 +414,41 @@ document.
 ```jsonc
 {
   "schema": "tagging-board.v1",
-  "defaults": {
-    "leadSeconds": 3,               // board-wide capture defaults
-    "lagSeconds": 3,
-    "mode": "instant"               // "instant" | "range"
+  "layout": {
+    "width": 960,
+    "height": 900,
+    "modifierSlots": [
+      { "x": 24, "y": 650, "width": 210, "height": 226 }
+    ]
   },
-  "groups": [                       // visual rows/sections of the board
+  "defaults": {
+    "leadSeconds": 0,
+    "lagSeconds": 0,
+    "mode": "range"
+  },
+  "groups": [
     {
-      "id": "in_possession",
-      "label": "In possession",
+      "id": "offensive.open_play",
+      "label": "Offensive - open play",
+      "labelRect": { "x": 24, "y": 20, "width": 912, "height": 24 },
       "buttons": [
         {
-          "id": "in_possession.build_up",   // tag identity (clip.tags.primary)
-          "label": "Build-up",
-          "hotkey": "b",                    // optional
-          "leadSeconds": 5,                 // optional per-button overrides
-          "mode": "range",
+          "id": "offensive.open_play.possession",
+          "label": "Possession",
+          "rect": { "x": 24, "y": 52, "width": 176, "height": 110 },
+          "hotkey": "p",
           "facetGroupIds": [
-            "zone.vertical_third",
-            "outcome.general",
-            "goal.method"
+            "zone.vertical_third"
           ]
         }
       ]
     }
   ],
-  "facets": [                       // toggle strips, applied to the next/current capture
+  "facets": [
     {
       "id": "zone.vertical_third",
       "label": "Vertical third",
-      "mode": "single",             // "single" | "multi"
+      "mode": "single",
       "options": [
         { "id": "middle_third", "label": "Middle third", "hotkey": "2" }
       ]
@@ -471,15 +477,20 @@ document.
 }
 ```
 
-Layout niceties (button colors, column spans) can join later as optional
-fields; they are presentation-only and never affect tag identity.
-Validation rejects duplicate ids, unresolved applicability/dependency
-references, dependency cycles, and invalid capture defaults. Hotkey
-collisions are warnings that disable every conflicting binding until the
-board is corrected; runtime dispatch never chooses one silently.
-Lead/lag values are wall-clock durations so the same board behaves consistently
-across video FPS. Early v2 boards using `leadFrames`/`lagFrames` are interpreted
-as 30 FPS reference durations when read.
+Layout is authored in board coordinates and scaled as one stable surface;
+group labels, buttons, and modifier slots do not become navigable menus.
+Rectangles are presentation-only and never affect tag identity. Validation
+rejects invalid/out-of-bounds rectangles, duplicate ids, unresolved
+applicability/dependency references, dependency cycles, and invalid capture
+defaults. Hotkey collisions are warnings that disable every conflicting
+binding until the board is corrected; runtime dispatch never chooses one
+silently.
+
+The schema parser still accepts `mode`, `leadSeconds`, `lagSeconds`, and the
+early-v2 `leadFrames`/`lagFrames` compatibility form. The canonical capture
+resolver deliberately normalizes every button to `mode: "range"` with zero
+lead/lag. A first press starts at the presented frame and the second closes at
+exclusive `presentedFrame + 1`; overlapping active buttons are valid.
 
 ---
 
@@ -594,7 +605,7 @@ the compiler into the completeness check.
    capture player → frames-native clip editor (forked shell on new
    frame-keyed lib APIs) → pins + pin annotator + pin→clip import →
    presentations (animated-annotation overlay, pause machine,
-   exact-motion timebase mapping, pin slides) → clip-based exports.
+   original-media timebase mapping, pin slides) → clip-based exports.
 4. **The flip**: `/v2` routes become canonical; delete v1 routes, the v1
    editor shell, ms-variant APIs, still/mark modules, v1 fixtures and
    specs, and finally the v1 types; grep-gate the result.
@@ -605,10 +616,10 @@ Nothing to convert — with no v1 projects opening, stale caches are unreachable
 
 - `homography-cache/` remains project-level and ms-keyed because it mirrors
   the sidecar boundary; v2 callers wrap it in frame-based APIs.
-- `derived-media/` generation keys may hash deterministic ms values derived
-  from frames, but exact-motion index entries also persist the absolute
-  source start/end frames required for playback mapping. Tracking output is
-  not a separate cache: it lives in clip annotation keyframes.
+- `derived-media/` exact-motion helpers and ms-derived generation keys remain
+  implemented as dormant export-oriented infrastructure. Interactive
+  presentation playback never reads them. Tracking output is not a separate
+  cache: it lives in clip annotation keyframes.
 - IndexedDB autosave backups (`annotate-backup-db`): anchor-shaped v2 doc
   keys cannot collide with v1. Old v1 entries remain unreachable; no
   unimplemented automatic aging is assumed.
@@ -623,16 +634,20 @@ half-open and inclusive-sidecar bounds, sparse sample FPS, one-frame range
 refusal, board references/cycles/hotkey collisions, folder-per-clip storage,
 field-owned repository races, verified trash round-trips/tombstones, payload
 anchors, v2 integrity, presentation references, and v1 refusal.
-It also covers mixed video FPS/resolution, duration-based capture, smart import
-strategy selection, per-video homography cache identity, and mixed-media
-presentation timebase mapping.
+It also covers mixed video FPS/resolution, exact-frame overlapping range
+capture, smart import strategy selection, per-video homography cache identity,
+and mixed-media presentation timebase mapping.
 
 Browser fixtures use non-zero clip starts and assert sidecar request bounds,
-absolute-frame keyframes, pin/document lifecycle and import, exact-motion
-source mapping, pause-at-pin crossings, animated overlays, export contents,
-panel persistence, handle restoration, and both locales. The temporary v1/v2
-spec sets were renamed or deleted at the canonical flip.
+absolute-frame keyframes, pin/document lifecycle and import, direct
+original-media source mapping with no exact-motion playback requests,
+pause-at-pin crossings, animated overlays, export contents, panel persistence,
+handle restoration, and locale switching across the four aligned catalogs.
+The temporary v1/v2 spec sets were renamed or deleted at the canonical flip.
 
-The 2026-07-11 gate passed 205 Vitest tests, 28 sidecar pytest tests, 22
-Playwright flows, TypeScript, production build, and `git diff --check`. The
-remaining manual check is native-speaker review of the zh-CN catalog.
+The latest 2026-08-08 gate passed 259 Vitest tests across 44 files, 41 sidecar
+pytest tests, and 30 Playwright Chromium flows, plus TypeScript, production
+build, `git diff --check`, and local Markdown-link validation. ESLint has no
+errors and one warning in the experimental segmentation page. The remaining
+manual check is native-speaker editorial review of the French, Spanish, and
+Simplified Chinese catalogs.

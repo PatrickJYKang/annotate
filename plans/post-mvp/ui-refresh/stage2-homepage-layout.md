@@ -1,5 +1,8 @@
 # Stage 2 — Homepage Layout Redesign
 
+> **Historical project.v1 UI plan.** See the
+> [current route reference](../../../technical_document.md#8-routes-and-user-visible-behavior).
+
 > **Goal:** Redesign the homepage layout so it feels intentional, spacious, and
 > professional — not like a debug panel. The page should guide the user through
 > a clear workflow: open/create a project → see what's inside → take action.

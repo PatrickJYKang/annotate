@@ -3,6 +3,9 @@
 
 # Stage 2 — Metadata Page Layout Redesign (DEPRECATED)
 
+> **Historical project.v1 UI plan.** See the
+> [current metadata reference](../../../technical_document.md#15-match-metadata).
+
 > **Goal:** Make the metadata page fill the full viewport width and height
 > with **no scrolling**. Replace the ugly toolbar with a clean nav bar.
 > Use the new visual style: square, space-filling buttons; dark monochrome

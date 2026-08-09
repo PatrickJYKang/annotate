@@ -10,13 +10,19 @@ This sidecar actively backs the frame-native project and clip workflows:
 
 - `/video/normalize/start` supplies authoritative per-video metadata and chooses
   preserve, remux, or transcode for every v2 video import
-- `/track` is the live highlight-driven player-tracking path
-- `/homography` is the live clip homography path on vendored `PnLCalib`
-- `/derived-media/exact-motion` continues to power presentation playback media
+- `/track/detect` supplies provisional player targets and `/track/stream`
+  supplies live trusted keyframes for the highlight-driven tracking workflow;
+  `/track` remains the equivalent non-streaming response path
+- `/homography` is the live clip and pin calibration path on vendored
+  `PnLCalib`; clip calibration currently uses a 5 FPS extracted sequence,
+  sparse solving with `skipInterval = 4`, interpolation, and web-layer sanity
+  filtering
 
-`/segment` and the generic `/export/*` session API remain implemented and
-tested service boundaries, but the canonical v2 UI does not currently expose
-foreground compositing or clip MP4 export.
+`/segment`, `/derived-media/exact-motion`, and the generic `/export/*` session
+API remain implemented and tested service boundaries, but the canonical v2 UI
+does not currently expose foreground compositing or clip MP4 export.
+Presentations play absolute frame ranges directly from original project videos;
+exact-motion encoding is retained only as a possible future export primitive.
 
 ## Requirements
 
@@ -64,6 +70,16 @@ python -m annotate_sidecar --port 9000
 python -m annotate_sidecar --log-level debug
 ```
 
+## Tests
+
+Run pytest through the virtual-environment interpreter so the sidecar package
+root is on Python's import path:
+
+```bash
+cd sidecar
+.venv/bin/python -m pytest tests
+```
+
 Routes that take a video locator (`/track`, `/segment`, `/homography`) expect either:
 - `videoRef` from `POST /video/register` (recommended)
 - absolute `videoPath` (legacy/manual)
@@ -86,7 +102,7 @@ Relative `videoPath` values are rejected.
 | `POST`   | `/export/encode`    | Encode frames to MP4 (ffmpeg)        |
 | `GET`    | `/export/{sessionId}/file` | Download encoded export MP4 before cleanup |
 | `DELETE` | `/export/{id}`      | Clean up export session              |
-| `POST`   | `/derived-media/exact-motion` | Encode exact video segment for presentation playback |
+| `POST`   | `/derived-media/exact-motion` | Encode an exact video segment; dormant primitive retained for future export use |
 | `POST`   | `/video/register`   | Upload video file and get `videoRef` |
 | `POST`   | `/video/normalize`  | Compatibility synchronous normalization endpoint |
 | `POST`   | `/video/normalize/start` | Upload video and start a smart background import job |
@@ -199,7 +215,10 @@ Homography now follows the same ownership pattern as tracking:
 - the calibration layer lives under
   [`annotate_sidecar/services/calibration/`](annotate_sidecar/services/calibration/)
 - the only active provider is the vendored trackers `PnLCalibProvider`
-- smoothing/interpolation happens inside the vendored provider config, then results are adapted back into annotate's cached frame format
+- clip requests currently extract at 5 FPS and set `skipInterval = 4`; the
+  provider drops invalid/corrupt solutions, fills and interpolates the sparse
+  sequence, then adapts it back into Annotate's cached frame format
+- the webapp applies an additional jump sanity filter before using a matrix
 
 Current clip-side coexistence rule:
 

@@ -1,19 +1,23 @@
 # Clips Implementation Checklist
 
+> **Historical implementation checklist.** Its checkmarks describe the earlier
+> clip rollout, not the current release gate. See the
+> [0.2 implementation ledger](../../v0.2/implementation-plan.md).
+
 ## Purpose
 
 This is the current actionable implementation checklist for clips.
 
-It supersedes the older checklist sections in [clips-feature.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/clips/clips-feature.md) where the product model has since changed.
+It supersedes the older checklist sections in [clips-feature.md](../../../plans/post-mvp/clips/clips-feature.md) where the product model has since changed.
 
 Use this document for planning and execution.
 
 Use the other docs like this:
 
-- [clips-roadmap.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/clips/clips-roadmap.md): high-level roadmap
-- [clip-still-domain-model.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/analysis-model/clip-still-domain-model.md): domain rules
-- [tracking-correction-architecture.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/clips/tracking-correction-architecture.md): correction and retracking model
-- [trackers-repo-integration-map.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/clips/trackers-repo-integration-map.md): repo boundary and CV adoption plan
+- [clips-roadmap.md](../../../plans/post-mvp/clips/clips-roadmap.md): high-level roadmap
+- [clip-still-domain-model.md](../../../plans/post-mvp/analysis-model/clip-still-domain-model.md): domain rules
+- [tracking-correction-architecture.md](../../../plans/post-mvp/clips/tracking-correction-architecture.md): correction and retracking model
+- [trackers-repo-integration-map.md](../../../plans/post-mvp/clips/trackers-repo-integration-map.md): repo boundary and CV adoption plan
 
 ---
 
@@ -43,7 +47,7 @@ Current behavior: legacy duplicate-still timestamps are treated as compatibility
 - [x] Audit clip-related UI code so it does not assume stored membership.
 - [x] Document the boundary rule in code comments or helper docs where useful:
   - `clip.startMs <= still.t_ms <= clip.endMs`
-Current implementation: shared helpers in [stillRelationship.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/stillRelationship.ts) define and document the rule, and current clip-facing UI uses those helpers instead of hand-rolled membership logic.
+Current implementation: shared helpers in `webapp/lib/clip/stillRelationship.ts` define and document the rule, and current clip-facing UI uses those helpers instead of hand-rolled membership logic.
 
 ### 1.3 Still import semantics
 
@@ -60,8 +64,8 @@ Current behavior: clip import reads exactly one annotation document at a time fo
 ### 2.1 Clip list and editor entry
 
 - [x] Clip storage and basic clip route exist.
-- [x] Clip editor route exists at [page.tsx](/Users/patrickkang/Documents/code/annotate/webapp/app/clip/[clipId]/page.tsx).
-- [x] Clip editor component exists at [ClipEditor.tsx](/Users/patrickkang/Documents/code/annotate/webapp/components/clip/ClipEditor.tsx).
+- [x] Clip editor route exists at [page.tsx](../../../webapp/app/clip/[clipId]/page.tsx).
+- [x] Clip editor component exists at [ClipEditor.tsx](../../../webapp/components/clip/ClipEditor.tsx).
 
 ### 2.2 Clip browser usability
 
@@ -150,7 +154,7 @@ Current stance: dwell / hold behavior remains deferred and is not required for t
 - [x] Verify save behavior is robust during rapid keyframe edits.
 - [x] Verify undo/redo coverage for all major clip-editing actions.
 - [x] Add tests for import, retrack, range replace, and delete flows.
-Current implementation: clip editor save/history/tracking merge logic now runs through shared helpers in [editorState.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/editorState.ts), with targeted tests in [editorState.test.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/editorState.test.ts). Import coverage continues to live in [stillImport.test.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/stillImport.test.ts), the re-track range merge now correctly normalizes bounded replacement behavior, and major clip-editor flows now also have end-to-end coverage in [clip-editor.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/clip-editor.spec.ts).
+Current implementation: clip editor save/history/tracking merge logic now runs through shared helpers in [editorState.ts](../../../webapp/lib/clip/editorState.ts), with targeted tests in [editorState.test.ts](../../../webapp/lib/clip/editorState.test.ts). Import coverage continues to live in `webapp/lib/clip/stillImport.test.ts`, the re-track range merge now correctly normalizes bounded replacement behavior, and major clip-editor flows now also have end-to-end coverage in [clip-editor.spec.ts](../../../webapp/e2e/clip-editor.spec.ts).
 
 ---
 
@@ -164,14 +168,14 @@ Current implementation: tracking is now highlight-only from the clip editor, wit
 
 ### 5.2 Tracker-core refactor toward `trackers`
 
-- [x] Refactor [tracker.py](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/services/tracker.py) into a thinner app adapter.
+- [x] Refactor [tracker.py](../../../sidecar/annotate_sidecar/services/tracker.py) into a thinner app adapter.
 - [x] Move low-level tracker ownership toward `trackers` primitives rather than bespoke `annotate` logic.
 - [x] Keep `/track` request and response shapes stable for the webapp.
 - [x] Keep `videoRef` handling and path resolution inside `annotate`.
 - [x] Decide whether first step is:
   - vendoring selected `trackers` modules, or
   - making `trackers` a sidecar dependency
-Current implementation: the first step became a full vendored `trackers` path for the relevant tracking core. Selected OC-SORT primitives now live under [vendor/trackers](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/vendor/trackers), and [tracker.py](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/services/tracker.py) is now just the annotate-owned adapter that preserves seed-match semantics and the `/track` response contract. Low-level ownership of model loading, detection conversion, and OC-SORT execution now sits in the vendored core, with the older bespoke ByteTrack path removed. Backend coverage for the adapter and route lives in [test_tracker_service.py](/Users/patrickkang/Documents/code/annotate/sidecar/tests/test_tracker_service.py) and [test_track_route.py](/Users/patrickkang/Documents/code/annotate/sidecar/tests/test_track_route.py).
+Current implementation: the first step became a full vendored `trackers` path for the relevant tracking core. Selected OC-SORT primitives now live under [vendor/trackers](../../../sidecar/annotate_sidecar/vendor/trackers), and [tracker.py](../../../sidecar/annotate_sidecar/services/tracker.py) is now just the annotate-owned adapter that preserves seed-match semantics and the `/track` response contract. Low-level ownership of model loading, detection conversion, and OC-SORT execution now sits in the vendored core, with the older bespoke ByteTrack path removed. Backend coverage for the adapter and route lives in [test_tracker_service.py](../../../sidecar/tests/test_tracker_service.py) and [test_track_route.py](../../../sidecar/tests/test_track_route.py).
 
 ### 5.3 Tracker configuration
 
@@ -181,7 +185,7 @@ Current implementation: the first step became a full vendored `trackers` path fo
   - `trackers` config
   - both, with app-level overrides
 - [x] Record the chosen defaults in one place.
-Current implementation: practical tracker defaults now live in [tracking.py](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/config/tracking.py), exposed via `/health` and used by `/track` whenever request-level overrides are omitted. The chosen stance is `both, with app-level overrides`: the vendored tracker core owns OC-SORT mechanics, while `annotate` sidecar owns the practical app defaults (detector model, sampling FPS, classes, confidence / IoU thresholds, track-buffer policy, and OC-SORT tuning knobs). Request fields remain explicit per-call overrides. Coverage now lives in [test_tracking_config.py](/Users/patrickkang/Documents/code/annotate/sidecar/tests/test_tracking_config.py) and the updated [test_track_route.py](/Users/patrickkang/Documents/code/annotate/sidecar/tests/test_track_route.py).
+Current implementation: practical tracker defaults now live in [tracking.py](../../../sidecar/annotate_sidecar/config/tracking.py), exposed via `/health` and used by `/track` whenever request-level overrides are omitted. The chosen stance is `both, with app-level overrides`: the vendored tracker core owns OC-SORT mechanics, while `annotate` sidecar owns the practical app defaults (detector model, sampling FPS, classes, confidence / IoU thresholds, track-buffer policy, and OC-SORT tuning knobs). Request fields remain explicit per-call overrides. Coverage now lives in [test_tracking_config.py](../../../sidecar/tests/test_tracking_config.py) and the updated [test_track_route.py](../../../sidecar/tests/test_track_route.py).
 
 ---
 
@@ -194,7 +198,7 @@ Current implementation: practical tracker defaults now live in [tracking.py](/Us
 - [x] Show where the tracker lost the object.
 - [x] Make corrected keyframes visually distinct enough to inspect.
 
-Current implementation: clip keyframes now carry lightweight provenance (`manual`, `tracked`, `correction`, `lost`) in [clip.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/types/clip.ts), with derived helpers in [trackingState.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/trackingState.ts). The clip editor surfaces this in three places: a status badge / summary strip in [ClipEditor.tsx](/Users/patrickkang/Documents/code/annotate/webapp/components/clip/ClipEditor.tsx), provenance-colored selection treatment in the same editor, and timeline markers / lost-span bands in [TimelineStrip.tsx](/Users/patrickkang/Documents/code/annotate/webapp/components/clip/TimelineStrip.tsx). Tracking conversions and still import now stamp provenance explicitly in [bboxConvert.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/bboxConvert.ts) and [stillImport.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/stillImport.ts), with coverage in [trackingState.test.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/trackingState.test.ts), [bboxConvert.test.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/bboxConvert.test.ts), [editorState.test.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/editorState.test.ts), and the end-to-end [clip-editor.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/clip-editor.spec.ts).
+Current implementation: clip keyframes now carry lightweight provenance (`manual`, `tracked`, `correction`, `lost`) in [clip.ts](../../../webapp/lib/types/clip.ts), with derived helpers in [trackingState.ts](../../../webapp/lib/clip/trackingState.ts). The clip editor surfaces this in three places: a status badge / summary strip in [ClipEditor.tsx](../../../webapp/components/clip/ClipEditor.tsx), provenance-colored selection treatment in the same editor, and timeline markers / lost-span bands in [TimelineStrip.tsx](../../../webapp/components/clip/TimelineStrip.tsx). Tracking conversions and still import now stamp provenance explicitly in [bboxConvert.ts](../../../webapp/lib/clip/bboxConvert.ts) and `webapp/lib/clip/stillImport.ts`, with coverage in [trackingState.test.ts](../../../webapp/lib/clip/trackingState.test.ts), [bboxConvert.test.ts](../../../webapp/lib/clip/bboxConvert.test.ts), [editorState.test.ts](../../../webapp/lib/clip/editorState.test.ts), and the end-to-end [clip-editor.spec.ts](../../../webapp/e2e/clip-editor.spec.ts).
 
 ### 6.2 Re-track actions
 
@@ -204,7 +208,7 @@ Current implementation: clip keyframes now carry lightweight provenance (`manual
 - [x] Add "re-track to next correction" semantics if that is not already modeled cleanly.
 - [x] Make range selection for retrack more discoverable and less fiddly.
 
-Current implementation: retrack merging is now verified in both pure state logic and the browser flow. The core merge rules live in [editorState.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/editorState.ts), where `forward`, `range`, and `to_correction` now preserve good spans intentionally. In [ClipEditor.tsx](/Users/patrickkang/Documents/code/annotate/webapp/components/clip/ClipEditor.tsx), the editor now exposes three partial repair actions directly: `Re-track →`, `Re-track range`, and `To Next Correction`. Range selection is no longer only a hidden Shift-click affordance: the user can explicitly `Mark Range End`, see the active range, and `Clear Range`, while Shift-click on the timeline still works as a faster alternate path. Verification was strengthened in [editorState.test.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/editorState.test.ts) and [clip-editor.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/clip-editor.spec.ts), including exact preserved keyframe/provenance expectations and a browser regression check for the range-boundary merge bug that was fixed during this pass.
+Current implementation: retrack merging is now verified in both pure state logic and the browser flow. The core merge rules live in [editorState.ts](../../../webapp/lib/clip/editorState.ts), where `forward`, `range`, and `to_correction` now preserve good spans intentionally. In [ClipEditor.tsx](../../../webapp/components/clip/ClipEditor.tsx), the editor now exposes three partial repair actions directly: `Re-track →`, `Re-track range`, and `To Next Correction`. Range selection is no longer only a hidden Shift-click affordance: the user can explicitly `Mark Range End`, see the active range, and `Clear Range`, while Shift-click on the timeline still works as a faster alternate path. Verification was strengthened in [editorState.test.ts](../../../webapp/lib/clip/editorState.test.ts) and [clip-editor.spec.ts](../../../webapp/e2e/clip-editor.spec.ts), including exact preserved keyframe/provenance expectations and a browser regression check for the range-boundary merge bug that was fixed during this pass.
 The current sidecar adapter also now protects retrack continuity from unstable raw tracker IDs by preferring the previously followed player's spatially nearest continuation when the old OC-SORT ID would imply an unreasonable jump.
 
 ### 6.3 Gap policy
@@ -218,7 +222,7 @@ The current sidecar adapter also now protects retrack continuity from unstable r
   - correction after hidden span
   - retrack replacing only the targeted span
 
-Current implementation: gap handling now lives in shared runtime helpers instead of new persisted schema. In [trackingState.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/trackingState.ts), tracked/corrected annotations now use a conservative short-gap threshold of `min(250ms, 6 frames)` via `getTrackingGapThresholdMs()`. Longer tracking-related gaps become runtime hidden spans through `getHiddenSpans()`, while manual-only annotations still interpolate freely. Playback and editor rendering now consume this through [interpolation.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/interpolation.ts) and the clip editor / timeline UI in [ClipEditor.tsx](/Users/patrickkang/Documents/code/annotate/webapp/components/clip/ClipEditor.tsx) and [TimelineStrip.tsx](/Users/patrickkang/Documents/code/annotate/webapp/components/clip/TimelineStrip.tsx). Coverage now includes short-gap continuity, long-gap hiding, correction-after-hidden behavior, and targeted retrack preservation in [trackingState.test.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/trackingState.test.ts), [interpolation.test.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/interpolation.test.ts), [editorState.test.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/editorState.test.ts), and [clip-editor.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/clip-editor.spec.ts).
+Current implementation: gap handling now lives in shared runtime helpers instead of new persisted schema. In [trackingState.ts](../../../webapp/lib/clip/trackingState.ts), tracked/corrected annotations now use a conservative short-gap threshold of `min(250ms, 6 frames)` via `getTrackingGapThresholdMs()`. Longer tracking-related gaps become runtime hidden spans through `getHiddenSpans()`, while manual-only annotations still interpolate freely. Playback and editor rendering now consume this through [interpolation.ts](../../../webapp/lib/clip/interpolation.ts) and the clip editor / timeline UI in [ClipEditor.tsx](../../../webapp/components/clip/ClipEditor.tsx) and [TimelineStrip.tsx](../../../webapp/components/clip/TimelineStrip.tsx). Coverage now includes short-gap continuity, long-gap hiding, correction-after-hidden behavior, and targeted retrack preservation in [trackingState.test.ts](../../../webapp/lib/clip/trackingState.test.ts), [interpolation.test.ts](../../../webapp/lib/clip/interpolation.test.ts), [editorState.test.ts](../../../webapp/lib/clip/editorState.test.ts), and [clip-editor.spec.ts](../../../webapp/e2e/clip-editor.spec.ts).
 
 ### 6.4 Span reasoning
 
@@ -226,7 +230,7 @@ Current implementation: gap handling now lives in shared runtime helpers instead
 - [x] Add richer runtime span reasoning in editor logic if needed.
 - [x] Only add persisted tracking span metadata later if it becomes clearly necessary.
 
-Current implementation: the persisted clip file remains flat keyframes plus per-keyframe provenance in [clip.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/types/clip.ts); no new stored span objects were added. Instead, richer span reasoning now happens at runtime through the hidden-span / next-correction helpers in [trackingState.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/trackingState.ts) and the annotation-aware interpolation wrapper in [interpolation.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/interpolation.ts). That gives the editor enough structure to reason about stitched tracked spans, correction boundaries, and hidden gaps without locking us into a heavier persisted schema prematurely.
+Current implementation: the persisted clip file remains flat keyframes plus per-keyframe provenance in [clip.ts](../../../webapp/lib/types/clip.ts); no new stored span objects were added. Instead, richer span reasoning now happens at runtime through the hidden-span / next-correction helpers in [trackingState.ts](../../../webapp/lib/clip/trackingState.ts) and the annotation-aware interpolation wrapper in [interpolation.ts](../../../webapp/lib/clip/interpolation.ts). That gives the editor enough structure to reason about stitched tracked spans, correction boundaries, and hidden gaps without locking us into a heavier persisted schema prematurely.
 
 ---
 
@@ -244,7 +248,7 @@ Current implementation: the persisted clip file remains flat keyframes plus per-
 - [x] Pull in calibration smoothing / gap-filling helpers from `trackers`.
 - [x] Keep `/homography` route shape stable for the app.
 
-Current implementation: `annotate` now has a provider-oriented calibration layer under [services/calibration](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/services/calibration), with a shared [CalibrationService](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/services/calibration/service.py), provider base classes in [base.py](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/services/calibration/base.py), and a single active adapter in [pnlcalib.py](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/services/calibration/providers/pnlcalib.py). Relevant calibration/projection/smoothing primitives are now vendored from `trackers`, the older Narya-backed implementation has been removed, and the live [homography.py](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/routes/homography.py) route now runs only through the PnLCalib-backed service while preserving the app JSON shape. `/health` exposes the active homography provider metadata via [health.py](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/routes/health.py). Coverage lives in [test_calibration_service.py](/Users/patrickkang/Documents/code/annotate/sidecar/tests/test_calibration_service.py) and [test_homography_route.py](/Users/patrickkang/Documents/code/annotate/sidecar/tests/test_homography_route.py).
+Current implementation: `annotate` now has a provider-oriented calibration layer under [services/calibration](../../../sidecar/annotate_sidecar/services/calibration), with a shared [CalibrationService](../../../sidecar/annotate_sidecar/services/calibration/service.py), provider base classes in [base.py](../../../sidecar/annotate_sidecar/services/calibration/base.py), and a single active adapter in [pnlcalib.py](../../../sidecar/annotate_sidecar/services/calibration/providers/pnlcalib.py). Relevant calibration/projection/smoothing primitives are now vendored from `trackers`, the older Narya-backed implementation has been removed, and the live [homography.py](../../../sidecar/annotate_sidecar/routes/homography.py) route now runs only through the PnLCalib-backed service while preserving the app JSON shape. `/health` exposes the active homography provider metadata via [health.py](../../../sidecar/annotate_sidecar/routes/health.py). Coverage lives in [test_calibration_service.py](../../../sidecar/tests/test_calibration_service.py) and [test_homography_route.py](../../../sidecar/tests/test_homography_route.py).
 
 ### 7.3 Pitch-space authoring
 
@@ -253,7 +257,7 @@ Current implementation: `annotate` now has a provider-oriented calibration layer
 - [x] Decide how pitch-space and image-space tools should coexist in the UI.
 - [x] Add tests for projection correctness at clip playback time.
 
-Current implementation: pitch projection math for clip playback and pitch-space creation now runs through shared helpers in [pitchProjection.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/pitchProjection.ts) rather than remaining duplicated inline in [ClipEditor.tsx](/Users/patrickkang/Documents/code/annotate/webapp/components/clip/ClipEditor.tsx). The clip editor now uses the same shared projection path for pitch-space bounds and on-frame rendering, pitch-space `lob` creation/rendering is supported alongside the existing pitch-capable tools, and the UI now distinguishes the preferred draw mode from the effective one by surfacing when pitch drawing is selected but the current frame or current tool forces a fallback to image-space creation. Projection correctness is covered in [pitchProjection.test.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/pitchProjection.test.ts), with the broader clip authoring flow still covered by [clip-editor.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/clip-editor.spec.ts).
+Current implementation: pitch projection math for clip playback and pitch-space creation now runs through shared helpers in [pitchProjection.ts](../../../webapp/lib/clip/pitchProjection.ts) rather than remaining duplicated inline in [ClipEditor.tsx](../../../webapp/components/clip/ClipEditor.tsx). The clip editor now uses the same shared projection path for pitch-space bounds and on-frame rendering, pitch-space `lob` creation/rendering is supported alongside the existing pitch-capable tools, and the UI now distinguishes the preferred draw mode from the effective one by surfacing when pitch drawing is selected but the current frame or current tool forces a fallback to image-space creation. Projection correctness is covered in [pitchProjection.test.ts](../../../webapp/lib/clip/pitchProjection.test.ts), with the broader clip authoring flow still covered by [clip-editor.spec.ts](../../../webapp/e2e/clip-editor.spec.ts).
 Current coexistence rule: only `box` and `circle` are pitch-capable authoring tools. `highlight`, `arrow`, `lob`, `poly`, `shadow`, and `text` stay image-space in normal clip authoring, with highlights acting as the tracking anchors for linked tactical shapes.
 
 ---
@@ -269,7 +273,7 @@ Current coexistence rule: only `box` and `circle` are pitch-capable authoring to
 - [-] Re-evaluate whether current occlusion behavior is actually helpful in real clip analysis workflows.
 - [-] Improve the paused-frame occlusion workflow if it proves valuable.
 - [x] Keep this subordinate to core clip editing and tracking correction.
-Current state: occlusion remains a paused-frame-only assist, not a core editing primitive. The clip editor now surfaces explicit occlusion status text in [ClipEditor.tsx](/Users/patrickkang/Documents/code/annotate/webapp/components/clip/ClipEditor.tsx), and the paused-frame behavior has browser coverage in [clip-occlusion.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/clip-occlusion.spec.ts). Real product-fit judgment is still deferred to later hands-on use.
+Current state: occlusion remains a paused-frame-only assist, not a core editing primitive. The clip editor now surfaces explicit occlusion status text in [ClipEditor.tsx](../../../webapp/components/clip/ClipEditor.tsx), and the paused-frame behavior has browser coverage in `webapp/e2e/clip-occlusion.spec.ts`. Real product-fit judgment is still deferred to later hands-on use.
 
 ### 8.3 Future use
 
@@ -288,7 +292,7 @@ Current stance: these remain intentionally deferred. No new segmentation respons
 - [x] Make clips first-class presentation assets.
 - [x] Ensure clip slides behave cleanly in the presentation editor and player.
 - [x] Keep presentation as a consumer of clip analysis, not a place where clips are authored.
-Current implementation: presentations can insert clip slides directly via [PresentationAuthoringEditor.tsx](/Users/patrickkang/Documents/code/annotate/webapp/components/presentation/PresentationAuthoringEditor.tsx), [PresentationAssetBrowser.tsx](/Users/patrickkang/Documents/code/annotate/webapp/components/presentation/PresentationAssetBrowser.tsx), and `createClipSlide()` in [authoring.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/presentation/authoring.ts). The presentation browser exposes clips as consumable assets only; no clip authoring controls were added there. Browser coverage now lives in [presentation-clips.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/presentation-clips.spec.ts).
+Current implementation: presentations can insert clip slides directly via [PresentationAuthoringEditor.tsx](../../../webapp/components/presentation/PresentationAuthoringEditor.tsx), [PresentationAssetBrowser.tsx](../../../webapp/components/presentation/PresentationAssetBrowser.tsx), and `createClipSlide()` in [authoring.ts](../../../webapp/lib/presentation/authoring.ts). The presentation browser exposes clips as consumable assets only; no clip authoring controls were added there. Browser coverage now lives in `webapp/e2e/presentation-clips.spec.ts`.
 
 ### 9.2 Source browsing
 
@@ -297,13 +301,13 @@ Current implementation: presentations can insert clip slides directly via [Prese
   - still/chronological view
   - later clip-centered view
 - [x] Make sure this browsing model aligns with derived clip/still relationship rather than explicit linking.
-Current implementation: the asset browser now supports tag-bucket, chronological, and clip-centered still browsing. Clip-centered grouping is derived on read from clip bounds via `listStillsWithinClipBounds()` in [stillRelationship.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/stillRelationship.ts) and `buildClipCenteredStillGroups()` in [authoring.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/presentation/authoring.ts), not from stored clip-to-still links. Browser coverage lives in [presentation-clips.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/presentation-clips.spec.ts) and unit coverage in [authoring.test.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/presentation/authoring.test.ts).
+Current implementation: the asset browser now supports tag-bucket, chronological, and clip-centered still browsing. Clip-centered grouping is derived on read from clip bounds via `listStillsWithinClipBounds()` in `webapp/lib/clip/stillRelationship.ts` and `buildClipCenteredStillGroups()` in [authoring.ts](../../../webapp/lib/presentation/authoring.ts), not from stored clip-to-still links. Browser coverage lives in `webapp/e2e/presentation-clips.spec.ts` and unit coverage in [authoring.test.ts](../../../webapp/lib/presentation/authoring.test.ts).
 
 ### 9.3 Match-video relationship
 
 - [x] Leave `match_video` conceptually as a supporting effect.
 - [x] Avoid reshaping the clip model around presentation transition behavior.
-Current implementation: `match_video` remains a presentation transition mode in [authoring.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/presentation/authoring.ts) and the presentation editor/player flow; it does not add new clip ownership or clip authoring semantics. Browser coverage lives in [presentation-present.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/presentation-present.spec.ts) and [presentation-transition-preview.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/presentation-transition-preview.spec.ts).
+Current implementation: `match_video` remains a presentation transition mode in [authoring.ts](../../../webapp/lib/presentation/authoring.ts) and the presentation editor/player flow; it does not add new clip ownership or clip authoring semantics. Browser coverage lives in `webapp/e2e/presentation-present.spec.ts` and `webapp/e2e/presentation-transition-preview.spec.ts`.
 
 ---
 
@@ -313,21 +317,21 @@ Current implementation: `match_video` remains a presentation transition mode in 
 
 - [x] Keep using `trackers` as the main demo / experimentation repo for CV work.
 - [x] Use it to validate tracker and calibration choices without destabilizing `annotate`.
-Current stance: `trackers` remains the experimentation/demo repo, while `annotate` only vendors or mirrors the pieces it needs. This matches [trackers-repo-integration-map.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/clips/trackers-repo-integration-map.md) and avoids destabilizing app-level workflows while CV work continues separately.
+Current stance: `trackers` remains the experimentation/demo repo, while `annotate` only vendors or mirrors the pieces it needs. This matches [trackers-repo-integration-map.md](../../../plans/post-mvp/clips/trackers-repo-integration-map.md) and avoids destabilizing app-level workflows while CV work continues separately.
 
 ### 10.2 Selective adoption
 
 - [x] Pull in reusable tracker-core pieces first.
 - [x] Pull in calibration/provider abstractions second.
 - [x] Pull in projection and smoothing utilities where they clearly reduce duplication.
-Current implementation: reusable tracker-core code now lives under [vendor/trackers](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/vendor/trackers), calibration/provider abstractions live under [services/calibration](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/services/calibration), and shared clip-side projection logic now lives in [pitchProjection.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/clip/pitchProjection.ts). This matches the intended selective-adoption sequence rather than importing the whole repo wholesale.
+Current implementation: reusable tracker-core code now lives under [vendor/trackers](../../../sidecar/annotate_sidecar/vendor/trackers), calibration/provider abstractions live under [services/calibration](../../../sidecar/annotate_sidecar/services/calibration), and shared clip-side projection logic now lives in [pitchProjection.ts](../../../webapp/lib/clip/pitchProjection.ts). This matches the intended selective-adoption sequence rather than importing the whole repo wholesale.
 
 ### 10.3 Boundary protection
 
 - [x] Do not move correction UX into `trackers`.
 - [x] Do not move clip schema into `trackers`.
 - [x] Do not move app-specific sidecar route contracts into `trackers`.
-Current implementation: correction UX remains in [ClipEditor.tsx](/Users/patrickkang/Documents/code/annotate/webapp/components/clip/ClipEditor.tsx) and related webapp helpers, clip schema remains in [clip.ts](/Users/patrickkang/Documents/code/annotate/webapp/lib/types/clip.ts), and app-specific route contracts stay in [track.py](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/routes/track.py) and [homography.py](/Users/patrickkang/Documents/code/annotate/sidecar/annotate_sidecar/routes/homography.py).
+Current implementation: correction UX remains in [ClipEditor.tsx](../../../webapp/components/clip/ClipEditor.tsx) and related webapp helpers, clip schema remains in [clip.ts](../../../webapp/lib/types/clip.ts), and app-specific route contracts stay in [track.py](../../../sidecar/annotate_sidecar/routes/track.py) and [homography.py](../../../sidecar/annotate_sidecar/routes/homography.py).
 
 ---
 
@@ -338,7 +342,7 @@ Current implementation: correction UX remains in [ClipEditor.tsx](/Users/patrick
 - [-] Confirm duplicate still prevention works in all still-creation entrypoints.
 - [-] Confirm clip/still relationship is purely derived in UI behavior.
 - [-] Confirm clip import works from one still at a time.
-Current verification: duplicate prevention already has unit/integration coverage, and browser coverage now includes presentation mark materialization reuse in [presentation-domain.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/presentation-domain.spec.ts). Derived clip/still browsing is browser-covered in [presentation-clips.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/presentation-clips.spec.ts), and one-still-at-a-time clip import is browser-covered in [clip-editor.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/clip-editor.spec.ts) plus persistence/reload coverage in [clip-save-reload.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/clip-save-reload.spec.ts). These are intentionally marked partial until broader real-world/manual verification is done.
+Current verification: duplicate prevention already has unit/integration coverage, and browser coverage now includes presentation mark materialization reuse in `webapp/e2e/presentation-domain.spec.ts`. Derived clip/still browsing is browser-covered in `webapp/e2e/presentation-clips.spec.ts`, and one-still-at-a-time clip import is browser-covered in [clip-editor.spec.ts](../../../webapp/e2e/clip-editor.spec.ts) plus persistence/reload coverage in `webapp/e2e/clip-save-reload.spec.ts`. These are intentionally marked partial until broader real-world/manual verification is done.
 
 ### 11.2 Editor verification
 
@@ -346,7 +350,7 @@ Current verification: duplicate prevention already has unit/integration coverage
 - [-] Manual test: import still annotations into clip.
 - [-] Manual test: edit imported annotations and verify save/load.
 - [ ] Manual test: clip with many in-bounds stills remains usable.
-Current browser coverage: [clip-editor.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/clip-editor.spec.ts) covers create/edit/scrub/save-oriented flows, and [clip-save-reload.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/clip-save-reload.spec.ts) now covers import persistence across reload. The many-stills usability case still needs a more realistic fixture or a real manual pass.
+Current browser coverage: [clip-editor.spec.ts](../../../webapp/e2e/clip-editor.spec.ts) covers create/edit/scrub/save-oriented flows, and `webapp/e2e/clip-save-reload.spec.ts` now covers import persistence across reload. The many-stills usability case still needs a more realistic fixture or a real manual pass.
 
 ### 11.3 Tracking verification
 
@@ -355,21 +359,21 @@ Current browser coverage: [clip-editor.spec.ts](/Users/patrickkang/Documents/cod
 - [-] Manual test: retrack only a bounded range.
 - [-] Manual test: long loss produces hidden span instead of fake continuity.
 - [-] Manual test: undo after retrack restores prior state.
-Current browser coverage: [clip-editor.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/clip-editor.spec.ts) covers seeded tracking, forward retrack, bounded retrack, retrack-to-next-correction, and history behavior around editing/tracking flows. Long-loss handling is still more strongly covered in unit tests than in browser visuals, so these remain partial rather than complete.
+Current browser coverage: [clip-editor.spec.ts](../../../webapp/e2e/clip-editor.spec.ts) covers seeded tracking, forward retrack, bounded retrack, retrack-to-next-correction, and history behavior around editing/tracking flows. Long-loss handling is still more strongly covered in unit tests than in browser visuals, so these remain partial rather than complete.
 
 ### 11.4 Homography verification
 
 - [-] Manual test: compute homography for a clip and use pitch-space annotations.
 - [ ] Manual test: calibration gaps are handled acceptably.
 - [-] Manual test: projection still looks correct after scrub and playback.
-Current browser coverage: [clip-homography.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/clip-homography.spec.ts) covers homography computation, cached homography persistence, pitch-space authoring, and a basic scrub check after homography is loaded. Calibration-gap quality still needs real visual/manual judgment.
+Current browser coverage: `webapp/e2e/clip-homography.spec.ts` covers homography computation, cached homography persistence, pitch-space authoring, and a basic scrub check after homography is loaded. Calibration-gap quality still needs real visual/manual judgment.
 
 ### 11.5 Presentation verification
 
 - [-] Manual test: add clip slides to a presentation.
 - [-] Manual test: combine clips and stills in a single deck.
 - [-] Manual test: presentation browsing still makes sense once clips become important.
-Current browser coverage: [presentation-clips.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/presentation-clips.spec.ts) covers clip insertion, still insertion, and clip-centered browsing; [presentation-retrieval.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/presentation-retrieval.spec.ts), [presentation-present.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/presentation-present.spec.ts), and [presentation-transition-preview.spec.ts](/Users/patrickkang/Documents/code/annotate/webapp/e2e/presentation-transition-preview.spec.ts) continue to cover the surrounding presentation playback flows. These remain partial until a real manual deck-building pass is done.
+Current browser coverage: `webapp/e2e/presentation-clips.spec.ts` covers clip insertion, still insertion, and clip-centered browsing; `webapp/e2e/presentation-retrieval.spec.ts`, `webapp/e2e/presentation-present.spec.ts`, and `webapp/e2e/presentation-transition-preview.spec.ts` continue to cover the surrounding presentation playback flows. These remain partial until a real manual deck-building pass is done.
 
 ---
 

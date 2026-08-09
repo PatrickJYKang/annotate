@@ -1,5 +1,9 @@
 # Stage 2 — Stills Page Layout Redesign
 
+> **Historical removed-route plan.** The `/stills` route does not exist in
+> project.v2; pins and pin documents live inside clips. See the
+> [current pin reference](../../../technical_document.md#11-pins-and-frozen-frame-annotation).
+
 > **Goal:** Replace the old `.toolbar` / `.panel` wrapper with the navbar
 > pattern and dynamic height sizing used on the player page. Tighten the
 > two-pane layout so the video + stills grid fill available space.

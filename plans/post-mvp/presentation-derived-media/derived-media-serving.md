@@ -1,5 +1,10 @@
 # Presentation Derived Media Serving
 
+> **Historical playback design.** Interactive 0.2 presentations now use the
+> original project video directly. Exact-motion preparation remains only as
+> dormant export-oriented infrastructure; see the
+> [current presentation reference](../../../technical_document.md#12-presentations).
+
 ## Goal
 
 Remove the reload-heavy feeling from presentation authoring and playback by stopping the app from using the original imported videos as the default serving asset for latency-sensitive presentation workflows.

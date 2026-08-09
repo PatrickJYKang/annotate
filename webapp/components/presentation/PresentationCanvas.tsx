@@ -10,8 +10,6 @@ import {
 import { frameToMs, videoFrame } from '../../lib/clip/frameMath';
 import { resolveUsableHomographyAtTime } from '../../lib/clip/homographyInterpolation';
 import { renderAnnotatedPng } from '../../lib/export/d7Render';
-import type { PreparedPresentationAsset } from '../../lib/fs/presentationMedia';
-import { preparedPresentationAssetKey } from '../../lib/fs/presentationMedia';
 import { findOverlappingCache, type HomographyFrame } from '../../lib/fs/homographyCache';
 import { readPinAnnotationDocument } from '../../lib/fs/pinAnnotationStorage';
 import { createFrameRasterQueue } from '../../lib/media/frameRaster';
@@ -39,15 +37,12 @@ import type {
 } from '../../lib/types/presentation';
 import type { ProjectManifest, VideoEntry } from '../../lib/types/project';
 import { useLocale, type Translate } from '../../lib/i18n';
+import TimelineStrip from '../clip/TimelineStrip';
+import PresentationTitleSlide from './PresentationTitleSlide';
 
 export interface PresentationVideoResource {
   video: VideoEntry;
   file: File;
-  url: string;
-}
-
-export interface PreparedPresentationResource {
-  entry: PreparedPresentationAsset;
   url: string;
 }
 
@@ -62,7 +57,6 @@ interface PresentationCanvasProps {
   clips: readonly Clip[];
   scene: PresentationScene;
   videoResources: ReadonlyMap<string, PresentationVideoResource>;
-  preparedResources: ReadonlyMap<string, PreparedPresentationResource>;
   isPresenting: boolean;
   onComplete: () => void;
 }
@@ -75,14 +69,9 @@ type ResolvedScene = {
   transition: PresentationTransition | null;
   video: VideoEntry | null;
   range: { startFrame: number; endFrame: number } | null;
-  preparedOwnerId: string | null;
   hideAnimatedAnnotations: boolean;
   error: string | null;
 };
-
-function transitionOwnerId(from: PresentationSlide, to: PresentationSlide): string {
-  return `edge-${from.id}-${to.id}`;
-}
 
 function resolveScene(
   scene: PresentationScene,
@@ -97,21 +86,20 @@ function resolveScene(
     const to = presentation.slides[scene.index + 1];
     const transition = presentation.transitions[scene.index];
     if (!from || !to || !transition) {
-      return { sceneKey: `missing-transition-${scene.index}`, slide: null, clip: null, pin: null, transition: null, video: null, range: null, preparedOwnerId: null, hideAnimatedAnnotations: true, error: t('presentation.sceneMissingTransition') };
+      return { sceneKey: `missing-transition-${scene.index}`, slide: null, clip: null, pin: null, transition: null, video: null, range: null, hideAnimatedAnnotations: true, error: t('presentation.sceneMissingTransition') };
     }
     const valid = validateMatchVideoEdge(from, to, transition, clips, manifest);
     if (!valid.ok) {
-      return { sceneKey: `invalid-transition-${scene.index}`, slide: null, clip: null, pin: null, transition, video: null, range: null, preparedOwnerId: null, hideAnimatedAnnotations: true, error: t(`presentation.validation.${valid.code}`) };
+      return { sceneKey: `invalid-transition-${scene.index}-${valid.code}`, slide: null, clip: null, pin: null, transition, video: null, range: null, hideAnimatedAnnotations: true, error: t(`presentation.validation.${valid.code}`) };
     }
     return {
-      sceneKey: `transition-${scene.index}-${from.id}-${to.id}`,
+      sceneKey: `transition-${scene.index}-${from.id}-${to.id}-${valid.video.id}-${valid.range.startFrame}-${valid.range.endFrame}`,
       slide: null,
       clip: null,
       pin: null,
       transition,
       video: valid.video,
       range: valid.range,
-      preparedOwnerId: transitionOwnerId(from, to),
       hideAnimatedAnnotations: transition.mode === 'match_video' && transition.hideAnnotationsDuringPlayback,
       error: null,
     };
@@ -119,43 +107,43 @@ function resolveScene(
 
   const slide = presentation.slides[scene.index] ?? null;
   if (!slide) {
-    return { sceneKey: `missing-slide-${scene.index}`, slide: null, clip: null, pin: null, transition: null, video: null, range: null, preparedOwnerId: null, hideAnimatedAnnotations: false, error: t('presentation.sceneMissingSlide') };
+    return { sceneKey: `missing-slide-${scene.index}`, slide: null, clip: null, pin: null, transition: null, video: null, range: null, hideAnimatedAnnotations: false, error: t('presentation.sceneMissingSlide') };
   }
   if (slide.kind === 'title') {
-    return { sceneKey: `slide-${slide.id}`, slide, clip: null, pin: null, transition: null, video: null, range: null, preparedOwnerId: null, hideAnimatedAnnotations: false, error: null };
+    return { sceneKey: `slide-${slide.id}`, slide, clip: null, pin: null, transition: null, video: null, range: null, hideAnimatedAnnotations: false, error: null };
   }
   const clip = clipsById.get(slide.clipId) ?? null;
   if (!clip) {
-    return { sceneKey: `slide-${slide.id}`, slide, clip: null, pin: null, transition: null, video: null, range: null, preparedOwnerId: null, hideAnimatedAnnotations: false, error: t('presentation.sceneMissingClip', { id: slide.clipId }) };
+    return { sceneKey: `missing-clip-${slide.id}-${slide.clipId}`, slide, clip: null, pin: null, transition: null, video: null, range: null, hideAnimatedAnnotations: false, error: t('presentation.sceneMissingClip', { id: slide.clipId }) };
   }
   const video = manifest.videos.find((candidate) => candidate.id === clip.videoId) ?? null;
   if (!video) {
-    return { sceneKey: `slide-${slide.id}`, slide, clip, pin: null, transition: null, video: null, range: null, preparedOwnerId: null, hideAnimatedAnnotations: false, error: t('presentation.sceneMissingVideo', { id: clip.videoId }) };
+    return { sceneKey: `missing-video-${slide.id}-${clip.videoId}`, slide, clip, pin: null, transition: null, video: null, range: null, hideAnimatedAnnotations: false, error: t('presentation.sceneMissingVideo', { id: clip.videoId }) };
   }
   if (slide.kind === 'pin') {
     const pin = clip.pins.find((candidate) => candidate.id === slide.pinId) ?? null;
     return {
-      sceneKey: `slide-${slide.id}`,
+      sceneKey: pin
+        ? `slide-${slide.id}-${clip.id}-${pin.id}-${pin.frame}-${video.id}`
+        : `missing-pin-${slide.id}-${slide.pinId}`,
       slide,
       clip,
       pin,
       transition: null,
       video,
       range: pin ? { startFrame: pin.frame, endFrame: pin.frame + 1 } : null,
-      preparedOwnerId: null,
       hideAnimatedAnnotations: false,
       error: pin ? null : t('presentation.sceneMissingPin', { id: slide.pinId }),
     };
   }
   return {
-    sceneKey: `slide-${slide.id}`,
+    sceneKey: `slide-${slide.id}-${clip.id}-${clip.startFrame}-${clip.endFrame}-${video.id}`,
     slide,
     clip,
     pin: null,
     transition: null,
     video,
     range: { startFrame: clip.startFrame, endFrame: clip.endFrame },
-    preparedOwnerId: slide.id,
     hideAnimatedAnnotations: false,
     error: null,
   };
@@ -176,7 +164,6 @@ export default function PresentationCanvas({
   clips,
   scene,
   videoResources,
-  preparedResources,
   isPresenting,
   onComplete,
 }: PresentationCanvasProps) {
@@ -226,29 +213,17 @@ export default function PresentationCanvas({
   }, []);
 
   const resource = resolved.video ? videoResources.get(resolved.video.id) ?? null : null;
-  const preparedKey = useMemo(() => {
-    if (!resolved.preparedOwnerId || !resolved.video || !resolved.range) return null;
-    return preparedPresentationAssetKey({
-      kind: scene.kind === 'transition' ? 'transition' : 'clip_slide',
-      ownerId: resolved.preparedOwnerId,
-      videoId: resolved.video.id,
-      sourceStartFrame: resolved.range.startFrame,
-      sourceEndFrame: resolved.range.endFrame,
-    });
-  }, [resolved.preparedOwnerId, resolved.range, resolved.video, scene.kind]);
-  const prepared = preparedKey ? preparedResources.get(preparedKey) ?? null : null;
-
   const playbackAsset = useMemo<PresentationPlaybackAsset | null>(() => {
     if (!resolved.video || !resolved.range || !resource) return null;
     return {
-      id: prepared?.entry.key ?? `original-${resolved.video.id}-${resolved.range.startFrame}-${resolved.range.endFrame}`,
-      kind: prepared ? 'exact_motion' : 'original',
+      id: `${resolved.sceneKey}-original-${resolved.video.id}-${resolved.range.startFrame}-${resolved.range.endFrame}`,
+      kind: 'original',
       videoId: resolved.video.id,
-      url: prepared?.url ?? resource.url,
+      url: resource.url,
       sourceStartFrame: videoFrame(resolved.range.startFrame),
       sourceEndFrame: resolved.range.endFrame as PresentationPlaybackAsset['sourceEndFrame'],
     };
-  }, [prepared, resolved.range, resolved.video, resource]);
+  }, [resolved.range, resolved.sceneKey, resolved.video, resource]);
 
   const effectivePausePins = useMemo(() => (
     resolved.slide?.kind === 'clip' && resolved.clip
@@ -341,11 +316,7 @@ export default function PresentationCanvas({
         }
       }
     }
-    if (
-      playbackAsset.kind === 'original'
-      && frame >= playbackAsset.sourceEndFrame - 1
-      && !pausedPin
-    ) {
+    if (frame >= playbackAsset.sourceEndFrame - 1 && !pausedPin) {
       completeVideo();
     }
   }, [completeVideo, effectivePausePins, pauseAtPin, pausedPin, playbackAsset, resolved.slide?.kind, resolved.video]);
@@ -557,78 +528,118 @@ export default function PresentationCanvas({
     if (videoRef.current) videoRef.current.currentTime = sourceFrameToMediaSeconds(playbackAsset, target, resolved.video);
   }, [effectivePausePins, playbackAsset, resolved.video]);
 
+  const toggleOrResumePlayback = useCallback(() => {
+    if (pausedPin) {
+      resumeFromPin();
+      return;
+    }
+    togglePlayback();
+  }, [pausedPin, resumeFromPin, togglePlayback]);
+
+  useEffect(() => {
+    if (!isPresenting || resolved.slide?.kind !== 'clip') return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== 'Space' || event.repeat) return;
+      event.preventDefault();
+      toggleOrResumePlayback();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isPresenting, resolved.slide?.kind, toggleOrResumePlayback]);
+
   if (resolved.error || !resolved.slide && scene.kind === 'slide') {
     return <div className="flex h-full items-center justify-center bg-black text-sm text-danger" data-testid="presentation-missing-reference">{resolved.error || t('presentation.missingSlide')}</div>;
   }
   if (resolved.slide?.kind === 'title') {
-    return (
-      <div className="flex h-full flex-col items-center justify-center bg-[#0b0d10] px-12 text-center text-[#f4f1e8]" data-testid="presentation-title-slide">
-        <p className="text-xs text-[#8d968f]">{t(`presentation.template${resolved.slide.template[0].toUpperCase()}${resolved.slide.template.slice(1)}`)}</p>
-        <h1 className="m-0 max-w-4xl text-5xl leading-tight">{resolved.slide.title}</h1>
-        {resolved.slide.body && <p className="mt-5 max-w-3xl text-xl text-[#b8c0ba]">{resolved.slide.body}</p>}
-      </div>
-    );
+    return <PresentationTitleSlide slide={resolved.slide} />;
   }
 
   const videoVisible = scene.kind === 'transition' || resolved.slide?.kind === 'clip';
+  const timelinePinId = resolved.clip?.pins.find((pin) => pin.frame === sourceFrame)?.id ?? null;
   return (
-    <div className="relative flex h-full min-h-0 items-center justify-center overflow-hidden bg-black" data-testid="presentation-canvas" data-source-frame={sourceFrame} data-playback-asset={playbackAsset?.kind ?? 'none'}>
-      <div className="relative max-h-full max-w-full" style={{ width: resolved.video?.width ?? 640, aspectRatio: `${resolved.video?.width ?? 16}/${resolved.video?.height ?? 9}` }}>
-        {videoVisible && playbackAsset && (
-          <video
-            ref={videoRef}
-            key={playbackAsset.id}
-            src={playbackAsset.url}
-            muted
-            playsInline
-            className="absolute inset-0 h-full w-full object-contain"
-            onEnded={completeVideo}
-          />
-        )}
-        {videoVisible && resolved.video && (
-          <canvas
-            ref={overlayRef}
-            width={resolved.video.width}
-            height={resolved.video.height}
-            className="pointer-events-none absolute inset-0 h-full w-full"
-            data-testid="presentation-animated-overlay"
-          />
-        )}
-        {activeStaticPin && staticFrameUrl && (
-          <div
-            role="img"
-            aria-label={t('presentation.annotatedPinFrame')}
-            className="absolute inset-0 h-full w-full bg-contain bg-center bg-no-repeat"
-            style={{ backgroundImage: `url(${JSON.stringify(staticFrameUrl)})` }}
-            data-testid="presentation-pin-frame"
-          />
+    <div
+      className="relative flex h-full min-h-0 flex-col overflow-hidden bg-black"
+      data-testid="presentation-canvas"
+      data-scene-key={resolved.sceneKey}
+      data-source-frame={sourceFrame}
+      data-playback-asset={playbackAsset?.kind ?? 'none'}
+    >
+      <div
+        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden"
+        onClick={videoVisible && resolved.slide?.kind === 'clip' ? toggleOrResumePlayback : undefined}
+      >
+        <div className="relative max-h-full max-w-full" style={{ width: resolved.video?.width ?? 640, aspectRatio: `${resolved.video?.width ?? 16}/${resolved.video?.height ?? 9}` }}>
+          {videoVisible && playbackAsset && (
+            <video
+              ref={videoRef}
+              key={playbackAsset.id}
+              src={playbackAsset.url}
+              muted
+              playsInline
+              className="absolute inset-0 h-full w-full object-contain"
+              onEnded={completeVideo}
+            />
+          )}
+          {videoVisible && resolved.video && (
+            <canvas
+              ref={overlayRef}
+              key={resolved.sceneKey}
+              width={resolved.video.width}
+              height={resolved.video.height}
+              className="pointer-events-none absolute inset-0 h-full w-full"
+              data-testid="presentation-animated-overlay"
+            />
+          )}
+          {activeStaticPin && staticFrameUrl && (
+            <div
+              role="img"
+              aria-label={t('presentation.annotatedPinFrame')}
+              className="absolute inset-0 h-full w-full bg-contain bg-center bg-no-repeat"
+              style={{ backgroundImage: `url(${JSON.stringify(staticFrameUrl)})` }}
+              data-testid="presentation-pin-frame"
+            />
+          )}
+        </div>
+
+        {isPresenting && pausedPin && (
+          <button
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 border-white/20 bg-black/80 text-white"
+            onClick={(event) => {
+              event.stopPropagation();
+              resumeFromPin();
+            }}
+          >
+            {t('presentation.resumeFrom', { label: pausedPin.label || `f${formatNumber(pausedPin.frame)}` })}
+          </button>
         )}
       </div>
 
-      {(videoVisible || pausedPin) && (
-        <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded border border-white/20 bg-black/80 px-3 py-2 text-xs text-white">
-          {pausedPin ? (
-            <button onClick={resumeFromPin}>{t('presentation.resumeFrom', { label: pausedPin.label || `f${formatNumber(pausedPin.frame)}` })}</button>
-          ) : (
-            <button onClick={togglePlayback}>{playing ? t('presentation.pausePreview') : t('presentation.playPreview')}</button>
-          )}
-          {playbackAsset && scene.kind === 'slide' && resolved.slide?.kind === 'clip' && (
-            <input
-              aria-label={t('presentation.sourceFrame')}
-              type="range"
-              min={playbackAsset.sourceStartFrame}
-              max={playbackAsset.sourceEndFrame - 1}
-              step={1}
-              value={sourceFrame}
-              onInput={(event) => seekSourceFrame(Number(event.currentTarget.value))}
-            />
-          )}
-          <span className="font-mono">f{formatNumber(sourceFrame)}</span>
+      {!isPresenting && playbackAsset && resolved.slide?.kind === 'clip' && resolved.clip && resolved.video && (
+        <div className="h-[104px] shrink-0 border-t border-border">
+          <TimelineStrip
+            key={resolved.sceneKey}
+            clip={resolved.clip}
+            currentFrame={sourceFrame}
+            selectedAnnotationIds={[]}
+            selectedPinId={timelinePinId}
+            selectedKeyframe={null}
+            isPlaying={playing}
+            onSkipBack={() => seekSourceFrame(sourceFrame - Math.round(resolved.video!.fps * 2))}
+            onPrevious={() => seekSourceFrame(sourceFrame - 1)}
+            onTogglePlayback={toggleOrResumePlayback}
+            onNext={() => seekSourceFrame(sourceFrame + 1)}
+            onSkipForward={() => seekSourceFrame(sourceFrame + Math.round(resolved.video!.fps * 2))}
+            onSeek={seekSourceFrame}
+            onSelectAnnotation={() => undefined}
+            onSelectPin={(_pinId, frame) => seekSourceFrame(frame)}
+            onSelectKeyframe={() => undefined}
+            onMoveKeyframe={() => undefined}
+            variant="pins"
+            testIdPrefix="presentation-timeline"
+          />
         </div>
       )}
       {message && <div className="absolute right-3 top-3 max-w-sm rounded bg-black/80 px-3 py-2 text-xs text-warning">{message}</div>}
     </div>
   );
 }
-
-export { transitionOwnerId };

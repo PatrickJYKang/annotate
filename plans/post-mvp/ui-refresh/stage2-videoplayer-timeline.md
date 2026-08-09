@@ -1,5 +1,9 @@
 # Stage 2 — VideoPlayerUnit Redesign: Editor-Style Timeline
 
+> **Historical UI plan.** See the
+> [current capture reference](../../../technical_document.md#9-capture-and-tagging)
+> for implemented timeline behavior.
+
 > **Goal:** Redesign the VideoPlayerUnit controls to feel like a video
 > **editor** timeline (Premiere Pro / DaVinci Resolve) rather than a
 > YouTube-style media player. The video content itself doesn't change —

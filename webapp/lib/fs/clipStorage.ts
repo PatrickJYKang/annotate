@@ -9,6 +9,7 @@ import {
   readTextFile,
   writeJsonFile,
 } from './fsAccess';
+import { broadcastClipChanged } from './clipEvents';
 
 export type StorageReadErrorCode = 'not-found' | 'invalid-json' | 'invalid-document' | 'io-error';
 
@@ -75,6 +76,7 @@ export async function writeClip(
   const parsed = parseClip(clip, { folderId: clip.id });
   await getDirectoryPath(projectDir, clipFolderPath(parsed.id), true);
   await writeJsonFile(projectDir, clipDocumentPath(parsed.id), parsed);
+  broadcastClipChanged(parsed.id);
 }
 
 export async function listClips(

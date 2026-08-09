@@ -1,5 +1,9 @@
 # Match metadata screen
 
+> **Historical project.v1 plan.** Use the
+> [current metadata reference](../../../technical_document.md#15-match-metadata)
+> for implemented fields and behavior.
+
 ## Goal
 
 Add a dedicated **metadata screen** (`/metadata`) that sits in the workflow between

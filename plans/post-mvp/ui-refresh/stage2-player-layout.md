@@ -1,5 +1,8 @@
 # Stage 2 — Player Page Layout Redesign
 
+> **Historical project.v1 UI plan.** See the
+> [current capture reference](../../../technical_document.md#9-capture-and-tagging).
+
 > **Goal:** Rework the player page toolbar into the new navbar pattern and
 > tighten the overall layout so the video + timeline get maximum space.
 

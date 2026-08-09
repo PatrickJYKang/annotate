@@ -9,22 +9,36 @@ import type {
   PresentationSlide,
   PresentationTransition,
 } from '../../lib/types/presentation';
+import type { VideoEntry } from '../../lib/types/project';
 import { useLocale } from '../../lib/i18n';
+
+export interface PresentationSourcePreview {
+  kind: 'clip' | 'pin';
+  clip: Clip;
+  pin: ClipPin | null;
+  video: VideoEntry | null;
+}
 
 interface PresentationInspectorProps {
   slide: PresentationSlide | null;
   clip: Clip | null;
+  sourcePreview?: PresentationSourcePreview | null;
   transitionAfter: PresentationTransition | null;
   transitionError?: string | null;
+  onEditClip: (clipId: string) => void;
   onSlideChange: (slide: PresentationSlide) => void;
   onTransitionChange: (transition: PresentationTransition) => void;
   onDelete: () => void;
 }
 
-function optionalNumber(value: string): number | undefined {
+function optionalSecondsAsMilliseconds(value: string): number | undefined {
   if (!value.trim()) return undefined;
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed * 1_000) : undefined;
+}
+
+function millisecondsAsSeconds(value: number | undefined): number | '' {
+  return value === undefined ? '' : Number((value / 1_000).toFixed(3));
 }
 
 function updateAnnotationCue(
@@ -84,8 +98,9 @@ function AnnotationDocumentControls({
                   className="mt-1 w-full"
                   type="number"
                   min={0}
-                  value={cue?.enterAtMs ?? ''}
-                  onChange={(event) => onCuesChange(updateAnnotationCue(cues, reference.id, 'enterAtMs', optionalNumber(event.target.value)))}
+                  step={0.1}
+                  value={millisecondsAsSeconds(cue?.enterAtMs)}
+                  onChange={(event) => onCuesChange(updateAnnotationCue(cues, reference.id, 'enterAtMs', optionalSecondsAsMilliseconds(event.target.value)))}
                 />
               </label>
               <label className="text-[10px] text-muted">{t('presentation.exitMs')}
@@ -93,8 +108,9 @@ function AnnotationDocumentControls({
                   className="mt-1 w-full"
                   type="number"
                   min={0}
-                  value={cue?.exitAtMs ?? ''}
-                  onChange={(event) => onCuesChange(updateAnnotationCue(cues, reference.id, 'exitAtMs', optionalNumber(event.target.value)))}
+                  step={0.1}
+                  value={millisecondsAsSeconds(cue?.exitAtMs)}
+                  onChange={(event) => onCuesChange(updateAnnotationCue(cues, reference.id, 'exitAtMs', optionalSecondsAsMilliseconds(event.target.value)))}
                 />
               </label>
             </div>
@@ -171,12 +187,14 @@ function ClipSlideControls({
         {clip.pins.map((pin) => {
           const cue = pauseCueFor(slide, pin.id);
           return (
-            <details key={pin.id} className="border-t border-border py-2 first:border-t-0" open={effectiveIds.has(pin.id)}>
+            <details key={pin.id} className="border-t border-border py-2 first:border-t-0">
               <summary className="cursor-pointer text-xs font-semibold">
-                <label className="mr-2 inline-flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+                <span className="mr-2 inline-flex items-center gap-2">
                   <input
                     type="checkbox"
+                    aria-label={pin.label || pin.id}
                     checked={effectiveIds.has(pin.id)}
+                    onClick={(event) => event.stopPropagation()}
                     onChange={(event) => {
                       const next = new Set(effectiveIds);
                       if (event.target.checked) next.add(pin.id);
@@ -185,15 +203,16 @@ function ClipSlideControls({
                     }}
                   />
                   f{formatNumber(pin.frame)} · {pin.label || pin.id}
-                </label>
+                </span>
               </summary>
               <label className="mt-2 block text-[10px] text-muted">{t('presentation.autoResume')}
                 <input
                   className="mt-1 w-full"
                   type="number"
                   min={0}
-                  value={cue.holdMs ?? ''}
-                  onChange={(event) => onChange(updatePauseCue(slide, { ...cue, holdMs: optionalNumber(event.target.value) }))}
+                  step={0.1}
+                  value={millisecondsAsSeconds(cue.holdMs)}
+                  onChange={(event) => onChange(updatePauseCue(slide, { ...cue, holdMs: optionalSecondsAsMilliseconds(event.target.value) }))}
                 />
               </label>
               <AnnotationDocumentControls
@@ -214,13 +233,46 @@ function ClipSlideControls({
 export default function PresentationInspector({
   slide,
   clip,
+  sourcePreview = null,
   transitionAfter,
   transitionError,
+  onEditClip,
   onSlideChange,
   onTransitionChange,
   onDelete,
 }: PresentationInspectorProps) {
-  const t = useLocale().t;
+  const { t, formatNumber } = useLocale();
+  if (sourcePreview) {
+    const { clip: sourceClip, kind, pin, video } = sourcePreview;
+    return (
+      <aside className="h-full min-h-0 w-full overflow-y-auto bg-surface p-3" data-testid="presentation-source-inspector">
+        <div className="mb-3 flex items-center justify-between gap-2 border-b border-border pb-2">
+          <h3 className="m-0 text-xs font-semibold">{t('presentation.source')}</h3>
+          <span className="text-xs text-muted">{t(`presentation.kind.${kind}`)}</span>
+        </div>
+        <strong className="block truncate text-sm">{pin?.label || sourceClip.label || sourceClip.id}</strong>
+        <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-xs">
+          <dt className="text-muted">{t('presentation.frames')}</dt>
+          <dd className="m-0 font-mono text-right">
+            {kind === 'pin' && pin
+              ? formatNumber(pin.frame)
+              : `${formatNumber(sourceClip.startFrame)}–${formatNumber(sourceClip.endFrame - 1)}`}
+          </dd>
+          <dt className="text-muted">{t('presentation.pins')}</dt>
+          <dd className="m-0 text-right">{formatNumber(sourceClip.pins.length)}</dd>
+          {video && (
+            <>
+              <dt className="text-muted">{t('presentation.video')}</dt>
+              <dd className="m-0 truncate text-right" title={video.label}>{video.label}</dd>
+            </>
+          )}
+        </dl>
+        <button className="button-primary mt-4 w-full" onClick={() => onEditClip(sourceClip.id)}>
+          {t('presentation.editClip')}
+        </button>
+      </aside>
+    );
+  }
   if (!slide) {
     return <aside className="h-full w-full bg-surface p-3"><div className="empty-state h-24" aria-hidden="true" /></aside>;
   }
@@ -231,6 +283,12 @@ export default function PresentationInspector({
         <h3 className="m-0 text-xs font-semibold">{t('presentation.inspector')}</h3>
         <span className="text-xs text-muted">{t(`presentation.${slide.kind}Slide`)}</span>
       </div>
+
+      {clip && slide.kind !== 'title' && (
+        <button className="button-primary mb-3 w-full" onClick={() => onEditClip(clip.id)}>
+          {t('presentation.editClip')}
+        </button>
+      )}
 
       {slide.kind === 'title' && (
         <>
@@ -252,12 +310,13 @@ export default function PresentationInspector({
       {slide.kind === 'clip' && <ClipSlideControls slide={slide} clip={clip} onChange={onSlideChange} />}
 
       <label className="mt-3 block text-xs text-muted">{t('presentation.slideHold')}
-        <input className="mt-1 w-full" type="number" min={0} value={slide.holdMs ?? ''} onChange={(event) => onSlideChange({ ...slide, holdMs: optionalNumber(event.target.value) })} />
+        <input className="mt-1 w-full" type="number" min={0} step={0.1} value={millisecondsAsSeconds(slide.holdMs)} onChange={(event) => onSlideChange({ ...slide, holdMs: optionalSecondsAsMilliseconds(event.target.value) })} />
       </label>
       {'notes' in slide && (
-        <label className="mt-3 block text-xs text-muted">{t('presentation.speakerNotes')}
-          <textarea className="mt-1 w-full" value={slide.notes ?? ''} onChange={(event) => onSlideChange({ ...slide, notes: event.target.value })} />
-        </label>
+        <details className="mt-3 border-t border-border pt-2">
+          <summary className="cursor-pointer text-xs font-semibold">{t('presentation.speakerNotes')}</summary>
+          <textarea className="mt-2 w-full" aria-label={t('presentation.speakerNotes')} value={slide.notes ?? ''} onChange={(event) => onSlideChange({ ...slide, notes: event.target.value })} />
+        </details>
       )}
 
       {transitionAfter && (

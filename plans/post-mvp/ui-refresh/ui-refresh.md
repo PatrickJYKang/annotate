@@ -1,5 +1,9 @@
 # Visual / UI Refresh
 
+> **Historical project.v1 UI plan.** It preserves visual rationale but its
+> route/component inventory is obsolete. See the
+> [current route reference](../../../technical_document.md#8-routes-and-user-visible-behavior).
+
 > **Goal:** Modernise the look-and-feel of the entire app without changing any
 > functionality. Every page and component should feel cohesive, polished, and
 > comfortable to use for extended annotation sessions.

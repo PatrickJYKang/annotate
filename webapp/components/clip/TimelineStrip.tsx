@@ -53,6 +53,8 @@ interface TimelineStripProps {
   onSelectPin?: (pinId: string, frame: number) => void;
   onSelectKeyframe: (keyframe: TimelineKeyframeRef) => void;
   onMoveKeyframe: (keyframe: TimelineKeyframeRef, frame: number) => void;
+  variant?: 'editor' | 'pins';
+  testIdPrefix?: string;
 }
 
 const LABEL_WIDTH = 142;
@@ -248,6 +250,8 @@ export default function TimelineStrip({
   onSelectPin,
   onSelectKeyframe,
   onMoveKeyframe,
+  variant = 'editor',
+  testIdPrefix = 'clip-timeline',
 }: TimelineStripProps) {
   const { t, formatNumber } = useLocale();
   const selectedAnnotationIdSet = useMemo(
@@ -275,6 +279,9 @@ export default function TimelineStrip({
   const frameSpacing = frameCount > 1 ? laneWidth / (frameCount - 1) : laneWidth;
   const gridStep = frameGridStep(frameSpacing);
   const gridSpacing = frameSpacing * gridStep;
+  const pinsOnly = variant === 'pins';
+  const labelWidth = pinsOnly ? 96 : LABEL_WIDTH;
+  const visibleAnnotations = pinsOnly ? [] : clip.annotations;
 
   const setScrollLeftProgrammatically = useCallback((scroller: HTMLDivElement, scrollLeft: number) => {
     ignoreScrollRef.current = true;
@@ -293,6 +300,15 @@ export default function TimelineStrip({
     observer.observe(scroller);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    setZoom(1);
+    handledRevealRequestRef.current = null;
+    keyframeDragRef.current = null;
+    manualOverrideRef.current = createTimelineManualOverride();
+    const scroller = scrollerRef.current;
+    if (scroller) setScrollLeftProgrammatically(scroller, 0);
+  }, [clip.endFrame, clip.id, clip.startFrame, setScrollLeftProgrammatically]);
 
   const frameToX = useCallback((frame: number) => {
     return framePositionX(frame, clip.startFrame, clip.endFrame, laneWidth);
@@ -439,7 +455,7 @@ export default function TimelineStrip({
   }, [onSeek, pointerToFrame]);
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-surface" data-testid="clip-timeline">
+    <section className="flex h-full min-h-0 flex-col bg-surface" data-testid={testIdPrefix}>
       <div className="flex h-9 items-stretch border-b border-border text-xs">
         <button
           className="button-quiet self-stretch border-0 border-r border-solid border-border px-3"
@@ -486,7 +502,7 @@ export default function TimelineStrip({
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="13 19 22 12 13 5" /><line x1="2" y1="19" x2="2" y2="5" /></svg>
         </button>
         <div className="flex min-w-0 items-center gap-3 border-r border-border px-3">
-          <strong>{t('timeline.keyframes')}</strong>
+          <strong>{pinsOnly ? t('clip.pins') : t('timeline.keyframes')}</strong>
           <span className="font-mono text-[10px] text-muted">{t('timeline.frameRange', {
             frame: formatNumber(currentFrame),
             start: formatNumber(clip.startFrame),
@@ -508,13 +524,13 @@ export default function TimelineStrip({
         </label>
       </div>
       <div className="flex min-h-0 flex-1 overflow-y-auto">
-        <div className="shrink-0 border-r border-border bg-surface" style={{ width: LABEL_WIDTH }}>
-          <div className="h-7 border-b border-border px-2 py-1 text-[11px] text-muted">{t('timeline.objects')}</div>
+        <div className="shrink-0 border-r border-border bg-surface" style={{ width: labelWidth }}>
+          <div className="h-7 border-b border-border px-2 py-1 text-[11px] text-muted">{pinsOnly ? '' : t('timeline.objects')}</div>
           <div className="relative border-b border-border py-2 pl-3 pr-2 text-xs font-semibold" style={{ height: ROW_HEIGHT }}>
             <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-amber-400" />
             {t('clip.pins')}
           </div>
-          {clip.annotations.map((annotation, index) => (
+          {visibleAnnotations.map((annotation, index) => (
             <button
               key={annotation.id}
               className={`relative block w-full truncate border-0 border-b border-solid border-border py-0 pl-3 pr-2 text-left text-xs ${
@@ -542,16 +558,16 @@ export default function TimelineStrip({
         <div
           ref={scrollerRef}
           className="min-w-0 flex-1 overflow-x-auto"
-          data-testid="clip-timeline-scroller"
+          data-testid={`${testIdPrefix}-scroller`}
           onWheel={handleWheel}
           onScroll={handleScroll}
         >
           <div
             className="relative cursor-ew-resize select-none touch-none"
-            data-testid="clip-timeline-lane"
+            data-testid={`${testIdPrefix}-lane`}
             data-start-frame={clip.startFrame}
             data-end-frame={clip.endFrame - 1}
-            style={{ width: laneWidth, minHeight: 28 + (clip.annotations.length + 1) * ROW_HEIGHT }}
+            style={{ width: laneWidth, minHeight: 28 + (visibleAnnotations.length + 1) * ROW_HEIGHT }}
             onPointerDown={handleLanePointerDown}
             onPointerMove={handleLanePointerMove}
             onPointerUp={handleLanePointerEnd}
@@ -574,7 +590,7 @@ export default function TimelineStrip({
             <div
               aria-hidden="true"
               className="pointer-events-none absolute inset-x-0 top-7 bottom-0"
-              data-testid="clip-frame-grid"
+              data-testid={testIdPrefix === 'clip-timeline' ? 'clip-frame-grid' : `${testIdPrefix}-frame-grid`}
               data-grid-step={gridStep}
               style={{
                 backgroundImage: 'linear-gradient(to right, rgba(148, 163, 184, 0.2) 1px, transparent 1px)',
@@ -604,17 +620,19 @@ export default function TimelineStrip({
                 />
               ))}
             </div>
-            <TimelineAnnotationRows
-              annotations={clip.annotations}
-              selectedAnnotationIds={selectedAnnotationIds}
-              selectedKeyframe={selectedKeyframe}
-              frameToX={frameToX}
-              formatNumber={formatNumber}
-              t={t}
-              onKeyframePointerDown={handleKeyframePointerDown}
-              onKeyframePointerMove={handleKeyframePointerMove}
-              onKeyframePointerEnd={handleKeyframePointerEnd}
-            />
+            {!pinsOnly && (
+              <TimelineAnnotationRows
+                annotations={clip.annotations}
+                selectedAnnotationIds={selectedAnnotationIds}
+                selectedKeyframe={selectedKeyframe}
+                frameToX={frameToX}
+                formatNumber={formatNumber}
+                t={t}
+                onKeyframePointerDown={handleKeyframePointerDown}
+                onKeyframePointerMove={handleKeyframePointerMove}
+                onKeyframePointerEnd={handleKeyframePointerEnd}
+              />
+            )}
             <div
               className="pointer-events-none absolute left-0 top-0 bottom-0 w-px bg-red-400 will-change-transform"
               style={{ transform: `translateX(${frameToX(currentFrame)}px)` }}

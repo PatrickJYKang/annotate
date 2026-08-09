@@ -90,8 +90,10 @@ mixed-resolution clips can be used in one presentation.
   a fallback, with byte/media-time progress, Apple VideoToolbox acceleration,
   and a bounded four-thread software fallback.
 - **Frame-native clip capture** from a configurable button board, including
-  instant windows, open/close range capture, facets, hotkeys, untagged capture,
-  paused re-tagging, and drag-and-drop re-tagging in the clip tree.
+  exact-frame start/stop range toggles, overlapping captures, live pending
+  ranges, facets, hotkeys, untagged capture, paused re-tagging, and
+  drag-and-drop re-tagging in the clip tree. The multi-lane tagging timeline
+  opens at a one-minute view and supports horizontal zoom and scrolling.
 - **Clip editor** with absolute-frame transport, keyframed tactical shapes,
   position and show/hide keyframes, manual keyframe retiming, horizontal timeline
   zoom, image/pitch coordinate modes, undo/redo, and persisted resizable panels.
@@ -104,23 +106,28 @@ mixed-resolution clips can be used in one presentation.
   the shared tactical annotation editor, five-second context preview, automatic
   or manual calibration, and explicit pin-document import into the animated clip
   layer.
-- **Presentations** built from clips, pins, and title cards, with clip-first
-  browsing, drag-to-deck authoring, pin pauses, annotation cues, match-video
-  transitions, exact-motion preparation, full-screen playback, and graceful
-  handling of missing references.
+- **Presentations** built from clips, pins, and distinct title-card templates,
+  with source preview, a thumbnail storyboard, frame-native authoring transport,
+  pin pauses, annotation cues, match-video transitions, direct source-video
+  playback, scrubber-free full-screen playback, and graceful handling of
+  missing references. Referenced clips can be opened in the clip editor in a
+  new tab; saved changes refresh in presentation authoring.
 - **Exports** written to `exports/report/`: clip JSON and CSV reports plus one
   native-resolution annotated PNG per pin annotation document. Individual render
   failures are reported without discarding successful outputs.
-- **English and Simplified Chinese UI** with a persisted global locale. The
-  Chinese catalog is complete but still awaits native-speaker copy review.
+- **English, French, Spanish, and Simplified Chinese UI** with a persisted
+  global locale. All four catalogs are structurally aligned; non-English copy
+  still awaits native-speaker editorial review.
 - **Standalone quick annotate route** at `/quick-annotate` for a single image.
   It is retained as a best-effort compatibility utility and is not part of the
   canonical `project.v2` workflow.
 
 The Python sidecar owns smart media preparation, authoritative probing, tracking,
-homography, optional foreground segmentation, export encoding APIs, and
-exact-motion media generation. See the [sidecar documentation](sidecar/README.md)
-for its endpoints and model requirements.
+homography, optional foreground segmentation, and export encoding APIs. Its
+exact-motion segment endpoint remains available as an export-oriented building
+block but is not used by presentation playback. See the
+[sidecar documentation](sidecar/README.md) for its endpoints and model
+requirements.
 
 ## Technology
 
@@ -138,8 +145,8 @@ for its endpoints and model requirements.
 - [Annotate 0.2 implementation ledger](plans/v0.2/implementation-plan.md)
 - [Project v2 schema and migration decisions](plans/v0.2/project-v2-schema-and-migration.md)
 - [Python sidecar setup and API](sidecar/README.md)
+- [Documentation and historical-plan index](plans/README.md)
 - [Historical MVP plan](MVP_Implementation_Plan.md)
-- [Plans directory](plans/)
 
 ## Verification
 
@@ -148,7 +155,7 @@ npm test                         # Vitest
 npm run test:e2e                # Playwright (Chromium)
 npm run build                   # production Next.js build
 npm --prefix webapp run lint    # ESLint
-sidecar/.venv/bin/pytest sidecar/tests
+(cd sidecar && .venv/bin/python -m pytest tests)
 ```
 
 Vitest excludes `webapp/e2e/**`; browser coverage is owned by Playwright.

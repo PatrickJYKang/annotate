@@ -11,8 +11,8 @@ import { useLocale } from '../../lib/i18n';
 
 interface PresentationAssetBrowserProps {
   index: PresentationAssetIndex;
-  selectedClipId: string | null;
-  onPreviewClip: (clipId: string) => void;
+  selectedAsset: PresentationAssetDrag | null;
+  onPreviewAsset: (asset: PresentationAssetDrag) => void;
 }
 
 function frameLabel(frame: number, fps: number | undefined): string {
@@ -29,24 +29,31 @@ function startDrag(event: React.DragEvent, payload: PresentationAssetDrag) {
 
 function ClipAssetRow({
   asset,
-  selected,
-  onPreview,
+  selectedAsset,
+  onPreviewAsset,
 }: {
   asset: PresentationClipAsset;
-  selected: boolean;
-  onPreview: () => void;
+  selectedAsset: PresentationAssetDrag | null;
+  onPreviewAsset: (asset: PresentationAssetDrag) => void;
 }) {
   const { t, formatNumber } = useLocale();
   const [pinsOpen, setPinsOpen] = useState(false);
   const clip = asset.clip;
+  const selectedClip = selectedAsset?.kind === 'clip' && selectedAsset.clipId === clip.id;
+  const selectedPinId = selectedAsset?.kind === 'pin' && selectedAsset.clipId === clip.id
+    ? selectedAsset.pinId
+    : null;
+  useEffect(() => {
+    if (selectedPinId) setPinsOpen(true);
+  }, [selectedPinId]);
   return (
-    <div className={`border-t border-border first:border-t-0 ${selected ? 'bg-selected' : ''}`} data-testid={`presentation-asset-${clip.id}`}>
+    <div className={`border-t border-border first:border-t-0 ${selectedClip ? 'bg-selected' : ''}`} data-testid={`presentation-asset-${clip.id}`}>
       <div className="flex items-stretch">
         <button
           className="min-w-0 flex-1 border-0 bg-transparent px-2 py-1.5 text-left"
           draggable
           onDragStart={(event) => startDrag(event, { kind: 'clip', clipId: clip.id })}
-          onClick={onPreview}
+          onClick={() => onPreviewAsset({ kind: 'clip', clipId: clip.id })}
         >
           <span className="block truncate text-xs font-semibold">{clip.label || clip.id}</span>
           <span className="block font-mono text-[10px] text-muted">
@@ -69,9 +76,9 @@ function ClipAssetRow({
             <button
               key={pin.id}
               draggable
-              className="block w-full border-0 bg-transparent px-5 py-1 text-left text-[11px] text-secondary hover:bg-hover"
+              className={`block w-full border-0 px-5 py-1 text-left text-[11px] text-secondary hover:bg-hover ${selectedPinId === pin.id ? 'bg-selected' : 'bg-transparent'}`}
               onDragStart={(event) => startDrag(event, { kind: 'pin', clipId: clip.id, pinId: pin.id })}
-              onClick={onPreview}
+              onClick={() => onPreviewAsset({ kind: 'pin', clipId: clip.id, pinId: pin.id })}
               data-testid={`presentation-pin-asset-${pin.id}`}
             >
               <span className="font-mono">f{formatNumber(pin.frame)}</span>
@@ -87,14 +94,14 @@ function ClipAssetRow({
 function AssetBucket({
   label,
   assets,
-  selectedClipId,
-  onPreviewClip,
+  selectedAsset,
+  onPreviewAsset,
   defaultOpen = false,
 }: {
   label: string;
   assets: PresentationClipAsset[];
-  selectedClipId: string | null;
-  onPreviewClip: (clipId: string) => void;
+  selectedAsset: PresentationAssetDrag | null;
+  onPreviewAsset: (asset: PresentationAssetDrag) => void;
   defaultOpen?: boolean;
 }) {
   const { formatNumber } = useLocale();
@@ -113,8 +120,8 @@ function AssetBucket({
         <ClipAssetRow
           key={asset.clip.id}
           asset={asset}
-          selected={selectedClipId === asset.clip.id}
-          onPreview={() => onPreviewClip(asset.clip.id)}
+          selectedAsset={selectedAsset}
+          onPreviewAsset={onPreviewAsset}
         />
       ))}
     </section>
@@ -123,11 +130,14 @@ function AssetBucket({
 
 export default function PresentationAssetBrowser({
   index,
-  selectedClipId,
-  onPreviewClip,
+  selectedAsset,
+  onPreviewAsset,
 }: PresentationAssetBrowserProps) {
   const t = useLocale().t;
   const [view, setView] = useState<'tags' | 'chronological'>('tags');
+  const taggedBuckets = index.groups.flatMap((group) => group.buttons
+    .filter((button) => button.clips.length > 0)
+    .map((button) => ({ id: `${group.id}:${button.id}`, label: `${group.label} · ${button.label}`, assets: button.clips })));
   return (
     <aside className="flex h-full min-h-0 w-full flex-col bg-surface" data-testid="presentation-assets">
       <header className="panel-heading h-auto flex-wrap py-2">
@@ -139,20 +149,25 @@ export default function PresentationAssetBrowser({
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {view === 'chronological' ? (
-          <AssetBucket label={t('presentation.chronological')} assets={index.chronological} selectedClipId={selectedClipId} onPreviewClip={onPreviewClip} defaultOpen />
+          index.chronological.length > 0
+            ? <AssetBucket label={t('presentation.chronological')} assets={index.chronological} selectedAsset={selectedAsset} onPreviewAsset={onPreviewAsset} defaultOpen />
+            : <div className="empty-state h-24 border-0" aria-hidden="true" />
         ) : (
           <>
-            {index.groups.map((group) => group.buttons.map((button) => (
+            {taggedBuckets.map((bucket) => (
               <AssetBucket
-                key={button.id}
-                label={`${group.label} · ${button.label}`}
-                assets={button.clips}
-                selectedClipId={selectedClipId}
-                onPreviewClip={onPreviewClip}
+                key={bucket.id}
+                label={bucket.label}
+                assets={bucket.assets}
+                selectedAsset={selectedAsset}
+                onPreviewAsset={onPreviewAsset}
               />
-            )))}
-            <AssetBucket label={t('tagTree.untagged')} assets={index.untagged} selectedClipId={selectedClipId} onPreviewClip={onPreviewClip} />
-            <AssetBucket label={t('tagTree.unknown')} assets={index.unknown} selectedClipId={selectedClipId} onPreviewClip={onPreviewClip} />
+            ))}
+            {index.untagged.length > 0 && <AssetBucket label={t('tagTree.untagged')} assets={index.untagged} selectedAsset={selectedAsset} onPreviewAsset={onPreviewAsset} />}
+            {index.unknown.length > 0 && <AssetBucket label={t('tagTree.unknown')} assets={index.unknown} selectedAsset={selectedAsset} onPreviewAsset={onPreviewAsset} />}
+            {taggedBuckets.length === 0 && index.untagged.length === 0 && index.unknown.length === 0 && (
+              <div className="empty-state h-24 border-0" aria-hidden="true" />
+            )}
           </>
         )}
       </div>

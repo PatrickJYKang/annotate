@@ -1,7 +1,11 @@
 # D3 – Playback + Marks Implementation Plan
 
+> **Historical project.v1 milestone.** Marks are not part of project.v2. See
+> the [current technical reference](../technical_document.md) and
+> [documentation index](README.md).
+
 Date: 2025-10-14
-Status: In Progress
+Status: Archived (originally In Progress)
 Target: Chromium desktop only
 
 ## Goals

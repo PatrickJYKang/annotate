@@ -1,5 +1,9 @@
 # Tracking Correction Architecture
 
+> **Historical design record.** Current detect/start/reacquire/continue/stop
+> behavior is documented in the
+> [as-built reference](../../../technical_document.md#tracking).
+
 ## Goal
 
 Define the next-stage architecture for clip tracking after the current baseline is already good enough to build on.

@@ -544,7 +544,10 @@ export default function ClipEditor({
 }: ClipEditorProps) {
   const sidecar = useSidecar();
   const { t, formatNumber } = useLocale();
-  const initialPinFrame = clip.pins.find((pin) => pin.id === initialPinId)?.frame ?? clip.startFrame;
+  const initialPinFrameRef = useRef(
+    clip.pins.find((pin) => pin.id === initialPinId)?.frame ?? clip.startFrame,
+  );
+  const initialPinFrame = initialPinFrameRef.current;
   const [currentClip, setCurrentClip] = useState(clip);
   const [annotations, setAnnotations] = useState(() => cloneClipAnnotations(clip.annotations));
   const [currentFrame, setCurrentFrame] = useState<number>(initialPinFrame);

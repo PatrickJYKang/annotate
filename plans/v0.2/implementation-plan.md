@@ -1,7 +1,7 @@
 # Annotate 0.2 – Implementation Plan
 
-Date: 2026-07-11 (rev 6, per-video media amendment)
-Status: All non-manual phases verified; native zh-CN review pending
+Date: 2026-08-08 (rev 9, documentation sync amendment)
+Status: All non-manual phases verified; non-English editorial review pending
 Parents: [v0.2-scope.md](v0.2-scope.md) · [project-v2-schema-and-migration.md](project-v2-schema-and-migration.md)
 
 ## How to read this
@@ -17,8 +17,9 @@ Parents: [v0.2-scope.md](v0.2-scope.md) · [project-v2-schema-and-migration.md](
 - Phase steps preserve the implementation-time sequence and temporary names.
   Step 1.7 records their promotion/deletion; canonical as-built paths are in
   `../../technical_document.md` and the schema document's final inventory.
-- Adopted decisions: tag buttons support `instant` and `range` modes
-  (default `instant`); exports are renders only; zh-CN only in phase 5;
+- Adopted decisions: every primary tag button is an exact-frame start/stop
+  range toggle with no automatic pre/post-roll; exports are renders only;
+  four aligned UI locales ship in phase 5;
   `/player-legacy` + `/dropdown-test` deleted; annotations under each clip
   folder; **board middle-path semantics** (flat board + per-button facet
   applicability + `requiresAny`; vetoable, see scope doc); **deletion =
@@ -26,6 +27,9 @@ Parents: [v0.2-scope.md](v0.2-scope.md) · [project-v2-schema-and-migration.md](
 - Analysis sidecar APIs stay ms-based at their HTTP boundaries. The media
   import boundary is the explicit amendment: authoritative per-video metadata
   plus preserve/remux/transcode strategy and progress (step 0.9).
+- Presentation playback always reads absolute frame ranges from each original
+  project video. Exact-motion encoding/storage remains implemented and tested
+  only as dormant export-oriented infrastructure, never as a playback fallback.
 - Quick-annotate is a **best-effort survivor**: it rides the annotation
   payload refactor for free if that stays cheap, and is deleted without
   ceremony if preserving its v1 documents complicates the v2 boundary.
@@ -50,14 +54,14 @@ is checked against this plan rather than inferred from route availability.
 | 0.9 per-video media authority | `[x]` | strict per-video metadata, fast container/probe count, preserve/remux/transcode strategy tests |
 | 0.10 v2 fixtures | `[x]` | happy/retrieval/broken graphs parse through runtime contracts and integrity checks |
 | 1.1 v2 project entry | `[x]` | isolated provider/key, create/open/refusal/report dashboard, refresh and legacy-key isolation e2e |
-| 1.2 capture player | `[x]` | frame-exact duration-based capture, board tree/re-tag, trash/undo, atomic per-video import; persistence and rollback e2e |
+| 1.2 capture player | `[x]` | frame-exact range capture, board tree/re-tag, trash/undo, atomic per-video import; persistence and rollback e2e |
 | 1.3 clip editor | `[x]` | absolute-frame shell/timeline, frame-domain API parity, exact sidecar boundaries, tracking/followers/ranges, homography cache, pitch authoring, repository persistence e2e |
 | 1.4 pins, annotator, import | `[x]` | timeline pins, shared full-parity annotator, trash/undo, explicit batch-remapped import, persistence and preview-lock e2e |
-| 1.5 presentations | `[x]` | clip-first drag authoring, inspector/cues, shared animated renderer, rasterized pins, exact frame-ranged media, pause machine and degradation e2e |
+| 1.5 presentations | `[x]` | source-preview drag authoring, thumbnail storyboard, shared pins-only timeline, edit-clip handoff/refresh, distinct titles, direct source playback, pause machine and degradation e2e |
 | 1.6 exports | `[x]` | deterministic clip JSON/CSV, per-document annotated PNGs, progress and partial failure reporting, complete-folder e2e |
 | 1.7 canonical flip | `[x]` | canonical routes/provider/storage/types, v1 deletion sweep, handle-key migration, forbidden-domain grep and full gate |
-| 2.1 board panel | `[x]` | instant/range grids, armed-state display, advisory applicability, enforced requirements, collision-safe hotkey labels |
-| 2.2 capture engine | `[x]` | exact instant/range bounds, facet snapshots, simultaneous/reversed ranges, cancellation and hotkey unit coverage |
+| 2.1 board panel | `[x]` | fixed coordinate layout, armed-state display, dynamic modifiers, advisory applicability, enforced requirements, collision-safe hotkeys |
+| 2.2 capture engine | `[x]` | exact start/stop bounds, facet snapshots/updates, overlapping/reversed ranges, cancellation and hotkey unit coverage |
 | 2.3 player integration | `[x]` | board-only capture, explicit untagged/paused re-tag actions, repository writes and operation-backed undo |
 | 2.4 tag tree | `[x]` | board-derived groups, DnD re-tagging with facet pruning, separate Untagged/Unknown buckets |
 | 2.5 tagging tests | `[x]` | persisted browser workflow for capture, facets, hotkeys, ranges, re-tag, DnD, delete/restore and reload |
@@ -72,7 +76,7 @@ is checked against this plan rather than inferred from route availability.
 | 4.5 remaining screens/tests | `[x]` | meaningful dashboard split, ordinary metadata forms retained, minima/persistence/keyboard/narrow-viewport browser coverage |
 | 5.1 i18n mechanism | `[x]` | persisted locale provider, interpolation, missing-key diagnostics, Intl helpers, global locale control and catalog contract tests |
 | 5.2 extraction sweep | `[x]` | primary route chrome, statuses, accessibility text, structured export progress, validation and integrity descriptions use the shared catalog |
-| 5.3 zh-CN | `[-]` | complete 512-key catalog and CJK layout pass; native-speaker review remains a manual sign-off |
+| 5.3 non-English catalogs | `[-]` | complete aligned French, Spanish, and Simplified Chinese catalogs plus CJK layout pass; native-speaker review remains a manual sign-off |
 | 5.4 i18n e2e | `[x]` | chooser plus every primary route, reload persistence, interpolation, editable English board content and raw-key absence |
 | Stabilization: per-video media import | `[x]` | preserve/remux/transcode jobs, real progress, fast long-MP4 probe, native media contracts, bounded fallback, cancellation/cleanup, and global serialization |
 
@@ -116,11 +120,12 @@ tag/chronological browsing, expandable pin drag sources, persisted deck
 insertion/reordering, title/clip/pin inspection, pause/document/cue controls,
 animated annotation pixel output through the shared renderer, rasterized
 annotated pin frames, forward-crossing pause/resume without retrigger,
-exact clip and match-video paths, absolute source-range metadata and
-timebase mapping, match-video generation when selected, stale-media
-regeneration, early-scrub/media-readiness race protection, and visible
-missing-reference degradation. The browser contract also passed three
-consecutive repetitions before the full-suite gate.
+direct-source clip and match-video paths, absolute source-range timebase
+mapping, early-scrub/media-readiness race protection, and visible
+missing-reference degradation. The 2026-08-07 amendment additionally proves
+that Present makes no exact-motion request and ignores existing prepared
+assets. The browser contract also passed three consecutive repetitions before
+the full-suite gate.
 
 Phase 1.6 exit verification on 2026-07-11: 330 Vitest tests, 21 sidecar
 pytest tests, all 24 Playwright flows (v1 and v2), TypeScript, lint (no
@@ -145,8 +150,8 @@ All coexistence-era `*V2` files and exports were promoted to canonical names.
 The project-handle store writes `project` and migrates the temporary
 `project-v2` key. The production grep gate is empty for mark/still and
 millisecond-domain fields; `annotations.v1` remains only for the explicitly
-retained standalone quick-annotate parser/session. The frozen 0.1 checkout at
-`/Users/patrickkang/Documents/annotate-0.1` remains the rollback/use path.
+retained standalone quick-annotate parser/session. The frozen
+`v0.1.0-pre.3` release remains the rollback/use path.
 
 Phase 2 exit verification on 2026-07-11: 195 canonical Vitest tests,
 21 sidecar pytest tests, and all 14 canonical Playwright flows pass;
@@ -156,9 +161,12 @@ importer, and experimental segmentation page; the new tagging surface is
 warning-free. The board is now the only tagging surface: the interim video
 capture controls, pause/menu path, legacy schema adapter, and YAML-era menu
 types are deleted. Browser coverage reads persisted clip documents to verify
-instant and simultaneous range capture, inclusive stop frames, facet
-snapshot/clear and requirements, hotkey exclusions, paused-only re-tagging,
-DnD facet pruning, explicit untagged capture, trash restore, and reload.
+simultaneous range capture, inclusive stop frames, facet snapshot/update and
+requirements, hotkey exclusions, paused-only re-tagging, DnD facet pruning,
+explicit untagged capture, trash restore, and reload. The later board UX
+amendment made all primary controls exact-frame range toggles, added authored
+coordinate layout, and exposed pending captures on group-derived timeline
+lanes.
 
 Phase 3 exit verification on 2026-07-11: 196 canonical Vitest tests,
 21 sidecar pytest tests, and all 16 canonical Playwright flows pass;
@@ -181,30 +189,30 @@ groups with reachable minima, visible keyboard-operable separators, and no
 page-level narrow-viewport overflow. Present mode and ordinary metadata
 forms remain intentionally panel-free. Browser coverage exercises every
 major split, reload persistence, keyboard resizing, post-resize player
-hotkeys, and mobile fallback. A full-suite-only presentation race also
-surfaced and was fixed: playback intent and requested source frame now
-survive a late handoff from original media to a prepared exact-motion asset;
-the formerly flaky pause-at-pin path passed three consecutive focused runs
-before the complete suite gate.
+hotkeys, and mobile fallback. The former late prepared-asset handoff was
+removed by the 2026-08-07 direct-source amendment. Asynchronous clip loading
+now changes the resolved scene identity so playback initializes at the clip's
+real start frame; the pause-at-pin path remains covered end to end.
 
 Phase 5 implementation verification on 2026-07-11: 198 canonical Vitest
 tests, 21 sidecar pytest tests, and all 21 canonical Playwright flows pass;
 TypeScript, `git diff --check`, and the production build are clean. Lint is
 warning-only with five pre-existing warnings, one fewer than Phase 4 after
 the metadata importer callback dependency was corrected. The locale provider
-persists `en`/`zh-CN`, updates document language, supports named
+persists `en`/`fr`/`es`/`zh-CN`, updates document language, supports named
 interpolation and `Intl` formatting, reports missing keys in development,
-and tolerates blocked local storage. Both catalogs contain the same 512 keys
+and tolerates blocked local storage. All four catalogs contain the same 522 keys
 and interpolation tokens. The extraction covers setup/dashboard, player and
 the user-authored board/tree, clip tools/timeline/pins, presentation
 authoring/playback, metadata/importers, statuses/errors, accessibility text,
 and locale-neutral structured export progress. Chinese-specific font,
 line-height, wrapping, and responsive-modal guards are present. Browser
 coverage switches before project open, traverses every primary route,
-reloads both locales, checks interpolated values and raw-key absence, and
-proves default board content remains editable English project data. A native
-speaker has not yet reviewed the Chinese copy, so 5.3 remains `[-]` rather
-than being overstated as complete.
+persists French and Spanish switching, exercises the Simplified Chinese
+primary-route surface, checks interpolated values and raw-key absence, and
+proves default board content remains editable English project data. Native
+speakers have not yet reviewed the non-English copy, so 5.3 remains `[-]`
+rather than being overstated as complete.
 
 Post-plan media stabilization on 2026-07-11 first replaced blocking all-core
 `libx264` work with observable background jobs, VideoToolbox, bounded software
@@ -213,14 +221,24 @@ a two-hour source exposed the deeper problem: projects no longer impose one FPS
 or resolution. Compatible CFR H.264 MP4 is preserved, compatible streams are
 remuxed without video encoding, and only VFR/incompatible media is transcoded
 at native dimensions/FPS. Container `nb_frames` avoids scanning ordinary long
-MP4s; packet/decode counting remains the exact fallback. Capture lead/lag is in
-seconds, homography cache identity includes `videoId`, and annotation defaults
-scale with source resolution. Final gate evidence is recorded below.
+MP4s; packet/decode counting remains the exact fallback. Homography cache
+identity includes `videoId`, and annotation defaults scale with source
+resolution. Final gate evidence is recorded below.
 
 Per-video media amendment gate on 2026-07-11: 205 Vitest tests across 35
 files, 28 sidecar pytest tests (including real preserve/remux media), all 22
 Playwright Chromium flows, TypeScript, production build, `git diff --check`,
 and ESLint with no errors and the unchanged five-warning baseline all pass.
+
+Documentation-sync and presentation-authoring amendment gate on 2026-08-08:
+259 Vitest tests across 44 files, 41 sidecar pytest tests, and all 30
+Playwright Chromium flows pass. TypeScript, the production build,
+`git diff --check`, and local Markdown-link validation are clean. ESLint has no
+errors and one warning in the experimental segmentation page. The browser
+suite includes source-preview/deck independence, direct original-video
+playback with no exact-motion requests, pins-only authoring transport,
+slide-switch timeline and animation reset, cross-tab clip editing entry, dense
+tracked-timeline performance, and four-catalog locale switching coverage.
 
 The browser pixel assertion from 0.7 and route-level atomic-import assertion
 from 0.9 attach to the first runnable v2 routes in 1.1–1.3; their unit and
@@ -244,7 +262,7 @@ covering, at minimum:
 - deletion policy (trash + degrade-to-missing),
 - clip-subtree single-mutation/field-ownership rule,
 - presentation playback contracts (animated-annotation rendering,
-  pause-at-pin crossing machine, exact-motion timebase mapping),
+  pause-at-pin crossing machine, direct original-media timebase mapping),
 - board semantics (middle path),
 - `frameCount` authority,
 - pin/document lifecycle rules and presentation-reference degradation,
@@ -322,8 +340,10 @@ exclusive end. Do not equate sparse sample count with clip frame count.
 
 **Do**
 - `lib/tagging/board.ts`:
-  - `TaggingBoard { schema: 'tagging-board.v1'; defaults { leadSeconds;
-    lagSeconds; mode }; groups: BoardGroup[]; facets: BoardFacetGroup[] }`.
+  - `TaggingBoard { schema: 'tagging-board.v1'; layout?; defaults {
+    leadSeconds; lagSeconds; mode }; groups: BoardGroup[];
+    facets: BoardFacetGroup[] }`. Layout defines one fixed board coordinate
+    space, modifier slots, group-label rectangles, and button rectangles.
   - `BoardButton { id; label; hotkey?; leadSeconds?; lagSeconds?; mode?;
     facetGroupIds?: string[] }` — per-button facet applicability
     (ports the YAML `facet_group_ids`).
@@ -340,6 +360,9 @@ exclusive end. Do not equate sparse sample count with clip frame count.
     re-tag instead of v1's clear-all-facets.
   - **Boards are mandatory**: v2 open auto-installs the default board when
     missing (no prompt, no optional path).
+  - The parser retains `mode` and lead/lag fields for early-v2 board
+    compatibility. The canonical resolver normalizes every primary button to
+    exact-frame range capture with zero lead/lag.
   - Validation errors: duplicate ids, unresolved `facetGroupIds`, invalid
     `requiresAny` group/option references, dependency cycles, and invalid
     capture defaults. Hotkey collisions are structured warnings; every
@@ -554,9 +577,10 @@ the injected callback.
   back media if the manifest commit fails. Early v2 top-level media fields are
   accepted and stripped on write. Presentation/clip/export resolution always
   follows the owning video.
-- Board capture lead/lag is stored in seconds and converted using selected
-  video FPS. Homography caches are namespaced by `videoId`; new annotation
-  defaults scale relative to source resolution.
+- Board compatibility fields remain parseable, while canonical capture
+  normalizes every primary button to exact-frame range mode. Homography caches
+  are namespaced by `videoId`; new annotation defaults scale relative to
+  source resolution.
 
 **Tests**: real sidecar CFR MP4 preserve and MOV remux tests; strict metadata,
 atomic rollback, mixed-FPS/resolution manifest, duration capture, cache
@@ -569,7 +593,7 @@ isolation, mixed-video playback timebase, and browser preserve-import tests.
   with absolute-frame manual/tracked/visibility keyframes, two pins, two
   annotation documents, and a schema-2 presentation containing title,
   clip, and pin slides plus pause cues.
-- Author `e2e/fixtures/retrieval-project-v2/`: one prepared video, two
+- Author `e2e/fixtures/retrieval-project-v2/`: one source video, two
   tagged clips replacing the old marks, overlapping clip bounds with a pin
   at the same absolute frame in each clip (the deliberate independence
   case), and an empty presentation.
@@ -702,13 +726,12 @@ v1 routes and e2e keep working; new v2 specs are added per step.
   a canvas driven by `renderClipAnnotationsToCanvas` with the frame temporal
   adapter (0.7/1.3) over clip
   playback, keyed by current **source frame**.
-- **Timebase mapping**: every resolved asset includes
+- **Timebase mapping**: every resolved scene includes
   `sourceStartFrame`/`sourceEndFrame`. `toSourceFrame(asset,
-  mediaTimeSeconds, video)` maps exact-motion local frame 0 to
-  `asset.sourceStartFrame`; original media uses the absolute displayed
-  frame. Exact clip assets assert their source range equals the clip;
-  trimmed match-video assets record their actual pin/offset range. Pin
-  crossing and annotation lookup use this helper exclusively.
+  mediaTimeSeconds, video)` maps the owning original video's presented time
+  to an absolute frame and clamps it to that scene range. Clip scenes use the
+  clip range; trimmed match-video scenes use their actual pin/offset range.
+  Pin crossing and annotation lookup use this helper exclusively.
 - **Pause-at-pin state machine** (per locked contract): track previous
   source frame; trigger on **forward crossing** into a pin (never exact
   equality); consumed-pin set per slide playback; resume from a paused
@@ -720,15 +743,25 @@ v1 routes and e2e keep working; new v2 specs are added per step.
   manually. `annotationCues` are relative to the pause/slide wall clock.
 - Match-video remains valid only between forward-ordered pin slides on the
   same video. `startOffsetFrames >= 0` and `endOffsetFrames <= 0` trim the
-  source range; conversion to ms happens only when creating the sidecar
-  request/generation key.
-- Inspector: pin-slide document/cue controls, clip-slide `pausePins`
-  checklist and per-pin cues; deck strips and `presentationHelpers` v2
-  variants.
-- e2e: `v2-presentation.spec.ts` — deck authoring, animated-annotation
+  source range. Playback seeks and stops directly against the original video;
+  no sidecar request or derived file is created.
+- Authoring UI: independent clip/pin source preview, empty-bucket suppression,
+  a 16:9 thumbnail storyboard, three distinct title templates, and a compact
+  inspector with collapsed pin details. Wall-clock values remain milliseconds
+  in storage but are edited as seconds.
+- Clip preview reuses `TimelineStrip` in a pins-only variant, preserving
+  frame-snapped click/drag seek, zoom/manual-scroll behavior, pin markers, and
+  transport controls. Present mode intentionally has no scrubber.
+- A selected clip or clip-backed pin can open `/clip/[clipId]` in a new tab.
+  Clip repository writes broadcast a local change event, while focus recovery
+  provides a second refresh path, so presentation assets and scenes adopt clip
+  edits made in that tab.
+- e2e: `v2-presentation.spec.ts` — source preview, deck authoring, exact pointer
+  seeking, animated-annotation
   visibility during clip playback (pixel sample), pause→advance→resume
-  without retrigger, pause behavior on the exact-motion path (mock or
-  real sidecar), pin slide rendering, missing-reference degradation.
+  without retrigger, source-video clip/transition playback with zero
+  exact-motion requests, no present-mode timeline, pin slide rendering,
+  missing-reference degradation.
 
 ### 1.6 Exports (v2)
 
@@ -779,9 +812,11 @@ point during the phase did the shipping (v1) app lose features.
 
 ### 2.1 Board panel component
 
-- `components/tagging/TagBoard.tsx`: renders groups as button grids and
-  facets as toggle strips. Buttons show instant/range mode and range-armed
-  state; single facets behave as radios and multi facets latch.
+- `components/tagging/TagBoard.tsx`: renders the project-authored coordinate
+  surface as one stable board. Groups, labels, primary buttons, and modifier
+  slots scale together; no tag navigation menu or board scrolling is needed.
+  Buttons show range-armed state; single facets behave as radios and multi
+  facets latch. Applicable modifiers may update a capture while it is active.
 - Props: `board`, `armedFacets`, `activeRangeCaptures`, `mode`, `disabled?`,
   `onButtonPress`, `onFacetToggle`, `onCancelRange`.
 - Facets render per-button applicability: hovering/focusing/arming a button
@@ -796,24 +831,23 @@ point during the phase did the shipping (v1) app lose features.
   - `createCaptureEngine({ board, videoFrameCount })` exposes
     `pressButton(buttonId, playheadFrame)`, `cancelRange(buttonId)`,
     `cancelMostRecentRange()`, and `getActiveRanges()`.
-  - Instant capture resolves button lead/lag, clamps to
-    `[0, frameCount]`, guarantees at least one frame, and returns a new
-    `ClipV2` with only applicable armed facets.
-  - First range press snapshots button configuration and applicable facets,
+  - Every first button press snapshots applicable facets,
     clears those armed facets for subsequent captures, and records the
     absolute start frame. Different range buttons may be active
     simultaneously; the same button has at most one active range.
   - Second press closes at `playheadFrame + 1` so the displayed stop frame
     is included. If that boundary is not after the start, no clip is
     created and the range remains armed until a forward close or cancel.
+  - Modifier changes can replace the applicable facet snapshot on an active
+    range without affecting other active captures.
   - Escape cancels the most recently armed range; an explicit panel action
     cancels an individual range. Project/video switches cancel all active
     ranges with a warning rather than carrying frame axes across videos.
   - `buildHotkeyMap(board)` ignores input/textarea/select/contenteditable
     targets and modified shortcuts. Validation-disabled collisions never
     dispatch.
-- Unit tests: instant/range lifecycle, same/reversed frame close, stop-frame
-  inclusion, simultaneous ranges, facet snapshot/clear, applicability,
+- Unit tests: range lifecycle, same/reversed frame close, stop-frame
+  inclusion, simultaneous ranges, facet snapshot/clear/update, applicability,
   requiresAny, clamping, cancellation, project/video reset, and hotkeys.
 
 ### 2.3 Player integration and menu removal
@@ -828,6 +862,10 @@ point during the phase did the shipping (v1) app lose features.
   exits re-tag mode before cancelling ranges.
 - Keydown dispatch checks board hotkeys before transport keys only when the
   target is eligible; transport behavior otherwise remains unchanged.
+- The player timeline derives one lane per board group, renders pending ranges
+  before they close, packs overlaps into subtracks, defaults to a one-minute
+  viewport, and suppresses playhead auto-follow until five seconds after
+  manual scrolling ends.
 - Delete `TaggingMenu`, `boardToLegacySchema`, and
   `legacySchemaTypes.ts`. No YAML schema behavior remains.
 
@@ -841,10 +879,10 @@ point during the phase did the shipping (v1) app lose features.
 
 ### 2.5 Tests
 
-- `tagging-board.spec.ts`: instant capture; range arm/close/cancel;
-  simultaneous ranges; exact frame bounds; facets snapshot then clear;
-  applicability and requiresAny; hotkey and focus exclusions; explicit
-  re-tag mode; DnD re-tag; reload persistence.
+- `tagging-board.spec.ts`: range arm/close/cancel; simultaneous ranges; exact
+  frame bounds; facets snapshot, update, then clear; applicability and
+  `requiresAny`; hotkey and focus exclusions; live pending timeline ranges;
+  explicit re-tag mode; DnD re-tag; reload persistence.
 
 **Phase 2 exit**: pause→menu is gone and the board is the only tagging
 surface.
@@ -928,7 +966,7 @@ surface.
 
 - `lib/i18n/index.tsx`: `LocaleProvider` with localStorage locale (`en`
   default), `useT()`, `{param}` interpolation, missing-key diagnostics in
-  development, and `messages/en.json` / `messages/zh-CN.json`.
+  development, and aligned `en`, `fr`, `es`, and `zh-CN` catalogs.
 - Locale control in header; user-facing dates/numbers use `Intl`. CSV/JSON
   exports retain locale-independent machine formats.
 
@@ -939,13 +977,15 @@ editor/pin annotator; presentation authoring/present mode; metadata;
 toasts/errors/exports. One screen group lands green before the next, with a
 grep gate for literal user-facing strings in completed directories.
 
-### 5.3 zh-CN and 5.4 e2e
+### 5.3 Non-English catalogs and 5.4 e2e
 
-- Translate zh-CN, obtain native-speaker review, and fix CJK overflow and
-  line-height issues found during that pass. The user-authored default board
-  stays English and editable.
-- `i18n.spec.ts`: switch locale across every primary route, verify core
-  labels, reload persistence, interpolation, and no raw translation keys.
+- Maintain aligned French, Spanish, and Simplified Chinese catalogs, obtain
+  native-speaker editorial review, and fix CJK overflow and line-height issues
+  found during that pass. The user-authored default board stays English and
+  editable.
+- `i18n.spec.ts`: persist French and Spanish switching, traverse the primary
+  route surface in Simplified Chinese, verify core labels and interpolation,
+  and reject raw translation keys.
 
 Always last; this phase slips to 0.3 before delaying structural work.
 
@@ -987,8 +1027,8 @@ Always last; this phase slips to 0.3 before delaying structural work.
 | `HomographyFrame.tMs`, `homography-cache/<videoId>/range-{ms}` | stays ms (video-namespaced sidecar artifact); frame wrappers only |
 | sidecar params `startMs/endMs/frameMs/seedFrameMs` | stay ms; produced only by step-0.1 boundary helpers |
 | presentation `holdMs`, cue `enterAtMs/exitAtMs` | stay ms because they measure presentation wall-clock duration, not media position |
-| transition `startOffsetMs/endOffsetMs` | → `startOffsetFrames/endOffsetFrames`; converted only for the sidecar request/key |
-| exact-motion generation keys / `durationMs` metadata | stay ms as regenerable sidecar/cache artifacts derived from frames; assets additionally store source start/end frames |
+| transition `startOffsetMs/endOffsetMs` | → `startOffsetFrames/endOffsetFrames`; applied directly to the original-video source range |
+| exact-motion generation keys / `durationMs` metadata | dormant export-oriented sidecar/cache artifacts; never consulted by interactive playback |
 
 ## Appendix D — contract test matrix (new)
 
@@ -998,7 +1038,7 @@ Always last; this phase slips to 0.3 before delaying structural work.
 | Inclusive sidecar sampler vs half-open ranges at source and sparse sample FPS | frameMath unit (0.1) + mock assertions (1.3) |
 | One-frame clips never send invalid sidecar ranges | frameMath/editor unit + `v2-clip-editor` |
 | Absolute-frame keyframes with non-zero `startFrame` | fixture design (0.10) + `v2-clip-editor` |
-| Exact-motion local ↔ stored asset source range | `toSourceFrame` unit + `v2-presentation` |
+| Original media time ↔ absolute scene source range | `toSourceFrame` unit + `v2-presentation` |
 | Pause-at-pin crossing/consumed/resume/seek | pause-machine unit + `v2-presentation` |
 | Single-writer field merges under concurrency | repository unit with racing annotation/tag mutators |
 | Queued autosave cannot recreate a deleted clip | repository/tombstone unit |

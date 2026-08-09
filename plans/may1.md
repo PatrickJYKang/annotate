@@ -1,5 +1,9 @@
 # Journal, May 1, 2026
 
+> **Historical development journal.** It captures the repository state on its
+> date and is not a current specification. See the
+> [documentation index](README.md).
+
 As I have discontinued my session logs for there being too much of a backlog and maintenance load, here be an overview of what was accomplished between now and the previous reporting point.
 
 As a reminder, the actual documentation for the project is at [README.md](../README.md). For a lower level overview see [`technical_document.md`](../technical_document.md). Documentation for the sidecar specifically is at [sidecar/README.md](../sidecar/README.md). [/plans/](../plans/) contains planning documents for various deliverables; these are not up to date references.
@@ -28,4 +32,4 @@ From a development perspective, the next step is to actively hunt for QoL issues
 
 ## Thanks
 
-Obviously there are some people who without their support this project would not have been possible: the entire Tech Sem team, coaches and analysts that have provided feedback, football twitter, as well as the open source community. A few special words go out to the [ACFC YouTube Channel](https://www.youtube.com/@ACFC) for their excellent content and for being the original birth of inspiration and a continuing reference point for this project; to the organisations that have uploaded full-length match videos to the internet for free use; and to the developers of the open source tools that made this project possible. This project has been developed in OpenAI Codex and Windsurf, with support from Claude Code, and almost all code is written by AI. 
+Obviously there are some people who without their support this project would not have been possible: the entire Tech Sem team, coaches and analysts that have provided feedback, football twitter, as well as the open source community. A few special words go out to the [ACFC YouTube Channel](https://www.youtube.com/@ACFC) for their excellent content and for being the original birth of inspiration and a continuing reference point for this project; to the organisations that have uploaded full-length match videos to the internet for free use; and to the developers of the open source tools that made this project possible. This project has been developed in OpenAI Codex and Windsurf, with support from Claude Code, and almost all code is written by AI.

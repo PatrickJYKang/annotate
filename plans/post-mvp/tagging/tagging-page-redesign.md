@@ -1,5 +1,9 @@
 # Tagging page redesign
 
+> **Historical redesign plan.** Use the
+> [current capture reference](../../../technical_document.md#9-capture-and-tagging)
+> for the fixed board and multi-lane timeline behavior.
+
 ## Goal
 
 Replace the current marks-centric `/player` page with a new **tagging page** where

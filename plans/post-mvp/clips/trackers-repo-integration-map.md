@@ -1,5 +1,9 @@
 # `trackers` Repo Integration Map
 
+> **Historical integration map.** It records the import path that led to the
+> current sidecar. Use the [sidecar reference](../../../sidecar/README.md) for
+> the live endpoint and provider boundary.
+
 ## Goal
 
 Map how the separate `PatrickJYKang/trackers` repo can be used as a demo/reference repo now, and gradually mined for reusable CV components later.

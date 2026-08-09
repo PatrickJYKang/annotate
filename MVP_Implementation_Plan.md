@@ -1,5 +1,10 @@
 # Football Analysis Annotator – MVP Implementation Plan (Web PWA)
 
+> **Historical project.v1 plan.** This document records the original MVP
+> implementation and is not a current specification. Use the
+> [0.2 as-built reference](technical_document.md) and
+> [documentation index](plans/README.md) for the current application.
+
 Date: 2025-10-08
 
 Historical note:

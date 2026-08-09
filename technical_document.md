@@ -1,6 +1,6 @@
 # Annotate 0.2 As-Built Technical Reference
 
-Date: 2026-07-11
+Date: 2026-08-08
 
 Status: current implementation on the Annotate 0.2 development branch. The
 code is authoritative if this document drifts.
@@ -78,7 +78,7 @@ The local FastAPI service runs on `http://127.0.0.1:8321` by default. It owns:
 - vendored PnLCalib homography estimation;
 - optional person segmentation;
 - ffmpeg export-session encoding APIs; and
-- exact-motion segment generation for presentations.
+- an available exact-motion segment primitive retained for future exports.
 
 `npm run dev` starts the webapp and sidecar together. The client base URL can
 be changed with `NEXT_PUBLIC_SIDECAR_URL`. See `sidecar/README.md` for the full
@@ -150,8 +150,10 @@ writes the manifest last. A partial tree without a valid manifest is not an
 openable project.
 
 Clips and presentations are discovered by directory scan rather than indexed
-in `project.json`. Homography and exact-motion files are regenerable caches.
-`exports/` contains rendered outputs, never copied source video.
+in `project.json`. Homography files are regenerable caches. The legacy
+presentation exact-motion storage contract remains readable but is not used by
+interactive playback. `exports/` contains rendered outputs, never copied source
+video.
 
 ## 6. Persisted schemas
 
@@ -190,9 +192,10 @@ next manifest write.
 
 The required `tagging-board.v1` file contains:
 
-- project-wide default lead/lag seconds and capture mode;
+- an optional fixed coordinate layout with board dimensions, modifier slots,
+  group-label rectangles, and button rectangles;
 - flat visual groups of primary-tag buttons;
-- optional per-button hotkeys and capture overrides;
+- optional per-button hotkeys and compatibility capture fields;
 - per-button applicable facet-group IDs; and
 - single- or multi-select facet groups with optional `requiresAny` rules.
 
@@ -203,8 +206,10 @@ is missing its board, open installs the default board from
 `webapp/public/tagging/board.json`.
 
 Older v2 board files using `leadFrames`/`lagFrames` are read as 30 FPS reference
-durations and converted in memory to seconds. Capture converts those durations
-to frames using the selected video's FPS.
+durations and converted in memory to seconds. These fields, along with
+`leadSeconds`, `lagSeconds`, and `mode`, remain parser-compatible, but canonical
+capture deliberately resolves every button to exact-frame range mode with zero
+lead/lag.
 
 Board labels are project-authored data. They are intentionally displayed as
 stored and are not translated by the application locale.
@@ -381,19 +386,31 @@ There are no `/stills`, `/annotate/[stillId]`, `/player-legacy`,
 
 The player has resizable video, board, and clip-tree areas.
 
-An **instant** board button creates a clip around the current presented frame:
-`leadFrames = round(leadSeconds × video.fps)` (and likewise for lag), then
-`start = frame - leadFrames`, `end = frame + lagFrames + 1`, clamped to the
-video. A **range** button press arms that tag; a later press of the same button
-closes the range with an inclusive final frame represented by exclusive
-`endFrame = frame + 1`. Multiple different ranges may be armed concurrently.
-Reverse or zero-length closure waits rather than creating invalid data.
+The project-authored board is a fixed coordinate surface rather than a
+scrolling menu. `layout.width`/`height`, group `labelRect` values, button
+`rect` values, and modifier slots determine its visual arrangement. The board
+still owns tag identity, facet applicability, requirements, and optional
+hotkeys.
 
-Applicable armed facets are snapshotted when capture begins and then consumed.
-Requirement rules are enforced, and changing a primary tag prunes facets that
-are no longer applicable. Untagged and unknown-tag clips remain separate tree
-buckets. Re-tagging is paused-only and can be performed from the board or by
-dragging a clip onto a board-derived tree group.
+Every primary button is an exact-frame range toggle. The first press arms that
+tag at the current frame; the second press closes it with an inclusive final
+frame represented by exclusive `endFrame = frame + 1`. There is no automatic
+lead/lag or pre-roll in the canonical capture workflow. Multiple different
+buttons may remain armed concurrently, so clips can overlap. A reverse or
+zero-length closure waits rather than creating invalid data.
+
+Applicable armed facets are snapshotted when capture begins and then consumed;
+modifier changes can update the active range independently. Requirement rules
+are enforced, and changing a primary tag prunes facets that are no longer
+applicable. Untagged and unknown-tag clips remain separate tree buckets.
+Re-tagging is paused-only and can be performed from the board or by dragging a
+clip onto a board-derived tree group.
+
+The tagging timeline derives one lane from each board group and shows both
+persisted clips and in-progress captures. Overlapping intervals are packed
+into subtracks. Its default viewport is one minute, it can zoom out to the
+whole video or up to 64x beyond the default scale, and manual scrolling
+suspends playhead auto-follow until five seconds after interaction ends.
 
 ## 10. Clip editor
 
@@ -450,12 +467,13 @@ shadows, and polygons.
 
 ### Homography and pitch coordinates
 
-The editor requests PnLCalib samples across the clip, currently at 5 samples
-per second. The provider smooths/interpolates results; the web layer rejects
-unusable jumps and resolves a matrix for the current frame. Results are cached
-under `homography-cache/<videoId>/range-<startMs>-<endMs>.json` because this is
-a regenerable sidecar-boundary artifact and equal ranges in different videos
-must not collide.
+The editor extracts a 5 FPS calibration sequence and requests sparse PnLCalib
+solutions with `skipInterval = 4`. The provider discards invalid/corrupt
+solutions, fills and interpolates the sparse results, and the web layer rejects
+unusable jumps before resolving a matrix for the current frame. Results are
+cached under `homography-cache/<videoId>/range-<startMs>-<endMs>.json` because
+this is a regenerable sidecar-boundary artifact and equal ranges in different
+videos must not collide.
 
 When a usable matrix exists, box and circle tools default to pitch drawing.
 Their keyframes store pitch-plane geometry and project through the current
@@ -490,28 +508,47 @@ The presentation authoring layout uses resizable asset browser, canvas, deck,
 and inspector regions. Present mode is intentionally panel-free and fills the
 viewport for every slide kind.
 
-The asset browser is clip-first and supports tag and chronological views.
-Clips and their pins are drag sources; title cards can also be inserted. Slides
-can be reordered in the deck.
+The asset browser is clip-first and supports tag and chronological views; empty
+tag buckets are omitted. Clips and pins can be previewed independently from the
+selected deck slide, and both remain drag sources. The deck is a horizontal
+16:9 thumbnail storyboard with drag reordering rather than a text-only strip.
+Title cards use three visually distinct templates.
+
+Authoring clip previews reuse the clip editor timeline in a pins-only variant.
+The shared controls provide frame-snapped click/drag seeking, single-frame and
+two-second transport, horizontal zoom, five-second manual-scroll override, pin
+markers, and the current-frame playhead. Full-screen present mode deliberately
+does not render a timeline or scrubber.
 
 Clip slides play source motion with the shared animated-annotation renderer.
 Pins are automatic pause points according to `pausePins`; the playback state
 machine triggers only on a forward crossing, consumes the pin for that pass,
 resumes without immediately retriggering, and re-arms future pins after a
 seek. At a pause, selected pin annotation documents can appear according to
-wall-clock cues.
+wall-clock cues. Inspector timing fields are displayed and edited in seconds;
+the schema retains millisecond values for presentation wall-clock durations.
 
 Pin slides rasterize one exact source frame and its selected annotation
 documents. Title slides render authored text.
 
-Prepared clip and transition MP4s are stored below
-`derived-media/presentations/<presentationId>/`. Every media index entry records
-its absolute `sourceStartFrame` and exclusive `sourceEndFrame`, so local media
-frame zero maps back to the correct source frame. A late handoff from original
-media to a prepared asset preserves play intent and the requested source frame.
+When a clip or clip-backed pin is selected, **Edit clip** opens its clip editor
+in a new browser tab. Clip writes broadcast a project-local change event, and
+presentation authoring also refreshes on window focus, so edits made in that
+tab update the asset browser, selected slide, and playback source without
+reopening the presentation.
 
-Missing clips, pins, documents, or prepared files never crash the deck. The
-canvas shows a missing state and integrity reports the broken reference.
+Clip slides and match-video transitions always play an absolute frame range from
+the owning video's original local file. Entering Present does not upload,
+prepare, transcode, or copy presentation media, and existing prepared assets are
+ignored. Range completion, seeking, pin crossings, and annotation sampling all
+map the original media time back through that video's own FPS.
+
+The exact-motion endpoint and `derived-media/presentations/` storage helpers
+remain implemented and tested as dormant export-oriented infrastructure. They
+are not a compatibility fallback for interactive playback.
+
+Missing clips, pins, documents, or source videos never crash the deck. The canvas
+shows a missing state and integrity reports the broken reference.
 
 ## 13. Exports
 
@@ -533,17 +570,18 @@ encoding endpoints, but the current 0.2 UI does not expose clip MP4 export.
 
 ## 14. Internationalization and layout
 
-`webapp/lib/i18n/index.tsx` provides `en` and `zh-CN`, named placeholder
-interpolation, `Intl` number/date formatting, and development diagnostics for
-missing keys. Locale is stored under `annotate:locale`; storage failure falls
-back safely to English. The provider updates `<html lang>` and
-`data-locale`.
+`webapp/lib/i18n/index.tsx` provides `en`, `fr`, `es`, and `zh-CN`, named
+placeholder interpolation, `Intl` number/date formatting, and development
+diagnostics for missing keys. Locale is stored under `annotate:locale`;
+storage failure falls back safely to English. The provider updates
+`<html lang>` and `data-locale`.
 
-The two catalogs currently contain the same 512 keys and placeholder tokens.
+The four catalogs currently contain the same 522 keys and placeholder tokens.
 Primary route chrome, statuses, accessibility labels, integrity descriptions,
 and structured export progress are localized. Low-level browser, filesystem,
-or sidecar diagnostic strings may remain English. The Simplified Chinese copy
-has CJK font/wrapping/layout support but still needs native-speaker review.
+or sidecar diagnostic strings may remain English. CJK font/wrapping/layout
+support is in place; French, Spanish, and Simplified Chinese still need
+native-speaker editorial review.
 
 Resizable panels use visible, focusable separators, minimum sizes, keyboard
 operation, and `autoSaveId` persistence. Dashboard, player, clip editor, and
@@ -584,7 +622,7 @@ Important live endpoints:
 | `POST` | `/track/detect` | Per-frame provisional player detection |
 | `POST` | `/homography` | Clip/pin PnLCalib calibration |
 | `POST` | `/segment` | Available foreground-mask API; no canonical v2 UI |
-| `POST` | `/derived-media/exact-motion` | Prepared presentation motion |
+| `POST` | `/derived-media/exact-motion` | Dormant exact-motion primitive retained for future export use |
 | `POST/GET/DELETE` | `/export/*` | Available client/service boundary; no current clip-export button |
 
 Authoritative probing first uses a positive container `nb_frames` value, which
@@ -594,16 +632,16 @@ to invent a frame count.
 
 ## 17. Verification
 
-The 2026-07-11 implementation gate completed with:
+The 2026-08-08 implementation/documentation gate completed with:
 
-- 205 Vitest tests across 35 files;
-- 28 sidecar pytest tests;
-- 22 Playwright Chromium flows;
+- 259 Vitest tests across 44 files;
+- 41 sidecar pytest tests;
+- 30 Playwright Chromium flows;
 - clean TypeScript checking;
 - clean production build;
-- clean `git diff --check`; and
-- ESLint with no errors and five pre-existing warnings in the shared Editor
-  and experimental segmentation page.
+- clean `git diff --check` and local Markdown-link audit; and
+- ESLint with no errors and one raw-`<img>` warning in the experimental
+  segmentation page.
 
 Commands:
 
@@ -612,20 +650,22 @@ npm test
 npm run test:e2e
 npm run build
 npm --prefix webapp run lint
-sidecar/.venv/bin/pytest sidecar/tests
+(cd sidecar && .venv/bin/python -m pytest tests)
 ```
 
 Playwright owns `webapp/e2e/**`; Vitest excludes those files. Browser coverage
 includes project lifecycle, frame-native capture, board semantics, clip
 editing, pins, presentations, exports, panel persistence, navigation/restore,
-and both locales.
+and locale switching across the four aligned catalogs.
 
 ## 18. Known release boundaries
 
 - Chromium and Web Locks are required.
 - 0.1 projects cannot open in 0.2.
-- The sidecar is required for v2 video import, tracking, homography, and exact
-  motion; authoring can continue without CV once imported media exists.
+- The sidecar is required for v2 video import, tracking, and homography;
+  authoring can continue without CV once imported media exists. Exact-motion
+  encoding is dormant and matters only to direct API consumers or future
+  export work.
 - PnLCalib needs its upstream assets/weights at a configured discovery path.
 - The tagging board is file-configurable but has no in-app board designer.
 - Tracking is single-highlight per interactive session; linked followers move
@@ -633,7 +673,7 @@ and both locales.
 - Foreground segmentation is experimental and not enabled in the canonical pin
   annotation flow.
 - Clip MP4 rendering is not exposed in the current v2 UI.
-- Simplified Chinese needs native copy review.
+- French, Spanish, and Simplified Chinese need native copy review.
 - Quick Annotate is retained but is not a design or compatibility constraint
   on the project.v2 workflow.
 

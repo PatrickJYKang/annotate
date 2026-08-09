@@ -1,15 +1,20 @@
 # Clips Roadmap
 
+> **Historical roadmap.** Use the
+> [as-built reference](../../../technical_document.md) and
+> [0.2 implementation ledger](../../v0.2/implementation-plan.md) for current
+> behavior and status.
+
 ## Purpose
 
 This document is the broader planning note for clips.
 
 It combines and updates ideas from:
 
-- [clips-feature.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/clips/clips-feature.md)
-- [clip-still-domain-model.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/analysis-model/clip-still-domain-model.md)
-- [tracking-correction-architecture.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/clips/tracking-correction-architecture.md)
-- [trackers-repo-integration-map.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/clips/trackers-repo-integration-map.md)
+- [clips-feature.md](clips-feature.md)
+- [clip-still-domain-model.md](../analysis-model/clip-still-domain-model.md)
+- [tracking-correction-architecture.md](tracking-correction-architecture.md)
+- [trackers-repo-integration-map.md](trackers-repo-integration-map.md)
 
 This is not the detailed implementation checklist. It is the higher-level product and architecture roadmap for how clips should develop from here.
 
@@ -369,13 +374,13 @@ These are all lower leverage than correction, integration, and editor quality.
 
 Use the other docs like this:
 
-- [clips-feature.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/clips/clips-feature.md)
+- [clips-feature.md](clips-feature.md)
   - detailed feature and implementation checklist
-- [clip-still-domain-model.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/analysis-model/clip-still-domain-model.md)
+- [clip-still-domain-model.md](../analysis-model/clip-still-domain-model.md)
   - domain rules for stills, clips, and presentations
-- [tracking-correction-architecture.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/clips/tracking-correction-architecture.md)
+- [tracking-correction-architecture.md](tracking-correction-architecture.md)
   - next-stage correction and retracking model
-- [trackers-repo-integration-map.md](/Users/patrickkang/Documents/code/annotate/plans/post-mvp/clips/trackers-repo-integration-map.md)
+- [trackers-repo-integration-map.md](trackers-repo-integration-map.md)
   - repo boundary and component adoption strategy
 
 This roadmap is the high-level synthesis layer across those notes.

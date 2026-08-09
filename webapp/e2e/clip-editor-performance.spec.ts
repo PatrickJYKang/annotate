@@ -101,12 +101,24 @@ test('keeps dense tracked timelines responsive during playback and drawing', asy
   await expect(editorPage.getByTestId('clip-editor')).toBeVisible();
   await expect(editorPage.locator('[data-timeline-annotation-id] button')).toHaveCount(6001);
 
+  // Start beyond the fixture's pins so pin-pause behavior cannot end the sample early.
+  const timelineLane = editorPage.getByTestId('clip-timeline-lane');
+  const timelineBox = await timelineLane.boundingBox();
+  if (!timelineBox) throw new Error('Clip timeline did not have a layout box.');
+  const sampleStartFrame = 34;
+  await editorPage.mouse.click(
+    timelineBox.x + ((sampleStartFrame - START_FRAME) / (TRACKED_FRAME_COUNT - 1)) * timelineBox.width,
+    timelineBox.y + 12,
+  );
+
   await editorPage.getByRole('button', { name: 'Play', exact: true }).click();
-  await editorPage.waitForTimeout(750);
-  await expect.poll(
-    () => editorPage.locator('video').evaluate((element) => (element as HTMLVideoElement).currentTime),
-  ).toBeGreaterThan(0.5);
-  await editorPage.getByRole('button', { name: 'Pause', exact: true }).click();
+  const pauseButton = editorPage.getByRole('button', { name: 'Pause', exact: true });
+  await expect(pauseButton).toBeVisible();
+  await editorPage.waitForTimeout(200);
+  await pauseButton.click();
+  expect(await editorPage.locator('video').evaluate(
+    (element) => (element as HTMLVideoElement).currentTime,
+  )).toBeGreaterThan(sampleStartFrame / 25);
 
   const stage = editorPage.getByTestId('clip-stage');
   const stageBox = await stage.boundingBox();
