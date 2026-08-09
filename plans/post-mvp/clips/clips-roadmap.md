@@ -1,9 +1,6 @@
 # Clips Roadmap
 
-> **Historical roadmap.** Use the
-> [as-built reference](../../../technical_document.md) and
-> [0.2 implementation ledger](../../v0.2/implementation-plan.md) for current
-> behavior and status.
+> **Historical roadmap.** Use the [as-built reference](../../../technical_document.md) and [0.2 implementation ledger](../../v0.2/implementation-plan.md) for current behavior and status.
 
 ## Purpose
 

@@ -1,8 +1,6 @@
 # Tracking Correction Architecture
 
-> **Historical design record.** Current detect/start/reacquire/continue/stop
-> behavior is documented in the
-> [as-built reference](../../../technical_document.md#tracking).
+> **Historical design record.** Current detect/start/reacquire/continue/stop behavior is documented in the [as-built reference](../../../technical_document.md#tracking).
 
 ## Goal
 

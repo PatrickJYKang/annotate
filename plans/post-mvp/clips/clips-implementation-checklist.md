@@ -1,8 +1,6 @@
 # Clips Implementation Checklist
 
-> **Historical implementation checklist.** Its checkmarks describe the earlier
-> clip rollout, not the current release gate. See the
-> [0.2 implementation ledger](../../v0.2/implementation-plan.md).
+> **Historical implementation checklist.** Its checkmarks describe the earlier clip rollout, not the current release gate. See the [0.2 implementation ledger](../../v0.2/implementation-plan.md).
 
 ## Purpose
 
@@ -208,8 +206,7 @@ Current implementation: clip keyframes now carry lightweight provenance (`manual
 - [x] Add "re-track to next correction" semantics if that is not already modeled cleanly.
 - [x] Make range selection for retrack more discoverable and less fiddly.
 
-Current implementation: retrack merging is now verified in both pure state logic and the browser flow. The core merge rules live in [editorState.ts](../../../webapp/lib/clip/editorState.ts), where `forward`, `range`, and `to_correction` now preserve good spans intentionally. In [ClipEditor.tsx](../../../webapp/components/clip/ClipEditor.tsx), the editor now exposes three partial repair actions directly: `Re-track →`, `Re-track range`, and `To Next Correction`. Range selection is no longer only a hidden Shift-click affordance: the user can explicitly `Mark Range End`, see the active range, and `Clear Range`, while Shift-click on the timeline still works as a faster alternate path. Verification was strengthened in [editorState.test.ts](../../../webapp/lib/clip/editorState.test.ts) and [clip-editor.spec.ts](../../../webapp/e2e/clip-editor.spec.ts), including exact preserved keyframe/provenance expectations and a browser regression check for the range-boundary merge bug that was fixed during this pass.
-The current sidecar adapter also now protects retrack continuity from unstable raw tracker IDs by preferring the previously followed player's spatially nearest continuation when the old OC-SORT ID would imply an unreasonable jump.
+Current implementation: retrack merging is now verified in both pure state logic and the browser flow. The core merge rules live in [editorState.ts](../../../webapp/lib/clip/editorState.ts), where `forward`, `range`, and `to_correction` now preserve good spans intentionally. In [ClipEditor.tsx](../../../webapp/components/clip/ClipEditor.tsx), the editor now exposes three partial repair actions directly: `Re-track →`, `Re-track range`, and `To Next Correction`. Range selection is no longer only a hidden Shift-click affordance: the user can explicitly `Mark Range End`, see the active range, and `Clear Range`, while Shift-click on the timeline still works as a faster alternate path. Verification was strengthened in [editorState.test.ts](../../../webapp/lib/clip/editorState.test.ts) and [clip-editor.spec.ts](../../../webapp/e2e/clip-editor.spec.ts), including exact preserved keyframe/provenance expectations and a browser regression check for the range-boundary merge bug that was fixed during this pass. The current sidecar adapter also now protects retrack continuity from unstable raw tracker IDs by preferring the previously followed player's spatially nearest continuation when the old OC-SORT ID would imply an unreasonable jump.
 
 ### 6.3 Gap policy
 
@@ -257,8 +254,7 @@ Current implementation: `annotate` now has a provider-oriented calibration layer
 - [x] Decide how pitch-space and image-space tools should coexist in the UI.
 - [x] Add tests for projection correctness at clip playback time.
 
-Current implementation: pitch projection math for clip playback and pitch-space creation now runs through shared helpers in [pitchProjection.ts](../../../webapp/lib/clip/pitchProjection.ts) rather than remaining duplicated inline in [ClipEditor.tsx](../../../webapp/components/clip/ClipEditor.tsx). The clip editor now uses the same shared projection path for pitch-space bounds and on-frame rendering, pitch-space `lob` creation/rendering is supported alongside the existing pitch-capable tools, and the UI now distinguishes the preferred draw mode from the effective one by surfacing when pitch drawing is selected but the current frame or current tool forces a fallback to image-space creation. Projection correctness is covered in [pitchProjection.test.ts](../../../webapp/lib/clip/pitchProjection.test.ts), with the broader clip authoring flow still covered by [clip-editor.spec.ts](../../../webapp/e2e/clip-editor.spec.ts).
-Current coexistence rule: only `box` and `circle` are pitch-capable authoring tools. `highlight`, `arrow`, `lob`, `poly`, `shadow`, and `text` stay image-space in normal clip authoring, with highlights acting as the tracking anchors for linked tactical shapes.
+Current implementation: pitch projection math for clip playback and pitch-space creation now runs through shared helpers in [pitchProjection.ts](../../../webapp/lib/clip/pitchProjection.ts) rather than remaining duplicated inline in [ClipEditor.tsx](../../../webapp/components/clip/ClipEditor.tsx). The clip editor now uses the same shared projection path for pitch-space bounds and on-frame rendering, pitch-space `lob` creation/rendering is supported alongside the existing pitch-capable tools, and the UI now distinguishes the preferred draw mode from the effective one by surfacing when pitch drawing is selected but the current frame or current tool forces a fallback to image-space creation. Projection correctness is covered in [pitchProjection.test.ts](../../../webapp/lib/clip/pitchProjection.test.ts), with the broader clip authoring flow still covered by [clip-editor.spec.ts](../../../webapp/e2e/clip-editor.spec.ts). Current coexistence rule: only `box` and `circle` are pitch-capable authoring tools. `highlight`, `arrow`, `lob`, `poly`, `shadow`, and `text` stay image-space in normal clip authoring, with highlights acting as the tracking anchors for linked tactical shapes.
 
 ---
 

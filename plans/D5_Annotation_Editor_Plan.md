@@ -1,8 +1,6 @@
 # D5: Annotation Editor + Persistence
 
-> **Historical project.v1 milestone.** See the
-> [current technical reference](../technical_document.md) and
-> [documentation index](README.md) for the frame-native pin/clip model.
+> **Historical project.v1 milestone.** See the [current technical reference](../technical_document.md) and [documentation index](README.md) for the frame-native pin/clip model.
 
 ## 1) Goals & Non‑Goals
 

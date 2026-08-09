@@ -1,8 +1,6 @@
 # Clip / Still Domain Model
 
-> **Historical pre-project.v2 design.** The current model replaces marks and
-> stills with clip-local pins and pin annotation documents. See the
-> [0.2 schema](../../v0.2/project-v2-schema-and-migration.md).
+> **Historical pre-project.v2 design.** The current model replaces marks and stills with clip-local pins and pin annotation documents. See the [0.2 schema](../../v0.2/project-v2-schema-and-migration.md).
 
 ## Goal
 

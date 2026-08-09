@@ -1,9 +1,6 @@
 # Football Analysis Annotator – MVP Implementation Plan (Web PWA)
 
-> **Historical project.v1 plan.** This document records the original MVP
-> implementation and is not a current specification. Use the
-> [0.2 as-built reference](technical_document.md) and
-> [documentation index](plans/README.md) for the current application.
+> **Historical project.v1 plan.** This document records the original MVP implementation and is not a current specification. Use the [0.2 as-built reference](technical_document.md) and [documentation index](plans/README.md) for the current application.
 
 Date: 2025-10-08
 
@@ -219,7 +216,7 @@ Notes:
 - Sidebar list shows marks with hh:mm:ss.mmm and tags; clicking navigates player to mark time.
 
  ## 9) Stills Extraction
- 
+
  - Use Canvas with `drawImage(video, ...)` and `canvas.toBlob('image/png')`.
  - Prefer `requestVideoFrameCallback` for precise capture; otherwise seek and wait for `seeked` before drawing.
  - Fallback: ffmpeg.wasm extraction with PTS-accurate seeking when browser path is insufficient.

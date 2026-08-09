@@ -1,12 +1,8 @@
 # Stage 2 — Stills Page Layout Redesign
 
-> **Historical removed-route plan.** The `/stills` route does not exist in
-> project.v2; pins and pin documents live inside clips. See the
-> [current pin reference](../../../technical_document.md#11-pins-and-frozen-frame-annotation).
+> **Historical removed-route plan.** The `/stills` route does not exist in project.v2; pins and pin documents live inside clips. See the [current pin reference](../../../technical_document.md#11-pins-and-frozen-frame-annotation).
 
-> **Goal:** Replace the old `.toolbar` / `.panel` wrapper with the navbar
-> pattern and dynamic height sizing used on the player page. Tighten the
-> two-pane layout so the video + stills grid fill available space.
+> **Goal:** Replace the old `.toolbar` / `.panel` wrapper with the navbar pattern and dynamic height sizing used on the player page. Tighten the two-pane layout so the video + stills grid fill available space.
 
 ---
 
@@ -35,14 +31,10 @@
 
 1. **`.panel` wrapper** — adds padding and rounded corners, wasting space.
 2. **`.toolbar` class** — doesn't match the navbar pattern used elsewhere.
-3. **`calc(100vh - var(--player-headroom) + 8px)`** — fragile magic offset;
-   the player page now measures real available height dynamically.
+3. **`calc(100vh - var(--player-headroom) + 8px)`** — fragile magic offset; the player page now measures real available height dynamically.
 4. **`mt-3` + `gap-4`** — wastes vertical and horizontal space.
-5. **`h-full` + `videoHeight="100%"`** on VideoPlayerUnit — now that the
-   component uses `flex-1 min-h-0` internally, these are unnecessary and
-   may conflict.
-6. **`items-start`** on the main flex row — prevents children from
-   stretching to full height.
+5. **`h-full` + `videoHeight="100%"`** on VideoPlayerUnit — now that the component uses `flex-1 min-h-0` internally, these are unnecessary and may conflict.
+6. **`items-start`** on the main flex row — prevents children from stretching to full height.
 
 ---
 

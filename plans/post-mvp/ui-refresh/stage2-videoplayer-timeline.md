@@ -1,13 +1,8 @@
 # Stage 2 — VideoPlayerUnit Redesign: Editor-Style Timeline
 
-> **Historical UI plan.** See the
-> [current capture reference](../../../technical_document.md#9-capture-and-tagging)
-> for implemented timeline behavior.
+> **Historical UI plan.** See the [current capture reference](../../../technical_document.md#9-capture-and-tagging) for implemented timeline behavior.
 
-> **Goal:** Redesign the VideoPlayerUnit controls to feel like a video
-> **editor** timeline (Premiere Pro / DaVinci Resolve) rather than a
-> YouTube-style media player. The video content itself doesn't change —
-> the interaction model around scrubbing, marks, and zoom does.
+> **Goal:** Redesign the VideoPlayerUnit controls to feel like a video **editor** timeline (Premiere Pro / DaVinci Resolve) rather than a YouTube-style media player. The video content itself doesn't change — the interaction model around scrubbing, marks, and zoom does.
 
 ---
 
@@ -36,23 +31,13 @@
 
 ### Problems
 
-1. **YouTube-style seek bar** — Thin rounded progress bar with a small
-   pill-shaped handle. Fine for passive viewing, wrong for frame-accurate
-   annotation work. Too small to click precisely.
-2. **No zoom** — The entire video duration is always mapped 1:1 to the bar
-   width. For a 90-minute match this means each pixel represents ~5–10
-   seconds, making it impossible to scrub to a precise moment.
-3. **Controls overlay the video** — The gradient overlay hides video content
-   at the bottom. In an editor, controls live *below* the video, not on top.
-4. **Mark pips are tiny** — 3px-wide coloured lines on a 12px-tall bar.
-   Hard to see, hard to click, no labels.
-5. **No timecode ruler** — No visual reference for absolute time. The only
-   readout is the `00:34 / 1:30:00` text at the bottom right.
-6. **Transport buttons look like a media player** — Generic play/pause and
-   skip icons. No visual connection to the editing workflow (mark, tag,
-   scrub).
-7. **No waveform or visual density** — The seek bar is a flat solid colour.
-   No hint of where interesting content might be (marks cluster, etc.).
+1. **YouTube-style seek bar** — Thin rounded progress bar with a small pill-shaped handle. Fine for passive viewing, wrong for frame-accurate annotation work. Too small to click precisely.
+2. **No zoom** — The entire video duration is always mapped 1:1 to the bar width. For a 90-minute match this means each pixel represents ~5–10 seconds, making it impossible to scrub to a precise moment.
+3. **Controls overlay the video** — The gradient overlay hides video content at the bottom. In an editor, controls live *below* the video, not on top.
+4. **Mark pips are tiny** — 3px-wide coloured lines on a 12px-tall bar. Hard to see, hard to click, no labels.
+5. **No timecode ruler** — No visual reference for absolute time. The only readout is the `00:34 / 1:30:00` text at the bottom right.
+6. **Transport buttons look like a media player** — Generic play/pause and skip icons. No visual connection to the editing workflow (mark, tag, scrub).
+7. **No waveform or visual density** — The seek bar is a flat solid colour. No hint of where interesting content might be (marks cluster, etc.).
 
 ---
 
@@ -60,8 +45,7 @@
 
 ### 2.1  Layout: controls below the video, not overlaid
 
-Separate the video viewport from the timeline. The video sits above; the
-timeline panel sits below as a distinct region with its own background.
+Separate the video viewport from the timeline. The video sits above; the timeline panel sits below as a distinct region with its own background.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -137,35 +121,14 @@ Transport bar
 
 ### 2.3  Key design decisions
 
-- **Controls below, not overlaid** — The timeline panel is a permanent
-  region below the video. No gradient overlay, no disappearing-on-idle.
-  The video `<video>` element shrinks slightly to make room. Height of
-  the timeline panel is fixed (~120–140px).
-- **Timecode ruler** — A horizontal ruler with tick marks and time labels.
-  Ticks adapt to zoom level (at 1× zoom on a 90-min video: major ticks
-  every 5 min, minor every 1 min; at 20× zoom: major every 30s, minor
-  every 5s; etc.).
-- **Track lane** — A horizontal strip below the ruler. Marks are rendered
-  as vertical pips (4–6px wide, full lane height ~24px). The playhead is
-  a thin red/accent vertical line spanning the full lane height.
-- **Zoomable timeline** — A zoom slider (or Ctrl+Scroll on the timeline)
-  controls the horizontal scale. At 1× the full duration fits in the
-  viewport. At higher zoom, only a portion is visible and the timeline
-  scrolls horizontally. The playhead stays centred (or the view follows
-  the playhead during playback).
-- **Horizontal scroll** — When zoomed in, the timeline is wider than the
-  viewport. Scroll via mouse wheel (horizontal), trackpad swipe, or
-  drag-scroll on the ruler/lane. The visible window is a sliding viewport
-  over the full duration.
-- **Mark pips are prominent** — Full lane height, 4–6px wide, colour-coded.
-  Clickable (selects the mark and seeks to it). Tooltip on hover shows
-  timestamp and label/tags.
-- **Transport bar** — Buttons are square, space-filling (matching the
-  navbar style). Timecode readout uses monospace font. Add-mark button
-  is prominent.
-- **No waveform for now** — Generating a waveform from video audio is
-  possible but complex. Deferred. The track lane just shows marks on a
-  flat bg-raised background. Can be added later.
+- **Controls below, not overlaid** — The timeline panel is a permanent region below the video. No gradient overlay, no disappearing-on-idle. The video `<video>` element shrinks slightly to make room. Height of the timeline panel is fixed (~120–140px).
+- **Timecode ruler** — A horizontal ruler with tick marks and time labels. Ticks adapt to zoom level (at 1× zoom on a 90-min video: major ticks every 5 min, minor every 1 min; at 20× zoom: major every 30s, minor every 5s; etc.).
+- **Track lane** — A horizontal strip below the ruler. Marks are rendered as vertical pips (4–6px wide, full lane height ~24px). The playhead is a thin red/accent vertical line spanning the full lane height.
+- **Zoomable timeline** — A zoom slider (or Ctrl+Scroll on the timeline) controls the horizontal scale. At 1× the full duration fits in the viewport. At higher zoom, only a portion is visible and the timeline scrolls horizontally. The playhead stays centred (or the view follows the playhead during playback).
+- **Horizontal scroll** — When zoomed in, the timeline is wider than the viewport. Scroll via mouse wheel (horizontal), trackpad swipe, or drag-scroll on the ruler/lane. The visible window is a sliding viewport over the full duration.
+- **Mark pips are prominent** — Full lane height, 4–6px wide, colour-coded. Clickable (selects the mark and seeks to it). Tooltip on hover shows timestamp and label/tags.
+- **Transport bar** — Buttons are square, space-filling (matching the navbar style). Timecode readout uses monospace font. Add-mark button is prominent.
+- **No waveform for now** — Generating a waveform from video audio is possible but complex. Deferred. The track lane just shows marks on a flat bg-raised background. Can be added later.
 
 ---
 
@@ -173,28 +136,19 @@ Transport bar
 
 ### 3.1  Zoom model
 
-The timeline has a **pixels-per-second** (pps) value that determines the
-horizontal scale.
+The timeline has a **pixels-per-second** (pps) value that determines the horizontal scale.
 
-- **Minimum zoom (1×)**: The full video duration fits exactly in the
-  timeline width. `pps = timelineWidth / durationSeconds`.
-- **Maximum zoom (100×)**: Each second occupies `100 × minPps` pixels.
-  For a 90-min video at 1200px width, 1× ≈ 0.22 px/s → 100× ≈ 22 px/s
-  (about 54 seconds visible at a time).
-- **Zoom control**: A horizontal slider in the transport bar, plus
-  Ctrl+Scroll (or pinch on trackpad) on the timeline area.
-- **Zoom anchor**: Zoom centres on the playhead position (or on the
-  mouse cursor if triggered by scroll-wheel).
+- **Minimum zoom (1×)**: The full video duration fits exactly in the timeline width. `pps = timelineWidth / durationSeconds`.
+- **Maximum zoom (100×)**: Each second occupies `100 × minPps` pixels. For a 90-min video at 1200px width, 1× ≈ 0.22 px/s → 100× ≈ 22 px/s (about 54 seconds visible at a time).
+- **Zoom control**: A horizontal slider in the transport bar, plus Ctrl+Scroll (or pinch on trackpad) on the timeline area.
+- **Zoom anchor**: Zoom centres on the playhead position (or on the mouse cursor if triggered by scroll-wheel).
 
 ### 3.2  Scroll model
 
 - **scrollLeft** of the timeline container tracks the visible window.
-- During playback, the view auto-scrolls to keep the playhead visible
-  (centred or at ~33% from the left edge).
-- When paused, the user scrolls freely. Resuming playback snaps the view
-  back to the playhead.
-- Mouse wheel (vertical) on the timeline = horizontal scroll (standard
-  NLE convention). Ctrl+wheel = zoom.
+- During playback, the view auto-scrolls to keep the playhead visible (centred or at ~33% from the left edge).
+- When paused, the user scrolls freely. Resuming playback snaps the view back to the playhead.
+- Mouse wheel (vertical) on the timeline = horizontal scroll (standard NLE convention). Ctrl+wheel = zoom.
 
 ### 3.3  Tick calculation
 
@@ -214,8 +168,7 @@ Ticks adapt to zoom so labels don't overlap:
 
 ### 4.1  New internal components (inside VideoPlayerUnit)
 
-These are not separate files — they're extracted render functions or small
-subcomponents within `VideoPlayerUnit.tsx` to keep the file manageable.
+These are not separate files — they're extracted render functions or small subcomponents within `VideoPlayerUnit.tsx` to keep the file manageable.
 
 | Component | Description |
 |---|---|
@@ -250,16 +203,13 @@ subcomponents within `VideoPlayerUnit.tsx` to keep the file manageable.
 ## 5  Implementation steps
 
 ### 5.1  Separate video from controls
-- [ ] Remove the gradient overlay div (the `absolute left-0 right-0 bottom-0`
-      div with `linear-gradient` background)
-- [ ] Restructure layout: `flex flex-col` → `<video>` fills available
-      space, timeline panel has fixed height below it
+- [ ] Remove the gradient overlay div (the `absolute left-0 right-0 bottom-0` div with `linear-gradient` background)
+- [ ] Restructure layout: `flex flex-col` → `<video>` fills available space, timeline panel has fixed height below it
 - [ ] Timeline panel: `shrink-0 h-[130px] bg-surface border-t border-border`
 
 ### 5.2  Timecode ruler
 - [ ] Render a horizontal ruler div with tick marks
-- [ ] Calculate tick intervals based on zoom level and visible duration
-      (see §3.3 tick table)
+- [ ] Calculate tick intervals based on zoom level and visible duration (see §3.3 tick table)
 - [ ] Major ticks: tall lines + text labels. Minor ticks: short lines only
 - [ ] Ruler scrolls horizontally with the timeline
 
@@ -283,10 +233,8 @@ subcomponents within `VideoPlayerUnit.tsx` to keep the file manageable.
 - [ ] During playback: auto-scroll to keep playhead visible
 
 ### 5.5  Transport bar
-- [ ] Restyle buttons: square, `self-stretch`, border separators (matching
-      navbar pattern)
-- [ ] Timecode readout: `font-mono text-sm`, shows `HH:MM:SS.mmm` or
-      `MM:SS.mmm`
+- [ ] Restyle buttons: square, `self-stretch`, border separators (matching navbar pattern)
+- [ ] Timecode readout: `font-mono text-sm`, shows `HH:MM:SS.mmm` or `MM:SS.mmm`
 - [ ] Add-mark button: prominent, same style as transport buttons
 - [ ] Fullscreen button: keep existing, same restyle
 - [ ] Zoom slider: inline at the right end of the transport bar

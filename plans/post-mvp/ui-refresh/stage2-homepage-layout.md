@@ -1,11 +1,8 @@
 # Stage 2 — Homepage Layout Redesign
 
-> **Historical project.v1 UI plan.** See the
-> [current route reference](../../../technical_document.md#8-routes-and-user-visible-behavior).
+> **Historical project.v1 UI plan.** See the [current route reference](../../../technical_document.md#8-routes-and-user-visible-behavior).
 
-> **Goal:** Redesign the homepage layout so it feels intentional, spacious, and
-> professional — not like a debug panel. The page should guide the user through
-> a clear workflow: open/create a project → see what's inside → take action.
+> **Goal:** Redesign the homepage layout so it feels intentional, spacious, and professional — not like a debug panel. The page should guide the user through a clear workflow: open/create a project → see what's inside → take action.
 
 ---
 
@@ -33,31 +30,15 @@
 
 ### Problems
 
-1. **No empty-state hierarchy** — When no project is open, the page shows a
-   flat toolbar + "No project open" status. There's no visual invitation to
-   act. The Create and Open buttons look identical to Import/Save/Close which
-   are disabled.
-2. **Toolbar is a flat dump** — All 5 buttons live in one row regardless of
-   context. Project actions (Save, Close, Import) sit next to global actions
-   (Create, Open) with no grouping.
-3. **"Current Project" panel is a wall of text** — Folder name, project name,
-   created date, and counts are stacked as plain text with no visual
-   structure. Nothing is scannable.
-4. **Video list is functional but bland** — Each video is a full-width button
-   but there's no visual indication it's a list of selectable items. No
-   thumbnails, no hover states beyond the global button hover, no indication
-   of which video has marks/stills.
-5. **"Set up match info" is buried** — It's a small button at the bottom of
-   the video list. Easy to miss.
-6. **Upload progress is inline** — The progress bar appears inside the
-   project panel, making the panel jump. The portal overlay is fine but the
-   inline one is redundant.
+1. **No empty-state hierarchy** — When no project is open, the page shows a flat toolbar + "No project open" status. There's no visual invitation to act. The Create and Open buttons look identical to Import/Save/Close which are disabled.
+2. **Toolbar is a flat dump** — All 5 buttons live in one row regardless of context. Project actions (Save, Close, Import) sit next to global actions (Create, Open) with no grouping.
+3. **"Current Project" panel is a wall of text** — Folder name, project name, created date, and counts are stacked as plain text with no visual structure. Nothing is scannable.
+4. **Video list is functional but bland** — Each video is a full-width button but there's no visual indication it's a list of selectable items. No thumbnails, no hover states beyond the global button hover, no indication of which video has marks/stills.
+5. **"Set up match info" is buried** — It's a small button at the bottom of the video list. Easy to miss.
+6. **Upload progress is inline** — The progress bar appears inside the project panel, making the panel jump. The portal overlay is fine but the inline one is redundant.
 7. **Toast is basic** — Small fixed-bottom-right div, no animation.
-8. **max-width container (920px)** — The `.container` class constrains content
-   to 920px centred. This is fine for forms but makes the homepage feel
-   narrow on wide screens. The homepage doesn't need this constraint.
-9. **No drag-and-drop affordance** — The panel accepts drag-and-drop for
-   video import but there's zero visual indication of this.
+8. **max-width container (920px)** — The `.container` class constrains content to 920px centred. This is fine for forms but makes the homepage feel narrow on wide screens. The homepage doesn't need this constraint.
+9. **No drag-and-drop affordance** — The panel accepts drag-and-drop for video import but there's zero visual indication of this.
 
 ---
 
@@ -88,8 +69,7 @@ Full-viewport centred card. Two large action buttons. Nothing else.
 ```
 
 - Vertically and horizontally centred in the viewport below the header.
-- Title repeated larger (`text-xl font-bold`) inside the card so the page
-  doesn't feel empty.
+- Title repeated larger (`text-xl font-bold`) inside the card so the page doesn't feel empty.
 - Two stacked buttons, full card width, generous padding (`py-4`).
 - Muted status line below for errors / "Chromium required" warning.
 - No toolbar, no disabled buttons, no panels.
@@ -133,20 +113,16 @@ Two-column layout: left = project info + actions, right = video list.
     - Secondary group: Save, Close (separated by a subtle divider).
 - **Right area** (`flex-1 min-w-0`): video list + drop zone.
   - Heading with count.
-  - Each video is a selectable row with: label, duration, resolution as
-    secondary text, and a subtle mark/still count badge.
+  - Each video is a selectable row with: label, duration, resolution as secondary text, and a subtle mark/still count badge.
   - Selected video gets `bg-selected border-l-2 border-accent`.
   - Clicking a video selects it AND navigates to `/player`.
-  - Below the list (or when empty): a dashed-border drop zone with
-    "Drop videos here to import" text.
+  - Below the list (or when empty): a dashed-border drop zone with "Drop videos here to import" text.
 - **No toolbar row** — actions are in the sidebar. The header remains global.
-- **Remove the 920px container constraint** on this page (use `fullbleed` or
-  adjust the layout wrapper).
+- **Remove the 920px container constraint** on this page (use `fullbleed` or adjust the layout wrapper).
 
 ### 2.3  Upload state
 
-Keep the existing portal overlay. Remove the inline progress bar from the
-project panel — it's redundant since the overlay covers the screen.
+Keep the existing portal overlay. Remove the inline progress bar from the project panel — it's redundant since the overlay covers the screen.
 
 ---
 
@@ -204,8 +180,7 @@ No new component files needed — this is a single-page restructure.
 
 ## 5  Visual reference (token palette)
 
-All colours, fonts, and radii come from the existing Tailwind v4 theme in
-`globals.css`. No new tokens needed.
+All colours, fonts, and radii come from the existing Tailwind v4 theme in `globals.css`. No new tokens needed.
 
 | Element | Classes |
 |---|---|

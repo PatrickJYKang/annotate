@@ -1,8 +1,6 @@
 # Tagging schema (post-MVP)
 
-> **Historical pre-v2 schema.** The YAML/dropdown model was removed. Current
-> projects use the coordinate-based `tagging-board.json` contract documented in
-> the [as-built reference](../../../technical_document.md#tagging-boardjson).
+> **Historical pre-v2 schema.** The YAML/dropdown model was removed. Current projects use the coordinate-based `tagging-board.json` contract documented in the [as-built reference](../../../technical_document.md#tagging-boardjson).
 
 This folder defines a tagging taxonomy for marks/events.
 

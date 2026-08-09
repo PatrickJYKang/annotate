@@ -1,8 +1,6 @@
 # D2 – Import + Metadata Implementation Plan
 
-> **Historical project.v1 milestone.** See the
-> [current technical reference](../technical_document.md) and
-> [documentation index](README.md) for Annotate 0.2.
+> **Historical project.v1 milestone.** See the [current technical reference](../technical_document.md) and [documentation index](README.md) for Annotate 0.2.
 
 Date: 2025-10-13
 Status: Archived (originally Completed)

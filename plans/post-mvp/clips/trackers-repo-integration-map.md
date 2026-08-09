@@ -1,8 +1,6 @@
 # `trackers` Repo Integration Map
 
-> **Historical integration map.** It records the import path that led to the
-> current sidecar. Use the [sidecar reference](../../../sidecar/README.md) for
-> the live endpoint and provider boundary.
+> **Historical integration map.** It records the import path that led to the current sidecar. Use the [sidecar reference](../../../sidecar/README.md) for the live endpoint and provider boundary.
 
 ## Goal
 

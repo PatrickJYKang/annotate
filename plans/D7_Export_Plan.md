@@ -1,8 +1,6 @@
 # D7 – Export (Annotated PNGs + Reports) Implementation Plan
 
-> **Historical project.v1 milestone.** See the
-> [current technical reference](../technical_document.md) and
-> [documentation index](README.md) for current report exports.
+> **Historical project.v1 milestone.** See the [current technical reference](../technical_document.md) and [documentation index](README.md) for current report exports.
 
 Date: 2025-12-23
 Status: Archived (originally Planned)

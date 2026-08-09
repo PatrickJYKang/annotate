@@ -1,8 +1,6 @@
 # Journal, May 1, 2026
 
-> **Historical development journal.** It captures the repository state on its
-> date and is not a current specification. See the
-> [documentation index](README.md).
+> **Historical development journal.** It captures the repository state on its date and is not a current specification. See the [documentation index](README.md).
 
 As I have discontinued my session logs for there being too much of a backlog and maintenance load, here be an overview of what was accomplished between now and the previous reporting point.
 
