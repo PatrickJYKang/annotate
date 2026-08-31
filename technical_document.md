@@ -65,7 +65,6 @@ The local FastAPI service runs on `http://127.0.0.1:8321` by default. It owns:
 - smart video preparation and authoritative frame probing;
 - YOLO detection plus vendored OC-SORT tracking;
 - vendored PnLCalib homography estimation;
-- optional person segmentation;
 - ffmpeg export-session encoding APIs; and
 - an available exact-motion segment primitive retained for future exports.
 
@@ -219,10 +218,20 @@ interface Annotations {
   image: { width: number; height: number };
   shapes: ExportShape[];
   perspective?: { quad: { x: number; y: number }[] };
+  animations?: Array<{
+    id: string;
+    shapeIds: string[];
+    effect: 'appear' | 'fade' | 'grow' | 'wipe';
+    trigger: 'on_click' | 'with_previous' | 'after_previous';
+    delayMs: number;
+    durationMs: number;
+  }>;
 }
 ```
 
 The document filename, reference ID, clip ID, pin ID, and immutable pin frame must agree. The background is rasterized lazily from video; no still image is stored. Multiple documents may exist on one pin, but annotation IDs remain unique across that clip's shared `annotations/` directory.
+
+`animations` is an optional ordered entrance sequence owned entirely by the annotation document. Every step has a unique ID, references existing shapes, and no shape may appear in more than one entrance step. Static documents without the field remain valid. Static rendering and report export show the final fully visible state; the editor preview, clip pin pauses, and presentation pin playback sample the sequence through the shared canvas renderer.
 
 ### Presentation document
 
@@ -299,7 +308,6 @@ The dashboard shows errors and warnings with stable issue codes and paths. Integ
 | `/presentation/[presentationId]` | Presentation authoring and full-screen present mode |
 | `/metadata` | Match and team metadata editor/importers |
 | `/quick-annotate` | Standalone single-image compatibility utility, outside project.v2 |
-| `/segmentation-test` | Experimental foreground-segmentation sandbox, not primary navigation |
 | `/api/football-data` | Server-side football-data.org proxy |
 
 There are no `/stills`, `/annotate/[stillId]`, `/player-legacy`, `/dropdown-test`, or temporary `/v2` routes in the canonical application.
@@ -331,6 +339,7 @@ The clip editor uses three persisted resizable regions: viewer, inspector, and t
 - Delete removes the selected keyframe; Shift-Delete removes the object.
 - Manual/correction and visibility keyframes can be dragged horizontally. Tracked/lost geometry keyframes are intentionally fixed.
 - The timeline horizontally zooms and scrolls. Pins have their own lane.
+- Trim mode keeps the clip's entry range as a fixed outer boundary and moves frame-snapped in/out handles inward. Apply atomically writes the narrowed range, filters pins and keyframes outside it, and samples boundary geometry so retained animation does not jump. Cancel writes nothing; the immediate Undo trim action restores the complete pre-trim clip. A later edit intentionally expires that trim undo snapshot.
 
 Selecting a shape on the object lane makes it the movement target even when another shape visually overlaps it.
 
@@ -343,6 +352,8 @@ The interactive tracking request stops inference at the first frame where no rea
 While tracking runs, `/track/stream` emits each trusted keyframe as NDJSON. The clip editor applies those frames to its in-memory annotation state immediately, so the canvas and keyframe timeline grow live, then performs one persisted commit from the final result. The original `/track` JSON endpoint remains available.
 
 Returned timestamps are converted to nearest absolute source frames before merging. Image-space annotations whose `trackingAnchorId` points at the highlight receive the same translated motion, preserving linked arrows, lobs, shadows, and polygons.
+
+`Re-track from here` repairs an existing highlight tail. It snapshots the annotation layer, provisionally removes the selected highlight's future frames and those of its linked followers, and enters the same candidate/reacquisition workflow used after ordinary tracking loss. Candidate selection, streamed tracking, and repeated loss recovery remain in memory until `Done`; `Cancel` restores the snapshot without writing, and `Done` records the replacement as one undoable persisted edit.
 
 ### Homography and pitch coordinates
 
@@ -360,6 +371,8 @@ Holding Left or Right previews video at 1x for at most five seconds on either si
 
 Pin documents are independent from the clip's animated layer. "Import into clip" explicitly copies one saved document into clip annotations at the pin frame, generates fresh object IDs, and remaps highlight-link references. Repeated imports intentionally create independent objects.
 
+The pin inspector can assign one ordered entrance step to a selected shape or shape group. Supported effects are appear, fade, grow, and horizontal wipe. Trigger modes are on-click, with-previous, and after-previous, with non-negative delay and duration values stored in milliseconds. The preview canvas uses the same timing compiler and renderer as downstream playback. Importing into the clip does not copy this sequence because it belongs to the frozen annotation document rather than the clip's frame-keyframed object layer.
+
 ## 12. Presentations
 
 The presentation authoring layout uses resizable asset browser, canvas, deck, and inspector regions. Present mode is intentionally panel-free and fills the viewport for every slide kind.
@@ -369,6 +382,8 @@ The asset browser is clip-first and supports tag and chronological views; empty 
 Authoring clip previews reuse the clip editor timeline in a pins-only variant. The shared controls provide frame-snapped click/drag seeking, single-frame and two-second transport, horizontal zoom, five-second manual-scroll override, pin markers, and the current-frame playhead. Full-screen present mode deliberately does not render a timeline or scrubber.
 
 Clip slides play source motion with the shared animated-annotation renderer. Pins are automatic pause points according to `pausePins`; the playback state machine triggers only on a forward crossing, consumes the pin for that pass, resumes without immediately retriggering, and re-arms future pins after a seek. At a pause, selected pin annotation documents can appear according to wall-clock cues. Inspector timing fields are displayed and edited in seconds; the schema retains millisecond values for presentation wall-clock durations.
+
+Pin annotation documents render over the rasterized source frame on a separate live canvas. Presentation-level cues determine when a whole document is visible; the document's own ordered animation sequence determines how its shapes enter after that point. A canvas click, Space, Play, presentation Next, or Right first consumes the next pending on-click step. Only when no step is pending does the same action resume a paused clip or advance the scene. Automatic slide/pause holds do not bypass a pending click step.
 
 Pin slides rasterize one exact source frame and its selected annotation documents. Title slides render authored text.
 
@@ -396,7 +411,7 @@ Exports are deterministic and replace the previous report folder. A bad pin docu
 
 `webapp/lib/i18n/index.tsx` provides `en`, `fr`, `es`, and `zh-CN`, named placeholder interpolation, `Intl` number/date formatting, and development diagnostics for missing keys. Locale is stored under `annotate:locale`; storage failure falls back safely to English. The provider updates `<html lang>` and `data-locale`.
 
-The four catalogs currently contain the same 522 keys and placeholder tokens. Primary route chrome, statuses, accessibility labels, integrity descriptions, and structured export progress are localized. Low-level browser, filesystem, or sidecar diagnostic strings may remain English. CJK font/wrapping/layout support is in place; French, Spanish, and Simplified Chinese still need native-speaker editorial review.
+The four catalogs currently contain the same 555 keys and placeholder tokens. Primary route chrome, statuses, accessibility labels, integrity descriptions, structured export progress, and pin-animation authoring controls are localized. Low-level browser, filesystem, or sidecar diagnostic strings may remain English. CJK font/wrapping/layout support is in place; French, Spanish, and Simplified Chinese still need native-speaker editorial review.
 
 Resizable panels use visible, focusable separators, minimum sizes, keyboard operation, and `autoSaveId` persistence. Dashboard, player, clip editor, and presentation authoring are panelized. Metadata forms and present mode are intentionally ordinary, non-panel layouts.
 
@@ -426,7 +441,6 @@ Important live endpoints:
 | `POST` | `/track/stream` | Live NDJSON highlight tracking |
 | `POST` | `/track/detect` | Per-frame provisional player detection |
 | `POST` | `/homography` | Clip/pin PnLCalib calibration |
-| `POST` | `/segment` | Available foreground-mask API; no canonical v2 UI |
 | `POST` | `/derived-media/exact-motion` | Dormant exact-motion primitive retained for future export use |
 | `POST/GET/DELETE` | `/export/*` | Available client/service boundary; no current clip-export button |
 
@@ -434,11 +448,11 @@ Authoritative probing first uses a positive container `nb_frames` value, which a
 
 ## 17. Verification
 
-The 2026-08-09 release-candidate gate completed with:
+The 2026-08-22 Annotate 0.2.2 development gate completed with:
 
-- 263 Vitest tests across 44 files;
+- 274 Vitest tests across 47 files;
 - 42 sidecar pytest tests;
-- 30 Playwright Chromium flows against both development and production servers;
+- 35 Playwright Chromium flows against the development server, including trim, provisional re-track, pin-animation authoring/persistence, clip-pause cue consumption, and presentation pixel output;
 - clean TypeScript checking;
 - clean production build;
 - a clean install from both JavaScript lockfiles;
@@ -456,7 +470,7 @@ npm --prefix webapp run lint
 (cd sidecar && .venv/bin/python -m pytest tests)
 ```
 
-Playwright owns `webapp/e2e/**`; Vitest excludes those files. Browser coverage includes project lifecycle, frame-native capture, board semantics, clip editing, pins, presentations, exports, panel persistence, navigation/restore, and locale switching across the four aligned catalogs.
+Playwright owns `webapp/e2e/**`; Vitest excludes those files. Browser coverage includes project lifecycle, frame-native capture, board semantics, clip editing, pins, animation authoring/playback, presentations, exports, panel persistence, navigation/restore, and locale switching across the four aligned catalogs.
 
 ## 18. Known release boundaries
 
@@ -466,7 +480,6 @@ Playwright owns `webapp/e2e/**`; Vitest excludes those files. Browser coverage i
 - PnLCalib is mandatory. The installer provisions its source and checksum-verified weights; the release launcher refuses to start if the provider is unavailable.
 - The tagging board is file-configurable but has no in-app board designer.
 - Tracking is single-highlight per interactive session; linked followers move with that highlight, but multi-object batch tracking is not exposed.
-- Foreground segmentation is experimental and not enabled in the canonical pin annotation flow.
 - Clip MP4 rendering is not exposed in the current v2 UI.
 - French, Spanish, and Simplified Chinese need native copy review.
 - Quick Annotate is retained but is not a design or compatibility constraint on the project.v2 workflow.

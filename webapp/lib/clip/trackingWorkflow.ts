@@ -1,5 +1,6 @@
 import type {
   ClipAnnotation,
+  ClipKeyframe,
   HighlightKeyframe,
 } from '../types/clip';
 import {
@@ -7,9 +8,96 @@ import {
   type FrameBoundary,
   type VideoFrame,
 } from './frameMath';
-import { interpolateAnnotation } from './interpolation';
+import { interpolateAnnotation, interpolateKeyframes } from './interpolation';
+import type { InterpolatedKeyframe } from './interpolation';
 
 export type HighlightGeometry = Pick<HighlightKeyframe, 'cx' | 'cy' | 'radius'>;
+
+function geometryFromInterpolated(value: InterpolatedKeyframe): Record<string, unknown> {
+  switch (value.type) {
+    case 'box':
+      return { x: value.x, y: value.y, w: value.w, h: value.h, rotation: value.rotation };
+    case 'circle':
+      return { cx: value.cx, cy: value.cy, rx: value.rx, ry: value.ry, rotation: value.rotation };
+    case 'shadow':
+      return {
+        x: value.x,
+        y: value.y,
+        r: value.r,
+        rotation: value.rotation,
+        spreadDeg: value.spreadDeg,
+      };
+    case 'arrow':
+      return { x1: value.x1, y1: value.y1, x2: value.x2, y2: value.y2 };
+    case 'lob':
+      return {
+        x1: value.x1,
+        y1: value.y1,
+        cx: value.cx,
+        cy: value.cy,
+        x2: value.x2,
+        y2: value.y2,
+      };
+    case 'text':
+      return { x: value.x, y: value.y };
+    case 'poly':
+      return { points: value.points.map((point) => [...point] as [number, number]) };
+    case 'highlight':
+      return { cx: value.cx, cy: value.cy, radius: value.radius };
+  }
+}
+
+function truncateTrackedAnnotation(
+  annotation: ClipAnnotation,
+  frame: VideoFrame,
+  clipEndFrame: FrameBoundary,
+): ClipAnnotation {
+  const value = interpolateKeyframes(annotation.keyframes, frame, annotation.type);
+  if (!value) return annotation;
+  const current: ClipKeyframe = {
+    frame,
+    provenance: 'correction',
+    ...geometryFromInterpolated(value),
+  } as ClipKeyframe;
+  const keyframes = [
+    ...annotation.keyframes.filter((keyframe) => keyframe.frame < frame),
+    current,
+  ];
+  if (frame + 1 < clipEndFrame) {
+    keyframes.push({
+      ...current,
+      frame: videoFrame(frame + 1),
+      provenance: 'lost',
+      visible: false,
+    } as ClipKeyframe);
+  }
+  return {
+    ...annotation,
+    source: 'corrected',
+    keyframes,
+    visibilityKeyframes: annotation.visibilityKeyframes?.filter(
+      (keyframe) => keyframe.frame < frame,
+    ),
+  };
+}
+
+/** Build an unsaved working copy whose selected tracking tail can be reacquired. */
+export function prepareTrackingTailReplacement(
+  annotations: ClipAnnotation[],
+  annotationId: string,
+  frame: VideoFrame,
+  clipEndFrame: FrameBoundary,
+): ClipAnnotation[] {
+  const selected = annotations.find((annotation) => annotation.id === annotationId);
+  if (!selected || selected.type !== 'highlight' || selected.coordMode !== 'image') {
+    return annotations;
+  }
+  return annotations.map((annotation) => (
+    annotation.id === annotationId || annotation.trackingAnchorId === annotationId
+      ? truncateTrackedAnnotation(annotation, frame, clipEndFrame)
+      : annotation
+  ));
+}
 
 function isVisibleHighlightKeyframe(keyframe: HighlightKeyframe): boolean {
   return keyframe.visible !== false && keyframe.provenance !== 'lost';

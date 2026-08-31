@@ -33,14 +33,19 @@ type HomographyRequest = {
   skipInterval?: number;
 };
 
-async function installMockSidecar(page: Page) {
+type MockSidecarOptions = {
+  trackingCompleteFirstRun?: boolean;
+  trackingStreamDelayMs?: number;
+};
+
+async function installMockSidecar(page: Page, options: MockSidecarOptions = {}) {
   const trackRequests: TrackRequest[] = [];
   const detectionRequests: DetectionRequest[] = [];
   const homographyRequests: HomographyRequest[] = [];
 
   // Route.fulfill buffers its body. Re-stream tracking events in separate tasks so
   // React gets the same incremental updates it receives from the real sidecar.
-  await page.context().addInitScript(({ sidecarBaseUrl }) => {
+  await page.context().addInitScript(({ sidecarBaseUrl, streamDelayMs }) => {
     const nativeFetch = window.fetch.bind(window);
     window.fetch = async (input, init) => {
       const url = new URL(
@@ -60,6 +65,11 @@ async function installMockSidecar(page: Page) {
       headers.set('Content-Type', 'application/x-ndjson');
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
+          if (streamDelayMs <= 0) {
+            lines.forEach((line) => controller.enqueue(encoder.encode(`${line}\n`)));
+            controller.close();
+            return;
+          }
           let index = 0;
           let timer: ReturnType<typeof setTimeout> | null = null;
           const cleanUp = () => {
@@ -82,7 +92,7 @@ async function installMockSidecar(page: Page) {
             }
             controller.enqueue(encoder.encode(`${lines[index]}\n`));
             index += 1;
-            timer = setTimeout(emit, 20);
+            timer = setTimeout(emit, streamDelayMs);
           };
           signal?.addEventListener('abort', abort, { once: true });
           emit();
@@ -94,7 +104,10 @@ async function installMockSidecar(page: Page) {
         headers,
       });
     };
-  }, { sidecarBaseUrl: SIDECAR_BASE_URL });
+  }, {
+    sidecarBaseUrl: SIDECAR_BASE_URL,
+    streamDelayMs: options.trackingStreamDelayMs ?? 20,
+  });
 
   await page.context().route(`${SIDECAR_BASE_URL}/**`, async (route) => {
     const request = route.request();
@@ -109,7 +122,6 @@ async function installMockSidecar(page: Page) {
           models: {
             yolo: true,
             supervision: true,
-            mobilesam: false,
             ellipse: true,
             pnlcalib: true,
             opencv: true,
@@ -150,7 +162,7 @@ async function installMockSidecar(page: Page) {
     if (url.pathname === '/track' || url.pathname === '/track/stream') {
       const body = request.postDataJSON() as TrackRequest;
       trackRequests.push(body);
-      const firstRun = trackRequests.length === 1;
+      const firstRun = !options.trackingCompleteFirstRun && trackRequests.length === 1;
       const timestamps = firstRun
         ? [body.startMs, body.startMs + 40]
         : Array.from(
@@ -232,6 +244,19 @@ async function readClip(page: Page) {
   }, CLIP_ID);
 }
 
+async function openFixtureClipEditor(page: Page): Promise<Page> {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open Existing Project' }).click();
+  await page.getByRole('button', { name: 'Open capture player' }).click();
+  await page.getByTestId(`clip-tree-row-${CLIP_ID}`).click();
+  const editorPagePromise = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Open editor' }).click();
+  const editorPage = await editorPagePromise;
+  await editorPage.setViewportSize({ width: 1280, height: 900 });
+  await expect(editorPage.getByTestId('clip-editor')).toBeVisible();
+  return editorPage;
+}
+
 async function summarizeCanvasColors(
   page: Page,
 ): Promise<{ nonTransparent: number; green: number; yellow: number }> {
@@ -256,6 +281,157 @@ async function summarizeCanvasColors(
   });
 }
 
+test('handles a burst of streamed tracking frames without a React update loop', async ({ page }) => {
+  await installOpfsDirectoryPickerFixture(
+    page,
+    path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project'),
+    { rootName: 'clip-tracking-burst-project' },
+  );
+  await installMockSidecar(page, {
+    trackingCompleteFirstRun: true,
+    trackingStreamDelayMs: 0,
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const project = await (window as Window & {
+      showDirectoryPicker: () => Promise<FileSystemDirectoryHandle>;
+    }).showDirectoryPicker();
+    const rewriteJson = async (handle: FileSystemFileHandle, update: (value: any) => void) => {
+      const file = await handle.getFile();
+      const value = JSON.parse(await file.text());
+      update(value);
+      const writable = await handle.createWritable();
+      await writable.write(JSON.stringify(value, null, 2));
+      await writable.close();
+    };
+    await rewriteJson(await project.getFileHandle('project.json'), (manifest) => {
+      manifest.videos[0].frameCount = 1_010;
+    });
+    const clipFile = await project.getDirectoryHandle('analysis')
+      .then((analysis) => analysis.getDirectoryHandle('clips'))
+      .then((clips) => clips.getDirectoryHandle('clip-sequence'))
+      .then((clipFolder) => clipFolder.getFileHandle('clip.json'));
+    await rewriteJson(clipFile, (clip) => {
+      clip.endFrame = 1_005;
+    });
+  });
+  await page.getByRole('button', { name: 'Open Existing Project' }).click();
+  await page.getByRole('button', { name: 'Open capture player' }).click();
+  await page.getByTestId(`clip-tree-row-${CLIP_ID}`).click();
+  const editorPagePromise = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Open editor' }).click();
+  page = await editorPagePromise;
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(page.getByTestId('clip-editor')).toBeVisible();
+
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+  await page.getByRole('button', { name: '1. Highlight', exact: true }).click({ modifiers: ['Meta'] });
+  await page.getByRole('button', { name: 'Track', exact: true }).click();
+  await page.getByRole('button', { name: 'Player 1' }).click();
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect(page.getByText('Tracked 1,000 source frames.')).toBeVisible();
+
+  expect(errors.filter((error) => error.includes('Maximum update depth exceeded'))).toEqual([]);
+});
+
+test('previews, cancels, applies, and undoes an inward clip trim', async ({ page }) => {
+  await installOpfsDirectoryPickerFixture(
+    page,
+    path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project'),
+    { rootName: 'clip-trim-project' },
+  );
+  await installMockSidecar(page);
+  page = await openFixtureClipEditor(page);
+
+  const original = await readClip(page);
+  await page.getByTestId('clip-trim-begin').click();
+  const startHandle = page.getByTestId('clip-trim-start-handle');
+  const endHandle = page.getByTestId('clip-trim-end-handle');
+  await startHandle.focus();
+  for (let index = 0; index < 5; index += 1) await page.keyboard.press('ArrowRight');
+  await endHandle.focus();
+  for (let index = 0; index < 10; index += 1) await page.keyboard.press('ArrowLeft');
+
+  expect((await readClip(page)).startFrame).toBe(5);
+  expect((await readClip(page)).endFrame).toBe(45);
+  await page.getByTestId('clip-trim-cancel').click();
+  await expect(page.getByTestId('clip-trim-start-handle')).toHaveCount(0);
+  expect(await readClip(page)).toEqual(original);
+
+  await page.getByTestId('clip-trim-begin').click();
+  await page.getByTestId('clip-trim-start-handle').focus();
+  for (let index = 0; index < 5; index += 1) await page.keyboard.press('ArrowRight');
+  await page.getByTestId('clip-trim-end-handle').focus();
+  for (let index = 0; index < 10; index += 1) await page.keyboard.press('ArrowLeft');
+  await page.getByTestId('clip-trim-apply').click();
+
+  await expect.poll(async () => {
+    const stored = await readClip(page);
+    return [stored.startFrame, stored.endFrame];
+  }).toEqual([10, 35]);
+  const trimmed = await readClip(page);
+  expect(trimmed.pins.every((pin: { frame: number }) => pin.frame >= 10 && pin.frame < 35)).toBe(true);
+  expect(trimmed.annotations.every((annotation: {
+    keyframes: Array<{ frame: number }>;
+    visibilityKeyframes?: Array<{ frame: number }>;
+  }) => (
+    annotation.keyframes.every((keyframe) => keyframe.frame >= 10 && keyframe.frame < 35)
+    && (annotation.visibilityKeyframes ?? []).every((keyframe) => keyframe.frame >= 10 && keyframe.frame < 35)
+  ))).toBe(true);
+
+  await page.getByTestId('clip-trim-undo').click();
+  await expect.poll(async () => {
+    const stored = await readClip(page);
+    return [stored.startFrame, stored.endFrame];
+  }).toEqual([5, 45]);
+  expect(await readClip(page)).toEqual(original);
+});
+
+test('keeps re-tracking provisional until Done and restores the original tail on Cancel', async ({ page }) => {
+  await installOpfsDirectoryPickerFixture(
+    page,
+    path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project'),
+    { rootName: 'clip-retrack-project' },
+  );
+  await installMockSidecar(page);
+  page = await openFixtureClipEditor(page);
+
+  const original = await readClip(page);
+  await page.getByRole('button', { name: 'Highlight keyframe at frame 20', exact: true }).click();
+  await page.getByTestId('clip-retrack-begin').click();
+  await expect(page.getByRole('button', { name: 'Player 1' })).toBeVisible();
+  expect(await readClip(page)).toEqual(original);
+  await page.getByRole('button', { name: 'Player 1' }).click();
+  await page.getByTestId('clip-retrack-controls').getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByText('Tracked 2 source frames.')).toBeVisible();
+  expect(await readClip(page)).toEqual(original);
+  await page.getByTestId('clip-retrack-controls').getByRole('button', { name: 'Cancel' }).click();
+  expect(await readClip(page)).toEqual(original);
+
+  await page.getByTestId('clip-retrack-begin').click();
+  await page.getByRole('button', { name: 'Player 1' }).click();
+  await page.getByTestId('clip-retrack-controls').getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByText(/Tracked \d+ source frames\./)).toBeVisible();
+  expect(await readClip(page)).toEqual(original);
+  await page.getByTestId('clip-retrack-controls').getByRole('button', { name: 'Done' }).click();
+
+  await expect.poll(async () => {
+    const stored = await readClip(page);
+    return stored.annotations.find((annotation: { id: string }) => annotation.id === 'tracked-player')
+      ?.keyframes.at(-1)?.frame;
+  }).toBe(44);
+  const saved = await readClip(page);
+  const corrected = saved.annotations.find((annotation: { id: string }) => annotation.id === 'tracked-player');
+  expect(corrected.source).toBe('corrected');
+  expect(corrected.keyframes.filter((keyframe: { frame: number }) => keyframe.frame > 20).length).toBeGreaterThan(10);
+});
+
 test('edits and tracks a non-zero-start clip on the absolute frame axis', async ({ page }) => {
   await installOpfsDirectoryPickerFixture(
     page,
@@ -274,6 +450,8 @@ test('edits and tracks a non-zero-start clip on the absolute frame axis', async 
   await page.setViewportSize({ width: 1280, height: 900 });
 
   await expect(page.getByTestId('clip-editor')).toBeVisible();
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
   await expect(page.getByText(/frames 5–44 · 25 fps/)).toBeVisible();
   await expect(page.getByText(/Frame 5 · clip 5–44/)).toBeVisible();
   await expect.poll(() => page.locator('video').evaluate((element) => (element as HTMLVideoElement).currentTime)).toBeCloseTo((5 + 0.5) / 25, 4);
@@ -434,8 +612,6 @@ test('edits and tracks a non-zero-start clip on the absolute frame axis', async 
   const stage = page.getByTestId('clip-stage');
   const stageBox = await stage.boundingBox();
   if (!stageBox) throw new Error('Clip stage did not have a layout box.');
-  const pageErrors: string[] = [];
-  page.on('pageerror', (error) => pageErrors.push(error.message));
   await page.getByRole('button', { name: 'Circle', exact: true }).click();
   await page.mouse.move(stageBox.x + stageBox.width * 0.2, stageBox.y + stageBox.height * 0.3);
   await page.mouse.down();
@@ -1022,6 +1198,51 @@ test('resizes and rotates image and pitch shapes through canvas handles', async 
     return Math.round(keyframe.rotation ?? 0);
   }).toBe(90);
   expect(resizedBoxCenter.x).toBeLessThan(boxRotationTarget.x);
+
+  await page.getByRole('button', { name: 'Shadow', exact: true }).click();
+  const shadowCenter = sourcePoint(300, 180);
+  const shadowInitialDirection = sourcePoint(300, 80);
+  await page.mouse.move(shadowCenter.x, shadowCenter.y);
+  await page.mouse.down();
+  await page.mouse.move(shadowInitialDirection.x, shadowInitialDirection.y, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => {
+    const annotation = (await readClip(page)).annotations.at(-1);
+    const keyframe = annotation.keyframes[0];
+    return {
+      type: annotation.type,
+      radius: Math.round(keyframe.r),
+      rotation: Math.round(keyframe.rotation),
+      spread: Math.round(keyframe.spreadDeg),
+    };
+  }).toEqual({ type: 'shadow', radius: 100, rotation: -90, spread: 50 });
+
+  const shadowNewDirection = sourcePoint(400, 180);
+  await page.mouse.move(shadowInitialDirection.x, shadowInitialDirection.y);
+  await page.mouse.down();
+  await page.mouse.move(shadowNewDirection.x, shadowNewDirection.y, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => {
+    const keyframe = (await readClip(page)).annotations.at(-1).keyframes[0];
+    return { radius: Math.round(keyframe.r), rotation: Math.round(keyframe.rotation) };
+  }).toEqual({ radius: 100, rotation: 0 });
+
+  const shadowSpreadHandle = sourcePoint(
+    300 + Math.cos(25 * Math.PI / 180) * 100,
+    180 + Math.sin(25 * Math.PI / 180) * 100,
+  );
+  const shadowWideTarget = sourcePoint(
+    300 + Math.cos(60 * Math.PI / 180) * 100,
+    180 + Math.sin(60 * Math.PI / 180) * 100,
+  );
+  await page.mouse.move(shadowSpreadHandle.x, shadowSpreadHandle.y);
+  await page.mouse.down();
+  await page.mouse.move(shadowWideTarget.x, shadowWideTarget.y, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => {
+    const keyframe = (await readClip(page)).annotations.at(-1).keyframes[0];
+    return Math.round(keyframe.spreadDeg);
+  }).toBe(120);
 
   await page.getByRole('button', { name: 'Compute H', exact: true }).click();
   await expect(page.getByText('Loaded 3 homography samples.')).toBeVisible();

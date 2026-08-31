@@ -1,7 +1,7 @@
 """Video registration routes for sidecar clip operations.
 
 These routes let the browser upload a source clip video once and receive a
-`videoRef` token that can be used by /track, /segment, and /homography.
+`videoRef` token that can be used by /track and /homography.
 """
 
 import shutil

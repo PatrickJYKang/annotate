@@ -4,6 +4,7 @@ import type { ClipAnnotation, HighlightKeyframe } from '../types/clip';
 import { frameBoundary, videoFrame } from './frameMath';
 import {
   bridgeTrackingHighlight,
+  prepareTrackingTailReplacement,
   reusableTrackingHighlight,
   seedTrackingHighlightSegment,
   stopTrackingHighlightSegment,
@@ -99,6 +100,49 @@ describe('reusableTrackingHighlight', () => {
 });
 
 describe('tracking segment boundaries', () => {
+  it('builds a provisional tail replacement without mutating the saved annotations', () => {
+    const player = highlight([
+      { frame: videoFrame(5), cx: 50, cy: 100, radius: 22, provenance: 'tracked' },
+      { frame: videoFrame(10), cx: 100, cy: 100, radius: 22, provenance: 'tracked' },
+      { frame: videoFrame(15), cx: 150, cy: 100, radius: 22, provenance: 'correction' },
+    ]);
+    const follower: ClipAnnotation = {
+      id: 'arrow',
+      type: 'arrow',
+      coordMode: 'image',
+      source: 'corrected',
+      trackingAnchorId: player.id,
+      style: { stroke: '#fff' },
+      keyframes: [
+        { frame: videoFrame(5), x1: 50, y1: 100, x2: 200, y2: 100, provenance: 'tracked' },
+        { frame: videoFrame(15), x1: 150, y1: 100, x2: 300, y2: 100, provenance: 'tracked' },
+      ],
+    };
+
+    const result = prepareTrackingTailReplacement(
+      [player, follower],
+      player.id,
+      videoFrame(10),
+      frameBoundary(20),
+    );
+
+    expect(result[0].keyframes).toEqual([
+      { frame: 5, cx: 50, cy: 100, radius: 22, provenance: 'tracked' },
+      { frame: 10, cx: 100, cy: 100, radius: 22, provenance: 'correction' },
+      { frame: 11, cx: 100, cy: 100, radius: 22, provenance: 'lost', visible: false },
+    ]);
+    expect(result[1].keyframes.map((keyframe) => ({
+      frame: keyframe.frame,
+      provenance: keyframe.provenance,
+      visible: keyframe.visible,
+    }))).toEqual([
+      { frame: 5, provenance: 'tracked', visible: undefined },
+      { frame: 10, provenance: 'correction', visible: undefined },
+      { frame: 11, provenance: 'lost', visible: false },
+    ]);
+    expect(player.keyframes.map((keyframe) => keyframe.frame)).toEqual([5, 10, 15]);
+  });
+
   it('preserves an earlier lost span when a selected highlight starts a new segment', () => {
     const result = seedTrackingHighlightSegment(
       highlight([

@@ -2,6 +2,7 @@ type StrokePattern = 'solid' | 'dashed' | 'dotted' | 'dashdot';
 
 import type { AnnotationDocument, AnnotationPayload } from '../annotate/documentPayload';
 import { annotationPayloadFromDocument } from '../annotate/documentPayload';
+import type { AnnotationAnimationVisual } from '../annotate/animation';
 import { measureHighlightLabelText, placeHighlightLabel } from '../annotate/highlightLabel';
 import { contrastStrokeForHex } from '../annotate/shapeRendering';
 
@@ -72,6 +73,175 @@ export async function renderAnnotatedPng(args: {
   if (!ctx) throw new Error('Canvas 2D not available');
 
   ctx.drawImage(bmp, 0, 0, w, h);
+  paintAnnotationPayloadToCanvas({ context: ctx, payload });
+
+  return await new Promise((resolve, reject) => {
+    canvas.toBlob(b => (b ? resolve(b) : reject(new Error('PNG encode failed'))), 'image/png');
+  });
+}
+
+type ShapeBounds = { x: number; y: number; w: number; h: number };
+
+const annotationLineCanvasByTarget = new WeakMap<HTMLCanvasElement, HTMLCanvasElement>();
+
+function annotationLineLayer(
+  target: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+): { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D } | null {
+  const targetCanvas = target.canvas;
+  const ownerDocument = targetCanvas?.ownerDocument
+    ?? (typeof document !== 'undefined' ? document : null);
+  if (!targetCanvas || !ownerDocument) return null;
+  let canvas = annotationLineCanvasByTarget.get(targetCanvas);
+  if (!canvas) {
+    canvas = ownerDocument.createElement('canvas');
+    annotationLineCanvasByTarget.set(targetCanvas, canvas);
+  }
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  const context = canvas.getContext('2d');
+  if (!context) return null;
+  context.clearRect(0, 0, width, height);
+  return { canvas, context };
+}
+
+function boundsFromPoints(points: readonly number[]): ShapeBounds {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (let index = 0; index + 1 < points.length; index += 2) {
+    xs.push(points[index]);
+    ys.push(points[index + 1]);
+  }
+  if (xs.length === 0) return { x: 0, y: 0, w: 1, h: 1 };
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  return { x: minX, y: minY, w: Math.max(1, maxX - minX), h: Math.max(1, maxY - minY) };
+}
+
+function annotationShapeBounds(
+  shape: ExportShape,
+  homography: null | { H: number[]; Hinv: number[] },
+  byId: Map<string, ExportShape>,
+): ShapeBounds {
+  if (shape.type === 'box') {
+    if (homography && shape.plane) {
+      return boundsFromPoints(rectPlaneToImagePoints(
+        homography.H,
+        shape.plane.cx,
+        shape.plane.cy,
+        shape.plane.w ?? 0,
+        shape.plane.h ?? 0,
+      ));
+    }
+    return { x: shape.x, y: shape.y, w: Math.max(1, shape.w ?? 1), h: Math.max(1, shape.h ?? 1) };
+  }
+  if (shape.type === 'circle') {
+    if (homography && shape.plane) {
+      return boundsFromPoints(ellipsePlaneToImagePoints(
+        homography.H,
+        shape.plane.cx,
+        shape.plane.cy,
+        shape.plane.rx ?? shape.plane.r ?? 1,
+        shape.plane.ry ?? shape.plane.r ?? 1,
+      ));
+    }
+    const rx = shape.rx ?? shape.r ?? 1;
+    const ry = shape.ry ?? shape.r ?? 1;
+    return { x: shape.x - rx, y: shape.y - ry, w: rx * 2, h: ry * 2 };
+  }
+  if (shape.type === 'highlight') {
+    const center = getHighlightCenter(shape, homography ? { H: homography.H } : null);
+    const rx = shape.rx ?? 40;
+    const ry = shape.ry ?? 10;
+    return { x: center.x - rx, y: center.y - ry, w: rx * 2, h: ry * 2 };
+  }
+  if (shape.type === 'shadow') {
+    const center = resolveShadowCenter(shape, byId, homography);
+    return boundsFromPoints(buildShadowSectorPoints(
+      center.x,
+      center.y,
+      shape.r ?? shape.rx ?? DEFAULT_SHADOW_RADIUS,
+      shape.rotation ?? 0,
+      shape.spreadDeg ?? DEFAULT_SHADOW_SPREAD_DEG,
+    ));
+  }
+  if (shape.type === 'arrow') {
+    const points = resolveArrowPoints(shape, byId, homography);
+    return boundsFromPoints([points.x1, points.y1, points.x2, points.y2]);
+  }
+  if (shape.type === 'lob') {
+    const points = resolveLobPoints(shape, byId, homography);
+    return boundsFromPoints([
+      points.start.x,
+      points.start.y,
+      points.control.x,
+      points.control.y,
+      points.end.x,
+      points.end.y,
+    ]);
+  }
+  if (shape.type === 'poly') {
+    const points = resolvePolyPoints(shape, byId, homography);
+    return boundsFromPoints(points.map((value, index) => value + (index % 2 === 0 ? shape.x : shape.y)));
+  }
+  const fontSize = shape.style?.fontSize ?? 48;
+  return {
+    x: shape.x,
+    y: shape.y,
+    w: Math.max(fontSize, (shape.text?.length ?? 1) * fontSize * 0.6),
+    h: fontSize * 1.2,
+  };
+}
+
+function paintWithAnimationVisual(
+  context: CanvasRenderingContext2D,
+  visual: AnnotationAnimationVisual | undefined,
+  bounds: ShapeBounds,
+  paint: () => void,
+): void {
+  if (visual && (visual.opacity <= 0 || visual.scale <= 0 || visual.reveal <= 0)) return;
+  context.save();
+  if (visual) {
+    context.globalAlpha *= Math.max(0, Math.min(1, visual.opacity));
+    if (visual.reveal < 1) {
+      const margin = 4;
+      context.beginPath();
+      context.rect(
+        bounds.x - margin,
+        bounds.y - margin,
+        Math.max(0, bounds.w * visual.reveal + margin * 2),
+        bounds.h + margin * 2,
+      );
+      context.clip();
+    }
+    if (Math.abs(visual.scale - 1) > 1e-6) {
+      const centerX = bounds.x + bounds.w / 2;
+      const centerY = bounds.y + bounds.h / 2;
+      context.translate(centerX, centerY);
+      context.scale(visual.scale, visual.scale);
+      context.translate(-centerX, -centerY);
+    }
+  }
+  paint();
+  context.restore();
+}
+
+export function paintAnnotationPayloadToCanvas({
+  context,
+  payload,
+  visuals,
+}: {
+  context: CanvasRenderingContext2D;
+  payload: AnnotationPayload;
+  visuals?: ReadonlyMap<string, AnnotationAnimationVisual>;
+}): void {
+  const w = context.canvas.width;
+  const h = context.canvas.height;
 
   const shapes = (payload.shapes || []).filter(s => !(s as any)?._temp && !(typeof (s as any)?.id === 'string' && (s as any).id.startsWith('_temp_')));
   const byId = new Map<string, ExportShape>();
@@ -85,49 +255,71 @@ export async function renderAnnotatedPng(args: {
   const lines = shapes.filter(s => s.type === 'arrow' || s.type === 'lob' || s.type === 'poly');
   const highlights = shapes.filter(s => s.type === 'highlight');
 
-  for (const s of other) drawOther(ctx, s, homography, byId);
+  for (const s of other) {
+    paintWithAnimationVisual(
+      context,
+      visuals?.get(s.id),
+      annotationShapeBounds(s, homography, byId),
+      () => drawOther(context, s, homography, byId),
+    );
+  }
 
-  const lineCanvas = document.createElement('canvas');
-  lineCanvas.width = w;
-  lineCanvas.height = h;
-  const lineCtx = lineCanvas.getContext('2d');
-  if (!lineCtx) throw new Error('Canvas 2D not available');
+  const lineLayer = annotationLineLayer(context, w, h);
+  if (!lineLayer) throw new Error('Canvas 2D not available');
+  const { canvas: lineCanvas, context: lineCtx } = lineLayer;
 
   for (const s of lines) {
-    if (s.type === 'poly') {
-      const pts = resolvePolyPoints(s, byId, homography);
-      drawPoly(lineCtx, s, pts);
-    } else if (s.type === 'lob') {
-      const p = resolveLobPoints(s, byId, homography);
-      drawLob(lineCtx, s, p.start, p.control, p.end);
-    } else {
-      const p = resolveArrowPoints(s, byId, homography);
-      drawArrow(lineCtx, s, p.x1, p.y1, p.x2, p.y2);
-    }
+    paintWithAnimationVisual(
+      lineCtx,
+      visuals?.get(s.id),
+      annotationShapeBounds(s, homography, byId),
+      () => {
+        if (s.type === 'poly') {
+          const pts = resolvePolyPoints(s, byId, homography);
+          drawPoly(lineCtx, s, pts);
+        } else if (s.type === 'lob') {
+          const p = resolveLobPoints(s, byId, homography);
+          drawLob(lineCtx, s, p.start, p.control, p.end);
+        } else {
+          const p = resolveArrowPoints(s, byId, homography);
+          drawArrow(lineCtx, s, p.x1, p.y1, p.x2, p.y2);
+        }
+      },
+    );
   }
 
   if (highlights.length) {
     lineCtx.save();
     lineCtx.globalCompositeOperation = 'destination-out';
     for (const h0 of highlights) {
-      const cen = getHighlightCenter(h0, homography);
-      const rx = (h0 as any).rx ?? (h0.rx ?? 40);
-      const ry = (h0 as any).ry ?? (h0.ry ?? 10);
-      lineCtx.fillStyle = '#000';
-      lineCtx.beginPath();
-      lineCtx.ellipse(cen.x, cen.y, Math.max(0.5, rx || 40), Math.max(0.5, ry || 10), 0, 0, Math.PI * 2);
-      lineCtx.fill();
+      paintWithAnimationVisual(
+        lineCtx,
+        visuals?.get(h0.id),
+        annotationShapeBounds(h0, homography, byId),
+        () => {
+          const cen = getHighlightCenter(h0, homography);
+          const rx = (h0 as any).rx ?? (h0.rx ?? 40);
+          const ry = (h0 as any).ry ?? (h0.ry ?? 10);
+          lineCtx.fillStyle = '#000';
+          lineCtx.beginPath();
+          lineCtx.ellipse(cen.x, cen.y, Math.max(0.5, rx || 40), Math.max(0.5, ry || 10), 0, 0, Math.PI * 2);
+          lineCtx.fill();
+        },
+      );
     }
     lineCtx.restore();
   }
 
-  ctx.drawImage(lineCanvas, 0, 0);
+  context.drawImage(lineCanvas, 0, 0);
 
-  for (const s of highlights) drawHighlight(ctx, s, homography);
-
-  return await new Promise((resolve, reject) => {
-    canvas.toBlob(b => (b ? resolve(b) : reject(new Error('PNG encode failed'))), 'image/png');
-  });
+  for (const s of highlights) {
+    paintWithAnimationVisual(
+      context,
+      visuals?.get(s.id),
+      annotationShapeBounds(s, homography, byId),
+      () => drawHighlight(context, s, homography),
+    );
+  }
 }
 
 function hexToRgba(hex: string, alpha: number) {
@@ -316,8 +508,18 @@ function drawOther(ctx: CanvasRenderingContext2D, s: ExportShape, homography: nu
       ctx.fill();
       ctx.stroke();
     } else {
+      const radiusX = Math.max(0.5, s.rx ?? s.r ?? 0);
+      const radiusY = Math.max(0.5, s.ry ?? s.r ?? 0);
       ctx.beginPath();
-      ctx.arc(s.x || 0, s.y || 0, Math.max(0.5, s.r || 0), 0, Math.PI * 2);
+      ctx.ellipse(
+        s.x || 0,
+        s.y || 0,
+        radiusX,
+        radiusY,
+        ((s.rotation || 0) * Math.PI) / 180,
+        0,
+        Math.PI * 2,
+      );
       ctx.fill();
       ctx.stroke();
     }

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import tempfile
-import tomllib
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 import numpy as np
 

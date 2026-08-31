@@ -162,7 +162,7 @@ Notes:
 
 ### 3.3 Annotation document (`annotations.v2`)
 
-Same drawing payload as v1 (shapes, styles, perspective quad — the editor and `renderAnnotatedPng` are unchanged); only the anchor changes.
+The drawing payload contains shapes, styles, an optional perspective quad, and an optional ordered entrance-animation sequence. The clip/pin/frame anchor replaces the v1 still anchor.
 
 ```jsonc
 {
@@ -174,11 +174,23 @@ Same drawing payload as v1 (shapes, styles, perspective quad — the editor and 
   "image": { "width": 1920, "height": 1080 },   // no file field; the frame
                                                  // is decoded from the video
   "shapes": [ /* unchanged from annotations.v1 */ ],
-  "perspective": { "quad": [ /* unchanged */ ] }
+  "perspective": { "quad": [ /* unchanged */ ] },
+  "animations": [
+    {
+      "id": "animation_…",
+      "shapeIds": ["shape_…"],
+      "effect": "fade",            // appear | fade | grow | wipe
+      "trigger": "on_click",       // on_click | with_previous | after_previous
+      "delayMs": 0,
+      "durationMs": 400
+    }
+  ]
 }
 ```
 
 The editor's background image is produced by seeking the owning video to `frame` and rasterizing, replacing the v1 still PNG. (This is what still capture did — done lazily now, with the raster cacheable under `cache/`.) The document filename, `annotationId`, and owning `PinAnnotationRef.id` must agree; its relative path must remain inside the owning clip's `annotations/` directory.
+
+Animation step IDs are unique, shape references must resolve within the document, and one shape may belong to at most one entrance step. The sequence remains attached to the pin document when shapes are imported into the clip layer. Documents without `animations` remain valid and render statically; report PNGs always render the completed fully visible state.
 
 ### 3.4 Presentation document (`presentation.v2`)
 
@@ -337,7 +349,7 @@ The schema parser still accepts `mode`, `leadSeconds`, `lagSeconds`, and the ear
 These decisions kept the v2 rework from spreading into code that did not need to move:
 
 - **The Python sidecar API stays ms-based at analysis boundaries.** Smart video import exposes authoritative per-video metadata plus its preserve/remux/ transcode strategy (locked contract 9); container/browser duration is never used to invent frame count. Tracking/homography clients still convert frames ↔ ms only through the `frameMath` boundary helpers (locked contract 3).
-- **`Editor.tsx`'s drawing core stays shared.** `lib/annotate/documentPayload.ts` separates the renderable payload (image dimensions + shapes + perspective) from anchor-specific serializers. Pin annotation receives an explicit project handle and persistence adapter; quick-annotate retains its isolated v1 anchor. `renderAnnotatedPng` consumes the shared payload rather than either stored schema.
+- **`Editor.tsx`'s drawing core stays shared.** `lib/annotate/documentPayload.ts` separates the renderable payload (image dimensions + shapes + perspective + optional entrance sequence) from anchor-specific serializers. Pin annotation receives an explicit project handle and persistence adapter; quick-annotate retains its isolated v1 anchor and static payload. `renderAnnotatedPng` consumes the shared payload rather than either stored schema, while the reusable canvas painter accepts sampled animation visuals for editor and presentation playback.
 - **`ClipEditor` persistence is injected** through `persistAnnotations`. The canonical route replaces only the latest clip's annotation field through the repository (locked contract 6); no stale whole-clip save remains.
 - **The primitive File System Access wrappers remain small.** v2 adds an explicit recursive copy/verify helper for trash because directory move is unavailable; layout, tombstone, retention, and recovery policy live above those primitives.
 - **Quick-annotate survived as a best-effort utility, not a constraint.** It rides the payload refactor while retaining independent v1 OPFS documents.

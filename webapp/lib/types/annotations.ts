@@ -10,6 +10,21 @@ export interface AnnotationPerspective {
   quad: { x: number; y: number }[];
 }
 
+export const annotationAnimationEffects = ['appear', 'fade', 'grow', 'wipe'] as const;
+export type AnnotationAnimationEffect = typeof annotationAnimationEffects[number];
+
+export const annotationAnimationTriggers = ['on_click', 'with_previous', 'after_previous'] as const;
+export type AnnotationAnimationTrigger = typeof annotationAnimationTriggers[number];
+
+export interface AnnotationAnimationStep {
+  id: string;
+  shapeIds: string[];
+  effect: AnnotationAnimationEffect;
+  trigger: AnnotationAnimationTrigger;
+  delayMs: number;
+  durationMs: number;
+}
+
 export interface Annotations {
   schema: 'annotations.v2';
   annotationId: string;
@@ -19,6 +34,7 @@ export interface Annotations {
   image: AnnotationImage;
   shapes: ExportShape[];
   perspective?: AnnotationPerspective;
+  animations?: AnnotationAnimationStep[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -49,6 +65,57 @@ export function parseAnnotations(raw: unknown): Annotations {
     throw new Error('Annotation document image requires positive width and height.');
   }
   if (!Array.isArray(raw.shapes)) throw new Error('Annotation document shapes must be an array.');
+  if (raw.animations !== undefined) {
+    if (!Array.isArray(raw.animations)) throw new Error('Annotation document animations must be an array.');
+    const shapeIds = new Set(raw.shapes.flatMap((shape) => (
+      isRecord(shape) && typeof shape.id === 'string' ? [shape.id] : []
+    )));
+    const animationIds = new Set<string>();
+    const animatedShapeIds = new Set<string>();
+    raw.animations.forEach((animation, index) => {
+      if (!isRecord(animation)) throw new Error(`Annotation animation ${index} must be an object.`);
+      if (typeof animation.id !== 'string' || !animation.id) {
+        throw new Error(`Annotation animation ${index} requires an id.`);
+      }
+      if (animationIds.has(animation.id)) throw new Error(`Annotation animation id "${animation.id}" is duplicated.`);
+      animationIds.add(animation.id);
+      if (!Array.isArray(animation.shapeIds) || animation.shapeIds.length === 0) {
+        throw new Error(`Annotation animation "${animation.id}" requires at least one shape.`);
+      }
+      const localShapeIds = new Set<string>();
+      animation.shapeIds.forEach((shapeId) => {
+        if (typeof shapeId !== 'string' || !shapeId) {
+          throw new Error(`Annotation animation "${animation.id}" contains an invalid shape id.`);
+        }
+        if (!shapeIds.has(shapeId)) {
+          throw new Error(`Annotation animation "${animation.id}" references missing shape "${shapeId}".`);
+        }
+        if (localShapeIds.has(shapeId)) {
+          throw new Error(`Annotation animation "${animation.id}" repeats shape "${shapeId}".`);
+        }
+        if (animatedShapeIds.has(shapeId)) {
+          throw new Error(`Annotation shape "${shapeId}" has more than one entrance animation.`);
+        }
+        localShapeIds.add(shapeId);
+        animatedShapeIds.add(shapeId);
+      });
+      if (!annotationAnimationEffects.includes(animation.effect as AnnotationAnimationEffect)) {
+        throw new Error(`Annotation animation "${animation.id}" has an unsupported effect.`);
+      }
+      if (!annotationAnimationTriggers.includes(animation.trigger as AnnotationAnimationTrigger)) {
+        throw new Error(`Annotation animation "${animation.id}" has an unsupported trigger.`);
+      }
+      for (const field of ['delayMs', 'durationMs'] as const) {
+        if (
+          typeof animation[field] !== 'number'
+          || !Number.isFinite(animation[field])
+          || animation[field] < 0
+        ) {
+          throw new Error(`Annotation animation "${animation.id}" ${field} must be a non-negative number.`);
+        }
+      }
+    });
+  }
   if (raw.perspective !== undefined) {
     if (!isRecord(raw.perspective) || !Array.isArray(raw.perspective.quad) || raw.perspective.quad.length !== 4) {
       throw new Error('Annotation perspective quad must contain exactly four points.');

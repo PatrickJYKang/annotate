@@ -1,7 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AnnotationPayload } from '../../lib/annotate/documentPayload';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import {
+  hasPendingAnnotationAnimationClick,
+  sampleAnnotationAnimations,
+} from '../../lib/annotate/animation';
 import { annotationPayloadFromDocument } from '../../lib/annotate/documentPayload';
 import {
   frameTemporalAdapter,
@@ -9,7 +12,7 @@ import {
 } from '../../lib/clip/renderClipAnnotations';
 import { frameToMs, videoFrame } from '../../lib/clip/frameMath';
 import { resolveUsableHomographyAtTime } from '../../lib/clip/homographyInterpolation';
-import { renderAnnotatedPng } from '../../lib/export/d7Render';
+import { paintAnnotationPayloadToCanvas } from '../../lib/export/d7Render';
 import { findOverlappingCache, type HomographyFrame } from '../../lib/fs/homographyCache';
 import { readPinAnnotationDocument } from '../../lib/fs/pinAnnotationStorage';
 import { createFrameRasterQueue } from '../../lib/media/frameRaster';
@@ -29,6 +32,7 @@ import {
   type PresentationPlaybackAsset,
 } from '../../lib/presentation/playback';
 import type { ClipPin, Clip } from '../../lib/types/clip';
+import type { Annotations } from '../../lib/types/annotations';
 import type {
   ClipPauseCue,
   PresentationSlide,
@@ -59,6 +63,10 @@ interface PresentationCanvasProps {
   videoResources: ReadonlyMap<string, PresentationVideoResource>;
   isPresenting: boolean;
   onComplete: () => void;
+}
+
+export interface PresentationCanvasHandle {
+  advance: () => boolean;
 }
 
 type ResolvedScene = {
@@ -149,15 +157,7 @@ function resolveScene(
   };
 }
 
-function mergePayloads(payloads: readonly AnnotationPayload[], width: number, height: number): AnnotationPayload {
-  return {
-    image: { width, height },
-    shapes: payloads.flatMap((payload) => payload.shapes),
-    perspective: payloads.find((payload) => payload.perspective)?.perspective,
-  };
-}
-
-export default function PresentationCanvas({
+const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanvasProps>(function PresentationCanvas({
   projectDir,
   manifest,
   presentation,
@@ -166,7 +166,7 @@ export default function PresentationCanvas({
   videoResources,
   isPresenting,
   onComplete,
-}: PresentationCanvasProps) {
+}: PresentationCanvasProps, ref) {
   const { t, formatNumber } = useLocale();
   const resolved = useMemo(
     () => resolveScene(scene, presentation, clips, manifest, t),
@@ -174,6 +174,7 @@ export default function PresentationCanvas({
   );
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
+  const staticOverlayRef = useRef<HTMLCanvasElement | null>(null);
   const pauseMachineRef = useRef<PinPauseMachine | null>(null);
   const completionKeyRef = useRef<string | null>(null);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -185,10 +186,13 @@ export default function PresentationCanvas({
   const [playing, setPlaying] = useState(false);
   const [pausedPin, setPausedPin] = useState<ClipPin | null>(null);
   const [staticFrameUrl, setStaticFrameUrl] = useState<string | null>(null);
+  const [staticDocuments, setStaticDocuments] = useState<Map<string, Annotations>>(() => new Map());
   const [message, setMessage] = useState<string | null>(null);
   const [staticElapsedMs, setStaticElapsedMs] = useState(0);
+  const [staticAnimationClickTimesMs, setStaticAnimationClickTimesMs] = useState<number[]>([]);
   const [homographyFrames, setHomographyFrames] = useState<HomographyFrame[]>([]);
-  const staticStartedAtRef = useRef(Date.now());
+  const staticStartedAtRef = useRef(0);
+  const staticAnimationClickTimesRef = useRef<number[]>([]);
 
   const requestPlayback = useCallback((video: HTMLVideoElement) => {
     const attempt = (retries: number) => {
@@ -294,7 +298,9 @@ export default function PresentationCanvas({
     playIntentRef.current = false;
     setPlaying(false);
     setPausedPin(pin);
-    staticStartedAtRef.current = Date.now();
+    staticStartedAtRef.current = performance.now();
+    staticAnimationClickTimesRef.current = [];
+    setStaticAnimationClickTimesMs([]);
     setStaticElapsedMs(0);
   }, []);
 
@@ -362,7 +368,9 @@ export default function PresentationCanvas({
       requestedSourceFrameRef.current = initialSourceFrame;
       pendingSeekFrameRef.current = initialSourceFrame;
       setSourceFrame(initialSourceFrame);
-      staticStartedAtRef.current = Date.now();
+      staticStartedAtRef.current = performance.now();
+      staticAnimationClickTimesRef.current = [];
+      setStaticAnimationClickTimesMs([]);
       setStaticElapsedMs(0);
       playIntentRef.current = isPresenting;
     } else if (isPresenting) {
@@ -408,21 +416,45 @@ export default function PresentationCanvas({
   const activePauseCue: ClipPauseCue | undefined = pausedPin && resolved.slide?.kind === 'clip'
     ? resolved.slide.pauseCues?.find((cue) => cue.pinId === pausedPin.id)
     : undefined;
-  const staticSelection = resolved.slide?.kind === 'pin'
+  const staticSelection = useMemo(() => resolved.slide?.kind === 'pin'
     ? resolved.slide.showAnnotations ? resolved.slide.annotationIds : []
-    : activePauseCue?.annotationIds;
-  const staticCues = resolved.slide?.kind === 'pin'
+    : activePauseCue?.annotationIds, [activePauseCue?.annotationIds, resolved.slide]);
+  const staticCues = useMemo(() => resolved.slide?.kind === 'pin'
     ? resolved.slide.annotationCues
-    : activePauseCue?.annotationCues;
-  const visibleStaticIds = activeStaticPin
+    : activePauseCue?.annotationCues, [activePauseCue?.annotationCues, resolved.slide]);
+  const visibleStaticIds = useMemo(() => activeStaticPin
     ? visibleAnnotationIds(
         activeStaticPin.annotations.map((reference) => reference.id),
         staticSelection,
         staticCues,
         staticElapsedMs,
       )
-    : [];
-  const visibleStaticKey = visibleStaticIds.join('|');
+    : [], [activeStaticPin, staticCues, staticElapsedMs, staticSelection]);
+  const visibleStaticIdSet = useMemo(() => new Set(visibleStaticIds), [visibleStaticIds]);
+  const staticCueById = useMemo(() => new Map(
+    (staticCues ?? []).map((cue) => [cue.annotationId, cue]),
+  ), [staticCues]);
+  const activeStaticAnnotationKey = activeStaticPin?.annotations.map((reference) => reference.id).join('|') ?? '';
+
+  useEffect(() => {
+    if (!activeStaticPin || !resolved.clip) {
+      setStaticDocuments(new Map());
+      return;
+    }
+    let active = true;
+    void Promise.all(activeStaticPin.annotations.map(async (reference) => {
+      const result = await readPinAnnotationDocument(projectDir, resolved.clip!.id, reference.id);
+      return result.document ? [reference.id, result.document] as const : null;
+    })).then((entries) => {
+      if (!active) return;
+      setStaticDocuments(new Map(
+        entries.filter((entry): entry is readonly [string, Annotations] => entry !== null),
+      ));
+    }).catch((error) => {
+      if (active) setMessage(error instanceof Error ? error.message : String(error));
+    });
+    return () => { active = false; };
+  }, [activeStaticAnnotationKey, activeStaticPin, projectDir, resolved.clip]);
 
   useEffect(() => {
     if (!activeStaticPin || !resolved.clip || !resolved.video || !resource) {
@@ -434,31 +466,13 @@ export default function PresentationCanvas({
     const queue = createFrameRasterQueue(resource.file);
     void (async () => {
       try {
-        const visibleDocumentIds = visibleStaticKey ? visibleStaticKey.split('|') : [];
         const raster = await queue.rasterize({
           frame: activeStaticPin.frame,
           fps: resolved.video!.fps,
           outputWidth: resolved.video!.width,
         });
-        let blob = raster.blob;
-        if (visibleDocumentIds.length > 0) {
-          const documents = await Promise.all(visibleDocumentIds.map((annotationId) => (
-            readPinAnnotationDocument(projectDir, resolved.clip!.id, annotationId)
-          )));
-          const payloads = documents
-            .filter((entry) => entry.document)
-            .map((entry) => annotationPayloadFromDocument(entry.document!));
-          if (payloads.length > 0) {
-            const bitmap = await createImageBitmap(raster.blob);
-            try {
-              blob = await renderAnnotatedPng({ bmp: bitmap, payload: mergePayloads(payloads, raster.width, raster.height) });
-            } finally {
-              bitmap.close();
-            }
-          }
-        }
         if (!active) return;
-        objectUrl = URL.createObjectURL(blob);
+        objectUrl = URL.createObjectURL(raster.blob);
         setStaticFrameUrl(objectUrl);
       } catch (error) {
         if (active) setMessage(error instanceof Error ? error.message : String(error));
@@ -469,13 +483,84 @@ export default function PresentationCanvas({
       queue.dispose();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [activeStaticPin, projectDir, resolved.clip, resolved.sceneKey, resolved.video, resource, visibleStaticKey]);
+  }, [activeStaticPin, resolved.clip, resolved.sceneKey, resolved.video, resource]);
 
   useEffect(() => {
+    if (!activeStaticPin?.id) {
+      staticAnimationClickTimesRef.current = [];
+      setStaticAnimationClickTimesMs([]);
+      setStaticElapsedMs(0);
+      return;
+    }
+    const startedAt = performance.now();
+    staticStartedAtRef.current = startedAt;
+    staticAnimationClickTimesRef.current = [];
+    setStaticAnimationClickTimesMs([]);
+    setStaticElapsedMs(0);
+    let frameRequest = 0;
+    const update = () => {
+      setStaticElapsedMs(Math.max(0, performance.now() - startedAt));
+      frameRequest = requestAnimationFrame(update);
+    };
+    frameRequest = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(frameRequest);
+  }, [activeStaticPin?.id, resolved.sceneKey]);
+
+  const relativeStaticClickTimes = useCallback((annotationId: string, clickTimes: readonly number[]) => {
+    const enterAtMs = staticCueById.get(annotationId)?.enterAtMs ?? 0;
+    return clickTimes
+      .filter((clickTime) => clickTime >= enterAtMs)
+      .map((clickTime) => clickTime - enterAtMs);
+  }, [staticCueById]);
+
+  const staticAnimationHasNextClick = Array.from(staticDocuments).some(([annotationId, document]) => (
+    visibleStaticIdSet.has(annotationId)
+    && hasPendingAnnotationAnimationClick(
+      document.animations,
+      relativeStaticClickTimes(annotationId, staticAnimationClickTimesMs),
+    )
+  ));
+
+  const advanceStaticAnimation = useCallback(() => {
+    if (!activeStaticPin) return false;
+    const clickTimes = staticAnimationClickTimesRef.current;
+    const hasPending = Array.from(staticDocuments).some(([annotationId, document]) => (
+      visibleStaticIdSet.has(annotationId)
+      && hasPendingAnnotationAnimationClick(
+        document.animations,
+        relativeStaticClickTimes(annotationId, clickTimes),
+      )
+    ));
+    if (!hasPending) return false;
+    const elapsedMs = Math.max(0, performance.now() - staticStartedAtRef.current);
+    const nextClickTimes = [...clickTimes, elapsedMs];
+    staticAnimationClickTimesRef.current = nextClickTimes;
+    setStaticAnimationClickTimesMs(nextClickTimes);
+    setStaticElapsedMs(elapsedMs);
+    return true;
+  }, [activeStaticPin, relativeStaticClickTimes, staticDocuments, visibleStaticIdSet]);
+
+  useEffect(() => {
+    const canvas = staticOverlayRef.current;
+    if (!canvas) return;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    context.clearRect(0, 0, canvas.width, canvas.height);
     if (!activeStaticPin) return;
-    const timer = window.setInterval(() => setStaticElapsedMs(Date.now() - staticStartedAtRef.current), 50);
-    return () => window.clearInterval(timer);
-  }, [activeStaticPin, resolved.sceneKey]);
+    for (const [annotationId, document] of staticDocuments) {
+      if (!visibleStaticIdSet.has(annotationId)) continue;
+      const enterAtMs = staticCueById.get(annotationId)?.enterAtMs ?? 0;
+      paintAnnotationPayloadToCanvas({
+        context,
+        payload: annotationPayloadFromDocument(document),
+        visuals: sampleAnnotationAnimations(
+          document.animations,
+          Math.max(0, staticElapsedMs - enterAtMs),
+          relativeStaticClickTimes(annotationId, staticAnimationClickTimesMs),
+        ),
+      });
+    }
+  }, [activeStaticPin, relativeStaticClickTimes, staticAnimationClickTimesMs, staticCueById, staticDocuments, staticElapsedMs, visibleStaticIdSet]);
 
   const resumeFromPin = useCallback(() => {
     if (!pausedPin || !pauseMachineRef.current) return;
@@ -491,18 +576,18 @@ export default function PresentationCanvas({
   }, [completeVideo, pausedPin, playbackAsset, requestPlayback]);
 
   useEffect(() => {
-    if (!pausedPin || activePauseCue?.holdMs === undefined) return;
+    if (!pausedPin || activePauseCue?.holdMs === undefined || staticAnimationHasNextClick) return;
     const timer = window.setTimeout(resumeFromPin, activePauseCue.holdMs);
     return () => window.clearTimeout(timer);
-  }, [activePauseCue?.holdMs, pausedPin, resumeFromPin]);
+  }, [activePauseCue?.holdMs, pausedPin, resumeFromPin, staticAnimationHasNextClick]);
 
   useEffect(() => {
     if (!isPresenting || scene.kind !== 'slide' || !resolved.slide) return;
     if (resolved.slide.kind === 'clip') return;
-    if (resolved.slide.holdMs === undefined) return;
+    if (resolved.slide.holdMs === undefined || staticAnimationHasNextClick) return;
     const timer = window.setTimeout(onComplete, resolved.slide.holdMs);
     return () => window.clearTimeout(timer);
-  }, [isPresenting, onComplete, resolved.slide, scene.kind]);
+  }, [isPresenting, onComplete, resolved.slide, scene.kind, staticAnimationHasNextClick]);
 
   const togglePlayback = useCallback(() => {
     const video = videoRef.current;
@@ -528,24 +613,41 @@ export default function PresentationCanvas({
     if (videoRef.current) videoRef.current.currentTime = sourceFrameToMediaSeconds(playbackAsset, target, resolved.video);
   }, [effectivePausePins, playbackAsset, resolved.video]);
 
-  const toggleOrResumePlayback = useCallback(() => {
+  const advancePresentationMedia = useCallback(() => {
+    if (advanceStaticAnimation()) return true;
     if (pausedPin) {
       resumeFromPin();
+      return true;
+    }
+    return false;
+  }, [advanceStaticAnimation, pausedPin, resumeFromPin]);
+
+  const toggleOrResumePlayback = useCallback(() => {
+    if (advancePresentationMedia()) return;
+    togglePlayback();
+  }, [advancePresentationMedia, togglePlayback]);
+
+  const handleCanvasAdvance = useCallback(() => {
+    if (advancePresentationMedia()) return;
+    if (resolved.slide?.kind === 'pin') {
+      if (isPresenting) onComplete();
       return;
     }
-    togglePlayback();
-  }, [pausedPin, resumeFromPin, togglePlayback]);
+    if (resolved.slide?.kind === 'clip') togglePlayback();
+  }, [advancePresentationMedia, isPresenting, onComplete, resolved.slide?.kind, togglePlayback]);
+
+  useImperativeHandle(ref, () => ({ advance: advancePresentationMedia }), [advancePresentationMedia]);
 
   useEffect(() => {
-    if (!isPresenting || resolved.slide?.kind !== 'clip') return;
+    if (!isPresenting || (resolved.slide?.kind !== 'clip' && resolved.slide?.kind !== 'pin')) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.code !== 'Space' || event.repeat) return;
       event.preventDefault();
-      toggleOrResumePlayback();
+      handleCanvasAdvance();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPresenting, resolved.slide?.kind, toggleOrResumePlayback]);
+  }, [handleCanvasAdvance, isPresenting, resolved.slide?.kind]);
 
   if (resolved.error || !resolved.slide && scene.kind === 'slide') {
     return <div className="flex h-full items-center justify-center bg-black text-sm text-danger" data-testid="presentation-missing-reference">{resolved.error || t('presentation.missingSlide')}</div>;
@@ -563,10 +665,12 @@ export default function PresentationCanvas({
       data-scene-key={resolved.sceneKey}
       data-source-frame={sourceFrame}
       data-playback-asset={playbackAsset?.kind ?? 'none'}
+      data-static-animation-clicks={staticAnimationClickTimesMs.length}
+      data-static-animation-pending-click={staticAnimationHasNextClick ? 'true' : 'false'}
     >
       <div
         className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden"
-        onClick={videoVisible && resolved.slide?.kind === 'clip' ? toggleOrResumePlayback : undefined}
+        onClick={resolved.slide?.kind === 'clip' || resolved.slide?.kind === 'pin' ? handleCanvasAdvance : undefined}
       >
         <div className="relative max-h-full max-w-full" style={{ width: resolved.video?.width ?? 640, aspectRatio: `${resolved.video?.width ?? 16}/${resolved.video?.height ?? 9}` }}>
           {videoVisible && playbackAsset && (
@@ -599,6 +703,16 @@ export default function PresentationCanvas({
               data-testid="presentation-pin-frame"
             />
           )}
+          {activeStaticPin && resolved.video && (
+            <canvas
+              ref={staticOverlayRef}
+              key={`static-overlay-${resolved.sceneKey}-${activeStaticPin.id}`}
+              width={resolved.video.width}
+              height={resolved.video.height}
+              className="pointer-events-none absolute inset-0 h-full w-full"
+              data-testid="presentation-pin-annotation-overlay"
+            />
+          )}
         </div>
 
         {isPresenting && pausedPin && (
@@ -606,10 +720,12 @@ export default function PresentationCanvas({
             className="absolute bottom-4 left-1/2 -translate-x-1/2 border-white/20 bg-black/80 text-white"
             onClick={(event) => {
               event.stopPropagation();
-              resumeFromPin();
+              if (!advanceStaticAnimation()) resumeFromPin();
             }}
           >
-            {t('presentation.resumeFrom', { label: pausedPin.label || `f${formatNumber(pausedPin.frame)}` })}
+            {staticAnimationHasNextClick
+              ? t('presentation.next')
+              : t('presentation.resumeFrom', { label: pausedPin.label || `f${formatNumber(pausedPin.frame)}` })}
           </button>
         )}
       </div>
@@ -642,4 +758,6 @@ export default function PresentationCanvas({
       {message && <div className="absolute right-3 top-3 max-w-sm rounded bg-black/80 px-3 py-2 text-xs text-warning">{message}</div>}
     </div>
   );
-}
+});
+
+export default PresentationCanvas;

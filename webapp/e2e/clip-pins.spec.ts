@@ -29,7 +29,6 @@ async function installMockSidecar(page: Page) {
           models: {
             yolo: false,
             supervision: false,
-            mobilesam: false,
             ellipse: true,
             pnlcalib: true,
             opencv: true,
@@ -290,9 +289,18 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   await annotator.getByLabel('Name', { exact: true }).fill('Left back');
   await annotator.getByLabel('Display name', { exact: true }).check();
   await annotator.getByLabel('Text size', { exact: true }).fill('32');
+  await annotator.getByTestId('annotation-animation-add').click();
+  await annotator.getByTestId('annotation-animation-effect').selectOption('grow');
+  await annotator.getByTestId('annotation-animation-trigger').selectOption('on_click');
+  await annotator.getByTestId('annotation-animation-delay').fill('0.2');
+  await annotator.getByTestId('annotation-animation-duration').fill('0.6');
   await annotator.getByRole('button', { name: 'Arrow', exact: true }).click();
   await stage.click({ position: { x: 300, y: 220 } });
   await stage.click({ position: { x: 450, y: 170 } });
+  await annotator.getByTestId('annotation-animation-add').click();
+  await annotator.getByTestId('annotation-animation-effect').selectOption('wipe');
+  await annotator.getByTestId('annotation-animation-trigger').selectOption('after_previous');
+  await annotator.getByTestId('annotation-animation-duration').fill('0.4');
   await annotator.getByRole('button', { name: 'Poly', exact: true }).click();
   await stage.click({ position: { x: 300, y: 220 } });
   await stage.click({ position: { x: 380, y: 240 } });
@@ -305,6 +313,14 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
     return stored?.document.shapes.map((shape: { type: string }) => shape.type).sort() ?? [];
   }).toEqual(['arrow', 'highlight']);
   await pinPage.keyboard.press('Meta+Shift+z');
+  await annotator.getByTestId('annotation-animation-preview-start').click();
+  const animationPreview = annotator.getByTestId('annotation-animation-preview');
+  await expect(animationPreview).toBeVisible();
+  await expect(animationPreview).toHaveAttribute('data-animation-clicks', '0');
+  await expect(animationPreview).toHaveAttribute('data-animation-pending-click', 'true');
+  await annotator.getByTestId('annotation-animation-preview-next').click();
+  await expect(animationPreview).toHaveAttribute('data-animation-clicks', '1');
+  await annotator.getByRole('button', { name: 'Stop', exact: true }).click();
   await annotator.getByRole('button', { name: 'Save', exact: true }).click();
 
   await expect.poll(async () => {
@@ -321,6 +337,22 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   expect(highlight.style.fontSize).toBe(32);
   expect(arrow.vertexRefs[0]).toBe(highlight.id);
   expect(poly.vertexRefs[0]).toBe(highlight.id);
+  expect(storedPin.document.animations).toEqual([
+    expect.objectContaining({
+      shapeIds: [highlight.id],
+      effect: 'grow',
+      trigger: 'on_click',
+      delayMs: 200,
+      durationMs: 600,
+    }),
+    expect.objectContaining({
+      shapeIds: [arrow.id],
+      effect: 'wipe',
+      trigger: 'after_previous',
+      delayMs: 0,
+      durationMs: 400,
+    }),
+  ]);
 
   await annotator.getByRole('button', { name: 'Import into clip' }).click();
   await expect(annotator.getByText('Annotations imported into the animated clip layer.')).toBeVisible();
@@ -382,4 +414,82 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   const reloadedPin = await readPinDocumentAtFrame(page, 16);
   if (!reloadedPin) throw new Error('Frame-16 pin was not restored after reload.');
   expect(reloadedPin.document.shapes).toHaveLength(3);
+
+  await page.getByRole('button', { name: 'Pin at frame 15' }).click();
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-playback-paused-pin-id', reloadedPin.pin.id);
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-pin-animation-pending-click', 'true');
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-pin-animation-clicks', '1');
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-playback-paused-pin-id', reloadedPin.pin.id);
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(page.getByTestId('clip-editor')).not.toHaveAttribute('data-playback-paused-pin-id', /.+/);
+});
+
+test('pin shadows expose direct direction and spread handles', async ({ page }) => {
+  await installOpfsDirectoryPickerFixture(
+    page,
+    path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project'),
+    { rootName: 'pin-shadow-handles-project' },
+  );
+  await installMockSidecar(page);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  page = await openEditor(page);
+
+  await page.getByRole('button', { name: 'Pin at frame 15' }).click();
+  const pinPagePromise = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Open pin at f15' }).click();
+  const pinPage = await pinPagePromise;
+  await pinPage.setViewportSize({ width: 1440, height: 1000 });
+  const annotator = pinPage.getByTestId('pin-annotator');
+  await expect(annotator).toBeVisible();
+  const stage = annotator.locator('canvas').last();
+  const stageBox = await stage.boundingBox();
+  if (!stageBox) throw new Error('Annotation stage did not have a layout box.');
+
+  const center = {
+    x: stageBox.x + stageBox.width * 0.6,
+    y: stageBox.y + stageBox.height * 0.55,
+  };
+  const displayRadius = Math.min(stageBox.width, stageBox.height) * 0.18;
+  const initialDirection = { x: center.x, y: center.y - displayRadius };
+  await annotator.getByRole('button', { name: 'Shadow', exact: true }).click();
+  await pinPage.mouse.move(center.x, center.y);
+  await pinPage.mouse.down();
+  await pinPage.mouse.move(initialDirection.x, initialDirection.y, { steps: 5 });
+  await pinPage.mouse.up();
+
+  await annotator.getByRole('button', { name: 'Select', exact: true }).click();
+  await pinPage.mouse.click(center.x, center.y - displayRadius / 2);
+  const newDirection = { x: center.x + displayRadius, y: center.y };
+  await pinPage.mouse.move(initialDirection.x, initialDirection.y);
+  await pinPage.mouse.down();
+  await pinPage.mouse.move(newDirection.x, newDirection.y, { steps: 8 });
+  await pinPage.mouse.up();
+
+  const spreadHandle = {
+    x: center.x + Math.cos(21 * Math.PI / 180) * displayRadius,
+    y: center.y + Math.sin(21 * Math.PI / 180) * displayRadius,
+  };
+  const wideTarget = {
+    x: center.x + Math.cos(60 * Math.PI / 180) * displayRadius,
+    y: center.y + Math.sin(60 * Math.PI / 180) * displayRadius,
+  };
+  await pinPage.mouse.move(spreadHandle.x, spreadHandle.y);
+  await pinPage.mouse.down();
+  await pinPage.mouse.move(wideTarget.x, wideTarget.y, { steps: 8 });
+  await pinPage.mouse.up();
+  await annotator.getByRole('button', { name: 'Save', exact: true }).click();
+
+  await expect.poll(async () => {
+    const stored = await readPinDocumentAtFrame(page, 15);
+    const shadow = stored?.document.shapes.find((shape: { type: string }) => shape.type === 'shadow');
+    return shadow
+      ? {
+          rotation: Math.round(shadow.rotation),
+          spread: Math.round(shadow.spreadDeg),
+          hasRadius: shadow.r > 0,
+        }
+      : null;
+  }).toEqual({ rotation: 0, spread: 120, hasRadius: true });
 });

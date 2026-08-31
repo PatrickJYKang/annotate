@@ -17,8 +17,6 @@ export interface HealthResponse {
   models: {
     yolo: boolean;
     supervision?: boolean;
-    lap?: boolean;
-    mobilesam: boolean;
     ellipse?: boolean;
     pnlcalib?: boolean;
     opencv: boolean;
@@ -112,20 +110,6 @@ type TrackingStreamEvent =
   | { type: 'keyframe'; keyframe: TrackingKeyframe }
   | { type: 'result'; result: TrackingResult }
   | { type: 'error'; error: Record<string, unknown> };
-
-export interface SegmentationParams {
-  videoPath?: string;
-  videoRef?: string;
-  frameMs: number;
-  confThreshold?: number;
-}
-
-export interface SegmentationResult {
-  mask: string;
-  width: number;
-  height: number;
-  personCount: number;
-}
 
 export interface HomographyParams {
   videoPath?: string;
@@ -715,27 +699,6 @@ export async function requestPlayerDetections(
   if (!res.ok) {
     throw new Error(await buildErrorMessageFromResponse(res, `Player detection failed (${res.status})`));
   }
-  return await res.json();
-}
-
-// ---------------------------------------------------------------------------
-// Segmentation
-// ---------------------------------------------------------------------------
-
-export async function requestSegmentation(
-  params: SegmentationParams,
-  baseUrl: string = SIDECAR_BASE_URL,
-): Promise<SegmentationResult> {
-  const res = await fetch(`${baseUrl}/segment`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
-
-  if (!res.ok) {
-    throw new Error(await buildErrorMessageFromResponse(res, `Segmentation failed (${res.status})`));
-  }
-
   return await res.json();
 }
 

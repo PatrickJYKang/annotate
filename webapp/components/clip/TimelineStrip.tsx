@@ -11,6 +11,7 @@ import {
   isDeliberateKeyframeDrag,
   timelineXToFrame,
 } from '../../lib/clip/timelineGeometry';
+import type { ClipTrimImpact } from '../../lib/clip/trimClip';
 
 export type TimelineKeyframeRef = {
   annotationId: string;
@@ -30,6 +31,22 @@ type KeyframeDragState = {
   startClientX: number;
   dragging: boolean;
 };
+
+type TrimHandleDragState = {
+  pointerId: number;
+  edge: 'start' | 'end';
+};
+
+export interface TimelineTrimState {
+  startFrame: number;
+  endFrame: number;
+  impact: ClipTrimImpact;
+  applying: boolean;
+  onStartFrameChange: (frame: number) => void;
+  onEndFrameChange: (endFrame: number) => void;
+  onApply: () => void | Promise<void>;
+  onCancel: () => void;
+}
 
 interface TimelineStripProps {
   clip: Clip;
@@ -53,6 +70,12 @@ interface TimelineStripProps {
   onSelectPin?: (pinId: string, frame: number) => void;
   onSelectKeyframe: (keyframe: TimelineKeyframeRef) => void;
   onMoveKeyframe: (keyframe: TimelineKeyframeRef, frame: number) => void;
+  trim?: TimelineTrimState | null;
+  canBeginTrim?: boolean;
+  canUndoTrim?: boolean;
+  interactionDisabled?: boolean;
+  onBeginTrim?: () => void;
+  onUndoTrim?: () => void | Promise<void>;
   variant?: 'editor' | 'pins';
   testIdPrefix?: string;
 }
@@ -93,6 +116,7 @@ interface TimelineAnnotationRowsProps {
   ) => void;
   onKeyframePointerMove: (event: React.PointerEvent<HTMLButtonElement>) => void;
   onKeyframePointerEnd: (event: React.PointerEvent<HTMLButtonElement>) => void;
+  disabled: boolean;
 }
 
 function sameTimelineAnnotationRows(
@@ -111,6 +135,7 @@ function sameTimelineAnnotationRows(
     || previous.onKeyframePointerDown !== next.onKeyframePointerDown
     || previous.onKeyframePointerMove !== next.onKeyframePointerMove
     || previous.onKeyframePointerEnd !== next.onKeyframePointerEnd
+    || previous.disabled !== next.disabled
   ) {
     return false;
   }
@@ -138,6 +163,7 @@ const TimelineAnnotationRows = memo(function TimelineAnnotationRows({
   onKeyframePointerDown,
   onKeyframePointerMove,
   onKeyframePointerEnd,
+  disabled,
 }: TimelineAnnotationRowsProps) {
   const selectedAnnotationIdSet = useMemo(
     () => new Set(selectedAnnotationIds),
@@ -172,6 +198,7 @@ const TimelineAnnotationRows = memo(function TimelineAnnotationRows({
               frame: formatNumber(keyframe.frame),
             })}
             aria-pressed={selected}
+            disabled={disabled}
             className="absolute top-1/2 h-3.5 w-3.5 rotate-45 border border-white bg-sky-400 p-0"
             style={{
               left: frameToX(keyframe.frame),
@@ -208,6 +235,7 @@ const TimelineAnnotationRows = memo(function TimelineAnnotationRows({
               frame: formatNumber(keyframe.frame),
             })}
             aria-pressed={selected}
+            disabled={disabled}
             className={`absolute top-1/2 h-3 w-3 rounded-full border border-white p-0 ${
               keyframe.action === 'hide' ? 'bg-rose-500' : 'bg-emerald-500'
             }`}
@@ -250,6 +278,12 @@ export default function TimelineStrip({
   onSelectPin,
   onSelectKeyframe,
   onMoveKeyframe,
+  trim = null,
+  canBeginTrim = false,
+  canUndoTrim = false,
+  interactionDisabled = false,
+  onBeginTrim,
+  onUndoTrim,
   variant = 'editor',
   testIdPrefix = 'clip-timeline',
 }: TimelineStripProps) {
@@ -265,6 +299,7 @@ export default function TimelineStrip({
   const ignoreScrollRef = useRef(false);
   const handledRevealRequestRef = useRef<number | null>(null);
   const keyframeDragRef = useRef<KeyframeDragState | null>(null);
+  const trimHandleDragRef = useRef<TrimHandleDragState | null>(null);
   const onSeekRef = useRef(onSeek);
   const onSelectAnnotationRef = useRef(onSelectAnnotation);
   const onSelectKeyframeRef = useRef(onSelectKeyframe);
@@ -305,6 +340,7 @@ export default function TimelineStrip({
     setZoom(1);
     handledRevealRequestRef.current = null;
     keyframeDragRef.current = null;
+    trimHandleDragRef.current = null;
     manualOverrideRef.current = createTimelineManualOverride();
     const scroller = scrollerRef.current;
     if (scroller) setScrollLeftProgrammatically(scroller, 0);
@@ -333,11 +369,48 @@ export default function TimelineStrip({
     return timelineXToFrame(contentX, clip.startFrame, clip.endFrame, laneWidth);
   }, [clip.endFrame, clip.startFrame, laneWidth]);
 
+  const updateTrimEdgeFromPointer = useCallback((edge: 'start' | 'end', clientX: number) => {
+    if (!trim) return;
+    const frame = pointerToFrame(clientX);
+    if (edge === 'start') trim.onStartFrameChange(frame);
+    else trim.onEndFrameChange(frame + 1);
+  }, [pointerToFrame, trim]);
+
+  const handleTrimPointerDown = useCallback((
+    event: React.PointerEvent<HTMLButtonElement>,
+    edge: 'start' | 'end',
+  ) => {
+    if (!trim || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    trimHandleDragRef.current = { pointerId: event.pointerId, edge };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    updateTrimEdgeFromPointer(edge, event.clientX);
+  }, [trim, updateTrimEdgeFromPointer]);
+
+  const handleTrimPointerMove = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = trimHandleDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId
+      || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    event.preventDefault();
+    updateTrimEdgeFromPointer(drag.edge, event.clientX);
+  }, [updateTrimEdgeFromPointer]);
+
+  const handleTrimPointerEnd = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = trimHandleDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId
+      || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    if (event.type === 'pointerup') updateTrimEdgeFromPointer(drag.edge, event.clientX);
+    trimHandleDragRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }, [updateTrimEdgeFromPointer]);
+
   const handleKeyframePointerDown = useCallback((
     event: React.PointerEvent<HTMLButtonElement>,
     ref: TimelineKeyframeRef,
     draggable: boolean,
   ) => {
+    if (interactionDisabled) return;
     event.stopPropagation();
     onSelectAnnotationRef.current(ref.annotationId);
     onSelectKeyframeRef.current(ref);
@@ -350,7 +423,7 @@ export default function TimelineStrip({
       dragging: false,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
-  }, []);
+  }, [interactionDisabled]);
 
   const handleKeyframePointerMove = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
     const drag = keyframeDragRef.current;
@@ -431,7 +504,7 @@ export default function TimelineStrip({
     event.preventDefault();
     const annotationRow = target.closest<HTMLElement>('[data-timeline-annotation-id]');
     const annotationId = annotationRow?.dataset.timelineAnnotationId;
-    if (annotationId) {
+    if (annotationId && !interactionDisabled) {
       onSelectAnnotation(
         annotationId,
         event.shiftKey,
@@ -440,7 +513,7 @@ export default function TimelineStrip({
     }
     onSeek(pointerToFrame(event.clientX));
     event.currentTarget.setPointerCapture(event.pointerId);
-  }, [onSeek, onSelectAnnotation, pointerToFrame]);
+  }, [interactionDisabled, onSeek, onSelectAnnotation, pointerToFrame]);
 
   const handleLanePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
@@ -509,6 +582,52 @@ export default function TimelineStrip({
             end: formatNumber(clip.endFrame - 1),
           })}</span>
         </div>
+        {!pinsOnly && (trim ? (
+          <div className="flex items-center gap-2 border-r border-border px-2">
+            <span className="font-mono text-[10px] text-muted">
+              {t('clip.trimImpact', {
+                pins: formatNumber(trim.impact.pins),
+                keyframes: formatNumber(trim.impact.keyframes),
+                objects: formatNumber(trim.impact.annotations),
+              })}
+            </span>
+            <button
+              data-testid="clip-trim-cancel"
+              disabled={trim.applying}
+              onClick={trim.onCancel}
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              className="button-primary"
+              data-testid="clip-trim-apply"
+              disabled={trim.applying || (
+                trim.startFrame === clip.startFrame && trim.endFrame === clip.endFrame
+              )}
+              onClick={() => void trim.onApply()}
+            >
+              {trim.applying ? t('clip.trimApplying') : t('clip.trimApply')}
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center border-r border-border">
+            <button
+              data-testid="clip-trim-begin"
+              disabled={!canBeginTrim}
+              onClick={onBeginTrim}
+            >
+              {t('clip.trim')}
+            </button>
+            {canUndoTrim && (
+              <button
+                data-testid="clip-trim-undo"
+                onClick={() => void onUndoTrim?.()}
+              >
+                {t('clip.undoTrim')}
+              </button>
+            )}
+          </div>
+        ))}
         <span className="flex-1" />
         <label className="flex items-center gap-2 border-l border-border px-3 text-muted">
           {t('timeline.horizontalZoom')}
@@ -538,6 +657,7 @@ export default function TimelineStrip({
               }`}
               style={{ height: ROW_HEIGHT }}
               aria-pressed={selectedAnnotationIdSet.has(annotation.id)}
+              disabled={interactionDisabled}
               onClick={(event) => onSelectAnnotation(
                 annotation.id,
                 event.shiftKey,
@@ -631,10 +751,49 @@ export default function TimelineStrip({
                 onKeyframePointerDown={handleKeyframePointerDown}
                 onKeyframePointerMove={handleKeyframePointerMove}
                 onKeyframePointerEnd={handleKeyframePointerEnd}
+                disabled={interactionDisabled}
               />
             )}
+            {trim && (
+              <>
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-y-0 left-0 z-20 bg-black/55"
+                  style={{ width: frameToX(trim.startFrame) }}
+                />
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-y-0 right-0 z-20 bg-black/55"
+                  style={{ left: frameToX(trim.endFrame - 1) }}
+                />
+                {(['start', 'end'] as const).map((edge) => {
+                  const frame = edge === 'start' ? trim.startFrame : trim.endFrame - 1;
+                  return (
+                    <button
+                      key={edge}
+                      type="button"
+                      data-testid={`clip-trim-${edge}-handle`}
+                      aria-label={t(edge === 'start' ? 'clip.trimStart' : 'clip.trimEnd')}
+                      className="absolute inset-y-0 z-30 w-3 -translate-x-1/2 cursor-ew-resize border-0 border-x-2 border-solid border-amber-300 bg-amber-300/20 p-0"
+                      style={{ left: frameToX(frame) }}
+                      onPointerDown={(event) => handleTrimPointerDown(event, edge)}
+                      onPointerMove={handleTrimPointerMove}
+                      onPointerUp={handleTrimPointerEnd}
+                      onPointerCancel={handleTrimPointerEnd}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                        event.preventDefault();
+                        const delta = event.key === 'ArrowLeft' ? -1 : 1;
+                        if (edge === 'start') trim.onStartFrameChange(trim.startFrame + delta);
+                        else trim.onEndFrameChange(trim.endFrame + delta);
+                      }}
+                    />
+                  );
+                })}
+              </>
+            )}
             <div
-              className="pointer-events-none absolute left-0 top-0 bottom-0 w-px bg-red-400 will-change-transform"
+              className="pointer-events-none absolute left-0 top-0 bottom-0 z-40 w-px bg-red-400 will-change-transform"
               style={{ transform: `translateX(${frameToX(currentFrame)}px)` }}
             />
           </div>

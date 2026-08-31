@@ -28,6 +28,7 @@ import {
 } from '../panels/Panels';
 import PresentationAssetBrowser from './PresentationAssetBrowser';
 import PresentationCanvas, {
+  type PresentationCanvasHandle,
   type PresentationScene,
   type PresentationVideoResource,
 } from './PresentationCanvas';
@@ -64,6 +65,7 @@ export default function PresentationAuthoringEditor({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const writeTailRef = useRef<Promise<void>>(Promise.resolve());
   const videoUrlsRef = useRef<string[]>([]);
+  const presentCanvasRef = useRef<PresentationCanvasHandle | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -234,6 +236,11 @@ export default function PresentationAuthoringEditor({
     });
   }, [t]);
 
+  const advancePresentation = useCallback(() => {
+    if (presentCanvasRef.current?.advance()) return;
+    advanceScene();
+  }, [advanceScene]);
+
   const previousScene = useCallback(() => {
     setPresentScene((current) => {
       const index = current.kind === 'transition' ? current.index : Math.max(0, current.index - 1);
@@ -245,12 +252,12 @@ export default function PresentationAuthoringEditor({
     if (!isPresenting) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setIsPresenting(false);
-      else if (event.key === 'ArrowRight') advanceScene();
+      else if (event.key === 'ArrowRight') advancePresentation();
       else if (event.key === 'ArrowLeft') previousScene();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [advanceScene, isPresenting, previousScene]);
+  }, [advancePresentation, isPresenting, previousScene]);
 
   const authoringScene: PresentationScene = { kind: 'slide', index: previewSlide ? 0 : selectedIndex };
   const authoringCanvasKey = previewSlide
@@ -360,6 +367,7 @@ export default function PresentationAuthoringEditor({
         <div className="fixed inset-0 z-50 flex flex-col bg-black" data-testid="presentation-present">
           <div className="min-h-0 flex-1">
             <PresentationCanvas
+              ref={presentCanvasRef}
               key={presentCanvasKey}
               projectDir={projectDir}
               manifest={manifest}
@@ -379,7 +387,7 @@ export default function PresentationAuthoringEditor({
                 current: formatNumber(presentScene.index + 1),
                 total: formatNumber(draft.slides.length),
               })}</span>
-            <button onClick={advanceScene}>{t('presentation.next')}</button>
+            <button onClick={advancePresentation}>{t('presentation.next')}</button>
             <button onClick={() => setIsPresenting(false)}>{t('presentation.exit')}</button>
           </div>
         </div>

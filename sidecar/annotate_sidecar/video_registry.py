@@ -1,7 +1,7 @@
 """Temporary video file registry for browser-uploaded clip videos.
 
 The clip editor can upload a video file once and receive a short-lived `videoRef`.
-Tracking/segmentation/homography routes can then resolve that reference to a local
+Tracking and homography routes can then resolve that reference to a local
 filesystem path without requiring an external project-root setting.
 """
 

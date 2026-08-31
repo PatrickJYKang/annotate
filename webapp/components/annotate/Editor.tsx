@@ -13,19 +13,20 @@ import {
   type AnnotationPayload,
 } from "../../lib/annotate/documentPayload";
 import type { VideoFrame } from "../../lib/clip/frameMath";
-import { computePersonForegroundCutout } from "../../lib/segmentation/personSegmentation";
-import { computeEdgeForegroundCutout } from "../../lib/segmentation/edgeSegmentation";
 import { makeId, hexToRgba, contrastStrokeForHex, dashFromStrokePattern } from "../../lib/annotate/shapeRendering";
 import { measureHighlightLabelText, placeHighlightLabel } from "../../lib/annotate/highlightLabel";
 import type { StrokePattern } from "../../lib/annotate/shapeRendering";
 import { consumeManualSaveTick } from "./saveTick";
 import {
   buildDefaultLobControlPoint,
+  buildShadowGeometryHandles,
   buildShadowSectorPoints,
   DEFAULT_SHADOW_RADIUS,
   DEFAULT_SHADOW_SPREAD_DEG,
   getBoundsForFlatPoints,
   radiansToDegrees,
+  transformShadowGeometry,
+  type ShadowGeometryHandleId,
 } from "../../lib/annotate/tacticalGeometry";
 import {
   invert3, computeHomographyFromUnitSquareToQuad, applyHomography, applyHomographyInv,
@@ -36,6 +37,18 @@ import {
 } from "../../lib/annotate/homography";
 import type { PerspectiveQuadPoint } from "../../lib/annotate/pitchCalibration";
 import { buildHomographyGrid } from "../../lib/annotate/homographyOverlay";
+import {
+  animationStepForShape,
+  defaultAnnotationAnimationDuration,
+  hasPendingAnnotationAnimationClick,
+  sampleAnnotationAnimations,
+} from "../../lib/annotate/animation";
+import { paintAnnotationPayloadToCanvas } from "../../lib/export/d7Render";
+import type {
+  AnnotationAnimationEffect,
+  AnnotationAnimationStep,
+  AnnotationAnimationTrigger,
+} from "../../lib/types/annotations";
 import ColorLinkToggle from "./ColorLinkToggle";
 import { useT } from "../../lib/i18n";
 
@@ -153,8 +166,6 @@ export default function Editor({
   defaultFillOpacity,
   defaultFontSize,
   defaultTextHighlight,
-  enableForegroundOcclusion,
-  occlusionMethod,
   onRequestToolChange,
   saveTick,
   onSaveStatus,
@@ -187,8 +198,6 @@ export default function Editor({
   defaultFillOpacity?: number;
   defaultFontSize?: number;
   defaultTextHighlight?: boolean;
-  enableForegroundOcclusion?: boolean;
-  occlusionMethod?: 'edge' | 'ml';
   onRequestToolChange?: (t: Tool) => void;
   saveTick?: number;
   onSaveStatus?: (s: { state: 'idle' | 'saving' | 'saved' | 'error'; at?: string; message?: string }) => void;
@@ -232,6 +241,7 @@ export default function Editor({
     throw new Error('Editor pin anchors require clipId and pinId.');
   }
   const [shapes, setShapes] = useState<Shape[]>([]);
+  const [animations, setAnimations] = useState<AnnotationAnimationStep[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [inspectorColorsLinked, setInspectorColorsLinked] = useState(true);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -272,8 +282,15 @@ export default function Editor({
   const hasLoadedRef = useRef(false);
   const loadGenRef = useRef(0);
   const shapesRef = useRef<Shape[]>([]);
+  const animationsRef = useRef<AnnotationAnimationStep[]>([]);
   const lastAutoPerspectiveTickRef = useRef<number>(0);
   const lastClearPerspectiveTickRef = useRef<number>(0);
+  const animationCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [animationPreview, setAnimationPreview] = useState<{
+    startedAt: number;
+    clickTimesMs: number[];
+  } | null>(null);
+  const [animationPreviewElapsedMs, setAnimationPreviewElapsedMs] = useState(0);
 
   const [textEdit, setTextEdit] = useState<null | { id: string; value: string; orig: string; isNew: boolean }>(null);
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -281,6 +298,7 @@ export default function Editor({
   const bgImage = useImage(imgUrl);
   const backgroundMedia = backgroundVideoElement || bgImage;
   const showAnnotations = !annotationsLocked;
+  const showEditableAnnotations = showAnnotations && !animationPreview;
   const defaultAnnColor = defaultColor || '#000000';
   const defStrokeW = defaultStrokeWidth ?? 6;
   const defFill = defaultFill || defaultAnnColor;
@@ -288,11 +306,6 @@ export default function Editor({
   const defFontSz = defaultFontSize ?? 48;
   const defTextHl = defaultTextHighlight ?? false;
   const backupDocKey = annotationAnchorKey(resolvedAnchor, annotationId);
-
-  const [foregroundCutout, setForegroundCutout] = useState<HTMLCanvasElement | null>(null);
-  const foregroundGenRef = useRef(0);
-
-  const effectiveOcclusionMethod: 'edge' | 'ml' = occlusionMethod || 'edge';
 
   const clearPerspectiveState = useCallback(() => {
     perspectiveRef.current = null;
@@ -326,55 +339,6 @@ export default function Editor({
     setBoxFrac({ w: 80 / widthMid, h: 48 / heightMid });
     setCircFrac({ rx: 24 / widthMid, ry: 16 / heightMid });
   }, []);
-
-  useEffect(() => {
-    if (!enableForegroundOcclusion) {
-      foregroundGenRef.current++;
-      setForegroundCutout(null);
-      return;
-    }
-
-    if (!bgImage || !imageInfo?.width || !imageInfo?.height) {
-      setForegroundCutout(null);
-      return;
-    }
-    const token = ++foregroundGenRef.current;
-    setForegroundCutout(null);
-
-    (async () => {
-      const cutoutMaxDim = Math.min(4096, Math.max(imageInfo.width, imageInfo.height));
-      const res = effectiveOcclusionMethod === 'edge'
-        ? await computeEdgeForegroundCutout(bgImage, imageInfo.width, imageInfo.height, {
-          maskMaxDim: 720,
-          cutoutMaxDim,
-          edgePercentile: 0.92,
-          dilateRadius: 0,
-          closeIterations: 0,
-          fillHoles: true,
-          maxComponentAreaFrac: 0.25,
-        })
-        : await computePersonForegroundCutout(bgImage, imageInfo.width, imageInfo.height, {
-          maskMaxDim: 720,
-          cutoutMaxDim,
-          internalResolution: 'medium',
-          segmentationThreshold: 0.7,
-          foregroundThresholdProbability: 0.5,
-        });
-      if (token !== foregroundGenRef.current) return;
-
-      if (!res) {
-        setForegroundCutout(null);
-        return;
-      }
-
-      if (res.ratio > 0.85 || res.ratio < 0.0001) {
-        setForegroundCutout(null);
-        return;
-      }
-
-      setForegroundCutout(res.cutout);
-    })();
-  }, [bgImage, effectiveOcclusionMethod, enableForegroundOcclusion, imageInfo?.height, imageInfo?.width]);
 
   // Container sizing (fills parent)
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -485,6 +449,11 @@ export default function Editor({
         shapesRef.current = normalized;
         setShapes(normalized);
         lastFinalRef.current = normalized;
+        const loadedAnimations = resolvedAnchor.kind === 'pin'
+          ? parsedDocument?.payload.animations ?? []
+          : [];
+        animationsRef.current = loadedAnimations;
+        setAnimations(loadedAnimations);
 
         const quad = Array.isArray(parsedDocument?.payload.perspective?.quad)
           ? parsedDocument.payload.perspective.quad as { x: number; y: number }[]
@@ -493,6 +462,7 @@ export default function Editor({
           image: { width: imageInfo.width, height: imageInfo.height },
           shapes: normalized,
           perspective: (quad && quad.length === 4) ? { quad } : undefined,
+          animations: loadedAnimations.length > 0 ? loadedAnimations : undefined,
         };
         const baselineBody = serializeAnnotationDocument(baselinePayload, resolvedAnchor, {
           annotationId,
@@ -543,6 +513,10 @@ export default function Editor({
   useEffect(() => {
     shapesRef.current = shapes;
   }, [shapes]);
+
+  useEffect(() => {
+    animationsRef.current = animations;
+  }, [animations]);
 
   // Enter/exit calibration mode when tool changes
   useEffect(() => {
@@ -688,6 +662,11 @@ export default function Editor({
     setTextEdit({ id, value: cur, orig: cur, isNew: !!opts?.isNew });
   }, [shapes]);
 
+  const selectOnlyShape = useCallback((id: string) => {
+    setSelectedId(id);
+    setSelectedIds([]);
+  }, []);
+
   const commitTextEdit = useCallback(() => {
     setTextEdit(prev => {
       if (!prev) return prev;
@@ -717,6 +696,148 @@ export default function Editor({
     });
   }, []);
 
+  const updateAnimations = useCallback((
+    update: (current: AnnotationAnimationStep[]) => AnnotationAnimationStep[],
+  ) => {
+    setAnimationPreview(null);
+    setAnimationPreviewElapsedMs(0);
+    setAnimations(update);
+  }, []);
+
+  const startAnimationPreview = useCallback(() => {
+    commitTextEdit();
+    const startedAt = performance.now();
+    setAnimationPreview({ startedAt, clickTimesMs: [] });
+    setAnimationPreviewElapsedMs(0);
+  }, [commitTextEdit]);
+
+  const resetAnimationPreview = useCallback(() => {
+    const startedAt = performance.now();
+    setAnimationPreview({ startedAt, clickTimesMs: [] });
+    setAnimationPreviewElapsedMs(0);
+  }, []);
+
+  const stopAnimationPreview = useCallback(() => {
+    setAnimationPreview(null);
+    setAnimationPreviewElapsedMs(0);
+  }, []);
+
+  const advanceAnimationPreview = useCallback(() => {
+    setAnimationPreview((current) => {
+      if (!current) return current;
+      const elapsedMs = Math.max(0, performance.now() - current.startedAt);
+      if (!hasPendingAnnotationAnimationClick(animationsRef.current, current.clickTimesMs)) return current;
+      setAnimationPreviewElapsedMs(elapsedMs);
+      return { ...current, clickTimesMs: [...current.clickTimesMs, elapsedMs] };
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!animationPreview) return;
+    let frameRequest = 0;
+    const update = () => {
+      setAnimationPreviewElapsedMs(Math.max(0, performance.now() - animationPreview.startedAt));
+      frameRequest = requestAnimationFrame(update);
+    };
+    frameRequest = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(frameRequest);
+  }, [animationPreview]);
+
+  const animationPreviewVisuals = useMemo(() => animationPreview
+    ? sampleAnnotationAnimations(
+        animations,
+        animationPreviewElapsedMs,
+        animationPreview.clickTimesMs,
+      )
+    : null, [animationPreview, animationPreviewElapsedMs, animations]);
+
+  const animationPreviewHasNextClick = !!animationPreview && hasPendingAnnotationAnimationClick(
+    animations,
+    animationPreview.clickTimesMs,
+  );
+
+  useEffect(() => {
+    const canvas = animationCanvasRef.current;
+    if (!canvas || !animationPreviewVisuals) return;
+    if (canvas.width !== imageInfo.width || canvas.height !== imageInfo.height) {
+      canvas.width = imageInfo.width;
+      canvas.height = imageInfo.height;
+    }
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    paintAnnotationPayloadToCanvas({
+      context,
+      payload: {
+        image: { width: imageInfo.width, height: imageInfo.height },
+        shapes,
+        perspective: perspective ?? undefined,
+        animations,
+      },
+      visuals: animationPreviewVisuals,
+    });
+  }, [animationPreviewVisuals, animations, imageInfo.height, imageInfo.width, perspective, shapes]);
+
+  const selectedAnimationShapeIds = useMemo(() => {
+    const requested = selectedIds.length > 0 ? selectedIds : selectedId ? [selectedId] : [];
+    const available = new Set(shapes.filter((shape) => !(shape as Shape & { _temp?: boolean })._temp).map((shape) => shape.id));
+    return requested.filter((shapeId) => available.has(shapeId));
+  }, [selectedId, selectedIds, shapes]);
+
+  const selectedAnimationStep = useMemo(() => {
+    if (selectedAnimationShapeIds.length === 0) return null;
+    const steps = selectedAnimationShapeIds.map((shapeId) => animationStepForShape(animations, shapeId));
+    const first = steps[0];
+    return first && steps.every((step) => step?.id === first.id) ? first : null;
+  }, [animations, selectedAnimationShapeIds]);
+
+  const canAddSelectedAnimation = selectedAnimationShapeIds.length > 0
+    && selectedAnimationShapeIds.every((shapeId) => !animationStepForShape(animations, shapeId));
+
+  const addSelectedAnimation = useCallback(() => {
+    if (!canAddSelectedAnimation) return;
+    const id = `animation-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+    updateAnimations((current) => [...current, {
+      id,
+      shapeIds: selectedAnimationShapeIds,
+      effect: 'fade',
+      trigger: 'on_click',
+      delayMs: 0,
+      durationMs: defaultAnnotationAnimationDuration('fade'),
+    }]);
+  }, [canAddSelectedAnimation, selectedAnimationShapeIds, updateAnimations]);
+
+  const updateSelectedAnimation = useCallback((
+    values: Partial<Pick<AnnotationAnimationStep, 'effect' | 'trigger' | 'delayMs' | 'durationMs'>>,
+  ) => {
+    if (!selectedAnimationStep) return;
+    updateAnimations((current) => current.map((animation) => (
+      animation.id === selectedAnimationStep.id ? { ...animation, ...values } : animation
+    )));
+  }, [selectedAnimationStep, updateAnimations]);
+
+  const removeSelectedAnimation = useCallback(() => {
+    if (!selectedAnimationStep) return;
+    updateAnimations((current) => current.filter((animation) => animation.id !== selectedAnimationStep.id));
+  }, [selectedAnimationStep, updateAnimations]);
+
+  const moveSelectedAnimation = useCallback((direction: -1 | 1) => {
+    if (!selectedAnimationStep) return;
+    updateAnimations((current) => {
+      const index = current.findIndex((animation) => animation.id === selectedAnimationStep.id);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }, [selectedAnimationStep, updateAnimations]);
+
+  const selectAnimationStep = useCallback((animation: AnnotationAnimationStep) => {
+    setSelectedIds(animation.shapeIds);
+    setSelectedId(animation.shapeIds.at(-1) ?? null);
+  }, []);
+
   useEffect(() => {
     if (!textEdit) return;
     const t = window.setTimeout(() => {
@@ -735,6 +856,7 @@ export default function Editor({
     try {
       setIoError(null);
       const liveShapes = shapesRef.current;
+      const liveAnimations = animationsRef.current;
       const livePerspective = perspectiveRef.current;
       const writePerspective = livePerspective || lastNonNullPerspectiveRef.current;
       const finalShapes = Array.isArray(liveShapes) ? liveShapes.filter((s: any) => !s?._temp && !(typeof s?.id === 'string' && s.id.startsWith('_temp_'))) : [];
@@ -742,6 +864,9 @@ export default function Editor({
         image: { width: imageInfo.width, height: imageInfo.height },
         shapes: finalShapes,
         perspective: writePerspective ? { quad: writePerspective.quad } : undefined,
+        animations: resolvedAnchor.kind === 'pin' && liveAnimations.length > 0
+          ? liveAnimations
+          : undefined,
       };
       const body = serializeAnnotationDocument(payload, resolvedAnchor, {
         annotationId,
@@ -900,6 +1025,23 @@ export default function Editor({
     lastShapesRef.current = shapes;
     historyActionRef.current = null;
   }, [shapes, requestSave]);
+
+  useEffect(() => {
+    if (!hasLoadedRef.current || resolvedAnchor.kind !== 'pin') return;
+    requestSave();
+  }, [animations, requestSave, resolvedAnchor.kind]);
+
+  useEffect(() => {
+    if (resolvedAnchor.kind !== 'pin') return;
+    const availableShapeIds = new Set(shapes.map((shape) => shape.id));
+    setAnimations((current) => {
+      const next = current.flatMap((animation) => {
+        const shapeIds = animation.shapeIds.filter((shapeId) => availableShapeIds.has(shapeId));
+        return shapeIds.length > 0 ? [{ ...animation, shapeIds }] : [];
+      });
+      return JSON.stringify(next) === JSON.stringify(current) ? current : next;
+    });
+  }, [resolvedAnchor.kind, shapes]);
 
   // Helpers: get pointer pos in image space
   const stageRef = useRef<any>(null);
@@ -1065,8 +1207,7 @@ export default function Editor({
       const rx = 40;
       const ry = 10;
       setShapes(prev => [...prev, { id, type: 'highlight', x: p.x, y: p.y, rx, ry, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: defFill, fillOpacity: defFillOp } }]);
-      setSelectedId(id);
-      setSelectedIds([]);
+      selectOnlyShape(id);
       return;
     }
     if (tool === 'text') {
@@ -1096,6 +1237,7 @@ export default function Editor({
           return [...next, { id, type: 'arrow', points: [s.x, s.y, end.x, end.y], vertexRefs: refs.some(r => !!r) ? refs : undefined, x: 0, y: 0, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid') } }];
         });
         arrowTempRef.current.start = null;
+        selectOnlyShape(id);
       }
       return;
     }
@@ -1125,6 +1267,7 @@ export default function Editor({
           }];
         });
         lobTempRef.current.start = null;
+        selectOnlyShape(id);
       }
       return;
     }
@@ -1154,6 +1297,7 @@ export default function Editor({
         });
         polyTempRef.current = null;
         polyNearIndexRef.current = -1;
+        selectOnlyShape(id);
       } else {
         const nextPt = hit ? { x: hit.x, y: hit.y, refId: hit.id } : { x: p.x, y: p.y };
         const last = poly.points.length > 0 ? poly.points[poly.points.length - 1] : null;
@@ -1171,7 +1315,7 @@ export default function Editor({
         });
       }
     }
-  }, [annotationsLocked, tool, getPointerPos, findHighlightHit, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp, defFontSz, defTextHl]);
+  }, [annotationsLocked, tool, getPointerPos, findHighlightHit, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp, defFontSz, defTextHl, selectOnlyShape]);
 
   const onDblClick = useCallback(() => {
     if (annotationsLocked) return;
@@ -1196,7 +1340,8 @@ export default function Editor({
     });
     polyTempRef.current = null;
     polyNearIndexRef.current = -1;
-  }, [annotationsLocked, tool, isTightDblClick, defaultStrokePattern, defaultAnnColor, defStrokeW]);
+    selectOnlyShape(id);
+  }, [annotationsLocked, tool, isTightDblClick, defaultStrokePattern, defaultAnnColor, defStrokeW, selectOnlyShape]);
 
   const onMouseMove = useCallback((e: any) => {
     if (annotationsLocked) return;
@@ -1502,6 +1647,7 @@ export default function Editor({
         }
         setShapes(prev => [...prev.filter(x => !(x as any)._temp), { id, type: 'box', x, y, w, h, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: defFill, fillOpacity: defFillOp } }]);
       }
+      selectOnlyShape(id);
     } else if (tool === 'circle') {
       const id = makeId();
       const dx = p.x - s.x; const dy = p.y - s.y;
@@ -1558,6 +1704,7 @@ export default function Editor({
         }
         setShapes(prev => [...prev.filter(x => !(x as any)._temp), { id, type: 'circle', x: s.x, y: s.y, rx, ry, style: { stroke: defaultAnnColor, strokeWidth: defStrokeW, strokePattern: (defaultStrokePattern || 'solid'), fill: defFill, fillOpacity: defFillOp } }]);
       }
+      selectOnlyShape(id);
     } else if (tool === 'shadow') {
       const id = makeId();
       const dx = p.x - s.x;
@@ -1582,11 +1729,12 @@ export default function Editor({
           fillOpacity: Math.max(defFillOp, 0.22),
         },
       }]);
+      selectOnlyShape(id);
     }
     setIsDrawing(false);
     startRef.current = null;
     shadowAnchorRef.current = null;
-  }, [annotationsLocked, isDrawing, tool, getPointerPos, shapes, homography, boxFrac, circFrac, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp, selectedId, selectedIds, getLocalScales, getMidlineDims, getShapeBounds]);
+  }, [annotationsLocked, isDrawing, tool, getPointerPos, shapes, homography, boxFrac, circFrac, defaultStrokePattern, defaultAnnColor, defStrokeW, defFill, defFillOp, selectedId, selectedIds, getLocalScales, getMidlineDims, getShapeBounds, selectOnlyShape]);
 
   // Arrow & Poly preview while placing
   useEffect(() => {
@@ -2595,43 +2743,38 @@ export default function Editor({
             ))}
           </Layer>
         )}
-        {showAnnotations && (
+        {showEditableAnnotations && (
           <Layer>
             {shadowNodes}
           </Layer>
         )}
-        {showAnnotations && (
+        {showEditableAnnotations && (
           <Layer>
             {otherNodes}
           </Layer>
         )}
-        {showAnnotations && (
+        {showEditableAnnotations && (
           <Layer>
             {lineNodes}
             {occluderNodes}
           </Layer>
         )}
-        {showAnnotations && (
+        {showEditableAnnotations && (
           <Layer>
             {highlightNodes}
           </Layer>
         )}
-        <Layer listening={false}>
-          {!backgroundVideoElement && foregroundCutout && (
-            <KImage image={foregroundCutout} x={0} y={0} width={imageInfo.width} height={imageInfo.height} />
-          )}
-        </Layer>
-        {showAnnotations && (
+        {showEditableAnnotations && (
           <Layer listening={false}>
             {highlightLabelNodes}
           </Layer>
         )}
-        {showAnnotations && (
+        {showEditableAnnotations && (
           <Layer>
             {textNodes}
           </Layer>
         )}
-        {showAnnotations && (
+        {showEditableAnnotations && (
           <Layer>
             {selectedIds.length > 0 && selectedIds.map(id => {
               const s = shapes.find(sh => sh.id === id);
@@ -2686,6 +2829,87 @@ export default function Editor({
                 </>
               );
             })()}
+            {selectedId && selectedIds.length <= 1 && (() => {
+              const selectedShape = shapes.find((s) => s.id === selectedId);
+              if (!selectedShape || selectedShape.type !== 'shadow') return null;
+              const center = resolveShadowCenter(selectedShape);
+              const handles = buildShadowGeometryHandles(
+                center.x,
+                center.y,
+                selectedShape.r || DEFAULT_SHADOW_RADIUS,
+                selectedShape.rotation || 0,
+                selectedShape.spreadDeg || DEFAULT_SHADOW_SPREAD_DEG,
+              );
+              const handleDefinitions: Array<{
+                id: ShadowGeometryHandleId;
+                point: { x: number; y: number };
+                fill: string;
+                radius: number;
+              }> = [
+                { id: 'direction', point: handles.direction, fill: '#60a5fa', radius: 7 },
+                { id: 'spread-start', point: handles.spreadStart, fill: '#ffffff', radius: 6 },
+                { id: 'spread-end', point: handles.spreadEnd, fill: '#ffffff', radius: 6 },
+              ];
+              return (
+                <>
+                  <KLine
+                    points={[
+                      handles.spreadStart.x,
+                      handles.spreadStart.y,
+                      center.x,
+                      center.y,
+                      handles.spreadEnd.x,
+                      handles.spreadEnd.y,
+                    ]}
+                    stroke="#60a5fa"
+                    dash={[4, 4]}
+                    strokeWidth={1.5}
+                    listening={false}
+                  />
+                  <KLine
+                    points={[center.x, center.y, handles.direction.x, handles.direction.y]}
+                    stroke="#60a5fa"
+                    strokeWidth={1.5}
+                    listening={false}
+                  />
+                  {handleDefinitions.map((handle) => (
+                    <KCircle
+                      key={`shadow-handle-${handle.id}`}
+                      name={`shadow-${handle.id}-handle`}
+                      x={handle.point.x}
+                      y={handle.point.y}
+                      radius={handle.radius}
+                      fill={handle.fill}
+                      stroke="#60a5fa"
+                      strokeWidth={2}
+                      draggable={!annotationsLocked && tool !== 'calibrate' && !isSelecting}
+                      onMouseDown={(event: any) => { event.cancelBubble = true; }}
+                      onDragStart={(event: any) => { event.cancelBubble = true; }}
+                      onDragMove={(event: any) => {
+                        event.cancelBubble = true;
+                        const pointer = event.target.position();
+                        setShapes((previous) => previous.map((shape) => {
+                          if (shape.id !== selectedShape.id || shape.type !== 'shadow') return shape;
+                          const transformed = transformShadowGeometry({
+                            centerX: center.x,
+                            centerY: center.y,
+                            radius: shape.r || DEFAULT_SHADOW_RADIUS,
+                            rotationDeg: shape.rotation || 0,
+                            spreadDeg: shape.spreadDeg || DEFAULT_SHADOW_SPREAD_DEG,
+                          }, handle.id, pointer);
+                          return {
+                            ...shape,
+                            r: transformed.radius,
+                            rotation: transformed.rotationDeg,
+                            spreadDeg: transformed.spreadDeg,
+                          };
+                        }));
+                      }}
+                    />
+                  ))}
+                </>
+              );
+            })()}
             {selectedId && (selectedIds.length <= 1) && !annotationsLocked && (
               <Transformer
                 ref={transformerRef}
@@ -2703,6 +2927,22 @@ export default function Editor({
           </Layer>
         )}
       </Stage>
+      {showAnnotations && animationPreview && (
+        <canvas
+          ref={animationCanvasRef}
+          className="absolute z-20 cursor-pointer"
+          data-testid="annotation-animation-preview"
+          data-animation-clicks={animationPreview.clickTimesMs.length}
+          data-animation-pending-click={animationPreviewHasNextClick ? 'true' : 'false'}
+          onClick={advanceAnimationPreview}
+          style={{
+            left: stageOffset.x,
+            top: stageOffset.y,
+            width: imageInfo.width * stageScale,
+            height: imageInfo.height * stageScale,
+          }}
+        />
+      )}
       {ioError && (
         <div className="panel absolute right-2 bottom-2 p-2 min-w-[260px]">
           <strong>{t('annotation.saveError')}</strong>
@@ -2728,7 +2968,7 @@ export default function Editor({
         </div>
       )}
       {showAnnotations && (selectedId || (selectedIds && selectedIds.length > 0)) && (
-        <div className="panel absolute right-2 top-2 p-2 min-w-[220px]">
+        <div className="panel absolute right-2 top-2 z-30 max-h-[calc(100%-1rem)] w-[300px] overflow-y-auto p-2">
           <strong>{t('annotation.inspector')}</strong>
           <div className="status">ID: {(selectedId || selectedIds[0]).slice(0, 8)}</div>
           {(() => {
@@ -2944,6 +3184,179 @@ export default function Editor({
                       setShapes(prev => prev.map(s => s.id === first.id ? { ...s, spreadDeg: v } : s));
                     }} value={Math.round(first.spreadDeg || DEFAULT_SHADOW_SPREAD_DEG)} />
                   </>
+                )}
+
+                {resolvedAnchor.kind === 'pin' && (
+                  <div className="col-span-2 mt-1 border-t border-[var(--border)] pt-2" data-testid="annotation-animation-editor">
+                    <div className="flex items-center justify-between gap-2">
+                      <strong>{t('annotation.animations')}</strong>
+                      <button
+                        type="button"
+                        data-testid="annotation-animation-add"
+                        disabled={!canAddSelectedAnimation}
+                        onClick={addSelectedAnimation}
+                      >
+                        {t('annotation.animationAdd')}
+                      </button>
+                    </div>
+
+                    {animations.length > 0 && (
+                      <div className="mt-2 grid gap-1" data-testid="annotation-animation-sequence">
+                        {animations.map((animation, index) => {
+                          const labels = animation.shapeIds.map((shapeId) => {
+                            const shape = shapes.find((candidate) => candidate.id === shapeId);
+                            return shape?.name?.trim() || shape?.text?.trim() || shape?.type || shapeId.slice(0, 8);
+                          });
+                          const selected = selectedAnimationStep?.id === animation.id;
+                          return (
+                            <button
+                              key={animation.id}
+                              type="button"
+                              className={`flex w-full items-center gap-2 text-left ${selected ? 'active' : ''}`}
+                              data-testid={`annotation-animation-step-${index}`}
+                              onClick={() => selectAnimationStep(animation)}
+                            >
+                              <span className="status tabular-nums">{index + 1}</span>
+                              <span className="min-w-0 flex-1 truncate">{labels.join(', ')}</span>
+                              <span className="status">{t(`annotation.animationEffect.${animation.effect}`)}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {selectedAnimationStep && (
+                      <div className="mt-2 grid grid-cols-2 gap-1.5" data-testid="annotation-animation-settings">
+                        <label className="status" htmlFor={`animation-effect-${selectedAnimationStep.id}`}>
+                          {t('annotation.animationEffect')}
+                        </label>
+                        <select
+                          id={`animation-effect-${selectedAnimationStep.id}`}
+                          data-testid="annotation-animation-effect"
+                          value={selectedAnimationStep.effect}
+                          onChange={(event) => {
+                            const effect = event.target.value as AnnotationAnimationEffect;
+                            updateSelectedAnimation({
+                              effect,
+                              durationMs: defaultAnnotationAnimationDuration(effect),
+                            });
+                          }}
+                        >
+                          <option value="appear">{t('annotation.animationEffect.appear')}</option>
+                          <option value="fade">{t('annotation.animationEffect.fade')}</option>
+                          <option value="grow">{t('annotation.animationEffect.grow')}</option>
+                          <option value="wipe">{t('annotation.animationEffect.wipe')}</option>
+                        </select>
+
+                        <label className="status" htmlFor={`animation-trigger-${selectedAnimationStep.id}`}>
+                          {t('annotation.animationTrigger')}
+                        </label>
+                        <select
+                          id={`animation-trigger-${selectedAnimationStep.id}`}
+                          data-testid="annotation-animation-trigger"
+                          value={selectedAnimationStep.trigger}
+                          onChange={(event) => updateSelectedAnimation({
+                            trigger: event.target.value as AnnotationAnimationTrigger,
+                          })}
+                        >
+                          <option value="on_click">{t('annotation.animationTrigger.onClick')}</option>
+                          <option value="with_previous">{t('annotation.animationTrigger.withPrevious')}</option>
+                          <option value="after_previous">{t('annotation.animationTrigger.afterPrevious')}</option>
+                        </select>
+
+                        <label className="status" htmlFor={`animation-delay-${selectedAnimationStep.id}`}>
+                          {t('annotation.animationDelay')}
+                        </label>
+                        <input
+                          id={`animation-delay-${selectedAnimationStep.id}`}
+                          data-testid="annotation-animation-delay"
+                          type="number"
+                          min={0}
+                          max={60}
+                          step={0.1}
+                          value={selectedAnimationStep.delayMs / 1000}
+                          onChange={(event) => updateSelectedAnimation({
+                            delayMs: Math.round(Math.max(0, Number(event.target.value) || 0) * 1000),
+                          })}
+                        />
+
+                        <label className="status" htmlFor={`animation-duration-${selectedAnimationStep.id}`}>
+                          {t('annotation.animationDuration')}
+                        </label>
+                        <input
+                          id={`animation-duration-${selectedAnimationStep.id}`}
+                          data-testid="annotation-animation-duration"
+                          type="number"
+                          min={0}
+                          max={60}
+                          step={0.1}
+                          disabled={selectedAnimationStep.effect === 'appear'}
+                          value={selectedAnimationStep.durationMs / 1000}
+                          onChange={(event) => updateSelectedAnimation({
+                            durationMs: Math.round(Math.max(0, Number(event.target.value) || 0) * 1000),
+                          })}
+                        />
+
+                        <div className="col-span-2 flex flex-wrap gap-1">
+                          <button
+                            type="button"
+                            aria-label={t('annotation.animationMoveEarlier')}
+                            title={t('annotation.animationMoveEarlier')}
+                            disabled={animations[0]?.id === selectedAnimationStep.id}
+                            onClick={() => moveSelectedAnimation(-1)}
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={t('annotation.animationMoveLater')}
+                            title={t('annotation.animationMoveLater')}
+                            disabled={animations.at(-1)?.id === selectedAnimationStep.id}
+                            onClick={() => moveSelectedAnimation(1)}
+                          >
+                            ↓
+                          </button>
+                          <button
+                            type="button"
+                            data-testid="annotation-animation-remove"
+                            onClick={removeSelectedAnimation}
+                          >
+                            {t('annotation.animationRemove')}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {!animationPreview ? (
+                        <button
+                          type="button"
+                          data-testid="annotation-animation-preview-start"
+                          disabled={animations.length === 0}
+                          onClick={startAnimationPreview}
+                        >
+                          {t('annotation.animationPreview')}
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            data-testid="annotation-animation-preview-next"
+                            disabled={!animationPreviewHasNextClick}
+                            onClick={advanceAnimationPreview}
+                          >
+                            {t('annotation.animationNext')}
+                          </button>
+                          <button type="button" onClick={resetAnimationPreview}>
+                            {t('annotation.animationReset')}
+                          </button>
+                          <button type="button" onClick={stopAnimationPreview}>
+                            {t('annotation.animationStop')}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             );

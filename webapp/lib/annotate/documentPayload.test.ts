@@ -43,7 +43,18 @@ describe('annotation document payload', () => {
       pinId: 'pin_one',
       frame: videoFrame(412),
     } as const;
-    const document = serializeAnnotationDocument(payload, anchor, { annotationId: 'ann_one' });
+    const animatedPayload: AnnotationPayload = {
+      ...payload,
+      animations: [{
+        id: 'animation_one',
+        shapeIds: ['shape_one'],
+        effect: 'fade',
+        trigger: 'on_click',
+        delayMs: 100,
+        durationMs: 400,
+      }],
+    };
+    const document = serializeAnnotationDocument(animatedPayload, anchor, { annotationId: 'ann_one' });
     const parsed = parseAnnotationDocument(document);
 
     expect(document).toMatchObject({
@@ -53,7 +64,7 @@ describe('annotation document payload', () => {
       pinId: 'pin_one',
       frame: 412,
     });
-    expect(parsed.payload).toEqual(payload);
+    expect(parsed.payload).toEqual(animatedPayload);
     expect(annotationAnchorsEqual(parsed.anchor, anchor)).toBe(true);
     expect(annotationAnchorKey(anchor, 'ann_one')).toBe('pin:clip_one:pin_one:412:ann_one');
   });
@@ -66,5 +77,22 @@ describe('annotation document payload', () => {
       image: { file: 'still.png', width: 100, height: 100 },
       shapes: 'not-an-array',
     })).toThrow('shapes must be an array');
+    expect(() => parseAnnotationDocument({
+      schema: 'annotations.v2',
+      annotationId: 'ann',
+      clipId: 'clip',
+      pinId: 'pin',
+      frame: 1,
+      image: { width: 100, height: 100 },
+      shapes: [{ id: 'shape', type: 'box', x: 0, y: 0, w: 10, h: 10 }],
+      animations: [{
+        id: 'bad',
+        shapeIds: ['missing'],
+        effect: 'fade',
+        trigger: 'on_click',
+        delayMs: 0,
+        durationMs: 400,
+      }],
+    })).toThrow('references missing shape');
   });
 });

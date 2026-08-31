@@ -3,11 +3,6 @@ GET /health — reports sidecar status and model availability.
 """
 
 import logging
-import os
-
-# Ensure Keras 2 compatibility for segmentation_models
-os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
-os.environ.setdefault("SM_FRAMEWORK", "tf.keras")
 
 from fastapi import APIRouter
 
@@ -33,7 +28,6 @@ def _check_capabilities() -> dict:
     """Check which models/libraries are available."""
     yolo = _check_model_importable("ultralytics")
     supervision = _check_model_importable("supervision")
-    mobilesam = _check_model_importable("mobile_sam") or _check_model_importable("segment_anything")
     ellipse = _check_model_importable("ellipse")
     opencv = _check_model_importable("cv2")
     pnlcalib = _calibration_service.available
@@ -42,8 +36,6 @@ def _check_capabilities() -> dict:
     capabilities = []
     if yolo and supervision and opencv:
         capabilities.append("tracking")
-    if yolo and mobilesam and opencv:
-        capabilities.append("segmentation")
     if pnlcalib:
         capabilities.append("homography")
     if opencv:
@@ -59,7 +51,6 @@ def _check_capabilities() -> dict:
         "models": {
             "yolo": yolo,
             "supervision": supervision,
-            "mobilesam": mobilesam,
             "ellipse": ellipse,
             "pnlcalib": pnlcalib,
             "opencv": opencv,

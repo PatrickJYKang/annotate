@@ -6,7 +6,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ClipEditorSaveStatus } from '../../../components/clip/ClipEditor';
 import { registerVideoFile, unregisterVideoRef } from '../../../lib/clip/sidecarClient';
-import { replaceClipAnnotationsExclusive } from '../../../lib/fs/clipRepository';
+import {
+  mutateClipExclusive,
+  replaceClipAnnotationsExclusive,
+} from '../../../lib/fs/clipRepository';
 import { readClip } from '../../../lib/fs/clipStorage';
 import { getFilePath, splitSafeRelativePath } from '../../../lib/fs/fsAccess';
 import { SidecarProvider } from '../../../lib/state/SidecarContext';
@@ -133,6 +136,27 @@ export default function ClipPage() {
     }
   }, [clipId, projectDir, refreshIntegrity, t]);
 
+  const persistClip = useCallback(async (nextClip: Clip) => {
+    if (!projectDir) throw new Error(t('clip.projectSaveUnavailable'));
+    setSaveStatus('saving');
+    try {
+      const saved = await mutateClipExclusive(projectDir, clipId, (latest) => ({
+        ...latest,
+        startFrame: nextClip.startFrame,
+        endFrame: nextClip.endFrame,
+        pins: structuredClone(nextClip.pins),
+        annotations: structuredClone(nextClip.annotations),
+      }));
+      setClip(saved);
+      setSaveStatus('saved');
+      void refreshIntegrity();
+      return saved;
+    } catch (cause) {
+      setSaveStatus('error');
+      throw cause;
+    }
+  }, [clipId, projectDir, refreshIntegrity, t]);
+
   if (isRestoring) {
     return <div className="flex flex-1 items-center justify-center text-sm text-muted">{t('project.restore')}</div>;
   }
@@ -185,6 +209,7 @@ export default function ClipPage() {
           videoRef={videoRef ?? undefined}
           projectDir={projectDir}
           persistAnnotations={persistAnnotations}
+          persistClip={persistClip}
           onClipUpdate={setClip}
           initialPinId={searchParams?.get('pinId') ?? null}
         />

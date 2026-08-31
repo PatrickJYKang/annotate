@@ -10,9 +10,13 @@ from __future__ import annotations
 import importlib.util
 import os
 import sys
-import tomllib
 from pathlib import Path
 from typing import Any
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 import cv2
 import numpy as np

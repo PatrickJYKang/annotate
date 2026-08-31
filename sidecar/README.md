@@ -1,6 +1,6 @@
 # annotate-sidecar
 
-Python sidecar service for ML-powered annotation features. Runs alongside the Next.js frontend and provides object tracking, segmentation, homography estimation, and video export encoding.
+Python sidecar service for ML-powered annotation features. Runs alongside the Next.js frontend and provides object tracking, homography estimation, video preparation, and export encoding.
 
 ## Current scope note
 
@@ -10,11 +10,11 @@ This sidecar actively backs the frame-native project and clip workflows:
 - `/track/detect` supplies provisional player targets and `/track/stream` supplies live trusted keyframes for the highlight-driven tracking workflow; `/track` remains the equivalent non-streaming response path
 - `/homography` is the live clip and pin calibration path on vendored `PnLCalib`; clip calibration currently uses a 5 FPS extracted sequence, sparse solving with `skipInterval = 4`, interpolation, and web-layer sanity filtering
 
-`/segment`, `/derived-media/exact-motion`, and the generic `/export/*` session API remain implemented and tested service boundaries, but the canonical v2 UI does not currently expose foreground compositing or clip MP4 export. Presentations play absolute frame ranges directly from original project videos; exact-motion encoding is retained only as a possible future export primitive.
+`/derived-media/exact-motion` and the generic `/export/*` session API remain implemented and tested service boundaries, but the canonical v2 UI does not currently expose clip MP4 export. Presentations play absolute frame ranges directly from original project videos; exact-motion encoding is retained only as a possible future export primitive.
 
 ## Requirements
 
-- **Python 3.10–3.12** (3.12 recommended; TensorFlow does not support 3.13+)
+- **Python 3.10–3.12** (3.12 recommended and used for release verification)
 - **ffmpeg** (for export encoding) — `brew install ffmpeg` / `apt install ffmpeg`
 
 ## Setup
@@ -27,18 +27,15 @@ python3.12 -m venv .venv
 source .venv/bin/activate   # macOS/Linux
 # .venv\Scripts\activate    # Windows
 
-# Install pinned release dependencies
-pip install -r requirements.lock.txt
+# Install pinned development and test dependencies
+pip install -r requirements-dev.lock.txt
 
 # Return to the repository root and install the required homography provider
 cd ..
 ./scripts/setup-pnlcalib.sh
-
-# Optional: install MobileSAM for person segmentation
-pip install git+https://github.com/ChaoningZhang/MobileSAM.git
 ```
 
-> **Note:** `requirements.lock.txt` pins the verified application environment. Use `requirements.txt` only when intentionally refreshing dependency versions.
+> **Note:** `requirements.lock.txt` is the smaller application runtime; `requirements-dev.lock.txt` adds pytest for contributors. Use the corresponding unpinned `.txt` inputs only when intentionally refreshing dependency versions.
 >
 > Tracking depends on `supervision`. Homography is a required 0.2 capability: `scripts/setup-pnlcalib.sh` installs the pinned PnLCalib source and verifies both model weights by SHA-256 under `sidecar/third_party/pnlcalib`. Developers may override that path with `ANNOTATE_PNLCALIB_ROOT`; the release launcher refuses to start when the pinned provider is missing or invalid.
 
@@ -64,7 +61,7 @@ cd sidecar
 .venv/bin/python -m pytest tests
 ```
 
-Routes that take a video locator (`/track`, `/segment`, `/homography`) expect either:
+Routes that take a video locator (`/track`, `/homography`) expect either:
 - `videoRef` from `POST /video/register` (recommended)
 - absolute `videoPath` (legacy/manual)
 
@@ -80,7 +77,6 @@ Relative `videoPath` values are rejected.
 | `POST`   | `/track/detect`     | Detect all players at one frame for interactive target selection |
 | `GET`    | `/track/debug/{artifact}` | Download a saved tracking debug MP4 artifact |
 | `POST`   | `/homography`       | Pitch homography (annotate range adapter + vendored trackers PnLCalib provider) |
-| `POST`   | `/segment`          | Person segmentation (YOLO + MobileSAM) |
 | `POST`   | `/export/start`     | Begin export session                 |
 | `POST`   | `/export/frame`     | Submit rendered frame (base64 JPEG)  |
 | `POST`   | `/export/encode`    | Encode frames to MP4 (ffmpeg)        |
@@ -107,7 +103,6 @@ annotate_sidecar/
   routes/
     health.py              # GET /health
     track.py               # Tracking, player detection, and optional debug artifact download
-    segment.py             # POST /segment
     homography.py          # POST /homography
     export.py              # Export endpoints
     derived_media.py       # POST /derived-media/exact-motion
@@ -115,7 +110,6 @@ annotate_sidecar/
   services/
     frame_extractor.py     # cv2.VideoCapture → frames by ms
     tracker.py             # annotate-owned tracking adapter / response shaping
-    segmenter.py           # YOLO + MobileSAM wrapper
     calibration/           # PnLCalib-backed range adapter + public response types
     encoder.py             # ffmpeg MP4 encoding
     video_probe.py         # fast container count, packet count, decode fallback
@@ -200,9 +194,10 @@ Current clip-side coexistence rule:
 
 ## Hardware
 
-- **CPU-only** works for the implemented endpoints when their required models and provider assets are installed. Tracking, segmentation, and homography are substantially slower.
-- **CUDA GPU** accelerates YOLO, MobileSAM, and PnLCalib significantly. PyTorch auto-detects CUDA if available.
-- **Apple Silicon** is supported via MPS (Metal Performance Shaders) for PyTorch operations.
+- **CPU-only** works for the implemented endpoints when their required models and provider assets are installed. Tracking and homography are substantially slower.
+- **CUDA GPU** accelerates YOLO and PnLCalib significantly. PyTorch auto-detects CUDA if available.
+- **Apple Silicon** is supported. The current PnLCalib provider uses CPU unless CUDA is available.
+- **Linux storage** is higher because standard PyTorch wheels include CUDA runtime libraries even on CPU-only systems.
 
 ## CORS
 
@@ -211,10 +206,6 @@ The sidecar allows requests from `http://localhost:*` to support the Next.js dev
 ## Troubleshooting
 
 - **"ffmpeg not found"** — Install ffmpeg: `brew install ffmpeg` (macOS) or `apt install ffmpeg` (Linux).
-- **"MobileSAM not installed"** — Run `pip install git+https://github.com/ChaoningZhang/MobileSAM.git` inside the sidecar venv.
-- **TensorFlow not installing** — Use Python 3.12. TensorFlow does not yet support 3.13+.
 - **PnLCalib unavailable** — from the repository root, rerun `./scripts/setup-pnlcalib.sh`. It repairs the pinned source and verifies both model weights before the next launch.
-- **YOLO model download fails** — The first `/track` or `/segment` call downloads `yolov8n.pt` (~6MB). Check internet connectivity.
+- **YOLO model download fails** — The first tracking call downloads `yolov8n.pt` (~6MB). Check internet connectivity.
 - **Need to inspect tracker behavior frame-by-frame** — `/track` can optionally emit a saved annotated MP4 and expose it through `/track/debug/{artifact}`. Use the `debugVideo` request field to control artifact generation; the route returns `debugVideoUrl` when an artifact is produced.
-- **MobileSAM weights download fails** — Weights (~10MB) are auto-downloaded to `~/.cache/annotate-sidecar/` on first `/segment` call. Check internet connectivity and write permissions.
-- **segmentation_models import error** — Ensure `TF_USE_LEGACY_KERAS=1` and `SM_FRAMEWORK=tf.keras` are set. The sidecar sets these automatically.

@@ -1,9 +1,9 @@
 # annotate-sidecar dependencies
-# Python 3.10+ required
+# Python 3.10-3.12 required
 
 # Web framework
 fastapi>=0.141.1,<1.0
-uvicorn[standard]>=0.24.0,<1.0
+uvicorn>=0.24.0,<1.0
 python-multipart>=0.0.31,<1.0
 
 # Video / image processing
@@ -14,19 +14,14 @@ numpy>=1.24.0,<2.0
 ultralytics>=8.0.0,<9.0
 supervision>=0.26.1
 
-# Segmentation (Phase 9)
-# mobile-sam or segment-anything — install separately:
-#   pip install git+https://github.com/ChaoningZhang/MobileSAM.git
-
 # Homography estimation (PnLCalib via vendored trackers adapter)
 lsq-ellipse==2.2.1
 shapely>=2.0.0
-tensorflow>=2.10.0
 torch>=2.13.0,<3.0
 torchvision>=0.28.0,<1.0
-kornia>=0.6.0
-segmentation-models>=1.0.1
-six>=1.15.0
+pillow>=11.0.0,<13.0
+PyYAML>=6.0.0,<7.0
+tomli>=2.0.0,<3.0 ; python_version < "3.11"
 
 # Scientific computing
 scipy>=1.10.0,<2.0

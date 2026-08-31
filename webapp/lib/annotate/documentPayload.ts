@@ -1,5 +1,5 @@
 import type { VideoFrame } from '../clip/frameMath';
-import type { Annotations } from '../types/annotations';
+import type { AnnotationAnimationStep, Annotations } from '../types/annotations';
 import { parseAnnotations } from '../types/annotations';
 import type { AnnotationsV1, ExportShape } from '../export/d7Render';
 
@@ -7,6 +7,7 @@ export interface AnnotationPayload {
   image: { width: number; height: number };
   shapes: ExportShape[];
   perspective?: { quad: { x: number; y: number }[] };
+  animations?: AnnotationAnimationStep[];
 }
 
 export type AnnotationAnchor =
@@ -92,6 +93,7 @@ export function toAnnotations(
     image: payload.image,
     shapes: payload.shapes,
     perspective: payload.perspective,
+    animations: payload.animations,
   };
 }
 
@@ -120,6 +122,7 @@ export function parseAnnotationDocument(raw: unknown): ParsedAnnotationDocument 
         image: document.image,
         shapes: document.shapes,
         perspective: document.perspective,
+        animations: document.animations,
       },
       annotationId: document.annotationId,
       document,

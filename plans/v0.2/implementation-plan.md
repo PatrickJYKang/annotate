@@ -1,6 +1,6 @@
 # Annotate 0.2 – Implementation Plan
 
-Date: 2026-08-08 (rev 9, documentation sync amendment)
+Date: 2026-08-09 (rev 10, dependency and user-guide amendment)
 Status: All non-manual phases verified; non-English editorial review pending
 Parents: [v0.2-scope.md](v0.2-scope.md) · [project-v2-schema-and-migration.md](project-v2-schema-and-migration.md)
 
@@ -17,7 +17,7 @@ Parents: [v0.2-scope.md](v0.2-scope.md) · [project-v2-schema-and-migration.md](
 
 ## Implementation progress
 
-The implementation lives on `codex/v0.2-foundations`. The frozen 0.1 app remains independently runnable from the `v0.1.0-pre.3` tag. Completed work is checked against this plan rather than inferred from route availability.
+The implementation is on `main`. The frozen 0.1 app remains independently runnable from the `v0.1.0-pre.3` tag. Completed work is checked against this plan rather than inferred from route availability.
 
 | Step | State | Evidence |
 |---|---|---|
@@ -58,6 +58,7 @@ The implementation lives on `codex/v0.2-foundations`. The frozen 0.1 app remains
 | 5.3 non-English catalogs | `[-]` | complete aligned French, Spanish, and Simplified Chinese catalogs plus CJK layout pass; native-speaker review remains a manual sign-off |
 | 5.4 i18n e2e | `[x]` | chooser plus every primary route, reload persistence, interpolation, editable English board content and raw-key absence |
 | Stabilization: per-video media import | `[x]` | preserve/remux/transcode jobs, real progress, fast long-MP4 probe, native media contracts, bounded fallback, cancellation/cleanup, and global serialization |
+| Stabilization: dependency and documentation cleanup | `[x]` | segmentation removal, smaller runtime/dev locks, shallow release clone, expanded requirements, and complete user guide |
 
 Phase 0 exit verification on 2026-07-11: 308 Vitest tests, 21 sidecar pytest tests, 10 existing Playwright flows, TypeScript, lint (warning-only legacy baseline), and the production build all pass.
 
@@ -88,6 +89,12 @@ Per-video media amendment gate on 2026-07-11: 205 Vitest tests across 35 files, 
 Documentation-sync and presentation-authoring amendment gate on 2026-08-08: 259 Vitest tests across 44 files, 41 sidecar pytest tests, and all 30 Playwright Chromium flows pass. TypeScript, the production build, `git diff --check`, and local Markdown-link validation are clean. ESLint has no errors and one warning in the experimental segmentation page. The browser suite includes source-preview/deck independence, direct original-video playback with no exact-motion requests, pins-only authoring transport, slide-switch timeline and animation reset, cross-tab clip editing entry, dense tracked-timeline performance, and four-catalog locale switching coverage.
 
 Release-hardening amendment gate on 2026-08-09: production startup now supervises the built webapp and sidecar, PnLCalib source and weights are pinned and mandatory, large video uploads stream to disk, project-manifest writes are serialized, disposable project folders self-heal, and third-party notices are included. Exact JavaScript and Python environments were refreshed and locked. The clean-install gate passes 263 Vitest tests across 44 files, 42 sidecar pytest tests, all 30 Playwright Chromium flows against both development and production servers, TypeScript, strict zero-warning ESLint, the production build and launcher smoke, npm and Python dependency audits, and real PnLCalib/YOLO provider smoke tests.
+
+Dependency and user-guide amendment gate on 2026-08-09: foreground segmentation and its browser, sidecar, health-contract, dependency, test, and documentation surfaces are removed. Browser TensorFlow/TFJS and sidecar TensorFlow/Keras/Kornia are no longer installed; pytest is isolated in a development lock. A clean macOS install contains 374 web packages (approximately 482 MB) and 53 sidecar runtime packages (approximately 976 MB). The reduced runtime passes real PnLCalib and YOLO/OC-SORT smoke tests in fresh Python 3.10 and 3.12 environments, 262 Vitest tests across 44 files, 42 sidecar pytest tests, all 30 Playwright Chromium flows, TypeScript, strict ESLint, production build, shell syntax, dependency compatibility, and npm/Python advisory audits. `USER_GUIDE.md` documents the complete project.v2 workflow and README requirements now state the tested platform, browser, memory, storage, and prerequisite boundaries.
+
+Annotate 0.2.1 interaction amendment gate on 2026-08-11: the clip editor supports inward-only, frame-snapped trim transactions with boundary sampling, Apply/Cancel, and immediate full-clip undo. Existing highlight tails can be provisionally replaced through the normal candidate, streaming, loss, and reacquisition workflow; linked follower tails participate, Cancel restores the original annotation snapshot without a write, and Done creates one persisted history edit. The gate passes 271 Vitest tests across 46 files, 42 sidecar pytest tests, all 35 Playwright Chromium flows, TypeScript, strict ESLint, the production build, and `git diff --check`. Annotate 0.2.2 is reserved for pin-annotation animations; the user-guide release pass follows 0.2.2, before Electron work begins.
+
+Annotate 0.2.2 pin-animation amendment gate on 2026-08-22: `annotations.v2` documents optionally own an ordered per-shape entrance sequence with appear, fade, grow, and wipe effects; on-click, with-previous, and after-previous triggers; and editable delay/duration. The shared editor authors and previews the sequence, clip playback uses it at pin pauses, and pin/pause presentation scenes render it over the original rasterized frame. Cue input is consumed before clip resume or scene advance, while static exports remain fully visible and pin-to-clip import deliberately excludes the document-owned sequence. The user guide and as-built/schema references are synchronized. The gate passes 274 Vitest tests across 47 files, 42 sidecar pytest tests, all 35 Playwright Chromium flows, TypeScript, strict zero-warning ESLint, the production build, and `git diff --check`.
 
 The browser pixel assertion from 0.7 and route-level atomic-import assertion from 0.9 attach to the first runnable v2 routes in 1.1–1.3; their unit and service boundaries are already covered.
 

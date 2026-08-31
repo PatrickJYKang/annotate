@@ -16,4 +16,4 @@ Annotate's installer obtains [PnLCalib](https://github.com/mguti97/PnLCalib) at 
 
 ## Installed Runtime Dependencies
 
-The locked JavaScript and Python environments contain additional third-party packages. Their package archives include their own metadata and license files. Notable runtime licenses include Ultralytics under AGPL-3.0, TensorFlow under Apache-2.0, PyTorch under BSD-3-Clause, and Supervision under MIT.
+The locked JavaScript and Python environments contain additional third-party packages. Their package archives include their own metadata and license files. Notable runtime licenses include Ultralytics under AGPL-3.0, PyTorch under BSD-3-Clause, and Supervision under MIT.

@@ -1,5 +1,16 @@
 export const DEFAULT_SHADOW_RADIUS = 140;
 export const DEFAULT_SHADOW_SPREAD_DEG = 42;
+export const MIN_SHADOW_SPREAD_DEG = 5;
+export const MAX_SHADOW_SPREAD_DEG = 180;
+
+export type ShadowGeometryHandleId = 'direction' | 'spread-start' | 'spread-end';
+
+export type ShadowGeometryHandles = {
+  center: { x: number; y: number };
+  direction: { x: number; y: number };
+  spreadStart: { x: number; y: number };
+  spreadEnd: { x: number; y: number };
+};
 
 export function degreesToRadians(deg: number): number {
   return (deg * Math.PI) / 180;
@@ -7,6 +18,94 @@ export function degreesToRadians(deg: number): number {
 
 export function radiansToDegrees(rad: number): number {
   return (rad * 180) / Math.PI;
+}
+
+function pointAtAngle(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  angleDeg: number,
+): { x: number; y: number } {
+  const angle = degreesToRadians(angleDeg);
+  return {
+    x: centerX + Math.cos(angle) * radius,
+    y: centerY + Math.sin(angle) * radius,
+  };
+}
+
+function shortestAngleDelta(leftDeg: number, rightDeg: number): number {
+  return ((rightDeg - leftDeg + 540) % 360) - 180;
+}
+
+export function buildShadowGeometryHandles(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  rotationDeg: number,
+  spreadDeg: number,
+): ShadowGeometryHandles {
+  const safeRadius = Math.max(1, radius);
+  const safeSpread = Math.max(
+    MIN_SHADOW_SPREAD_DEG,
+    Math.min(MAX_SHADOW_SPREAD_DEG, spreadDeg),
+  );
+  return {
+    center: { x: centerX, y: centerY },
+    direction: pointAtAngle(centerX, centerY, safeRadius, rotationDeg),
+    spreadStart: pointAtAngle(centerX, centerY, safeRadius, rotationDeg - safeSpread / 2),
+    spreadEnd: pointAtAngle(centerX, centerY, safeRadius, rotationDeg + safeSpread / 2),
+  };
+}
+
+export function transformShadowGeometry(
+  geometry: {
+    centerX: number;
+    centerY: number;
+    radius: number;
+    rotationDeg: number;
+    spreadDeg: number;
+  },
+  handle: ShadowGeometryHandleId,
+  pointer: { x: number; y: number },
+): { radius: number; rotationDeg: number; spreadDeg: number } {
+  const pointerAngle = radiansToDegrees(Math.atan2(
+    pointer.y - geometry.centerY,
+    pointer.x - geometry.centerX,
+  ));
+  if (handle === 'direction') {
+    return {
+      radius: Math.max(8, Math.hypot(
+        pointer.x - geometry.centerX,
+        pointer.y - geometry.centerY,
+      )),
+      rotationDeg: pointerAngle,
+      spreadDeg: geometry.spreadDeg,
+    };
+  }
+  const halfSpread = Math.abs(shortestAngleDelta(geometry.rotationDeg, pointerAngle));
+  return {
+    radius: geometry.radius,
+    rotationDeg: geometry.rotationDeg,
+    spreadDeg: Math.max(
+      MIN_SHADOW_SPREAD_DEG,
+      Math.min(MAX_SHADOW_SPREAD_DEG, halfSpread * 2),
+    ),
+  };
+}
+
+export function hitShadowGeometryHandle(
+  handles: ShadowGeometryHandles,
+  pointer: { x: number; y: number },
+  hitRadius: number,
+): ShadowGeometryHandleId | null {
+  const candidates: Array<[ShadowGeometryHandleId, { x: number; y: number }]> = [
+    ['spread-start', handles.spreadStart],
+    ['spread-end', handles.spreadEnd],
+    ['direction', handles.direction],
+  ];
+  return candidates.find(([, point]) => (
+    Math.hypot(pointer.x - point.x, pointer.y - point.y) <= hitRadius
+  ))?.[0] ?? null;
 }
 
 export function buildDefaultLobControlPoint(

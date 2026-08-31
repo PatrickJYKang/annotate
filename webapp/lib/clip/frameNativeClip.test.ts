@@ -4,7 +4,6 @@ import type { ClipAnnotation } from '../types/clip';
 import { convertTrackingKeyframes } from './bboxConvert';
 import { mergeTrackedKeyframesIntoAnnotation } from './editorState';
 import { frameBoundary, videoFrame } from './frameMath';
-import { occlusionCacheKey } from './occlusionCompositor';
 import {
   frameTemporalAdapter,
   resolveClipDrawables,
@@ -105,7 +104,4 @@ describe('frame-native clip domain', () => {
     expect('tMs' in keyframes[0]).toBe(false);
   });
 
-  it('keys occlusion masks by canonical frame rather than rounded milliseconds', () => {
-    expect(occlusionCacheKey(videoFrame(37))).toBe(37);
-  });
 });

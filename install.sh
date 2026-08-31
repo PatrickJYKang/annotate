@@ -329,7 +329,7 @@ install_linux_prerequisites() {
     sudo -v
     run_logged "Installing system dependencies" sudo pacman -Sy --needed git nodejs npm python python-pip ffmpeg curl
   else
-    die "Unsupported Linux package manager. Install Git, Node.js 18.17+, npm, Python 3.10+, venv, ffmpeg, and curl, then rerun this installer."
+    die "Unsupported Linux package manager. Install Git, Node.js 18.18+, npm, Python 3.10-3.12, venv, ffmpeg, and curl, then rerun this installer."
   fi
 }
 
@@ -491,7 +491,7 @@ clone_or_update_repo() {
   fi
 
   mkdir -p "$(dirname "$INSTALL_DIR")"
-  run_logged "Cloning Annotate $ANNOTATE_VERSION" git -c advice.detachedHead=false clone --branch "$REF" --single-branch "$REPO_URL" "$INSTALL_DIR"
+  run_logged "Cloning Annotate $ANNOTATE_VERSION" git -c advice.detachedHead=false clone --depth 1 --branch "$REF" --single-branch "$REPO_URL" "$INSTALL_DIR"
 }
 
 install_node_dependencies() {
@@ -518,18 +518,22 @@ install_sidecar_dependencies() {
   local total_packages
   python_bin="$(find_python_bin || true)"
   [[ -n "$python_bin" ]] || die "python3 was not found. Install Python 3, then rerun this installer."
-  requirements_file="$INSTALL_DIR/sidecar/requirements.lock.txt"
+  if [[ "$RUN_TESTS" == "1" ]]; then
+    requirements_file="$INSTALL_DIR/sidecar/requirements-dev.lock.txt"
+  else
+    requirements_file="$INSTALL_DIR/sidecar/requirements.lock.txt"
+  fi
   [[ -f "$requirements_file" ]] || die "Missing locked sidecar requirements: $requirements_file"
   stamp_file="$INSTALL_DIR/sidecar/.venv/.annotate-requirements.sha256"
   requirements_hash="$(hash_file "$requirements_file")"
 
   if [[ -x "$INSTALL_DIR/sidecar/.venv/bin/python" ]] && [[ -f "$stamp_file" ]] && [[ "$(cat "$stamp_file")" == "$requirements_hash" ]]; then
-    printf "Python sidecar environment already matches requirements.lock.txt; skipping reinstall.\n"
+    printf "Python sidecar environment already matches %s; skipping reinstall.\n" "$(basename "$requirements_file")"
     return
   fi
 
   total_packages=$(grep -c '==' "$requirements_file" || true)
-  printf "This is the slowest step: it downloads PyTorch, TensorFlow, and OpenCV wheels (2+ GB on first install).\n"
+  printf "This is the slowest step: it downloads PyTorch, OpenCV, and related computer-vision wheels.\n"
 
   run_logged "Creating Python sidecar environment" "$python_bin" -m venv "$INSTALL_DIR/sidecar/.venv"
   run_logged "Installing locked Python packaging tools" "$INSTALL_DIR/sidecar/.venv/bin/python" -m pip install --disable-pip-version-check --progress-bar off --upgrade pip==26.2.1 setuptools==83.0.0 wheel==0.46.3

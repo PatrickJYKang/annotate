@@ -80,6 +80,7 @@ export function PinList({
   selectedPin,
   pinLabelDraft,
   canCreate,
+  disabled = false,
   hasDeletedPin,
   onOpenCurrent,
   onPinLabelChange,
@@ -93,6 +94,7 @@ export function PinList({
   selectedPin: ClipPin | null;
   pinLabelDraft: string;
   canCreate: boolean;
+  disabled?: boolean;
   hasDeletedPin: boolean;
   onOpenCurrent: () => void | Promise<void>;
   onPinLabelChange: (label: string) => void;
@@ -106,7 +108,7 @@ export function PinList({
     <section>
       <h2 className="section-kicker mb-2">{t('clip.pins')}</h2>
       <div className="space-y-2">
-        <button className="button-primary w-full" onClick={() => void onOpenCurrent()} disabled={!canCreate}>
+        <button className="button-primary w-full" onClick={() => void onOpenCurrent()} disabled={!canCreate || disabled}>
           {hasPinAtCurrentFrame
             ? t('clip.openPin', { frame: formatNumber(currentFrame) })
             : t('clip.addPin', { frame: formatNumber(currentFrame) })}
@@ -125,17 +127,18 @@ export function PinList({
               aria-label={t('clip.pinLabel')}
               className="mb-1 w-full"
               value={pinLabelDraft}
+              disabled={disabled}
               onChange={(event) => onPinLabelChange(event.target.value)}
               placeholder={t('clip.pinLabel')}
             />
             <div className="grid grid-cols-2 gap-1">
-              <button onClick={() => void onSaveLabel()}>{t('clip.saveLabel')}</button>
+              <button disabled={disabled} onClick={() => void onSaveLabel()}>{t('clip.saveLabel')}</button>
               <button onClick={() => onGoToPin(selectedPin.frame)}>{t('clip.goToPin')}</button>
             </div>
-            <button className="button-danger mt-1 w-full" onClick={() => void onDelete()}>{t('clip.deletePin')}</button>
+            <button disabled={disabled} className="button-danger mt-1 w-full" onClick={() => void onDelete()}>{t('clip.deletePin')}</button>
           </div>
         )}
-        {hasDeletedPin && <button className="w-full" onClick={() => void onUndoDelete()}>{t('clip.undoPinDelete')}</button>}
+        {hasDeletedPin && <button disabled={disabled} className="w-full" onClick={() => void onUndoDelete()}>{t('clip.undoPinDelete')}</button>}
       </div>
     </section>
   );
@@ -147,26 +150,64 @@ export function TrackingToolbar({
   hasStarted,
   detecting,
   canTrack,
+  canRetrack,
+  retrackActive,
   onBegin,
   onStart,
   onStop,
+  onBeginRetrack,
+  onFinishRetrack,
+  onCancelRetrack,
 }: {
   phase: 'idle' | 'choosing' | 'running';
   hasCandidate: boolean;
   hasStarted: boolean;
   detecting: boolean;
   canTrack: boolean;
+  canRetrack: boolean;
+  retrackActive: boolean;
   onBegin: () => void;
   onStart: () => void;
   onStop: () => void;
+  onBeginRetrack: () => void;
+  onFinishRetrack: () => void;
+  onCancelRetrack: () => void;
 }) {
   const { t } = useLocale();
+  if (retrackActive) {
+    return (
+      <div className="mb-2 grid grid-cols-2 gap-1" data-testid="clip-retrack-controls">
+        {phase === 'running' ? (
+          <button className="button-danger w-full" onClick={onStop}>{t('clip.stop')}</button>
+        ) : phase === 'choosing' ? (
+          <button className="button-primary w-full" onClick={onStart} disabled={!hasCandidate}>
+            {detecting && !hasCandidate ? t('clip.detecting') : t('clip.continue')}
+          </button>
+        ) : (
+          <button className="button-primary w-full" onClick={onFinishRetrack}>{t('clip.done')}</button>
+        )}
+        <button className="w-full" onClick={onCancelRetrack}>{t('common.cancel')}</button>
+        {phase === 'choosing' && (
+          <button className="button-primary col-span-2 w-full" onClick={onFinishRetrack}>
+            {t('clip.done')}
+          </button>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="mb-2 grid grid-cols-2 gap-1">
       {phase === 'idle' ? (
-        <button className="button-primary col-span-2 w-full" onClick={onBegin} disabled={!canTrack}>
-          {t('clip.track')}
-        </button>
+        <>
+          <button className={`button-primary w-full ${canRetrack ? '' : 'col-span-2'}`} onClick={onBegin} disabled={!canTrack}>
+            {t('clip.track')}
+          </button>
+          {canRetrack && (
+            <button data-testid="clip-retrack-begin" className="w-full" onClick={onBeginRetrack}>
+              {t('clip.retrackFromHere')}
+            </button>
+          )}
+        </>
       ) : phase === 'running' ? (
         <button className="button-danger col-span-2 w-full" onClick={onStop}>
           {t('clip.stop')}
@@ -196,11 +237,17 @@ export function AnnotationInspector({
   trackingHasStarted,
   detectingPlayers,
   canTrack,
+  canRetrack,
+  retrackActive,
+  editingLocked,
   onAddKeyframe,
   onDeleteKeyframe,
   onBeginTracking,
   onStartTracking,
   onStopTracking,
+  onBeginRetracking,
+  onFinishRetracking,
+  onCancelRetracking,
   onRenameHighlight,
   onDisplayHighlightName,
   onHighlightNameFontSize,
@@ -224,11 +271,17 @@ export function AnnotationInspector({
   trackingHasStarted: boolean;
   detectingPlayers: boolean;
   canTrack: boolean;
+  canRetrack: boolean;
+  retrackActive: boolean;
+  editingLocked: boolean;
   onAddKeyframe: () => void;
   onDeleteKeyframe: () => void;
   onBeginTracking: () => void;
   onStartTracking: () => void;
   onStopTracking: () => void;
+  onBeginRetracking: () => void;
+  onFinishRetracking: () => void;
+  onCancelRetracking: () => void;
   onRenameHighlight: (name?: string) => void;
   onDisplayHighlightName: (displayName: boolean) => void;
   onHighlightNameFontSize: (fontSize: number) => void;
@@ -317,11 +370,17 @@ export function AnnotationInspector({
         hasCandidate={trackingHasCandidate}
         hasStarted={trackingHasStarted}
         detecting={detectingPlayers}
-        canTrack={canTrack}
+        canTrack={canTrack && !editingLocked}
+        canRetrack={canRetrack}
+        retrackActive={retrackActive}
         onBegin={onBeginTracking}
         onStart={onStartTracking}
         onStop={onStopTracking}
+        onBeginRetrack={onBeginRetracking}
+        onFinishRetrack={onFinishRetracking}
+        onCancelRetrack={onCancelRetracking}
       />
+      <fieldset className="m-0 min-w-0 border-0 p-0" disabled={editingLocked}>
       {annotation ? (
         <div className="space-y-2">
           <div className="property-section">
@@ -607,6 +666,7 @@ export function AnnotationInspector({
       ) : (
         <div className="empty-state h-20" aria-hidden="true" />
       )}
+      </fieldset>
     </section>
   );
 }

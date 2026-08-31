@@ -11,6 +11,11 @@ import {
 import { applyHomography, invert3 } from '../../lib/annotate/homography';
 import { buildHomographyGrid } from '../../lib/annotate/homographyOverlay';
 import { PITCH_LENGTH_M, PITCH_WIDTH_M } from '../../lib/annotate/pitchCalibration';
+import {
+  hasPendingAnnotationAnimationClick,
+  sampleAnnotationAnimations,
+} from '../../lib/annotate/animation';
+import { annotationPayloadFromDocument } from '../../lib/annotate/documentPayload';
 import { bboxToHighlight, convertTrackingKeyframes } from '../../lib/clip/bboxConvert';
 import {
   cloneClipAnnotations,
@@ -84,10 +89,16 @@ import {
 } from '../../lib/clip/trackingState';
 import {
   bridgeTrackingHighlight,
+  prepareTrackingTailReplacement,
   reusableTrackingHighlight,
   seedTrackingHighlightSegment,
   stopTrackingHighlightSegment,
 } from '../../lib/clip/trackingWorkflow';
+import {
+  inspectClipTrim,
+  trimClipInward,
+  type ClipTrimImpact,
+} from '../../lib/clip/trimClip';
 import {
   deleteOverlappingHomographyCache,
   findOverlappingCache,
@@ -98,6 +109,15 @@ import {
   defaultAnnotationFontSize,
   defaultAnnotationStrokeWidth,
 } from '../../lib/annotate/styleScale';
+import { paintAnnotationPayloadToCanvas } from '../../lib/export/d7Render';
+import {
+  buildShadowGeometryHandles,
+  hitShadowGeometryHandle,
+  radiansToDegrees,
+  transformShadowGeometry,
+  type ShadowGeometryHandleId,
+  type ShadowGeometryHandles,
+} from '../../lib/annotate/tacticalGeometry';
 import { readClip } from '../../lib/fs/clipStorage';
 import {
   createPinAnnotationExclusive,
@@ -118,6 +138,7 @@ import type {
   Clip,
 } from '../../lib/types/clip';
 import type { VideoEntry } from '../../lib/types/project';
+import type { Annotations } from '../../lib/types/annotations';
 import {
   AnnotationInspector,
   ClipEditorShell,
@@ -140,6 +161,7 @@ interface ClipEditorProps {
   videoPath?: string;
   projectDir?: FileSystemDirectoryHandle;
   persistAnnotations: (annotations: ClipAnnotation[]) => Promise<Clip>;
+  persistClip: (clip: Clip) => Promise<Clip>;
   onClipUpdate?: (clip: Clip) => void;
   initialPinId?: string | null;
 }
@@ -151,12 +173,14 @@ type PolyDraftCursor = {
   snapped: LinkedDraftPoint;
 };
 type PointerDraft = {
-  mode: 'draw' | 'move' | 'select' | 'transform';
+  mode: 'draw' | 'move' | 'select' | 'transform' | 'shadow-transform';
   start: Point;
   current: Point;
   annotationId?: string;
   baseGeometry?: Record<string, unknown>;
   transformHandle?: ShapeTransformHandleId;
+  shadowHandle?: ShadowGeometryHandleId;
+  shadowCenter?: Point;
   rotationOffset?: number;
   startClient?: Point;
   hasMoved?: boolean;
@@ -198,6 +222,17 @@ type TrackingSession = {
 type ProvisionalPlayerFrame = {
   frame: number;
   detections: PlayerDetection[];
+};
+
+type TrimSession = {
+  startFrame: number;
+  endFrame: number;
+};
+
+type RetrackSession = {
+  annotationId: string;
+  originFrame: number;
+  originalAnnotations: ClipAnnotation[];
 };
 
 const TOOLS: Array<{ id: ClipTool; label: string }> = [
@@ -315,7 +350,13 @@ function geometryFromDrag(tool: ClipTool, start: Point, end: Point): Record<stri
       if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return { cx: start.x, cy: start.y, rx: 50, ry: 30 };
       return { cx: (start.x + end.x) / 2, cy: (start.y + end.y) / 2, rx: Math.abs(dx) / 2, ry: Math.abs(dy) / 2 };
     }
-    case 'shadow': return { x: start.x, y: start.y, r: distance, rotation: Math.atan2(dy, dx), spreadDeg: 50 };
+    case 'shadow': return {
+      x: start.x,
+      y: start.y,
+      r: distance,
+      rotation: radiansToDegrees(Math.atan2(dy, dx)),
+      spreadDeg: 50,
+    };
     case 'arrow': return { x1: start.x, y1: start.y, x2: end.x, y2: end.y };
     case 'lob': return {
       x1: start.x,
@@ -504,6 +545,38 @@ function drawShapeTransformOverlay(
   context.restore();
 }
 
+function drawShadowTransformOverlay(
+  context: CanvasRenderingContext2D,
+  overlay: ShadowGeometryHandles,
+  handleRadius: number,
+): void {
+  context.save();
+  context.strokeStyle = '#60a5fa';
+  context.lineWidth = Math.max(1.5, handleRadius * 0.3);
+  context.setLineDash([4, 4]);
+  context.beginPath();
+  context.moveTo(overlay.spreadStart.x, overlay.spreadStart.y);
+  context.lineTo(overlay.center.x, overlay.center.y);
+  context.lineTo(overlay.spreadEnd.x, overlay.spreadEnd.y);
+  context.stroke();
+  context.setLineDash([]);
+  context.beginPath();
+  context.moveTo(overlay.center.x, overlay.center.y);
+  context.lineTo(overlay.direction.x, overlay.direction.y);
+  context.stroke();
+  const drawHandle = (point: Point, radius: number, fill: string) => {
+    context.beginPath();
+    context.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    context.fillStyle = fill;
+    context.fill();
+    context.stroke();
+  };
+  drawHandle(overlay.direction, handleRadius * 1.15, '#60a5fa');
+  drawHandle(overlay.spreadStart, handleRadius, '#ffffff');
+  drawHandle(overlay.spreadEnd, handleRadius, '#ffffff');
+  context.restore();
+}
+
 function createAnnotation(
   tool: Exclude<ClipTool, 'select'>,
   frame: number,
@@ -539,6 +612,7 @@ export default function ClipEditor({
   videoPath,
   projectDir,
   persistAnnotations,
+  persistClip,
   onClipUpdate,
   initialPinId = null,
 }: ClipEditorProps) {
@@ -553,10 +627,12 @@ export default function ClipEditor({
   const [currentFrame, setCurrentFrame] = useState<number>(initialPinFrame);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackPausedPinId, setPlaybackPausedPinId] = useState<string | null>(null);
-  const [pinPlaybackAnnotations, setPinPlaybackAnnotations] = useState<Map<string, ClipAnnotation[]>>(
+  const [pinPlaybackDocuments, setPinPlaybackDocuments] = useState<Map<string, Annotations[]>>(
     () => new Map(),
   );
   const [pinPlaybackRevision, setPinPlaybackRevision] = useState(0);
+  const [pinAnimationElapsedMs, setPinAnimationElapsedMs] = useState(0);
+  const [pinAnimationClickTimesMs, setPinAnimationClickTimesMs] = useState<number[]>([]);
   const [tool, setTool] = useState<ClipTool>('select');
   const [color, setColor] = useState('#ffffff');
   const [strokeWidth, setStrokeWidth] = useState(() => defaultAnnotationStrokeWidth(video.width, video.height));
@@ -577,6 +653,10 @@ export default function ClipEditor({
   const [arrowCursor, setArrowCursor] = useState<LinkedDraftPoint | null>(null);
   const [saveStatus, setSaveStatus] = useState<ClipEditorSaveStatus>('idle');
   const [message, setMessage] = useState<string | null>(null);
+  const [trimSession, setTrimSession] = useState<TrimSession | null>(null);
+  const [trimApplying, setTrimApplying] = useState(false);
+  const [trimUndoSnapshot, setTrimUndoSnapshot] = useState<Clip | null>(null);
+  const [retrackSession, setRetrackSession] = useState<RetrackSession | null>(null);
   const [trackingSession, setTrackingSession] = useState<TrackingSession | null>(null);
   const [provisionalPlayers, setProvisionalPlayers] = useState<ProvisionalPlayerFrame | null>(null);
   const [detectingPlayers, setDetectingPlayers] = useState(false);
@@ -591,6 +671,7 @@ export default function ClipEditor({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawablesRef = useRef<ClipDrawable[]>([]);
   const transformOverlayRef = useRef<ShapeTransformOverlay | null>(null);
+  const shadowTransformOverlayRef = useRef<ShadowGeometryHandles | null>(null);
   const historyPastRef = useRef<ClipAnnotation[][]>([]);
   const historyFutureRef = useRef<ClipAnnotation[][]>([]);
   const annotationsRef = useRef(annotations);
@@ -601,13 +682,23 @@ export default function ClipEditor({
   const styleEditTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeTrackingRunRef = useRef(0);
   const activeTrackingFrameRef = useRef<number | null>(null);
+  const pendingTrackingPreviewRef = useRef<(() => ClipAnnotation[]) | null>(null);
+  const trackingPreviewAnimationRef = useRef<number | null>(null);
   const desiredDetectionFrameRef = useRef<number | null>(null);
   const detectionInFlightRef = useRef(false);
   const detectionGenerationRef = useRef(0);
   const pinPauseMachineRef = useRef<PinPauseMachine | null>(null);
+  const pinAnimationStartedAtRef = useRef<number | null>(null);
+  const pinAnimationClickTimesRef = useRef<number[]>([]);
   const currentFrameRef = useRef<number>(initialPinFrame);
-  const clipPinsRef = useRef(currentClip.pins);
-  clipPinsRef.current = currentClip.pins;
+  const playbackStartFrame = trimSession?.startFrame ?? currentClip.startFrame;
+  const playbackEndFrame = trimSession?.endFrame ?? currentClip.endFrame;
+  const playbackPins = useMemo(() => currentClip.pins.filter((pin) => (
+    pin.frame >= playbackStartFrame && pin.frame < playbackEndFrame
+  )), [currentClip.pins, playbackEndFrame, playbackStartFrame]);
+  const clipPinsRef = useRef(playbackPins);
+  clipPinsRef.current = playbackPins;
+  const editorMutationLocked = trimSession !== null || retrackSession !== null;
 
   const updateCurrentFrame = useCallback((frame: number) => {
     currentFrameRef.current = frame;
@@ -675,6 +766,10 @@ export default function ClipEditor({
     () => currentClip.pins.find((pin) => pin.id === playbackPausedPinId) ?? null,
     [currentClip.pins, playbackPausedPinId],
   );
+  const playbackPausedPinDocuments = useMemo(
+    () => playbackPausedPin ? pinPlaybackDocuments.get(playbackPausedPin.id) ?? [] : [],
+    [pinPlaybackDocuments, playbackPausedPin],
+  );
   const currentHomography = useMemo(
     () => resolveUsableHomographyAtTime(homographyFrames, Number(frameToMs(videoFrame(currentFrame), video.fps))),
     [currentFrame, homographyFrames, video.fps],
@@ -691,11 +786,12 @@ export default function ClipEditor({
 
   useEffect(() => {
     const available = new Set(annotations.map((annotation) => annotation.id));
+    if (selectedAnnotationIds.every((annotationId) => available.has(annotationId))) return;
     setSelectedAnnotationIds((current) => {
       const next = current.filter((annotationId) => available.has(annotationId));
       return next.length === current.length ? current : next;
     });
-  }, [annotations]);
+  }, [annotations, selectedAnnotationIds]);
 
   useEffect(() => {
     if (!projectDir || currentClip.endFrame - currentClip.startFrame < 2) return;
@@ -720,7 +816,7 @@ export default function ClipEditor({
   useEffect(() => {
     let active = true;
     if (!projectDir || currentClip.pins.length === 0) {
-      setPinPlaybackAnnotations(new Map());
+      setPinPlaybackDocuments(new Map());
       return () => {
         active = false;
       };
@@ -729,15 +825,15 @@ export default function ClipEditor({
       const documents = await Promise.all(pin.annotations.map(async (reference) => {
         try {
           const result = await readPinAnnotationDocument(projectDir, currentClip.id, reference.id);
-          if (!result.document || result.error) return [];
-          return importPinDocumentToClip(result.document, pin.frame).annotations;
+          if (!result.document || result.error) return null;
+          return result.document;
         } catch {
-          return [];
+          return null;
         }
       }));
-      return [pin.id, documents.flat()] as const;
+      return [pin.id, documents.filter((document): document is Annotations => document !== null)] as const;
     })).then((entries) => {
-      if (active) setPinPlaybackAnnotations(new Map(entries));
+      if (active) setPinPlaybackDocuments(new Map(entries));
     });
     return () => {
       active = false;
@@ -792,10 +888,64 @@ export default function ClipEditor({
       });
   }, [onClipUpdate, persistAnnotations]);
 
+  const queueClipPersist = useCallback(async (next: Clip): Promise<Clip> => {
+    const payload = structuredClone(next);
+    const generation = ++saveGenerationRef.current;
+    setSaveStatus('saving');
+    const operation = saveChainRef.current
+      .catch(() => undefined)
+      .then(() => persistClip(payload));
+    saveChainRef.current = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    try {
+      const saved = await operation;
+      if (generation === saveGenerationRef.current) setSaveStatus('saved');
+      onClipUpdate?.(saved);
+      return saved;
+    } catch (error) {
+      if (generation === saveGenerationRef.current) setSaveStatus('error');
+      setMessage(error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  }, [onClipUpdate, persistClip]);
+
   const replaceAnnotations = useCallback((next: ClipAnnotation[]) => {
     annotationsRef.current = next;
     setAnnotations(next);
   }, []);
+
+  const cancelTrackingPreview = useCallback(() => {
+    if (trackingPreviewAnimationRef.current != null) {
+      cancelAnimationFrame(trackingPreviewAnimationRef.current);
+      trackingPreviewAnimationRef.current = null;
+    }
+    pendingTrackingPreviewRef.current = null;
+  }, []);
+
+  const consumeTrackingPreview = useCallback(() => {
+    if (trackingPreviewAnimationRef.current != null) {
+      cancelAnimationFrame(trackingPreviewAnimationRef.current);
+      trackingPreviewAnimationRef.current = null;
+    }
+    const buildPreview = pendingTrackingPreviewRef.current;
+    pendingTrackingPreviewRef.current = null;
+    return buildPreview?.() ?? null;
+  }, []);
+
+  const scheduleTrackingPreview = useCallback((buildPreview: () => ClipAnnotation[]) => {
+    pendingTrackingPreviewRef.current = buildPreview;
+    if (trackingPreviewAnimationRef.current != null) return;
+    trackingPreviewAnimationRef.current = requestAnimationFrame(() => {
+      trackingPreviewAnimationRef.current = null;
+      const pending = pendingTrackingPreviewRef.current;
+      pendingTrackingPreviewRef.current = null;
+      if (pending) replaceAnnotations(pending());
+    });
+  }, [replaceAnnotations]);
+
+  useEffect(() => () => cancelTrackingPreview(), [cancelTrackingPreview]);
 
   const finalizePendingStyleEdit = useCallback((persist = true) => {
     if (styleEditTimerRef.current) clearTimeout(styleEditTimerRef.current);
@@ -820,6 +970,7 @@ export default function ClipEditor({
     recordHistory = true,
     historyBase: ClipAnnotation[] = annotationsRef.current,
   ) => {
+    setTrimUndoSnapshot(null);
     finalizePendingStyleEdit(false);
     if (recordHistory) {
       const history = recordClipAnnotationHistoryChange(historyBase, next, historyPastRef.current);
@@ -831,10 +982,23 @@ export default function ClipEditor({
     queuePersist(next);
   }, [finalizePendingStyleEdit, queuePersist, replaceAnnotations]);
 
+  const applyTrackingAnnotations = useCallback((
+    next: ClipAnnotation[],
+    historyBase: ClipAnnotation[] = annotationsRef.current,
+  ) => {
+    if (retrackSession) {
+      replaceAnnotations(next);
+      setCurrentClip((previous) => ({ ...previous, annotations: next }));
+      return;
+    }
+    commitAnnotations(next, true, historyBase);
+  }, [commitAnnotations, replaceAnnotations, retrackSession]);
+
   const updateSelectedAnnotationStyles = useCallback((
     updateStyle: Parameters<typeof updateSelectedClipAnnotationStyles>[2],
   ) => {
     if (selectedAnnotationIds.length === 0) return;
+    setTrimUndoSnapshot(null);
     const current = annotationsRef.current;
     if (!styleEditHistoryBaseRef.current) {
       styleEditHistoryBaseRef.current = current;
@@ -854,6 +1018,7 @@ export default function ClipEditor({
   useEffect(() => () => finalizePendingStyleEdit(), [finalizePendingStyleEdit]);
 
   const acceptPinClipUpdate = useCallback((next: Clip) => {
+    setTrimUndoSnapshot(null);
     const visibleClip = { ...next, annotations };
     setCurrentClip(visibleClip);
     onClipUpdate?.(visibleClip);
@@ -1019,6 +1184,110 @@ export default function ClipEditor({
     if (element) element.currentTime = frameToCenterSeconds(videoFrame(frame), video.fps);
   }, [currentClip, updateCurrentFrame, video.fps]);
 
+  const beginTrim = useCallback(() => {
+    if (trackingSession || retrackSession || trimApplying) return;
+    finalizePendingStyleEdit();
+    videoElementRef.current?.pause();
+    setIsPlaying(false);
+    setPlaybackPausedPinId(null);
+    setPointerDraft(null);
+    setPolyPoints([]);
+    setPolyCursor(null);
+    setArrowStart(null);
+    setArrowCursor(null);
+    setSelectedKeyframe(null);
+    setMessage(null);
+    setTrimSession({
+      startFrame: currentClip.startFrame,
+      endFrame: currentClip.endFrame,
+    });
+  }, [currentClip.endFrame, currentClip.startFrame, finalizePendingStyleEdit, retrackSession, trackingSession, trimApplying]);
+
+  const updateTrimStartFrame = useCallback((frame: number) => {
+    if (!trimSession) return;
+    const startFrame = Math.max(
+      currentClip.startFrame,
+      Math.min(trimSession.endFrame - 2, Math.round(frame)),
+    );
+    setTrimSession({ ...trimSession, startFrame });
+    seekFrame(startFrame);
+  }, [currentClip.startFrame, seekFrame, trimSession]);
+
+  const updateTrimEndFrame = useCallback((endFrame: number) => {
+    if (!trimSession) return;
+    const nextEndFrame = Math.min(
+      currentClip.endFrame,
+      Math.max(trimSession.startFrame + 2, Math.round(endFrame)),
+    );
+    setTrimSession({ ...trimSession, endFrame: nextEndFrame });
+    seekFrame(nextEndFrame - 1);
+  }, [currentClip.endFrame, seekFrame, trimSession]);
+
+  const cancelTrim = useCallback(() => {
+    if (trimApplying) return;
+    setTrimSession(null);
+    setMessage(null);
+  }, [trimApplying]);
+
+  const applyTrim = useCallback(async () => {
+    if (!trimSession || trimApplying) return;
+    finalizePendingStyleEdit();
+    const source: Clip = {
+      ...structuredClone(currentClip),
+      annotations: cloneClipAnnotations(annotationsRef.current),
+    };
+    const trimmed = trimClipInward(source, {
+      startFrame: videoFrame(trimSession.startFrame),
+      endFrame: frameBoundary(trimSession.endFrame),
+    });
+    setTrimApplying(true);
+    try {
+      const saved = await queueClipPersist(trimmed);
+      setTrimUndoSnapshot(source);
+      historyPastRef.current = [];
+      historyFutureRef.current = [];
+      replaceAnnotations(cloneClipAnnotations(saved.annotations));
+      setCurrentClip(saved);
+      setSelectedAnnotationIds((ids) => ids.filter((id) => (
+        saved.annotations.some((annotation) => annotation.id === id)
+      )));
+      setSelectedKeyframe(null);
+      setSelectedPinId((pinId) => (
+        saved.pins.some((pin) => pin.id === pinId) ? pinId : saved.pins[0]?.id ?? null
+      ));
+      setEditingPinId((pinId) => (
+        saved.pins.some((pin) => pin.id === pinId) ? pinId : null
+      ));
+      setTrimSession(null);
+      seekFrame(Math.max(saved.startFrame, Math.min(saved.endFrame - 1, currentFrameRef.current)));
+      setMessage(t('clip.trimApplied'));
+    } catch {
+      // queueClipPersist exposes the failure through the editor save state.
+    } finally {
+      setTrimApplying(false);
+    }
+  }, [currentClip, finalizePendingStyleEdit, queueClipPersist, replaceAnnotations, seekFrame, t, trimApplying, trimSession]);
+
+  const undoTrim = useCallback(async () => {
+    if (!trimUndoSnapshot || trimApplying || trimSession || trackingSession || retrackSession) return;
+    setTrimApplying(true);
+    try {
+      const restored = await queueClipPersist(trimUndoSnapshot);
+      historyPastRef.current = [];
+      historyFutureRef.current = [];
+      replaceAnnotations(cloneClipAnnotations(restored.annotations));
+      setCurrentClip(restored);
+      setSelectedKeyframe(null);
+      setTrimUndoSnapshot(null);
+      seekFrame(Math.max(restored.startFrame, Math.min(restored.endFrame - 1, currentFrameRef.current)));
+      setMessage(t('clip.trimRestored'));
+    } catch {
+      // queueClipPersist exposes the failure through the editor save state.
+    } finally {
+      setTrimApplying(false);
+    }
+  }, [queueClipPersist, replaceAnnotations, retrackSession, seekFrame, t, trackingSession, trimApplying, trimSession, trimUndoSnapshot]);
+
   const goToPin = useCallback((frame: number) => {
     seekFrame(frame);
     setTimelineRevealRequest((previous) => ({
@@ -1055,6 +1324,48 @@ export default function ClipEditor({
     return () => element.removeEventListener('loadedmetadata', synchronize);
   }, [synchronizeMediaToClipStart, videoUrl]);
 
+  useEffect(() => {
+    if (!playbackPausedPinId) {
+      pinAnimationStartedAtRef.current = null;
+      pinAnimationClickTimesRef.current = [];
+      setPinAnimationElapsedMs(0);
+      setPinAnimationClickTimesMs([]);
+      return;
+    }
+    const startedAt = performance.now();
+    pinAnimationStartedAtRef.current = startedAt;
+    pinAnimationClickTimesRef.current = [];
+    setPinAnimationElapsedMs(0);
+    setPinAnimationClickTimesMs([]);
+    let frameRequest = 0;
+    const update = () => {
+      setPinAnimationElapsedMs(Math.max(0, performance.now() - startedAt));
+      frameRequest = requestAnimationFrame(update);
+    };
+    frameRequest = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(frameRequest);
+  }, [playbackPausedPinId]);
+
+  const pinAnimationHasNextClick = playbackPausedPinDocuments.some((document) => (
+    hasPendingAnnotationAnimationClick(document.animations, pinAnimationClickTimesMs)
+  ));
+
+  const advancePinAnimation = useCallback(() => {
+    const startedAt = pinAnimationStartedAtRef.current;
+    if (startedAt === null) return false;
+    const currentClickTimes = pinAnimationClickTimesRef.current;
+    const pending = playbackPausedPinDocuments.some((document) => (
+      hasPendingAnnotationAnimationClick(document.animations, currentClickTimes)
+    ));
+    if (!pending) return false;
+    const elapsedMs = Math.max(0, performance.now() - startedAt);
+    const nextClickTimes = [...currentClickTimes, elapsedMs];
+    pinAnimationClickTimesRef.current = nextClickTimes;
+    setPinAnimationElapsedMs(elapsedMs);
+    setPinAnimationClickTimesMs(nextClickTimes);
+    return true;
+  }, [playbackPausedPinDocuments]);
+
   const resumePlaybackFromPin = useCallback(async () => {
     const element = videoElementRef.current;
     if (!element || !playbackPausedPinId) return;
@@ -1074,6 +1385,7 @@ export default function ClipEditor({
     const element = videoElementRef.current;
     if (!element) return;
     if (playbackPausedPinId) {
+      if (advancePinAnimation()) return;
       await resumePlaybackFromPin();
       return;
     }
@@ -1082,19 +1394,20 @@ export default function ClipEditor({
       setIsPlaying(false);
       return;
     }
-    const clipStartSeconds = frameToSeconds(videoFrame(currentClip.startFrame), video.fps);
-    const clipEndSeconds = frameToSeconds(videoFrame(currentClip.endFrame), video.fps);
-    const playbackStartFrame = currentFrame >= currentClip.endFrame - 1
-      ? currentClip.startFrame
+    const clipStartSeconds = frameToSeconds(videoFrame(playbackStartFrame), video.fps);
+    const clipEndSeconds = frameToSeconds(videoFrame(playbackEndFrame), video.fps);
+    const nextPlaybackFrame = currentFrame < playbackStartFrame || currentFrame >= playbackEndFrame - 1
+      ? playbackStartFrame
       : currentFrame;
     if (
-      currentFrame >= currentClip.endFrame - 1
+      currentFrame < playbackStartFrame
+      || currentFrame >= playbackEndFrame - 1
       || element.currentTime < clipStartSeconds - (0.5 / video.fps)
       || element.currentTime >= clipEndSeconds
     ) {
-      seekFrame(playbackStartFrame, false);
+      seekFrame(nextPlaybackFrame, false);
     }
-    const playbackFrame = videoFrame(playbackStartFrame);
+    const playbackFrame = videoFrame(nextPlaybackFrame);
     pinPauseMachineRef.current = seekPinPauseMachine(
       pinPauseMachineRef.current ?? {
         previousFrame: playbackFrame,
@@ -1102,7 +1415,7 @@ export default function ClipEditor({
         consumedPinIds: new Set(),
       },
       playbackFrame,
-      currentClip.pins,
+      playbackPins,
     );
     try {
       await element.play();
@@ -1110,7 +1423,7 @@ export default function ClipEditor({
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     }
-  }, [currentClip.endFrame, currentClip.pins, currentClip.startFrame, currentFrame, playbackPausedPinId, resumePlaybackFromPin, seekFrame, video.fps]);
+  }, [advancePinAnimation, currentFrame, playbackEndFrame, playbackPausedPinId, playbackPins, playbackStartFrame, resumePlaybackFromPin, seekFrame, video.fps]);
 
   useEffect(() => {
     const element = videoElementRef.current;
@@ -1120,16 +1433,16 @@ export default function ClipEditor({
     const update = (_now: number, metadata: VideoFrameCallbackMetadata) => {
       if (cancelled) return;
       const frame = mediaTimeToVideoFrame(metadata.mediaTime, video.fps, video.frameCount);
-      const playbackFrame = videoFrame(Math.min(frame, currentClip.endFrame - 1));
-      if (frame >= currentClip.startFrame && pinPauseMachineRef.current) {
+      const playbackFrame = videoFrame(Math.min(frame, playbackEndFrame - 1));
+      if (frame >= playbackStartFrame && pinPauseMachineRef.current) {
         const step = advancePinPauseMachine(
           pinPauseMachineRef.current,
           playbackFrame,
-          currentClip.pins,
+          playbackPins,
         );
         pinPauseMachineRef.current = step.state;
         if (step.triggeredPinId) {
-          const pin = currentClip.pins.find((candidate) => candidate.id === step.triggeredPinId);
+          const pin = playbackPins.find((candidate) => candidate.id === step.triggeredPinId);
           if (pin) {
             element.pause();
             element.currentTime = frameToCenterSeconds(pin.frame, video.fps);
@@ -1140,13 +1453,13 @@ export default function ClipEditor({
           }
         }
       }
-      if (frame >= currentClip.endFrame) {
+      if (frame >= playbackEndFrame) {
         element.pause();
         setIsPlaying(false);
-        seekFrame(currentClip.endFrame - 1, false);
+        seekFrame(playbackEndFrame - 1, false);
         return;
       }
-      if (frame >= currentClip.startFrame) updateCurrentFrame(frame);
+      if (frame >= playbackStartFrame) updateCurrentFrame(frame);
       callbackId = element.requestVideoFrameCallback(update);
     };
     callbackId = element.requestVideoFrameCallback(update);
@@ -1154,15 +1467,34 @@ export default function ClipEditor({
       cancelled = true;
       element.cancelVideoFrameCallback(callbackId);
     };
-  }, [currentClip.endFrame, currentClip.pins, currentClip.startFrame, isPlaying, seekFrame, updateCurrentFrame, video.fps, video.frameCount]);
+  }, [isPlaying, playbackEndFrame, playbackPins, playbackStartFrame, seekFrame, updateCurrentFrame, video.fps, video.frameCount]);
 
   const previewAnnotation = useMemo((): ClipAnnotation | null => {
     if (!pointerDraft) return null;
-    if (pointerDraft.mode === 'move' || pointerDraft.mode === 'transform') {
+    if (
+      pointerDraft.mode === 'move'
+      || pointerDraft.mode === 'transform'
+      || pointerDraft.mode === 'shadow-transform'
+    ) {
       const annotation = annotations.find((candidate) => candidate.id === pointerDraft.annotationId);
       if (!annotation || !pointerDraft.baseGeometry) return null;
       let geometry: Record<string, unknown>;
-      if (pointerDraft.mode === 'transform') {
+      if (pointerDraft.mode === 'shadow-transform') {
+        if (annotation.type !== 'shadow' || !pointerDraft.shadowHandle || !pointerDraft.shadowCenter) return null;
+        const transformed = transformShadowGeometry({
+          centerX: pointerDraft.shadowCenter.x,
+          centerY: pointerDraft.shadowCenter.y,
+          radius: Number(pointerDraft.baseGeometry.r ?? 1),
+          rotationDeg: Number(pointerDraft.baseGeometry.rotation ?? 0),
+          spreadDeg: Number(pointerDraft.baseGeometry.spreadDeg ?? 50),
+        }, pointerDraft.shadowHandle, pointerDraft.current);
+        geometry = {
+          ...pointerDraft.baseGeometry,
+          r: transformed.radius,
+          rotation: transformed.rotationDeg,
+          spreadDeg: transformed.spreadDeg,
+        };
+      } else if (pointerDraft.mode === 'transform') {
         if (!pointerDraft.transformHandle) return null;
         if (annotation.coordMode === 'pitch' && !currentHomographyInverse) return null;
         const shape = orientedClipShapeFromGeometry(annotation.type, pointerDraft.baseGeometry);
@@ -1285,6 +1617,67 @@ export default function ClipEditor({
   ]);
   transformOverlayRef.current = selectedTransformOverlay;
 
+  const selectedShadowTransformOverlay = useMemo((): ShadowGeometryHandles | null => {
+    if (
+      tool !== 'select'
+      || isPlaying
+      || trackingSession
+      || playbackPausedPin
+      || selectedAnnotationIds.length !== 1
+      || !selectedAnnotation
+      || selectedAnnotation.type !== 'shadow'
+    ) {
+      return null;
+    }
+    const source = previewAnnotation?.id === selectedAnnotation.id
+      ? previewAnnotation
+      : selectedAnnotation;
+    const value = interpolateAnnotation(
+      source,
+      videoFrame(currentFrame),
+      frameBoundary(currentClip.endFrame),
+    );
+    if (!value || value.type !== 'shadow') return null;
+    const linkedId = source.vertexRefs?.[0];
+    const linkedHighlight = linkedId
+      ? annotations.find((annotation) => annotation.id === linkedId)
+      : null;
+    const relevantAnnotations = linkedHighlight
+      ? [linkedHighlight, source]
+      : [source];
+    const drawable = resolveClipDrawables(
+      relevantAnnotations,
+      currentFrame,
+      frameTemporalAdapter(frameBoundary(currentClip.endFrame)),
+      () => currentHomography,
+      { color, fillOpacity: 0.28, fontSize: defaultFontSize },
+    ).find((candidate) => candidate.id === source.id && candidate.kind === 'polygon');
+    if (!drawable || drawable.kind !== 'polygon' || drawable.points.length === 0) return null;
+    const [centerX, centerY] = drawable.points[0];
+    return buildShadowGeometryHandles(
+      centerX,
+      centerY,
+      value.r,
+      value.rotation,
+      value.spreadDeg,
+    );
+  }, [
+    annotations,
+    color,
+    currentClip.endFrame,
+    currentFrame,
+    currentHomography,
+    defaultFontSize,
+    isPlaying,
+    playbackPausedPin,
+    previewAnnotation,
+    selectedAnnotation,
+    selectedAnnotationIds.length,
+    tool,
+    trackingSession,
+  ]);
+  shadowTransformOverlayRef.current = selectedShadowTransformOverlay;
+
   const findHighlightHit = useCallback((point: Point): (LinkedDraftPoint & { refId: string }) | null => {
     for (let index = drawablesRef.current.length - 1; index >= 0; index -= 1) {
       const drawable = drawablesRef.current[index];
@@ -1369,6 +1762,21 @@ export default function ClipEditor({
     const context = canvas.getContext('2d');
     if (!context) return;
     context.clearRect(0, 0, canvas.width, canvas.height);
+    if (playbackPausedPin) {
+      for (const document of playbackPausedPinDocuments) {
+        paintAnnotationPayloadToCanvas({
+          context,
+          payload: annotationPayloadFromDocument(document),
+          visuals: sampleAnnotationAnimations(
+            document.animations,
+            pinAnimationElapsedMs,
+            pinAnimationClickTimesMs,
+          ),
+        });
+      }
+      drawablesRef.current = [];
+      return;
+    }
     if (!playbackPausedPin && showHomography && currentHomography) {
       const grid = buildHomographyGrid(currentHomography, {
         width: PITCH_LENGTH_M,
@@ -1390,16 +1798,18 @@ export default function ClipEditor({
       }
       context.restore();
     }
-    const baseAnnotations = playbackPausedPin
-      ? pinPlaybackAnnotations.get(playbackPausedPin.id) ?? []
-      : pointerDraft?.mode === 'move' && previewAnnotation
+    const baseAnnotations = pointerDraft
+          && (
+            pointerDraft.mode === 'move'
+            || pointerDraft.mode === 'transform'
+            || pointerDraft.mode === 'shadow-transform'
+          )
+          && previewAnnotation
         ? [...annotations.filter((annotation) => annotation.id !== previewAnnotation.id), previewAnnotation]
         : previewAnnotation
           ? [...annotations, previewAnnotation]
           : annotations;
-    const renderedAnnotations = playbackPausedPin
-      ? baseAnnotations
-      : [
+    const renderedAnnotations = [
           ...baseAnnotations,
           ...(polyPreviewAnnotation ? [polyPreviewAnnotation] : []),
           ...(arrowPreviewAnnotation ? [arrowPreviewAnnotation] : []),
@@ -1417,15 +1827,19 @@ export default function ClipEditor({
       sourceWidth: videoSize.width,
       sourceHeight: videoSize.height,
     });
-    drawablesRef.current = playbackPausedPin ? [] : drawables;
-    if (!playbackPausedPin) {
-      for (const annotationId of selectedAnnotationIds) {
-        if (selectedTransformOverlay && annotationId === selectedAnnotation?.id) continue;
-        drawSelection(context, drawables.find((drawable) => drawable.id === annotationId));
-      }
-      if (selectedTransformOverlay) {
-        drawShapeTransformOverlay(context, selectedTransformOverlay, transformHandleRadius);
-      }
+    drawablesRef.current = drawables;
+    for (const annotationId of selectedAnnotationIds) {
+      if (
+        (selectedTransformOverlay || selectedShadowTransformOverlay)
+        && annotationId === selectedAnnotation?.id
+      ) continue;
+      drawSelection(context, drawables.find((drawable) => drawable.id === annotationId));
+    }
+    if (selectedTransformOverlay) {
+      drawShapeTransformOverlay(context, selectedTransformOverlay, transformHandleRadius);
+    }
+    if (selectedShadowTransformOverlay) {
+      drawShadowTransformOverlay(context, selectedShadowTransformOverlay, transformHandleRadius);
     }
     if (!playbackPausedPin && pointerDraft?.mode === 'select' && pointerDraft.hasMoved) {
       const bounds = selectionBounds(pointerDraft.start, pointerDraft.current);
@@ -1455,7 +1869,7 @@ export default function ClipEditor({
       });
       context.restore();
     }
-  }, [annotations, arrowPreviewAnnotation, color, currentClip.endFrame, currentFrame, currentHomography, defaultFontSize, pinPlaybackAnnotations, playbackPausedPin, pointerDraft, polyPreviewAnnotation, previewAnnotation, provisionalPlayers, selectedAnnotation, selectedAnnotationIds, selectedTransformOverlay, showHomography, strokeWidth, trackingSession, transformHandleRadius, videoSize]);
+  }, [annotations, arrowPreviewAnnotation, color, currentClip.endFrame, currentFrame, currentHomography, defaultFontSize, pinAnimationClickTimesMs, pinAnimationElapsedMs, playbackPausedPin, playbackPausedPinDocuments, pointerDraft, polyPreviewAnnotation, previewAnnotation, provisionalPlayers, selectedAnnotation, selectedAnnotationIds, selectedShadowTransformOverlay, selectedTransformOverlay, showHomography, strokeWidth, trackingSession, transformHandleRadius, videoSize]);
 
   const pointFromClient = useCallback((clientX: number, clientY: number): Point | null => {
     const canvas = canvasRef.current;
@@ -1728,6 +2142,7 @@ export default function ClipEditor({
       selectedAnnotationId,
     });
     if (!result.didUndo) return;
+    setTrimUndoSnapshot(null);
     historyPastRef.current = result.past;
     historyFutureRef.current = result.future;
     selectOnlyAnnotation(result.selectedAnnotationId);
@@ -1752,6 +2167,7 @@ export default function ClipEditor({
       selectedAnnotationId,
     });
     if (!result.didRedo) return;
+    setTrimUndoSnapshot(null);
     historyPastRef.current = result.past;
     historyFutureRef.current = result.future;
     selectOnlyAnnotation(result.selectedAnnotationId);
@@ -1844,7 +2260,114 @@ export default function ClipEditor({
     void requestDesiredPlayerDetections();
   }, [desiredDetectionFrame, requestDesiredPlayerDetections]);
 
+  const beginRetracking = useCallback(() => {
+    if (
+      trimSession
+      || retrackSession
+      || trackingSession
+      || selectedAnnotationIds.length !== 1
+      || selectedAnnotation?.type !== 'highlight'
+      || selectedAnnotation.coordMode !== 'image'
+      || currentFrame >= currentClip.endFrame - 1
+      || (!videoRef && !videoPath)
+    ) {
+      return;
+    }
+    const frame = videoFrame(currentFrame);
+    const geometry = interpolateAnnotation(
+      selectedAnnotation,
+      frame,
+      frameBoundary(currentClip.endFrame),
+    );
+    if (!geometry || geometry.type !== 'highlight') return;
+
+    finalizePendingStyleEdit();
+    const originalAnnotations = cloneClipAnnotations(annotationsRef.current);
+    const provisional = prepareTrackingTailReplacement(
+      originalAnnotations,
+      selectedAnnotation.id,
+      frame,
+      frameBoundary(currentClip.endFrame),
+    );
+    videoElementRef.current?.pause();
+    setIsPlaying(false);
+    setPlaybackPausedPinId(null);
+    setTool('select');
+    setPointerDraft(null);
+    setPolyPoints([]);
+    setPolyCursor(null);
+    setArrowStart(null);
+    setArrowCursor(null);
+    setSelectedKeyframe(null);
+    setMessage(null);
+    setProvisionalPlayers(null);
+    cancelTrackingPreview();
+    activeTrackingFrameRef.current = null;
+    replaceAnnotations(provisional);
+    setCurrentClip((previous) => ({ ...previous, annotations: provisional }));
+    setRetrackSession({
+      annotationId: selectedAnnotation.id,
+      originFrame: currentFrame,
+      originalAnnotations,
+    });
+    setTrackingSession({
+      phase: 'choosing',
+      annotationId: selectedAnnotation.id,
+      hasStarted: false,
+      selectedDetection: null,
+      selectedCandidateIndex: null,
+      selectedFrame: null,
+      originFrame: currentFrame,
+      radius: geometry.radius,
+      runId: activeTrackingRunRef.current,
+    });
+  }, [
+    cancelTrackingPreview,
+    currentClip.endFrame,
+    currentFrame,
+    finalizePendingStyleEdit,
+    replaceAnnotations,
+    retrackSession,
+    selectedAnnotation,
+    selectedAnnotationIds.length,
+    trackingSession,
+    trimSession,
+    videoPath,
+    videoRef,
+  ]);
+
+  const cancelRetracking = useCallback(() => {
+    if (!retrackSession) return;
+    cancelTrackingPreview();
+    activeTrackingFrameRef.current = null;
+    detectionGenerationRef.current += 1;
+    desiredDetectionFrameRef.current = null;
+    const restored = cloneClipAnnotations(retrackSession.originalAnnotations);
+    replaceAnnotations(restored);
+    setCurrentClip((previous) => ({ ...previous, annotations: restored }));
+    setTrackingSession(null);
+    setRetrackSession(null);
+    setProvisionalPlayers(null);
+    setDetectingPlayers(false);
+    setSelectedKeyframe(null);
+    seekFrame(retrackSession.originFrame);
+    setMessage(t('clip.retrackCancelled'));
+  }, [cancelTrackingPreview, replaceAnnotations, retrackSession, seekFrame, t]);
+
+  const finishRetracking = useCallback(() => {
+    if (!retrackSession || trackingSession?.phase === 'running') return;
+    const next = consumeTrackingPreview() ?? annotationsRef.current;
+    commitAnnotations(next, true, retrackSession.originalAnnotations);
+    setTrackingSession(null);
+    setRetrackSession(null);
+    setProvisionalPlayers(null);
+    setDetectingPlayers(false);
+    setSelectedKeyframe(null);
+    setMessage(t('clip.retrackSaved'));
+  }, [commitAnnotations, consumeTrackingPreview, retrackSession, t, trackingSession?.phase]);
+
   const beginTracking = useCallback(() => {
+    if (trimSession || retrackSession) return;
     if (!videoRef && !videoPath) {
       setMessage(t('clip.videoNotRegistered'));
       return;
@@ -1881,6 +2404,7 @@ export default function ClipEditor({
     setArrowCursor(null);
     setMessage(null);
     setProvisionalPlayers(null);
+    cancelTrackingPreview();
     activeTrackingFrameRef.current = null;
     setTrackingSession({
       phase: 'choosing',
@@ -1896,11 +2420,14 @@ export default function ClipEditor({
       runId: activeTrackingRunRef.current,
     });
   }, [
+    cancelTrackingPreview,
     currentClip.endFrame,
     currentClip.pins,
     currentFrame,
     selectedAnnotation,
     t,
+    retrackSession,
+    trimSession,
     videoPath,
     videoRef,
     videoSize.height,
@@ -1910,7 +2437,7 @@ export default function ClipEditor({
   const stopTracking = useCallback(() => {
     const session = trackingSession;
     if (session?.annotationId) {
-      const current = annotationsRef.current;
+      const current = consumeTrackingPreview() ?? annotationsRef.current;
       const target = current.find((annotation) => annotation.id === session.annotationId);
       if (target?.type === 'highlight') {
         const stopFrame = videoFrame(
@@ -1925,7 +2452,7 @@ export default function ClipEditor({
           frameBoundary(currentClip.endFrame),
         );
         if (stopped !== target) {
-          commitAnnotations(current.map((annotation) => (
+          applyTrackingAnnotations(current.map((annotation) => (
             annotation.id === stopped.id ? stopped : annotation
           )));
         }
@@ -1937,7 +2464,8 @@ export default function ClipEditor({
     setProvisionalPlayers(null);
     setDetectingPlayers(false);
   }, [
-    commitAnnotations,
+    applyTrackingAnnotations,
+    consumeTrackingPreview,
     currentClip.endFrame,
     currentClip.startFrame,
     seekFrame,
@@ -2024,7 +2552,7 @@ export default function ClipEditor({
     }
 
     seekFrame(candidateFrame);
-    commitAnnotations(next);
+    applyTrackingAnnotations(next);
     selectOnlyAnnotation(annotationId);
     const selected = next.find((annotation) => annotation.id === annotationId);
     const selectedIndex = selected?.keyframes.findIndex((keyframe) => keyframe.frame === frame) ?? -1;
@@ -2041,7 +2569,7 @@ export default function ClipEditor({
       originFrame: session.originFrame ?? candidateFrame,
       runId: session.runId,
     });
-  }, [annotations, color, commitAnnotations, currentClip.endFrame, defaultFontSize, provisionalPlayers, seekFrame, selectOnlyAnnotation, strokeWidth, trackingSession]);
+  }, [annotations, applyTrackingAnnotations, color, currentClip.endFrame, defaultFontSize, provisionalPlayers, seekFrame, selectOnlyAnnotation, strokeWidth, trackingSession]);
 
   useEffect(() => {
     const session = trackingSession;
@@ -2060,6 +2588,7 @@ export default function ClipEditor({
     const seedFrame = videoFrame(selectedFrame);
     const range = { startFrame: seedFrame, endFrame: frameBoundary(currentClip.endFrame) };
     const runAnnotations = annotationsRef.current;
+    cancelTrackingPreview();
 
     if (!canRunRangeSidecarAction(range)) {
       setTrackingSession(null);
@@ -2132,11 +2661,14 @@ export default function ClipEditor({
           stopOnLoss: true,
         }, (keyframe) => {
           liveKeyframes.push(keyframe);
-          const converted = convertKeyframes(liveKeyframes);
-          activeTrackingFrameRef.current = converted.at(-1)?.frame ?? activeTrackingFrameRef.current;
-          replaceAnnotations(annotationsWithTrackedFrames(converted));
+          scheduleTrackingPreview(() => {
+            const converted = convertKeyframes(liveKeyframes);
+            activeTrackingFrameRef.current = converted.at(-1)?.frame ?? activeTrackingFrameRef.current;
+            return annotationsWithTrackedFrames(converted);
+          });
         }, sidecar.baseUrl, controller.signal);
 
+        cancelTrackingPreview();
         let tracked = convertKeyframes(result.keyframes);
 
         const lastTracked = tracked.at(-1);
@@ -2158,7 +2690,7 @@ export default function ClipEditor({
         }
 
         const next = annotationsWithTrackedFrames(tracked);
-        commitAnnotations(next, true, runAnnotations);
+        applyTrackingAnnotations(next, runAnnotations);
         setMessage(t('clip.trackedFrames', { count: formatNumber(result.keyframes.length) }));
 
         if (lossFrame != null && lossFrame < currentClip.endFrame) {
@@ -2177,6 +2709,7 @@ export default function ClipEditor({
           setTrackingSession(null);
         }
       } catch (error) {
+        cancelTrackingPreview();
         if (error instanceof DOMException && error.name === 'AbortError') return;
         setMessage((error as TrackingError)?.message || (error instanceof Error ? error.message : String(error)));
         setTrackingSession({
@@ -2190,8 +2723,11 @@ export default function ClipEditor({
       }
     })();
 
-    return () => controller.abort();
-  }, [commitAnnotations, currentClip.endFrame, formatNumber, replaceAnnotations, seekFrame, sidecar.baseUrl, t, trackingSession, video.fps, video.frameCount, videoPath, videoRef]);
+    return () => {
+      controller.abort();
+      cancelTrackingPreview();
+    };
+  }, [applyTrackingAnnotations, cancelTrackingPreview, currentClip.endFrame, formatNumber, scheduleTrackingPreview, seekFrame, sidecar.baseUrl, t, trackingSession, video.fps, video.frameCount, videoPath, videoRef]);
 
   const computeHomography = useCallback(async () => {
     if (!videoRef && !videoPath) {
@@ -2244,11 +2780,13 @@ export default function ClipEditor({
       if (editingPinId) return;
       if (isTextInput(event.target)) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+        if (editorMutationLocked) return;
         event.preventDefault();
         if (event.shiftKey) redo(); else undo();
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'y') {
+        if (editorMutationLocked) return;
         event.preventDefault();
         redo();
         return;
@@ -2263,18 +2801,26 @@ export default function ClipEditor({
         void togglePlayback();
         return;
       }
-      if (event.key.toLowerCase() === 'k' && selectedAnnotationId) {
+      if (!editorMutationLocked && event.key.toLowerCase() === 'k' && selectedAnnotationId) {
         event.preventDefault();
         upsertKeyframe(selectedAnnotationId);
         return;
       }
-      if (event.key === 'Enter' && tool === 'poly') {
+      if (!editorMutationLocked && event.key === 'Enter' && tool === 'poly') {
         event.preventDefault();
         finishPoly(!event.shiftKey && polyPoints.length >= 3);
         return;
       }
       if (event.key === 'Escape') {
         event.preventDefault();
+        if (retrackSession) {
+          cancelRetracking();
+          return;
+        }
+        if (trimSession) {
+          cancelTrim();
+          return;
+        }
         setPointerDraft(null);
         setPolyPoints([]);
         setPolyCursor(null);
@@ -2283,6 +2829,7 @@ export default function ClipEditor({
         return;
       }
       if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (editorMutationLocked) return;
         event.preventDefault();
         if (event.shiftKey) deleteSelectedObject();
         else deleteSelectedKeyframe();
@@ -2290,7 +2837,7 @@ export default function ClipEditor({
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [currentFrame, deleteSelectedKeyframe, deleteSelectedObject, editingPinId, finishPoly, polyPoints.length, redo, seekFrame, selectedAnnotationId, togglePlayback, tool, undo, upsertKeyframe]);
+  }, [cancelRetracking, cancelTrim, currentFrame, deleteSelectedKeyframe, deleteSelectedObject, editingPinId, editorMutationLocked, finishPoly, polyPoints.length, redo, retrackSession, seekFrame, selectedAnnotationId, togglePlayback, tool, trimSession, undo, upsertKeyframe]);
 
   const selectedCurrentKeyframe = selectedAnnotation
     ? getCurrentKeyframe(selectedAnnotation, videoFrame(currentFrame))
@@ -2318,10 +2865,29 @@ export default function ClipEditor({
   const selectedTrackingState = selectedAnnotation
     ? getFrameTrackingState(selectedAnnotation, videoFrame(currentFrame), frameBoundary(currentClip.endFrame))
     : null;
+  const canRetrack = !!(
+    (videoRef || videoPath)
+    && !trimSession
+    && !retrackSession
+    && !trackingSession
+    && selectedAnnotationIds.length === 1
+    && selectedAnnotation?.type === 'highlight'
+    && selectedAnnotation.coordMode === 'image'
+    && selectedInterpolatedGeometry?.type === 'highlight'
+    && currentFrame < currentClip.endFrame - 1
+    && selectedAnnotation.keyframes.some((keyframe) => keyframe.frame > currentFrame)
+  );
   const timelineClip = useMemo(
     () => ({ ...currentClip, annotations }),
     [annotations, currentClip],
   );
+  const trimImpact = useMemo<ClipTrimImpact | null>(() => {
+    if (!trimSession) return null;
+    return inspectClipTrim(timelineClip, {
+      startFrame: videoFrame(trimSession.startFrame),
+      endFrame: frameBoundary(trimSession.endFrame),
+    });
+  }, [timelineClip, trimSession]);
   const selectTimelineAnnotation = useCallback((
     annotationId: string,
     additive = false,
@@ -2343,6 +2909,8 @@ export default function ClipEditor({
       className="flex min-h-0 flex-1 flex-col overflow-hidden bg-black"
       data-testid="clip-editor"
       data-playback-paused-pin-id={playbackPausedPinId ?? undefined}
+      data-pin-animation-clicks={pinAnimationClickTimesMs.length}
+      data-pin-animation-pending-click={pinAnimationHasNextClick ? 'true' : 'false'}
     >
       <div className="workspace-bar overflow-x-auto">
         {TOOLS.map((entry) => (
@@ -2350,6 +2918,7 @@ export default function ClipEditor({
             key={entry.id}
             className="shrink-0 border-r border-border px-3 text-xs"
             aria-pressed={tool === entry.id}
+            disabled={editorMutationLocked}
             onClick={() => {
               setTool(entry.id);
               setPointerDraft(null);
@@ -2364,7 +2933,7 @@ export default function ClipEditor({
         ))}
         <label className="flex shrink-0 items-center gap-1.5 border-r border-border px-3 text-xs text-muted">
           {t('annotation.stroke')}
-          <input aria-label={t('annotation.strokeColor')} type="color" value={color} onChange={(event) => setColor(event.target.value)} />
+          <input disabled={editorMutationLocked} aria-label={t('annotation.strokeColor')} type="color" value={color} onChange={(event) => setColor(event.target.value)} />
         </label>
         <label className="flex shrink-0 items-center gap-1.5 border-r border-border px-3 text-xs text-muted">
           {t('annotation.width')}
@@ -2374,6 +2943,7 @@ export default function ClipEditor({
             type="number"
             min={1}
             max={20}
+            disabled={editorMutationLocked}
             value={strokeWidth}
             onChange={(event) => setStrokeWidth(Math.max(1, Math.min(20, Number(event.target.value) || 1)))}
           />
@@ -2381,6 +2951,7 @@ export default function ClipEditor({
         {activeToolSupportsPitch && currentHomography && (
           <button
             className="border-0 border-r border-solid border-border px-3 text-xs"
+            disabled={editorMutationLocked}
             onClick={() => setDrawCoordMode((mode) => mode === 'pitch' ? 'image' : 'pitch')}
           >
             {t('clip.drawMode', { mode: t(drawCoordMode === 'pitch' ? 'clip.coordPitch' : 'clip.coordImage') })}
@@ -2428,10 +2999,11 @@ export default function ClipEditor({
                 onPointerDown={(event) => {
                   if (playbackPausedPin) {
                     event.preventDefault();
+                    if (advancePinAnimation()) return;
                     void resumePlaybackFromPin();
                     return;
                   }
-                  if (trackingSession || event.button !== 0) return;
+                  if (trackingSession || editorMutationLocked || event.button !== 0) return;
                   const point = pointFromClient(event.clientX, event.clientY);
                   if (!point) return;
                   const selectionMode = selectionModeFromModifiers(
@@ -2472,6 +3044,40 @@ export default function ClipEditor({
                     return;
                   }
                   if (tool === 'select') {
+                    const shadowOverlay = shadowTransformOverlayRef.current;
+                    const shadowHandle = shadowOverlay
+                      ? hitShadowGeometryHandle(
+                          shadowOverlay,
+                          point,
+                          transformHandleRadius * 1.8,
+                        )
+                      : null;
+                    if (
+                      shadowHandle
+                      && shadowOverlay
+                      && selectedAnnotation?.type === 'shadow'
+                    ) {
+                      const value = interpolateAnnotation(
+                        selectedAnnotation,
+                        videoFrame(currentFrame),
+                        frameBoundary(currentClip.endFrame),
+                      );
+                      if (!value || value.type !== 'shadow') return;
+                      event.preventDefault();
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      setPointerDraft({
+                        mode: 'shadow-transform',
+                        start: point,
+                        current: point,
+                        annotationId: selectedAnnotation.id,
+                        baseGeometry: geometryFromInterpolated(value),
+                        shadowHandle,
+                        shadowCenter: shadowOverlay.center,
+                        startClient: { x: event.clientX, y: event.clientY },
+                        hasMoved: false,
+                      });
+                      return;
+                    }
                     const overlay = transformOverlayRef.current;
                     const transformHandle = overlay
                       ? hitShapeTransformHandle(overlay, point, transformHandleRadius * 1.8)
@@ -2558,20 +3164,30 @@ export default function ClipEditor({
                 onPointerMove={(event) => {
                   const point = pointFromClient(event.clientX, event.clientY);
                   if (!point) return;
-                  if (tool === 'arrow' && arrowStart && !trackingSession && !isPlaying) {
+                  if (tool === 'arrow' && arrowStart && !trackingSession && !editorMutationLocked && !isPlaying) {
                     setArrowCursor(findHighlightHit(point) ?? point);
                     return;
                   }
-                  if (tool === 'poly' && !trackingSession && !isPlaying) {
+                  if (tool === 'poly' && !trackingSession && !editorMutationLocked && !isPlaying) {
                     setPolyCursor({ raw: point, snapped: findHighlightHit(point) ?? point });
                     return;
                   }
                   if (!pointerDraft) {
+                    const shadowOverlay = shadowTransformOverlayRef.current;
+                    const shadowHandle = shadowOverlay
+                      ? hitShadowGeometryHandle(
+                          shadowOverlay,
+                          point,
+                          transformHandleRadius * 1.8,
+                        )
+                      : null;
                     const overlay = transformOverlayRef.current;
                     const handle = overlay
                       ? hitShapeTransformHandle(overlay, point, transformHandleRadius * 1.8)
                       : null;
-                    event.currentTarget.style.cursor = handle?.cursor ?? (tool === 'select' ? 'default' : 'crosshair');
+                    event.currentTarget.style.cursor = shadowHandle
+                      ? (shadowHandle === 'direction' ? 'move' : 'ew-resize')
+                      : handle?.cursor ?? (tool === 'select' ? 'default' : 'crosshair');
                     return;
                   }
                   if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
@@ -2639,6 +3255,7 @@ export default function ClipEditor({
                   } else if (
                     pointerDraft.mode === 'move'
                     || pointerDraft.mode === 'transform'
+                    || pointerDraft.mode === 'shadow-transform'
                   ) {
                     const hasMoved = pointerDraft.hasMoved || (
                       pointerDraft.startClient
@@ -2654,7 +3271,26 @@ export default function ClipEditor({
                     const annotation = annotations.find((candidate) => candidate.id === pointerDraft.annotationId);
                     if (annotation && pointerDraft.baseGeometry) {
                       let geometry: Record<string, unknown> | null = null;
-                      if (pointerDraft.mode === 'transform' && pointerDraft.transformHandle) {
+                      if (
+                        pointerDraft.mode === 'shadow-transform'
+                        && pointerDraft.shadowHandle
+                        && pointerDraft.shadowCenter
+                        && annotation.type === 'shadow'
+                      ) {
+                        const transformed = transformShadowGeometry({
+                          centerX: pointerDraft.shadowCenter.x,
+                          centerY: pointerDraft.shadowCenter.y,
+                          radius: Number(pointerDraft.baseGeometry.r ?? 1),
+                          rotationDeg: Number(pointerDraft.baseGeometry.rotation ?? 0),
+                          spreadDeg: Number(pointerDraft.baseGeometry.spreadDeg ?? 50),
+                        }, pointerDraft.shadowHandle, end);
+                        geometry = {
+                          ...pointerDraft.baseGeometry,
+                          r: transformed.radius,
+                          rotation: transformed.rotationDeg,
+                          spreadDeg: transformed.spreadDeg,
+                        };
+                      } else if (pointerDraft.mode === 'transform' && pointerDraft.transformHandle) {
                         if (annotation.coordMode !== 'pitch' || currentHomographyInverse) {
                           const shape = orientedClipShapeFromGeometry(
                             annotation.type,
@@ -2776,6 +3412,7 @@ export default function ClipEditor({
             selectedPin={selectedPin}
             pinLabelDraft={pinLabelDraft}
             canCreate={!!projectDir}
+            disabled={editorMutationLocked}
             hasDeletedPin={!!deletedPin}
             onOpenCurrent={createOrOpenPinAtCurrentFrame}
             onPinLabelChange={setPinLabelDraft}
@@ -2796,6 +3433,9 @@ export default function ClipEditor({
             trackingHasStarted={trackingSession?.hasStarted ?? false}
             detectingPlayers={detectingPlayers}
             canTrack={!!(videoRef || videoPath)}
+            canRetrack={canRetrack}
+            retrackActive={!!retrackSession}
+            editingLocked={editorMutationLocked}
             onAddKeyframe={() => {
               if (selectedAnnotation) upsertKeyframe(selectedAnnotation.id);
             }}
@@ -2803,6 +3443,9 @@ export default function ClipEditor({
             onBeginTracking={beginTracking}
             onStartTracking={startTracking}
             onStopTracking={stopTracking}
+            onBeginRetracking={beginRetracking}
+            onFinishRetracking={finishRetracking}
+            onCancelRetracking={cancelRetracking}
             onRenameHighlight={renameSelectedHighlight}
             onDisplayHighlightName={setSelectedHighlightDisplayName}
             onHighlightNameFontSize={setSelectedHighlightNameFontSize}
@@ -2877,6 +3520,24 @@ export default function ClipEditor({
             onSelectPin={selectTimelinePin}
             onSelectKeyframe={setSelectedKeyframe}
             onMoveKeyframe={moveTimelineKeyframe}
+            trim={trimSession && trimImpact ? {
+              ...trimSession,
+              impact: trimImpact,
+              applying: trimApplying,
+              onStartFrameChange: updateTrimStartFrame,
+              onEndFrameChange: updateTrimEndFrame,
+              onApply: applyTrim,
+              onCancel: cancelTrim,
+            } : null}
+            canBeginTrim={
+              !editorMutationLocked
+              && !trimApplying
+              && currentClip.endFrame - currentClip.startFrame > 2
+            }
+            canUndoTrim={!!trimUndoSnapshot && !editorMutationLocked && !trimApplying}
+            interactionDisabled={editorMutationLocked}
+            onBeginTrim={beginTrim}
+            onUndoTrim={undoTrim}
           />
         )}
       />

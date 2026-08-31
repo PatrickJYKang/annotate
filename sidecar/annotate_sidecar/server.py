@@ -1,8 +1,7 @@
 """
 FastAPI application for the annotate sidecar.
 
-Provides ML-powered features: object tracking, segmentation,
-homography estimation, and export encoding.
+Provides ML-powered object tracking, homography estimation, and export encoding.
 """
 
 import logging
@@ -11,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import derived_media, health, track, segment, homography, export, video
+from .routes import derived_media, health, track, homography, export, video
 from .video_registry import cleanup_registered_videos
 
 logger = logging.getLogger("annotate_sidecar")
@@ -54,7 +53,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="annotate-sidecar",
         description="ML sidecar for the annotate tool",
-        version="0.2.0",
+        version="0.2.2",
         lifespan=lifespan,
     )
 
@@ -84,7 +83,6 @@ def create_app() -> FastAPI:
     # Mount route modules
     app.include_router(health.router, tags=["health"])
     app.include_router(track.router, prefix="/track", tags=["tracking"])
-    app.include_router(segment.router, prefix="/segment", tags=["segmentation"])
     app.include_router(homography.router, prefix="/homography", tags=["homography"])
     app.include_router(export.router, prefix="/export", tags=["export"])
     app.include_router(derived_media.router, prefix="/derived-media", tags=["derived-media"])

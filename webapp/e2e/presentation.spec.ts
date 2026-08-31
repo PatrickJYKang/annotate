@@ -66,6 +66,23 @@ test('v2 presentations author clips and pins and play source video frame ranges'
   await installOpfsDirectoryPickerFixture(page, fixture);
   const exactRequests = await rejectExactPlaybackPreparation(page);
   await page.setViewportSize({ width: 1500, height: 1000 });
+  await page.goto('/');
+  const animatedPinDocument = await readProjectJson(page, [
+    'analysis', 'clips', 'clip-sequence', 'annotations', 'ann-shape.json',
+  ]);
+  await writeProjectJson(page, [
+    'analysis', 'clips', 'clip-sequence', 'annotations', 'ann-shape.json',
+  ], {
+    ...animatedPinDocument,
+    animations: [{
+      id: 'shape-entrance',
+      shapeIds: ['shape-poly'],
+      effect: 'fade',
+      trigger: 'on_click',
+      delayMs: 0,
+      durationMs: 200,
+    }],
+  });
   await openPresentation(page, 'Breaking the press');
 
   const authoringCanvasPanel = page.locator('#presentation-canvas-panel');
@@ -139,6 +156,34 @@ test('v2 presentations author clips and pins and play source video frame ranges'
   await timeline.getByRole('button', { name: 'Play' }).click();
   await expect(page.getByTestId('presentation-pin-frame')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId('presentation-canvas')).toHaveAttribute('data-source-frame', '15');
+  await expect(page.getByTestId('presentation-canvas')).toHaveAttribute('data-static-animation-pending-click', 'true');
+  await expect.poll(async () => page.getByTestId('presentation-pin-annotation-overlay').evaluate((canvas) => {
+    const pixels = (canvas as HTMLCanvasElement).getContext('2d')?.getImageData(
+      0,
+      0,
+      (canvas as HTMLCanvasElement).width,
+      (canvas as HTMLCanvasElement).height,
+    ).data;
+    if (!pixels) return -1;
+    let visiblePixels = 0;
+    for (let index = 3; index < pixels.length; index += 4) if (pixels[index] > 0) visiblePixels += 1;
+    return visiblePixels;
+  })).toBe(0);
+  await timeline.getByRole('button', { name: 'Play' }).click();
+  await expect(page.getByTestId('presentation-canvas')).toHaveAttribute('data-static-animation-clicks', '1');
+  await expect(page.getByTestId('presentation-pin-frame')).toBeVisible();
+  await expect.poll(async () => page.getByTestId('presentation-pin-annotation-overlay').evaluate((canvas) => {
+    const pixels = (canvas as HTMLCanvasElement).getContext('2d')?.getImageData(
+      0,
+      0,
+      (canvas as HTMLCanvasElement).width,
+      (canvas as HTMLCanvasElement).height,
+    ).data;
+    if (!pixels) return 0;
+    let visiblePixels = 0;
+    for (let index = 3; index < pixels.length; index += 4) if (pixels[index] > 0) visiblePixels += 1;
+    return visiblePixels;
+  })).toBeGreaterThan(100);
   await timeline.getByRole('button', { name: 'Play' }).click();
   await expect(page.getByTestId('presentation-pin-frame')).toHaveCount(0);
   await expect.poll(async () => Number(await page.getByTestId('presentation-canvas').getAttribute('data-source-frame'))).toBeGreaterThan(15);
@@ -153,6 +198,9 @@ test('v2 presentations author clips and pins and play source video frame ranges'
   await expect(page.getByTestId('presentation-present').getByTestId('presentation-canvas')).toHaveAttribute('data-playback-asset', 'original');
 
   await page.getByTestId('presentation-present').getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByTestId('presentation-present').getByTestId('presentation-pin-frame')).toBeVisible();
+  await page.getByTestId('presentation-present').getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByTestId('presentation-present').getByTestId('presentation-canvas')).toHaveAttribute('data-static-animation-clicks', '1');
   await expect(page.getByTestId('presentation-present').getByTestId('presentation-pin-frame')).toBeVisible();
   await page.getByTestId('presentation-present').getByRole('button', { name: 'Next' }).click();
   await expect(page.getByTestId('presentation-present').getByTestId('presentation-canvas')).toHaveAttribute('data-playback-asset', 'original');

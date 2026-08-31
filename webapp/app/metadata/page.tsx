@@ -20,6 +20,7 @@ export default function MetadataPage() {
   const [apiImporterOpen, setApiImporterOpen] = useState(false);
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const infoRef = useRef(info);
+  const initializedProjectRef = useRef<FileSystemDirectoryHandle | null>(null);
 
   const saveMatchInfo = useCallback(async (next: MatchInfo) => {
     if (!projectDir) return;
@@ -30,13 +31,15 @@ export default function MetadataPage() {
     setManifest(updated);
   }, [projectDir, setManifest]);
 
-  // Sync local state from manifest on mount / manifest change
+  // Initialize once per project. Completed saves also update the shared manifest,
+  // but must not overwrite newer text that is still being edited locally.
   useEffect(() => {
-    if (manifest?.matchInfo) {
-      setInfo(manifest.matchInfo);
-      infoRef.current = manifest.matchInfo;
-    }
-  }, [manifest?.matchInfo]);
+    if (!projectDir || !manifest || initializedProjectRef.current === projectDir) return;
+    const nextInfo = manifest.matchInfo ?? defaultMatchInfo();
+    initializedProjectRef.current = projectDir;
+    setInfo(nextInfo);
+    infoRef.current = nextInfo;
+  }, [manifest, projectDir]);
 
   // Debounced save
   const persist = useCallback(
