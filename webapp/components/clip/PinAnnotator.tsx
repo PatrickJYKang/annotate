@@ -109,6 +109,7 @@ export default function PinAnnotator({
   const [clearPerspectiveTick, setClearPerspectiveTick] = useState(0);
   const [hasHomography, setHasHomography] = useState(false);
   const [showHomography, setShowHomography] = useState(false);
+  const [animationPanelOpen, setAnimationPanelOpen] = useState(false);
   const [previewReady, setPreviewReady] = useState(false);
   const [previewFrame, setPreviewFrame] = useState<number>(pin.frame);
   const [previewTick, setPreviewTick] = useState(0);
@@ -454,6 +455,16 @@ export default function PinAnnotator({
         <button className="border-0 border-l border-solid border-border px-3" disabled={activePin.annotations.length <= 1} onClick={() => void deleteSet()}>{t('pin.deleteSet')}</button>
         {deletedAnnotation && <button className="border-0 border-l border-solid border-border px-3" onClick={() => void undoDeleteSet()}>{t('pin.undoSetDelete')}</button>}
         <span className="flex-1" />
+        <button
+          type="button"
+          className={`border-0 border-l border-solid border-border px-3 ${animationPanelOpen ? 'bg-white/10' : ''}`}
+          data-testid="annotation-animation-panel-toggle"
+          aria-pressed={animationPanelOpen}
+          disabled={annotationsLocked}
+          onClick={() => setAnimationPanelOpen((open) => !open)}
+        >
+          {t('annotation.animations')}
+        </button>
         <button className="border-0 border-l border-solid border-border px-3" disabled={!editorReady} onClick={requestImport}>{t('pin.importClip')}</button>
         <div className="flex items-center border-l border-border px-3 text-muted">{t('pin.atFrame', { frame: formatNumber(pin.frame) })}</div>
       </header>
@@ -503,67 +514,74 @@ export default function PinAnnotator({
         )}
         {message && <span className="ml-auto text-secondary" role="status">{message}</span>}
       </div>
-      <div
-        ref={containerRef}
-        className="relative min-h-0 flex-1 overflow-hidden bg-black touch-none"
-        onWheel={(event) => {
-          event.preventDefault();
-          const rect = event.currentTarget.getBoundingClientRect();
-          const next = Math.max(0.05, Math.min(8, stageScale * Math.exp(-event.deltaY * 0.001)));
-          const localX = event.clientX - rect.left;
-          const localY = event.clientY - rect.top;
-          const imageX = (localX - stageOffset.x) / stageScale;
-          const imageY = (localY - stageOffset.y) / stageScale;
-          setStageScale(next);
-          setStageOffset({ x: localX - imageX * next, y: localY - imageY * next });
-        }}
-        onPointerDown={(event) => {
-          if (event.button !== 1) return;
-          event.currentTarget.setPointerCapture(event.pointerId);
-          panRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, offset: stageOffset };
-        }}
-        onPointerMove={(event) => {
-          const pan = panRef.current;
-          if (!pan || pan.pointerId !== event.pointerId) return;
-          setStageOffset({ x: pan.offset.x + event.clientX - pan.x, y: pan.offset.y + event.clientY - pan.y });
-        }}
-        onPointerUp={(event) => {
-          if (panRef.current?.pointerId === event.pointerId) panRef.current = null;
-        }}
-      >
-        <Editor
-          key={`${activeClip.id}:${activePin.id}:${selectedReference.id}`}
-          anchor={{ kind: 'pin', clipId: activeClip.id, pinId: activePin.id, frame: activePin.frame }}
-          annotationId={selectedReference.id}
-          annotationFilePath={pinAnnotationPath(activeClip.id, selectedReference.id).join('/')}
-          annotationLabel={selectedReference.label}
-          imageInfo={{ file: `${video.file}#frame=${pin.frame}`, width: video.width, height: video.height }}
-          imgUrl={null}
-          stageScale={stageScale}
-          stageOffset={stageOffset}
-          tool={tool}
-          defaultStrokePattern={strokePattern}
-          defaultColor={strokeColor}
-          defaultStrokeWidth={strokeWidth}
-          defaultFill={fillColor}
-          defaultFillOpacity={fillOpacity}
-          defaultFontSize={fontSize}
-          defaultTextHighlight={textHighlight}
-          onRequestToolChange={setTool}
-          saveTick={saveTick}
-          onSaveStatus={setSaveStatus}
-          onReady={handleEditorReady}
-          autoPerspectiveQuad={autoPerspectiveQuad}
-          autoPerspectiveTick={autoPerspectiveTick}
-          clearPerspectiveTick={clearPerspectiveTick}
-          showHomography={showHomography}
-          onHomographyAvailabilityChange={setHasHomography}
-          backgroundVideoElement={sourceVideoRef.current}
-          backgroundFrameTick={previewTick}
-          annotationsLocked={annotationsLocked}
-          projectDir={projectDir}
-          persistDocument={persistDocument}
-        />
+      <div className="flex min-h-0 flex-1 overflow-hidden bg-black">
+        <div
+          ref={containerRef}
+          className="relative min-w-0 flex-1 bg-black touch-none"
+          onWheel={(event) => {
+            event.preventDefault();
+            const rect = event.currentTarget.getBoundingClientRect();
+            const next = Math.max(0.05, Math.min(8, stageScale * Math.exp(-event.deltaY * 0.001)));
+            const localX = event.clientX - rect.left;
+            const localY = event.clientY - rect.top;
+            const imageX = (localX - stageOffset.x) / stageScale;
+            const imageY = (localY - stageOffset.y) / stageScale;
+            setStageScale(next);
+            setStageOffset({ x: localX - imageX * next, y: localY - imageY * next });
+          }}
+          onPointerDown={(event) => {
+            if (event.button !== 1) return;
+            event.currentTarget.setPointerCapture(event.pointerId);
+            panRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, offset: stageOffset };
+          }}
+          onPointerMove={(event) => {
+            const pan = panRef.current;
+            if (!pan || pan.pointerId !== event.pointerId) return;
+            setStageOffset({ x: pan.offset.x + event.clientX - pan.x, y: pan.offset.y + event.clientY - pan.y });
+          }}
+          onPointerUp={(event) => {
+            if (panRef.current?.pointerId === event.pointerId) panRef.current = null;
+          }}
+        >
+          <Editor
+            key={`${activeClip.id}:${activePin.id}:${selectedReference.id}`}
+            anchor={{ kind: 'pin', clipId: activeClip.id, pinId: activePin.id, frame: activePin.frame }}
+            annotationId={selectedReference.id}
+            annotationFilePath={pinAnnotationPath(activeClip.id, selectedReference.id).join('/')}
+            annotationLabel={selectedReference.label}
+            imageInfo={{ file: `${video.file}#frame=${pin.frame}`, width: video.width, height: video.height }}
+            imgUrl={null}
+            stageScale={stageScale}
+            stageOffset={stageOffset}
+            tool={tool}
+            defaultStrokePattern={strokePattern}
+            defaultColor={strokeColor}
+            defaultStrokeWidth={strokeWidth}
+            defaultFill={fillColor}
+            defaultFillOpacity={fillOpacity}
+            defaultFontSize={fontSize}
+            defaultTextHighlight={textHighlight}
+            onRequestToolChange={setTool}
+            saveTick={saveTick}
+            onSaveStatus={setSaveStatus}
+            onReady={handleEditorReady}
+            autoPerspectiveQuad={autoPerspectiveQuad}
+            autoPerspectiveTick={autoPerspectiveTick}
+            clearPerspectiveTick={clearPerspectiveTick}
+            showHomography={showHomography}
+            onHomographyAvailabilityChange={setHasHomography}
+            backgroundVideoElement={sourceVideoRef.current}
+            backgroundFrameTick={previewTick}
+            annotationsLocked={annotationsLocked}
+            animationPanelOpen={animationPanelOpen && !annotationsLocked}
+            onAnimationPanelOpenChange={setAnimationPanelOpen}
+            projectDir={projectDir}
+            persistDocument={persistDocument}
+          />
+        </div>
+        {animationPanelOpen && !annotationsLocked && (
+          <div className="w-80 shrink-0" data-testid="annotation-animation-panel-space" />
+        )}
       </div>
     </div>
   );

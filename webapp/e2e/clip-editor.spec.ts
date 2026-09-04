@@ -378,12 +378,20 @@ test('previews, cancels, applies, and undoes an inward clip trim', async ({ page
   const trimmed = await readClip(page);
   expect(trimmed.pins.every((pin: { frame: number }) => pin.frame >= 10 && pin.frame < 35)).toBe(true);
   expect(trimmed.annotations.every((annotation: {
-    keyframes: Array<{ frame: number }>;
+    keyframes: Array<{ frame: number; provenance?: string; visible?: boolean }>;
     visibilityKeyframes?: Array<{ frame: number }>;
   }) => (
     annotation.keyframes.every((keyframe) => keyframe.frame >= 10 && keyframe.frame < 35)
     && (annotation.visibilityKeyframes ?? []).every((keyframe) => keyframe.frame >= 10 && keyframe.frame < 35)
   ))).toBe(true);
+  const invisibleBoundaryAnnotation = trimmed.annotations.find((annotation: {
+    id: string;
+    keyframes: Array<{ frame: number; provenance?: string; visible?: boolean }>;
+  }) => annotation.keyframes.some((keyframe) => (
+    keyframe.frame === 34 && keyframe.provenance === 'lost' && keyframe.visible === false
+  )));
+  if (!invisibleBoundaryAnnotation) throw new Error('Trim did not retain an invisible end-boundary sentinel.');
+  await expect(page.getByTestId(`clip-keyframe-${invisibleBoundaryAnnotation.id}-34`)).toHaveCount(0);
 
   await page.getByTestId('clip-trim-undo').click();
   await expect.poll(async () => {

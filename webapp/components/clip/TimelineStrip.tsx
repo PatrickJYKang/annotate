@@ -180,6 +180,7 @@ const TimelineAnnotationRows = memo(function TimelineAnnotationRows({
       style={{ top: 28 + (rowIndex + 1) * ROW_HEIGHT, height: ROW_HEIGHT }}
     >
       {annotation.keyframes.map((keyframe, index) => {
+        if (keyframe.provenance === 'lost' && keyframe.visible === false) return null;
         const ref: TimelineKeyframeRef = {
           annotationId: annotation.id,
           kind: 'position',
@@ -197,6 +198,7 @@ const TimelineAnnotationRows = memo(function TimelineAnnotationRows({
               type: t(`tool.${annotation.type}`),
               frame: formatNumber(keyframe.frame),
             })}
+            data-testid={`clip-keyframe-${annotation.id}-${keyframe.frame}`}
             aria-pressed={selected}
             disabled={disabled}
             className="absolute top-1/2 h-3.5 w-3.5 rotate-45 border border-white bg-sky-400 p-0"

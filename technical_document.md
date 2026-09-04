@@ -307,6 +307,7 @@ The dashboard shows errors and warnings with stable issue codes and paths. Integ
 | `/presentations` | Full presentation library view; the dashboard embeds the same library |
 | `/presentation/[presentationId]` | Presentation authoring and full-screen present mode |
 | `/metadata` | Match and team metadata editor/importers |
+| `/userguide` | In-app first-use workflow, indexed product reference, glossary, shortcuts, and troubleshooting |
 | `/quick-annotate` | Standalone single-image compatibility utility, outside project.v2 |
 | `/api/football-data` | Server-side football-data.org proxy |
 

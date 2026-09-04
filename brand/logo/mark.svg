@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 208 180" role="img" aria-labelledby="title desc">
+  <title id="title">Annotate</title>
+  <desc id="desc">A flat-topped uppercase A whose crossbar is a detached right-facing arrow. For dark backgrounds.</desc>
+  <g fill="#ffffff" transform="translate(10 10)">
+    <path d="M80 0H108L134 52H106L94 28L28 160H0Z"/>
+    <path d="M133 106H161L188 160H160Z"/>
+    <path d="M71 96H156L139 62H111L118 76H81Z"/>
+  </g>
+</svg>

@@ -633,6 +633,7 @@ export default function ClipEditor({
   const [pinPlaybackRevision, setPinPlaybackRevision] = useState(0);
   const [pinAnimationElapsedMs, setPinAnimationElapsedMs] = useState(0);
   const [pinAnimationClickTimesMs, setPinAnimationClickTimesMs] = useState<number[]>([]);
+  const [pinAnimationStarted, setPinAnimationStarted] = useState(false);
   const [tool, setTool] = useState<ClipTool>('select');
   const [color, setColor] = useState('#ffffff');
   const [strokeWidth, setStrokeWidth] = useState(() => defaultAnnotationStrokeWidth(video.width, video.height));
@@ -1324,19 +1325,22 @@ export default function ClipEditor({
     return () => element.removeEventListener('loadedmetadata', synchronize);
   }, [synchronizeMediaToClipStart, videoUrl]);
 
-  useEffect(() => {
-    if (!playbackPausedPinId) {
-      pinAnimationStartedAtRef.current = null;
-      pinAnimationClickTimesRef.current = [];
-      setPinAnimationElapsedMs(0);
-      setPinAnimationClickTimesMs([]);
-      return;
-    }
-    const startedAt = performance.now();
-    pinAnimationStartedAtRef.current = startedAt;
+  const resetPinAnimationPlayback = useCallback(() => {
+    pinAnimationStartedAtRef.current = null;
     pinAnimationClickTimesRef.current = [];
+    setPinAnimationStarted(false);
     setPinAnimationElapsedMs(0);
     setPinAnimationClickTimesMs([]);
+  }, []);
+
+  useEffect(() => {
+    resetPinAnimationPlayback();
+  }, [playbackPausedPinId, resetPinAnimationPlayback]);
+
+  useEffect(() => {
+    if (!playbackPausedPinId || !pinAnimationStarted) return;
+    const startedAt = pinAnimationStartedAtRef.current ?? performance.now();
+    pinAnimationStartedAtRef.current = startedAt;
     let frameRequest = 0;
     const update = () => {
       setPinAnimationElapsedMs(Math.max(0, performance.now() - startedAt));
@@ -1344,7 +1348,24 @@ export default function ClipEditor({
     };
     frameRequest = requestAnimationFrame(update);
     return () => cancelAnimationFrame(frameRequest);
-  }, [playbackPausedPinId]);
+  }, [pinAnimationStarted, playbackPausedPinId]);
+
+  const beginPinAnimation = useCallback(() => {
+    const hasAnimations = playbackPausedPinDocuments.some(
+      (document) => (document.animations?.length ?? 0) > 0,
+    );
+    if (!hasAnimations) return false;
+    const startedAt = performance.now();
+    const initialClickTimes = playbackPausedPinDocuments.some(
+      (document) => document.animations?.[0]?.trigger === 'on_click',
+    ) ? [0] : [];
+    pinAnimationStartedAtRef.current = startedAt;
+    pinAnimationClickTimesRef.current = initialClickTimes;
+    setPinAnimationElapsedMs(0);
+    setPinAnimationClickTimesMs(initialClickTimes);
+    setPinAnimationStarted(true);
+    return true;
+  }, [playbackPausedPinDocuments]);
 
   const pinAnimationHasNextClick = playbackPausedPinDocuments.some((document) => (
     hasPendingAnnotationAnimationClick(document.animations, pinAnimationClickTimesMs)
@@ -1366,6 +1387,11 @@ export default function ClipEditor({
     return true;
   }, [playbackPausedPinDocuments]);
 
+  const activateOrAdvancePinAnimation = useCallback(() => {
+    if (pinAnimationStartedAtRef.current === null) return beginPinAnimation();
+    return advancePinAnimation();
+  }, [advancePinAnimation, beginPinAnimation]);
+
   const resumePlaybackFromPin = useCallback(async () => {
     const element = videoElementRef.current;
     if (!element || !playbackPausedPinId) return;
@@ -1385,7 +1411,7 @@ export default function ClipEditor({
     const element = videoElementRef.current;
     if (!element) return;
     if (playbackPausedPinId) {
-      if (advancePinAnimation()) return;
+      if (activateOrAdvancePinAnimation()) return;
       await resumePlaybackFromPin();
       return;
     }
@@ -1423,7 +1449,7 @@ export default function ClipEditor({
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     }
-  }, [advancePinAnimation, currentFrame, playbackEndFrame, playbackPausedPinId, playbackPins, playbackStartFrame, resumePlaybackFromPin, seekFrame, video.fps]);
+  }, [activateOrAdvancePinAnimation, currentFrame, playbackEndFrame, playbackPausedPinId, playbackPins, playbackStartFrame, resumePlaybackFromPin, seekFrame, video.fps]);
 
   useEffect(() => {
     const element = videoElementRef.current;
@@ -2902,13 +2928,23 @@ export default function ClipEditor({
   const selectTimelinePin = useCallback((pinId: string, frame: number) => {
     setSelectedPinId(pinId);
     seekFrame(frame);
-  }, [seekFrame]);
+    if (pinPauseMachineRef.current) {
+      pinPauseMachineRef.current = {
+        ...pinPauseMachineRef.current,
+        pausedPinId: pinId,
+      };
+    }
+    resetPinAnimationPlayback();
+    setPlaybackPausedPinId(pinId);
+  }, [resetPinAnimationPlayback, seekFrame]);
 
   return (
     <div
       className="flex min-h-0 flex-1 flex-col overflow-hidden bg-black"
       data-testid="clip-editor"
       data-playback-paused-pin-id={playbackPausedPinId ?? undefined}
+      data-playback-pin-document-count={playbackPausedPinDocuments.length}
+      data-pin-animation-started={pinAnimationStarted ? 'true' : 'false'}
       data-pin-animation-clicks={pinAnimationClickTimesMs.length}
       data-pin-animation-pending-click={pinAnimationHasNextClick ? 'true' : 'false'}
     >
@@ -2999,7 +3035,7 @@ export default function ClipEditor({
                 onPointerDown={(event) => {
                   if (playbackPausedPin) {
                     event.preventDefault();
-                    if (advancePinAnimation()) return;
+                    if (activateOrAdvancePinAnimation()) return;
                     void resumePlaybackFromPin();
                     return;
                   }

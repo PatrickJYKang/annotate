@@ -1,5 +1,7 @@
 # Annotate 0.2.2 User Guide
 
+The canonical guide is available inside Annotate at [`/userguide`](http://localhost:3000/userguide), including a first-project walkthrough, indexed reference, glossary, and placeholders for video demonstrations. This Markdown version remains available as an offline reference.
+
 This guide covers the `project.v2` workflow in Annotate 0.2. Annotate 0.1 projects are not compatible with 0.2; keep using the pinned 0.1 release for those projects.
 
 ## 1. Install and start Annotate
@@ -113,7 +115,7 @@ Each pin can contain multiple independently named annotation sets. The first vis
 
 The pin editor provides Select, Box, Circle, Highlight, Shadow, Arrow, Lob, Poly, and Text tools with linked stroke/fill colors, stroke pattern and width, opacity, and text controls. Select several objects with Shift-click or box selection to edit compatible properties together. Delete removes selected objects; Cmd/Ctrl+Z and Cmd/Ctrl+Shift+Z undo and redo.
 
-To animate selected shapes, choose **Add** in the inspector's **Animations** section. Each shape can have one entrance animation: **Appear**, **Fade**, **Grow**, or **Wipe**. Steps run in the displayed order and can start **On click**, **With previous**, or **After previous**. Delay and duration are edited in seconds; use the arrow controls to reorder steps or **Remove** to return a shape to ordinary static display.
+Open **Animations** from the annotation toolbar to reveal the right-side animation panel. The panel can remain open without a selected shape; select one or more shapes and choose **Add** to assign an entrance animation. Each shape can have one entrance animation: **Appear**, **Fade**, **Grow**, or **Wipe**. Steps run in the displayed order and can start **On click**, **With previous**, or **After previous**. Delay and duration are edited in seconds; use the arrow controls to reorder steps or **Remove** to return a shape to ordinary static display.
 
 Choose **Preview** to play the annotation set without leaving the editor. Click the frame or choose **Next** to fire the next on-click step. **Reset** restarts the sequence and **Stop** returns to editing. Shapes without an entrance animation remain visible throughout the preview.
 

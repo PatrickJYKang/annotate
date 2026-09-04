@@ -89,6 +89,223 @@ export type Shape = {
 
 export type EditorPersistDocument = (document: AnnotationDocument) => Promise<void>;
 
+interface AnnotationAnimationPanelProps {
+  shapes: Shape[];
+  animations: AnnotationAnimationStep[];
+  selectedAnimationStep: AnnotationAnimationStep | null;
+  canAddSelectedAnimation: boolean;
+  animationPreviewActive: boolean;
+  animationPreviewHasNextClick: boolean;
+  onAdd: () => void;
+  onSelect: (animation: AnnotationAnimationStep) => void;
+  onUpdate: (
+    values: Partial<Pick<AnnotationAnimationStep, 'effect' | 'trigger' | 'delayMs' | 'durationMs'>>,
+  ) => void;
+  onMove: (direction: -1 | 1) => void;
+  onRemove: () => void;
+  onPreview: () => void;
+  onPreviewNext: () => void;
+  onPreviewReset: () => void;
+  onPreviewStop: () => void;
+  onClose: () => void;
+}
+
+function AnnotationAnimationPanel({
+  shapes,
+  animations,
+  selectedAnimationStep,
+  canAddSelectedAnimation,
+  animationPreviewActive,
+  animationPreviewHasNextClick,
+  onAdd,
+  onSelect,
+  onUpdate,
+  onMove,
+  onRemove,
+  onPreview,
+  onPreviewNext,
+  onPreviewReset,
+  onPreviewStop,
+  onClose,
+}: AnnotationAnimationPanelProps) {
+  const t = useT();
+  return (
+    <aside
+      className="absolute left-full top-0 z-40 flex h-full w-80 flex-col border-l border-border bg-surface"
+      data-testid="annotation-animation-editor"
+      onPointerDown={(event) => event.stopPropagation()}
+      onWheel={(event) => event.stopPropagation()}
+    >
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
+        <strong>{t('annotation.animations')}</strong>
+        <span className="flex-1" />
+        <button
+          type="button"
+          data-testid="annotation-animation-add"
+          disabled={!canAddSelectedAnimation}
+          onClick={onAdd}
+        >
+          {t('annotation.animationAdd')}
+        </button>
+        <button type="button" className="button-quiet" onClick={onClose}>
+          {t('pin.closeShort')}
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        {animations.length > 0 && (
+          <div className="grid gap-1" data-testid="annotation-animation-sequence">
+            {animations.map((animation, index) => {
+              const labels = animation.shapeIds.map((shapeId) => {
+                const shape = shapes.find((candidate) => candidate.id === shapeId);
+                return shape?.name?.trim() || shape?.text?.trim() || shape?.type || shapeId.slice(0, 8);
+              });
+              const selected = selectedAnimationStep?.id === animation.id;
+              return (
+                <button
+                  key={animation.id}
+                  type="button"
+                  className={`flex w-full items-center gap-2 text-left ${selected ? 'active' : ''}`}
+                  data-testid={`annotation-animation-step-${index}`}
+                  onClick={() => onSelect(animation)}
+                >
+                  <span className="status tabular-nums">{index + 1}</span>
+                  <span className="min-w-0 flex-1 truncate">{labels.join(', ')}</span>
+                  <span className="status">{t(`annotation.animationEffect.${animation.effect}`)}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {selectedAnimationStep && (
+          <div className="mt-3 grid grid-cols-2 gap-1.5 border-t border-border pt-3" data-testid="annotation-animation-settings">
+            <label className="status" htmlFor={`animation-effect-${selectedAnimationStep.id}`}>
+              {t('annotation.animationEffect')}
+            </label>
+            <select
+              id={`animation-effect-${selectedAnimationStep.id}`}
+              data-testid="annotation-animation-effect"
+              value={selectedAnimationStep.effect}
+              onChange={(event) => {
+                const effect = event.target.value as AnnotationAnimationEffect;
+                onUpdate({
+                  effect,
+                  durationMs: defaultAnnotationAnimationDuration(effect),
+                });
+              }}
+            >
+              <option value="appear">{t('annotation.animationEffect.appear')}</option>
+              <option value="fade">{t('annotation.animationEffect.fade')}</option>
+              <option value="grow">{t('annotation.animationEffect.grow')}</option>
+              <option value="wipe">{t('annotation.animationEffect.wipe')}</option>
+            </select>
+
+            <label className="status" htmlFor={`animation-trigger-${selectedAnimationStep.id}`}>
+              {t('annotation.animationTrigger')}
+            </label>
+            <select
+              id={`animation-trigger-${selectedAnimationStep.id}`}
+              data-testid="annotation-animation-trigger"
+              value={selectedAnimationStep.trigger}
+              onChange={(event) => onUpdate({
+                trigger: event.target.value as AnnotationAnimationTrigger,
+              })}
+            >
+              <option value="on_click">{t('annotation.animationTrigger.onClick')}</option>
+              <option value="with_previous">{t('annotation.animationTrigger.withPrevious')}</option>
+              <option value="after_previous">{t('annotation.animationTrigger.afterPrevious')}</option>
+            </select>
+
+            <label className="status" htmlFor={`animation-delay-${selectedAnimationStep.id}`}>
+              {t('annotation.animationDelay')}
+            </label>
+            <input
+              id={`animation-delay-${selectedAnimationStep.id}`}
+              data-testid="annotation-animation-delay"
+              type="number"
+              min={0}
+              max={60}
+              step={0.1}
+              value={selectedAnimationStep.delayMs / 1000}
+              onChange={(event) => onUpdate({
+                delayMs: Math.round(Math.max(0, Number(event.target.value) || 0) * 1000),
+              })}
+            />
+
+            <label className="status" htmlFor={`animation-duration-${selectedAnimationStep.id}`}>
+              {t('annotation.animationDuration')}
+            </label>
+            <input
+              id={`animation-duration-${selectedAnimationStep.id}`}
+              data-testid="annotation-animation-duration"
+              type="number"
+              min={0}
+              max={60}
+              step={0.1}
+              disabled={selectedAnimationStep.effect === 'appear'}
+              value={selectedAnimationStep.durationMs / 1000}
+              onChange={(event) => onUpdate({
+                durationMs: Math.round(Math.max(0, Number(event.target.value) || 0) * 1000),
+              })}
+            />
+
+            <div className="col-span-2 flex flex-wrap gap-1">
+              <button
+                type="button"
+                aria-label={t('annotation.animationMoveEarlier')}
+                title={t('annotation.animationMoveEarlier')}
+                disabled={animations[0]?.id === selectedAnimationStep.id}
+                onClick={() => onMove(-1)}
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                aria-label={t('annotation.animationMoveLater')}
+                title={t('annotation.animationMoveLater')}
+                disabled={animations.at(-1)?.id === selectedAnimationStep.id}
+                onClick={() => onMove(1)}
+              >
+                ↓
+              </button>
+              <button type="button" data-testid="annotation-animation-remove" onClick={onRemove}>
+                {t('annotation.animationRemove')}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex shrink-0 flex-wrap gap-1 border-t border-border p-3">
+        {!animationPreviewActive ? (
+          <button
+            type="button"
+            data-testid="annotation-animation-preview-start"
+            disabled={animations.length === 0}
+            onClick={onPreview}
+          >
+            {t('annotation.animationPreview')}
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              data-testid="annotation-animation-preview-next"
+              disabled={!animationPreviewHasNextClick}
+              onClick={onPreviewNext}
+            >
+              {t('annotation.animationNext')}
+            </button>
+            <button type="button" onClick={onPreviewReset}>{t('annotation.animationReset')}</button>
+            <button type="button" onClick={onPreviewStop}>{t('annotation.animationStop')}</button>
+          </>
+        )}
+      </div>
+    </aside>
+  );
+}
+
 function useImage(url: string | null) {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   useEffect(() => {
@@ -178,6 +395,8 @@ export default function Editor({
   backgroundVideoElement,
   backgroundFrameTick,
   annotationsLocked,
+  animationPanelOpen = false,
+  onAnimationPanelOpenChange,
   projectDir,
   persistDocument,
 }: {
@@ -210,6 +429,8 @@ export default function Editor({
   backgroundVideoElement?: HTMLVideoElement | null;
   backgroundFrameTick?: number;
   annotationsLocked?: boolean;
+  animationPanelOpen?: boolean;
+  onAnimationPanelOpenChange?: (open: boolean) => void;
   projectDir?: FileSystemDirectoryHandle | null;
   persistDocument?: EditorPersistDocument;
 }) {
@@ -275,7 +496,7 @@ export default function Editor({
   const [boxFrac, setBoxFrac] = useState<{ w: number; h: number } | null>(null);
   const [circFrac, setCircFrac] = useState<{ rx: number; ry: number } | null>(null);
   const [ioError, setIoError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const isSavingRef = useRef(false);
   const [backupOffer, setBackupOffer] = useState<any | null>(null);
   const lastSavedHashRef = useRef<string | null>(null);
   const lastManualTickRef = useRef<number | null>(null);
@@ -881,13 +1102,11 @@ export default function Editor({
         return;
       }
       const doWrite = async () => {
-        setIsSaving(true);
         if (onSaveStatus) onSaveStatus({ state: 'saving' });
         const anyHandle: any = projectDir as any;
         const q = await (anyHandle?.queryPermission ? anyHandle.queryPermission({ mode: 'readwrite' }) : 'granted');
         if (q !== 'granted' || !hasLoadedRef.current) {
           setIoError(tRef.current('error.writePermission'));
-          setIsSaving(false);
           await writeBackup({ docKey: backupDocKey, anchor: resolvedAnchor, annotationId, schema: body.schema, updatedAt: new Date().toISOString(), contentHash, data: body });
           if (onSaveStatus) onSaveStatus({ state: 'error', at: new Date().toISOString(), message: 'permission' });
           return;
@@ -902,7 +1121,6 @@ export default function Editor({
             await writeAnnotationDocument(projectDir, annotationFilePath, body);
           }
           lastSavedHashRef.current = contentHash;
-          setIsSaving(false);
           await writeBackup({ docKey: backupDocKey, anchor: resolvedAnchor, annotationId, schema: body.schema, updatedAt: new Date().toISOString(), contentHash, data: body });
           try {
             const bc = new BroadcastChannel('annotate-events');
@@ -918,24 +1136,28 @@ export default function Editor({
           } catch {}
           if (onSaveStatus) onSaveStatus({ state: 'saved', at: new Date().toISOString() });
         } catch (e: any) {
-          setIsSaving(false);
           setIoError(e?.message || String(e));
           await writeBackup({ docKey: backupDocKey, anchor: resolvedAnchor, annotationId, schema: body.schema, updatedAt: new Date().toISOString(), contentHash, data: body });
           if (onSaveStatus) onSaveStatus({ state: 'error', at: new Date().toISOString(), message: e?.message || String(e) });
         }
       };
       const navAny: any = navigator as any;
-      if (!persistDocument && navAny?.locks?.request) {
+      if (navAny?.locks?.request) {
         await navAny.locks.request(`save-${backupDocKey}`, { mode: 'exclusive' }, async () => { await doWrite(); });
       } else {
-        if (isSaving) return;
-        await doWrite();
+        if (isSavingRef.current) return;
+        isSavingRef.current = true;
+        try {
+          await doWrite();
+        } finally {
+          isSavingRef.current = false;
+        }
       }
     } catch (e: any) {
       setIoError(e?.message || String(e));
       if (onSaveStatus) onSaveStatus({ state: 'error', at: new Date().toISOString(), message: e?.message || String(e) });
     }
-  }, [projectDir, annotationId, annotationFilePath, annotationLabel, backupDocKey, imageInfo, onSaveStatus, isSaving, persistDocument, resolvedAnchor]);
+  }, [projectDir, annotationId, annotationFilePath, annotationLabel, backupDocKey, imageInfo.file, imageInfo.height, imageInfo.width, onSaveStatus, persistDocument, resolvedAnchor]);
 
   // Debounced save wrapper
   const requestSave = useCallback(() => {
@@ -3186,182 +3408,30 @@ export default function Editor({
                   </>
                 )}
 
-                {resolvedAnchor.kind === 'pin' && (
-                  <div className="col-span-2 mt-1 border-t border-[var(--border)] pt-2" data-testid="annotation-animation-editor">
-                    <div className="flex items-center justify-between gap-2">
-                      <strong>{t('annotation.animations')}</strong>
-                      <button
-                        type="button"
-                        data-testid="annotation-animation-add"
-                        disabled={!canAddSelectedAnimation}
-                        onClick={addSelectedAnimation}
-                      >
-                        {t('annotation.animationAdd')}
-                      </button>
-                    </div>
-
-                    {animations.length > 0 && (
-                      <div className="mt-2 grid gap-1" data-testid="annotation-animation-sequence">
-                        {animations.map((animation, index) => {
-                          const labels = animation.shapeIds.map((shapeId) => {
-                            const shape = shapes.find((candidate) => candidate.id === shapeId);
-                            return shape?.name?.trim() || shape?.text?.trim() || shape?.type || shapeId.slice(0, 8);
-                          });
-                          const selected = selectedAnimationStep?.id === animation.id;
-                          return (
-                            <button
-                              key={animation.id}
-                              type="button"
-                              className={`flex w-full items-center gap-2 text-left ${selected ? 'active' : ''}`}
-                              data-testid={`annotation-animation-step-${index}`}
-                              onClick={() => selectAnimationStep(animation)}
-                            >
-                              <span className="status tabular-nums">{index + 1}</span>
-                              <span className="min-w-0 flex-1 truncate">{labels.join(', ')}</span>
-                              <span className="status">{t(`annotation.animationEffect.${animation.effect}`)}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {selectedAnimationStep && (
-                      <div className="mt-2 grid grid-cols-2 gap-1.5" data-testid="annotation-animation-settings">
-                        <label className="status" htmlFor={`animation-effect-${selectedAnimationStep.id}`}>
-                          {t('annotation.animationEffect')}
-                        </label>
-                        <select
-                          id={`animation-effect-${selectedAnimationStep.id}`}
-                          data-testid="annotation-animation-effect"
-                          value={selectedAnimationStep.effect}
-                          onChange={(event) => {
-                            const effect = event.target.value as AnnotationAnimationEffect;
-                            updateSelectedAnimation({
-                              effect,
-                              durationMs: defaultAnnotationAnimationDuration(effect),
-                            });
-                          }}
-                        >
-                          <option value="appear">{t('annotation.animationEffect.appear')}</option>
-                          <option value="fade">{t('annotation.animationEffect.fade')}</option>
-                          <option value="grow">{t('annotation.animationEffect.grow')}</option>
-                          <option value="wipe">{t('annotation.animationEffect.wipe')}</option>
-                        </select>
-
-                        <label className="status" htmlFor={`animation-trigger-${selectedAnimationStep.id}`}>
-                          {t('annotation.animationTrigger')}
-                        </label>
-                        <select
-                          id={`animation-trigger-${selectedAnimationStep.id}`}
-                          data-testid="annotation-animation-trigger"
-                          value={selectedAnimationStep.trigger}
-                          onChange={(event) => updateSelectedAnimation({
-                            trigger: event.target.value as AnnotationAnimationTrigger,
-                          })}
-                        >
-                          <option value="on_click">{t('annotation.animationTrigger.onClick')}</option>
-                          <option value="with_previous">{t('annotation.animationTrigger.withPrevious')}</option>
-                          <option value="after_previous">{t('annotation.animationTrigger.afterPrevious')}</option>
-                        </select>
-
-                        <label className="status" htmlFor={`animation-delay-${selectedAnimationStep.id}`}>
-                          {t('annotation.animationDelay')}
-                        </label>
-                        <input
-                          id={`animation-delay-${selectedAnimationStep.id}`}
-                          data-testid="annotation-animation-delay"
-                          type="number"
-                          min={0}
-                          max={60}
-                          step={0.1}
-                          value={selectedAnimationStep.delayMs / 1000}
-                          onChange={(event) => updateSelectedAnimation({
-                            delayMs: Math.round(Math.max(0, Number(event.target.value) || 0) * 1000),
-                          })}
-                        />
-
-                        <label className="status" htmlFor={`animation-duration-${selectedAnimationStep.id}`}>
-                          {t('annotation.animationDuration')}
-                        </label>
-                        <input
-                          id={`animation-duration-${selectedAnimationStep.id}`}
-                          data-testid="annotation-animation-duration"
-                          type="number"
-                          min={0}
-                          max={60}
-                          step={0.1}
-                          disabled={selectedAnimationStep.effect === 'appear'}
-                          value={selectedAnimationStep.durationMs / 1000}
-                          onChange={(event) => updateSelectedAnimation({
-                            durationMs: Math.round(Math.max(0, Number(event.target.value) || 0) * 1000),
-                          })}
-                        />
-
-                        <div className="col-span-2 flex flex-wrap gap-1">
-                          <button
-                            type="button"
-                            aria-label={t('annotation.animationMoveEarlier')}
-                            title={t('annotation.animationMoveEarlier')}
-                            disabled={animations[0]?.id === selectedAnimationStep.id}
-                            onClick={() => moveSelectedAnimation(-1)}
-                          >
-                            ↑
-                          </button>
-                          <button
-                            type="button"
-                            aria-label={t('annotation.animationMoveLater')}
-                            title={t('annotation.animationMoveLater')}
-                            disabled={animations.at(-1)?.id === selectedAnimationStep.id}
-                            onClick={() => moveSelectedAnimation(1)}
-                          >
-                            ↓
-                          </button>
-                          <button
-                            type="button"
-                            data-testid="annotation-animation-remove"
-                            onClick={removeSelectedAnimation}
-                          >
-                            {t('annotation.animationRemove')}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {!animationPreview ? (
-                        <button
-                          type="button"
-                          data-testid="annotation-animation-preview-start"
-                          disabled={animations.length === 0}
-                          onClick={startAnimationPreview}
-                        >
-                          {t('annotation.animationPreview')}
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            data-testid="annotation-animation-preview-next"
-                            disabled={!animationPreviewHasNextClick}
-                            onClick={advanceAnimationPreview}
-                          >
-                            {t('annotation.animationNext')}
-                          </button>
-                          <button type="button" onClick={resetAnimationPreview}>
-                            {t('annotation.animationReset')}
-                          </button>
-                          <button type="button" onClick={stopAnimationPreview}>
-                            {t('annotation.animationStop')}
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
             );
           })()}
         </div>
+      )}
+      {showAnnotations && resolvedAnchor.kind === 'pin' && animationPanelOpen && (
+        <AnnotationAnimationPanel
+          shapes={shapes}
+          animations={animations}
+          selectedAnimationStep={selectedAnimationStep}
+          canAddSelectedAnimation={canAddSelectedAnimation}
+          animationPreviewActive={!!animationPreview}
+          animationPreviewHasNextClick={animationPreviewHasNextClick}
+          onAdd={addSelectedAnimation}
+          onSelect={selectAnimationStep}
+          onUpdate={updateSelectedAnimation}
+          onMove={moveSelectedAnimation}
+          onRemove={removeSelectedAnimation}
+          onPreview={startAnimationPreview}
+          onPreviewNext={advanceAnimationPreview}
+          onPreviewReset={resetAnimationPreview}
+          onPreviewStop={stopAnimationPreview}
+          onClose={() => onAnimationPanelOpenChange?.(false)}
+        />
       )}
     </div>
   );

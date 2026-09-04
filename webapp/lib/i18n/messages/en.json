@@ -1,6 +1,7 @@
 {
   "app.title": "Annotate",
   "header.fullscreen": "Fullscreen",
+  "header.userGuide": "User guide",
   "header.locale": "Language",
   "locale.en": "English",
   "locale.fr": "Français",

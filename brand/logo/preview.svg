@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700" viewBox="0 0 1000 700" role="img" aria-labelledby="title desc">
+  <title id="title">Annotate logo preview</title>
+  <desc id="desc">The mark large on the app canvas, on a light panel, and at icon sizes.</desc>
+  <defs>
+    <g id="mark">
+      <path d="M80 0H108L134 52H106L94 28L28 160H0Z"/>
+      <path d="M133 106H161L188 160H160Z"/>
+      <path d="M71 96H156L139 62H111L118 76H81Z"/>
+    </g>
+  </defs>
+  <rect width="1000" height="700" fill="#0a0f18"/>
+  <use href="#mark" fill="#ffffff" transform="translate(60 110) scale(3)"/>
+  <rect x="680" y="60" width="260" height="260" fill="#ffffff"/>
+  <use href="#mark" fill="#0a0f18" transform="translate(716 110)"/>
+  <rect x="680" y="380" width="240" height="120" fill="#0e1520"/>
+  <use href="#mark" fill="#ffffff" transform="translate(700 400) scale(0.5)"/>
+  <use href="#mark" fill="#ffffff" transform="translate(810 410) scale(0.25)"/>
+  <use href="#mark" fill="#ffffff" transform="translate(870 420) scale(0.125)"/>
+  <use href="#mark" fill="#ffffff" transform="translate(900 425) scale(0.0625)"/>
+</svg>

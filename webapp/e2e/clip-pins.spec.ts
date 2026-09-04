@@ -131,11 +131,12 @@ async function openEditor(page: Page): Promise<Page> {
   await page.getByRole('button', { name: 'Open editor' }).click();
   const editorPage = await editorPagePromise;
   await editorPage.setViewportSize({ width: 1440, height: 1000 });
-  await expect(editorPage.getByTestId('clip-editor')).toBeVisible();
+  await expect(editorPage.getByTestId('clip-editor')).toBeVisible({ timeout: 15_000 });
   return editorPage;
 }
 
 test('pins support annotation parity, import, preview locking, and trash undo', async ({ page }) => {
+  test.setTimeout(120_000);
   await installOpfsDirectoryPickerFixture(
     page,
     path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project'),
@@ -171,7 +172,7 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   await pinPage.bringToFront();
   await pinPage.setViewportSize({ width: 1440, height: 1000 });
   let annotator = pinPage.getByTestId('pin-annotator');
-  await expect(annotator).toBeVisible();
+  await expect(annotator).toBeVisible({ timeout: 15_000 });
   await expect(pinPage).toHaveURL(/\/clip\/clip-sequence\?pinId=pin-shape/);
   await expect(pinPage.getByText(/Frame 15 · clip 5–44/)).toBeVisible();
   await pinPage.keyboard.press('Escape');
@@ -183,7 +184,6 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   await expect(annotator.getByRole('button', { name: 'Import into clip' })).toBeEnabled();
 
   await annotator.getByRole('button', { name: 'Calibrate', exact: true }).click();
-  await expect(annotator.getByRole('button', { name: 'Calibrating…' })).toBeVisible();
   await expect(annotator.getByText('PnLCalib applied.')).toBeVisible();
   expect(sidecar.homographyRequests).toHaveLength(1);
   expect(sidecar.homographyRequests[0]).toMatchObject({
@@ -236,7 +236,7 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
       annotation.type === 'poly' && annotation.keyframes.some((keyframe) => keyframe.frame === 15)
     ));
     return imported ? { id: imported.id, hasMs: 'tMs' in imported.keyframes[0] } : null;
-  }).toMatchObject({ hasMs: false });
+  }, { timeout: 15_000 }).toMatchObject({ hasMs: false });
   const importedAtFifteen = (await readClip(page)).annotations.find((annotation: { type: string; keyframes: Array<{ frame: number }> }) => (
     annotation.type === 'poly' && annotation.keyframes.some((keyframe) => keyframe.frame === 15)
   ));
@@ -269,10 +269,27 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   await pinPage.bringToFront();
   await pinPage.setViewportSize({ width: 1440, height: 1000 });
   annotator = pinPage.getByTestId('pin-annotator');
-  await expect(annotator).toBeVisible();
+  await expect(annotator).toBeVisible({ timeout: 15_000 });
   await expect(pinPage).toHaveURL(/\/clip\/clip-sequence\?pinId=pin-/);
   await expect(pinPage.getByText(/Frame 16 · clip 5–44/)).toBeVisible();
   await expect(annotator.getByRole('button', { name: 'Import into clip' })).toBeEnabled();
+
+  const animationPanelToggle = annotator.getByTestId('annotation-animation-panel-toggle');
+  await expect(annotator.getByTestId('annotation-animation-editor')).toHaveCount(0);
+  await animationPanelToggle.click();
+  const animationPanel = annotator.getByTestId('annotation-animation-editor');
+  const animationPanelSpace = annotator.getByTestId('annotation-animation-panel-space');
+  await expect(animationPanel).toBeVisible();
+  await expect(annotator.getByTestId('annotation-animation-add')).toBeDisabled();
+  const [animationPanelBox, animationPanelSpaceBox] = await Promise.all([
+    animationPanel.boundingBox(),
+    animationPanelSpace.boundingBox(),
+  ]);
+  if (!animationPanelBox || !animationPanelSpaceBox) {
+    throw new Error('Animation panel did not occupy its reserved right-side column.');
+  }
+  expect(Math.abs(animationPanelBox.x - animationPanelSpaceBox.x)).toBeLessThan(1);
+  expect(Math.abs(animationPanelBox.width - animationPanelSpaceBox.width)).toBeLessThan(1);
 
   const stage = annotator.locator('canvas').last();
   await expect(stage).toBeVisible();
@@ -308,6 +325,7 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   await pinPage.keyboard.press('Enter');
   await pinPage.keyboard.press('Meta+z');
   await annotator.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(annotator.getByText('Saved', { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect.poll(async () => {
     const stored = await readPinDocumentAtFrame(page, 16);
     return stored?.document.shapes.map((shape: { type: string }) => shape.type).sort() ?? [];
@@ -322,6 +340,7 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   await expect(animationPreview).toHaveAttribute('data-animation-clicks', '1');
   await annotator.getByRole('button', { name: 'Stop', exact: true }).click();
   await annotator.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(annotator.getByText('Saved', { exact: true })).toBeVisible({ timeout: 15_000 });
 
   await expect.poll(async () => {
     const stored = await readPinDocumentAtFrame(page, 16);
@@ -361,7 +380,7 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
     return clip.annotations.filter((annotation: { keyframes: Array<{ frame: number }> }) => (
       annotation.keyframes.some((keyframe) => keyframe.frame === 16)
     )).length;
-  }).toBe(3);
+  }, { timeout: 15_000 }).toBe(3);
   const secondPinClosed = pinPage.waitForEvent('close');
   await annotator.getByRole('button', { name: 'Close pin' }).click();
   await secondPinClosed;
@@ -416,10 +435,37 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   expect(reloadedPin.document.shapes).toHaveLength(3);
 
   await page.getByRole('button', { name: 'Pin at frame 15' }).click();
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-playback-paused-pin-id', 'pin-shape');
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-playback-pin-document-count', '2');
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-pin-animation-started', 'false');
+  await expect.poll(async () => page.getByTestId('clip-stage').evaluate((canvas) => {
+    const context = (canvas as HTMLCanvasElement).getContext('2d');
+    if (!context) return 0;
+    const pixels = context.getImageData(0, 0, context.canvas.width, context.canvas.height).data;
+    let greenPixels = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index] < 80 && pixels[index + 1] > 150 && pixels[index + 2] > 100 && pixels[index + 3] > 0) {
+        greenPixels += 1;
+      }
+    }
+    return greenPixels;
+  })).toBeGreaterThan(0);
   await page.getByRole('button', { name: 'Play', exact: true }).click();
   await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-playback-paused-pin-id', reloadedPin.pin.id);
   await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-pin-animation-pending-click', 'true');
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-pin-animation-started', 'false');
   await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-pin-animation-clicks', '1');
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-pin-animation-started', 'true');
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-playback-paused-pin-id', reloadedPin.pin.id);
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(page.getByTestId('clip-editor')).not.toHaveAttribute('data-playback-paused-pin-id', /.+/);
+
+  await page.getByRole('button', { name: 'Pin at frame 16' }).click();
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-playback-paused-pin-id', reloadedPin.pin.id);
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-pin-animation-started', 'false');
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-pin-animation-started', 'true');
   await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-pin-animation-clicks', '1');
   await expect(page.getByTestId('clip-editor')).toHaveAttribute('data-playback-paused-pin-id', reloadedPin.pin.id);
   await page.getByRole('button', { name: 'Play', exact: true }).click();

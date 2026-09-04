@@ -95,7 +95,8 @@ The Python sidecar owns smart media preparation, authoritative probing, tracking
 
 ## Documentation
 
-- **[User guide](USER_GUIDE.md)**
+- **In-app user guide:** open [`http://localhost:3000/userguide`](http://localhost:3000/userguide) while Annotate is running, or choose **User guide** in the app header.
+- [Offline user guide](USER_GUIDE.md)
 - **[As-built technical reference](technical_document.md)**
 - [Annotate 0.2 scope](plans/v0.2/v0.2-scope.md)
 - [Annotate 0.2 implementation ledger](plans/v0.2/implementation-plan.md)

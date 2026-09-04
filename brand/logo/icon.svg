@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-labelledby="title desc">
+  <title id="title">Annotate</title>
+  <desc id="desc">Square app icon: the Annotate mark on the app canvas colour.</desc>
+  <rect width="240" height="240" fill="#0a0f18"/>
+  <g fill="#ffffff" transform="translate(26 40)">
+    <path d="M80 0H108L134 52H106L94 28L28 160H0Z"/>
+    <path d="M133 106H161L188 160H160Z"/>
+    <path d="M71 96H156L139 62H111L118 76H81Z"/>
+  </g>
+</svg>
