@@ -3,6 +3,7 @@ const nextConfig = {
   reactStrictMode: true,
   distDir: process.env.NEXT_DIST_DIR || '.next',
   outputFileTracingRoot: __dirname,
+  ...(process.env.ANNOTATE_STANDALONE === '1' ? { output: 'standalone' } : {}),
   webpack(config) {
     // React-Konva is browser-only; do not resolve Konva's optional Node canvas adapter.
     config.resolve.alias.canvas = false;

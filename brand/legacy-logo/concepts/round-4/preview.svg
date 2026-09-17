@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700" viewBox="0 0 1000 700" role="img" aria-labelledby="title desc">
+  <title id="title">Annotate logo geometry preview</title>
+  <desc id="desc">A large preview of the cleaned uppercase A and detached one-sided arrow.</desc>
+  <rect width="1000" height="700" fill="#0a0f18"/>
+  <g transform="translate(168" shape-rendering="geometricPrecision">
+    <polygon fill="#edf1f5" points="315,35 385,35 105,595 35,595"/>
+    <polygon fill="#edf1f5" points="315,35 385,35 490,245 420,245"/>
+    <polygon fill="#edf1f5" points="455,367.5 525,367.5 630,577.5 560,577.5"/>
+    <path fill="#2f78c4" d="M290.5 297.5h147l-17.5-35h70l42 84H266Z"/>
+  </g>
+</svg>

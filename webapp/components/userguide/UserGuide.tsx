@@ -132,7 +132,7 @@ const GLOSSARY = [
   ['Coordinate mode', 'The space in which object geometry is stored: image pixels or pitch coordinates projected through homography.'],
   ['Facet / modifier', 'Additional structured information attached to a clip, such as outcome or phase detail.'],
   ['Homography', 'A frame-by-frame mapping between the visible image and the football pitch plane.'],
-  ['Keyframe', 'An exact source-video frame where an animated object stores authored geometry or visibility.'],
+  ['Keyframe', 'An exact source-video frame where an animated object stores geometry. Tracking also records automatic stop/loss markers; there are no manual show/hide keyframe controls.'],
   ['Object', 'A shape in the animated clip layer, such as a highlight, arrow, polygon, or text label.'],
   ['Pin', 'An important exact frame inside a clip. Pins own frozen-frame annotation sets and can pause clip playback.'],
   ['Presentation', 'An ordered sequence of clips, pins, and title cards with playback and transition settings.'],
@@ -388,7 +388,7 @@ export default function UserGuide() {
             <ol className="space-y-3 pl-5 text-sm leading-7 text-secondary">
               <li>Seek to a clear frame and choose <strong className="text-primary">Track</strong>.</li>
               <li>Select the correct provisional player highlight, then choose <strong className="text-primary">Start</strong>. Choose Stop instead when only one manual frame is needed.</li>
-              <li>Tracked frames appear live in the timeline. When continuity is lost, the tracked highlight hides and provisional candidates return.</li>
+              <li>The video, highlight, and timeline follow tracked frames as they arrive. Preview updates may skip ahead if decoding falls behind, without discarding tracked keyframes. Pins do not interrupt tracking. When continuity is lost, the tracked highlight hides and provisional candidates return.</li>
               <li>Move through the video until the player is identifiable, select the matching candidate, then choose <strong className="text-primary">Continue</strong>. Annotate fills the missing span linearly and resumes.</li>
               <li>For an identity switch or bad tail, stop at the last trusted frame and choose <strong className="text-primary">Re-track from here</strong>. Done replaces the provisional tail; Cancel restores the original.</li>
             </ol>
@@ -432,6 +432,7 @@ export default function UserGuide() {
             <div className="space-y-4 text-sm leading-7 text-secondary">
               <p><strong className="text-primary">Export report</strong> writes clip JSON, clip CSV, and one native-resolution PNG for every pin annotation set to <code className="font-mono text-xs text-primary">exports/report/</code>. Static PNGs show the completed annotation state rather than one instant of an entrance animation.</p>
               <p>Clip, pin, and annotation-set deletion first copies recoverable data into <code className="font-mono text-xs text-primary">.trash/</code>. Use the immediate Undo action when available. Empty trash permanently removes retained recovery operations.</p>
+              <p>To remove a video, use <strong className="text-primary">Delete</strong> beside it on the dashboard and confirm <strong className="text-primary">Delete video and clips</strong>. This permanently removes the project video copy and removes all its clips, pins, and annotation sets. The original input file and presentation decks are unchanged; affected slides report missing sources. Video deletion has no Undo action. Clip recovery payloads remain subject to normal trash retention, but cannot be restored while their video is absent.</p>
               <p>The dashboard integrity report lists missing media, unreadable documents, and unresolved presentation references. It is diagnostic: Annotate does not guess how to rewrite authored work.</p>
             </div>
           </Section>
@@ -455,7 +456,8 @@ export default function UserGuide() {
 
           <Section id="homography" title="Homography and pitch drawing">
             <div className="space-y-4 text-sm leading-7 text-secondary">
-              <p><strong className="text-primary">Compute H</strong> runs PnLCalib across the clip, rejects implausible solutions, and interpolates usable matrices between sampled frames. Results are cached by source video and range.</p>
+              <p><strong className="text-primary">Compute H</strong> runs PnLCalib every 15 source frames across the clip, rejects implausible solutions, and interpolates usable matrices between sampled frames. Results are cached by source video and range. Recompute H replaces an existing result at the current sampling density.</p>
+              <p>The progress bar counts completed calibration samples. Preparation and model loading appear as separate phases; the first computation after starting the app includes model loading. <strong className="text-primary">Cancel</strong> stops remaining computation without replacing an existing result.</p>
               <p>When homography is available, Box and Circle default to <strong className="text-primary">Draw: pitch</strong>. Their geometry and transform handles operate on the pitch plane, then project through the camera view for each frame.</p>
               <p><strong className="text-primary">Show H</strong> overlays the projected pitch grid for inspection. Recompute replaces the cached range; Delete H removes it and returns drawing to image coordinates. Pin calibration offers the same automatic solver plus a Manual H fallback for one frame.</p>
             </div>

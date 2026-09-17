@@ -9,6 +9,7 @@ import {
   requestTrackingStream,
   requestPlayerDetections,
   requestExactMotionEncode,
+  requestHomographyStream,
 } from './sidecarClient';
 
 afterEach(() => {
@@ -16,7 +17,98 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('homography progress stream', () => {
+  const params = { videoRef: 'ref', startFrame: 30, endFrame: 60, sourceFps: 30, everyNFrames: 15 };
+  it('reads split progress events before the final response and preserves the frame payload', async () => {
+    const encoder = new TextEncoder();
+    let finish!: () => void;
+    const result = { frames: [{ tMs: 1000, matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1], method: 'pnlcalib' }] };
+    const stream = new ReadableStream({ start(controller) {
+      controller.enqueue(encoder.encode('{"type":"progress","phase":"comp'));
+      controller.enqueue(encoder.encode('uting","completed":1,"total":5}\n'));
+      finish = () => { controller.enqueue(encoder.encode(JSON.stringify({ type: 'result', result }))); controller.close(); };
+    } });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(stream)));
+    const progress = vi.fn();
+    const pending = requestHomographyStream(params, progress, 'http://localhost:8321');
+    await vi.waitFor(() => expect(progress).toHaveBeenCalledWith({ phase: 'computing', completed: 1, total: 5 }));
+    finish();
+    await expect(pending).resolves.toEqual(result);
+  });
+
+  it.each([
+    ['{"type":"error","message":"Model failed"}\n', 'Model failed'],
+    ['{"type":"progress","phase":"computing","completed":1,"total":5}\n', 'ended before its final result'],
+  ])('does not treat a failed or truncated stream as success', async (body, error) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body)));
+    await expect(requestHomographyStream(params, vi.fn())).rejects.toThrow(error);
+  });
+
+  it('passes cancellation to the request', async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn(async (_input, init) => {
+      return new Promise<Response>((_resolve, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('Canceled', 'AbortError'))));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const pending = requestHomographyStream(params, vi.fn(), 'http://localhost:8321', controller.signal);
+    const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    controller.abort();
+    await rejected;
+    expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal);
+  });
+});
+
 describe('authoritative video metadata', () => {
+  it.each(['cancel', 'pagehide'])('cleans up an import immediately on %s, including while queued', async (action) => {
+    const page = new EventTarget();
+    vi.stubGlobal('window', page);
+    const controller = new AbortController();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/start')) return Response.json({ jobId: 'queued-import' });
+      if (init?.method === 'DELETE') return Response.json({ deleted: true });
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Canceled', 'AbortError')));
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const pending = prepareVideoImportWithMetadata(new File(['video'], 'source.mp4'), { signal: controller.signal });
+    const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    if (action === 'cancel') controller.abort();
+    else page.dispatchEvent(new Event('pagehide'));
+
+    expect(fetchMock).toHaveBeenLastCalledWith(expect.stringContaining('/queued-import'), {
+      method: 'DELETE', keepalive: true,
+    });
+    await rejected;
+    page.dispatchEvent(new Event('pagehide'));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('rejects an already-canceled import without uploading or starting a job', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+    controller.abort();
+    await expect(prepareVideoImportWithMetadata(new File(['video'], 'source.mp4'), {
+      signal: controller.signal,
+    })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('reports invalid job states instead of looping forever at queued progress', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/start')) return Response.json({ jobId: 'invalid-state' });
+      if (init?.method === 'DELETE') return Response.json({ deleted: true });
+      return Response.json({ status: 'unexpected' });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(prepareVideoImportWithMetadata(new File(['video'], 'source.mp4')))
+      .rejects.toThrow('unknown status: unexpected');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it('reads normalize headers without inferring frame count from duration', () => {
     const headers = new Headers({
       'X-Annotate-Frame-Count': '301',
@@ -86,6 +178,7 @@ describe('authoritative video metadata', () => {
       if (init?.method === 'DELETE') return new Response(null, { status: 200 });
       statusRead += 1;
       const statuses = [
+        { jobId: 'job-2', status: 'queued', progress: 0 },
         { jobId: 'job-2', status: 'normalizing', progress: 0.5 },
         { jobId: 'job-2', status: 'probing', progress: 1 },
         {
@@ -149,6 +242,8 @@ describe('authoritative video metadata', () => {
   });
 
   it('reuses the original browser file when the sidecar selects preserve', async () => {
+    const page = new EventTarget();
+    vi.stubGlobal('window', page);
     let statusRead = 0;
     const calls: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -185,6 +280,8 @@ describe('authoritative video metadata', () => {
     expect(result.metadata).toMatchObject({ fps: 25, importStrategy: 'preserve' });
     expect(calls.some((entry) => entry.includes('/file'))).toBe(false);
     expect(calls.some((entry) => entry.startsWith('DELETE '))).toBe(true);
+    page.dispatchEvent(new Event('pagehide'));
+    expect(calls.filter((entry) => entry.startsWith('DELETE '))).toHaveLength(1);
   });
 });
 

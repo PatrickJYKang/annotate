@@ -4,6 +4,7 @@
 // ---------------------------------------------------------------------------
 
 import type {
+  AnnotationSource,
   ArrowKeyframe,
   BoxKeyframe,
   CircleKeyframe,
@@ -21,6 +22,7 @@ import {
   getHiddenSpans,
   isAnnotationVisible,
   isFrameWithinHiddenSpan,
+  isTrackedHighlightInterval,
 } from './trackingState';
 
 // ---------------------------------------------------------------------------
@@ -271,6 +273,7 @@ export function interpolateKeyframes(
   keyframes: ClipKeyframe[],
   frame: VideoFrame,
   type: ClipAnnotationType,
+  source: AnnotationSource = 'manual',
 ): InterpolatedKeyframe | null {
   if (keyframes.length === 0) return null;
   const clamp = (keyframe: ClipKeyframe) => (
@@ -289,7 +292,8 @@ export function interpolateKeyframes(
 
   const span = right.frame - left.frame;
   const progress = span > 0 ? (frame - left.frame) / span : 0;
-  const useCubic = span > 2;
+  // Missing tracked observations follow a straight path, not a fitted curve.
+  const useCubic = span > 2 && !isTrackedHighlightInterval({ type, source }, left, right);
   const previous = index > 0 ? keyframes[index - 1] : null;
   const next = index + 2 < keyframes.length ? keyframes[index + 2] : null;
 
@@ -395,7 +399,7 @@ export function interpolateAnnotation(
   if (isFrameWithinHiddenSpan(getHiddenSpans(annotation, clipEndFrame), frame)) {
     return null;
   }
-  return interpolateKeyframes(annotation.keyframes, frame, annotation.type);
+  return interpolateKeyframes(annotation.keyframes, frame, annotation.type, annotation.source);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,9 @@
 "use client";
+import { registerCloseGuard } from '../../lib/host/closeGuard';
+import { createTrackingFrameFollower } from '../../lib/clip/trackingFrameFollower';
 
+import type { ProjectDirectory, ReservedEditor } from '../../lib/host/contracts';
+import { getAppHost } from '../../lib/host';
 import {
   useCallback,
   useEffect,
@@ -75,7 +79,8 @@ import {
   type PinPauseMachine,
 } from '../../lib/presentation/playback';
 import {
-  requestHomography,
+  requestHomographyStream,
+  type HomographyProgress,
   requestPlayerDetections,
   requestTrackingStream,
   type PlayerDetection,
@@ -84,7 +89,6 @@ import {
 } from '../../lib/clip/sidecarClient';
 import {
   getCurrentKeyframe,
-  getCurrentVisibilityKeyframe,
   getFrameTrackingState,
 } from '../../lib/clip/trackingState';
 import {
@@ -151,7 +155,7 @@ import { useLocale } from '../../lib/i18n';
 export type ClipTool = 'select' | 'box' | 'circle' | 'shadow' | 'arrow' | 'lob' | 'poly' | 'text' | 'highlight';
 export type ClipEditorSaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
-const CLIP_HOMOGRAPHY_SKIP_INTERVAL = 4;
+const CLIP_HOMOGRAPHY_FRAME_INTERVAL = 15;
 
 interface ClipEditorProps {
   clip: Clip;
@@ -159,7 +163,7 @@ interface ClipEditorProps {
   videoUrl: string;
   videoRef?: string;
   videoPath?: string;
-  projectDir?: FileSystemDirectoryHandle;
+  projectDir?: ProjectDirectory;
   persistAnnotations: (annotations: ClipAnnotation[]) => Promise<Clip>;
   persistClip: (clip: Clip) => Promise<Clip>;
   onClipUpdate?: (clip: Clip) => void;
@@ -249,18 +253,6 @@ const TOOLS: Array<{ id: ClipTool; label: string }> = [
 
 function makeId(prefix: string): string {
   return `${prefix}-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
-}
-
-function reservePinTab(): Window | null {
-  const popup = window.open('about:blank', '_blank');
-  if (popup) popup.opener = null;
-  return popup;
-}
-
-function navigatePinTab(popup: Window, clipId: string, pinId: string): void {
-  const url = new URL(`/clip/${encodeURIComponent(clipId)}`, window.location.href);
-  url.searchParams.set('pinId', pinId);
-  popup.location.replace(url.toString());
 }
 
 function isTextInput(target: EventTarget | null): boolean {
@@ -663,6 +655,9 @@ export default function ClipEditor({
   const [detectingPlayers, setDetectingPlayers] = useState(false);
   const [homographyFrames, setHomographyFrames] = useState<HomographyFrame[] | null>(null);
   const [computingHomography, setComputingHomography] = useState(false);
+  const [homographyProgress, setHomographyProgress] = useState<HomographyProgress | null>(null);
+  const homographyAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => homographyAbortRef.current?.abort(), [clip.id]);
   const [showHomography, setShowHomography] = useState(false);
   const [drawCoordMode, setDrawCoordMode] = useState<'image' | 'pitch'>('image');
   const [videoSize, setVideoSize] = useState({ width: video.width, height: video.height });
@@ -677,12 +672,14 @@ export default function ClipEditor({
   const historyFutureRef = useRef<ClipAnnotation[][]>([]);
   const annotationsRef = useRef(annotations);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const saveFailedRef = useRef(false);
   const saveGenerationRef = useRef(0);
   const styleEditHistoryBaseRef = useRef<ClipAnnotation[] | null>(null);
   const styleEditLatestRef = useRef<ClipAnnotation[] | null>(null);
   const styleEditTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeTrackingRunRef = useRef(0);
   const activeTrackingFrameRef = useRef<number | null>(null);
+  const trackingFrameFollowerRef = useRef<ReturnType<typeof createTrackingFrameFollower> | null>(null);
   const pendingTrackingPreviewRef = useRef<(() => ClipAnnotation[]) | null>(null);
   const trackingPreviewAnimationRef = useRef<number | null>(null);
   const desiredDetectionFrameRef = useRef<number | null>(null);
@@ -879,10 +876,12 @@ export default function ClipEditor({
       .then(async () => {
         try {
           const saved = await persistAnnotations(payload);
+          saveFailedRef.current = false;
           setCurrentClip(saved);
           onClipUpdate?.(saved);
           if (generation === saveGenerationRef.current) setSaveStatus('saved');
         } catch (error) {
+          saveFailedRef.current = true;
           if (generation === saveGenerationRef.current) setSaveStatus('error');
           setMessage(error instanceof Error ? error.message : String(error));
         }
@@ -902,10 +901,12 @@ export default function ClipEditor({
     );
     try {
       const saved = await operation;
+      saveFailedRef.current = false;
       if (generation === saveGenerationRef.current) setSaveStatus('saved');
       onClipUpdate?.(saved);
       return saved;
     } catch (error) {
+      saveFailedRef.current = true;
       if (generation === saveGenerationRef.current) setSaveStatus('error');
       setMessage(error instanceof Error ? error.message : String(error));
       throw error;
@@ -918,6 +919,8 @@ export default function ClipEditor({
   }, []);
 
   const cancelTrackingPreview = useCallback(() => {
+    trackingFrameFollowerRef.current?.dispose();
+    trackingFrameFollowerRef.current = null;
     if (trackingPreviewAnimationRef.current != null) {
       cancelAnimationFrame(trackingPreviewAnimationRef.current);
       trackingPreviewAnimationRef.current = null;
@@ -926,6 +929,8 @@ export default function ClipEditor({
   }, []);
 
   const consumeTrackingPreview = useCallback(() => {
+    trackingFrameFollowerRef.current?.dispose();
+    trackingFrameFollowerRef.current = null;
     if (trackingPreviewAnimationRef.current != null) {
       cancelAnimationFrame(trackingPreviewAnimationRef.current);
       trackingPreviewAnimationRef.current = null;
@@ -1017,6 +1022,12 @@ export default function ClipEditor({
   }, [finalizePendingStyleEdit, replaceAnnotations, selectedAnnotationIds]);
 
   useEffect(() => () => finalizePendingStyleEdit(), [finalizePendingStyleEdit]);
+  useEffect(() => registerCloseGuard(async () => {
+    if (retrackSession || trimSession || trackingSession) throw new Error('Finish or cancel the current tracking/trim operation first.');
+    finalizePendingStyleEdit();
+    await saveChainRef.current;
+    if (saveFailedRef.current) throw new Error('A clip save failed. Retry it before closing.');
+  }), [finalizePendingStyleEdit, retrackSession, trackingSession, trimSession]);
 
   const acceptPinClipUpdate = useCallback((next: Clip) => {
     setTrimUndoSnapshot(null);
@@ -1026,17 +1037,22 @@ export default function ClipEditor({
   }, [annotations, onClipUpdate]);
 
   const closePinAnnotator = useCallback(() => {
-    if (initialPinId) window.close();
+    if (initialPinId) {
+      const host = getAppHost();
+      host.editors.closeCurrent();
+      // Keep the editor mounted until the native close handshake flushes it.
+      if (host.kind === 'desktop') return;
+    }
     setEditingPinId(null);
   }, [initialPinId]);
 
   const openPinAnnotator = useCallback(async (
     pinId: string,
     sourceClip = currentClip,
-    reservedTab?: Window | null,
+    reservedTab?: ReservedEditor | null,
   ) => {
     if (!projectDir) return;
-    const popup = reservedTab === undefined ? reservePinTab() : reservedTab;
+    const popup = reservedTab === undefined ? getAppHost().editors.reserve(projectDir) : reservedTab;
     if (!popup) {
       setMessage(t('clip.pinPopupBlocked'));
       return;
@@ -1061,7 +1077,7 @@ export default function ClipEditor({
       }
       if (!target) throw new Error(t('clip.pinMissing'));
       setSelectedPinId(target.id);
-      navigatePinTab(popup, next.id, target.id);
+      popup.navigate({ clipId: next.id, pinId: target.id });
       setMessage(t('clip.openedPin', { frame: formatNumber(target.frame) }));
     } catch (error) {
       popup.close();
@@ -1071,7 +1087,7 @@ export default function ClipEditor({
 
   const createOrOpenPinAtCurrentFrame = useCallback(async () => {
     if (!projectDir) return;
-    const popup = reservePinTab();
+    const popup = getAppHost().editors.reserve(projectDir);
     if (!popup) {
       setMessage(t('clip.pinPopupBlocked'));
       return;
@@ -1408,6 +1424,7 @@ export default function ClipEditor({
   }, [playbackPausedPinId]);
 
   const togglePlayback = useCallback(async () => {
+    if (trackingSession?.phase === 'running') return;
     const element = videoElementRef.current;
     if (!element) return;
     if (playbackPausedPinId) {
@@ -1449,7 +1466,7 @@ export default function ClipEditor({
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     }
-  }, [activateOrAdvancePinAnimation, currentFrame, playbackEndFrame, playbackPausedPinId, playbackPins, playbackStartFrame, resumePlaybackFromPin, seekFrame, video.fps]);
+  }, [activateOrAdvancePinAnimation, currentFrame, playbackEndFrame, playbackPausedPinId, playbackPins, playbackStartFrame, resumePlaybackFromPin, seekFrame, trackingSession?.phase, video.fps]);
 
   useEffect(() => {
     const element = videoElementRef.current;
@@ -2084,9 +2101,6 @@ export default function ClipEditor({
     const position = ref?.kind === 'position'
       ? selectedAnnotation.keyframes.findIndex((keyframe) => keyframe.frame === ref.frame)
       : selectedAnnotation.keyframes.findIndex((keyframe) => keyframe.frame === currentFrame);
-    const visibility = ref?.kind === 'visibility'
-      ? (selectedAnnotation.visibilityKeyframes ?? []).findIndex((keyframe) => keyframe.frame === ref.frame)
-      : (selectedAnnotation.visibilityKeyframes ?? []).findIndex((keyframe) => keyframe.frame === currentFrame);
     if (position >= 0) {
       if (selectedAnnotation.keyframes.length <= 1) {
         setMessage(t('clip.keyframeLocationRequired'));
@@ -2096,11 +2110,6 @@ export default function ClipEditor({
       commitAnnotations(annotations.map((annotation) => annotation.id === selectedAnnotation.id ? { ...annotation, keyframes } : annotation));
       setSelectedKeyframe(null);
       return;
-    }
-    if (visibility >= 0) {
-      const visibilityKeyframes = (selectedAnnotation.visibilityKeyframes ?? []).filter((_, index) => index !== visibility);
-      commitAnnotations(annotations.map((annotation) => annotation.id === selectedAnnotation.id ? { ...annotation, visibilityKeyframes } : annotation));
-      setSelectedKeyframe(null);
     }
   }, [annotations, commitAnnotations, currentFrame, selectedAnnotation, selectedKeyframe, t]);
 
@@ -2213,24 +2222,20 @@ export default function ClipEditor({
     const frame = clampToClip(currentClip, targetFrame);
     const annotation = annotations.find((candidate) => candidate.id === ref.annotationId);
     if (!annotation || frame === ref.frame) return;
-    if (annotation.keyframes.some((keyframe) => keyframe.frame === frame)
-      || annotation.visibilityKeyframes?.some((keyframe) => keyframe.frame === frame)) {
+    if (annotation.keyframes.some((keyframe) => keyframe.frame === frame)) {
       setMessage(t('clip.keyframeDuplicate', { frame: formatNumber(frame) }));
       return;
     }
-    if (ref.kind === 'position') {
-      const source = annotation.keyframes.find((keyframe) => keyframe.frame === ref.frame);
-      if (!source || source.provenance === 'tracked' || source.provenance === 'lost') return;
-      const keyframes = annotation.keyframes
-        .map((keyframe) => keyframe === source ? { ...keyframe, frame: videoFrame(frame) } as ClipKeyframe : keyframe)
-        .sort((left, right) => left.frame - right.frame);
-      commitAnnotations(annotations.map((candidate) => candidate.id === annotation.id ? { ...candidate, keyframes } : candidate));
-    } else {
-      const visibilityKeyframes = (annotation.visibilityKeyframes ?? [])
-        .map((keyframe) => keyframe.frame === ref.frame ? { ...keyframe, frame: videoFrame(frame) } : keyframe)
-        .sort((left, right) => left.frame - right.frame);
-      commitAnnotations(annotations.map((candidate) => candidate.id === annotation.id ? { ...candidate, visibilityKeyframes } : candidate));
-    }
+    const source = annotation.keyframes.find((keyframe) => keyframe.frame === ref.frame);
+    if (!source || source.provenance === 'tracked' || source.provenance === 'lost') return;
+    const keyframes = annotation.keyframes
+      .map((keyframe) => keyframe === source ? { ...keyframe, frame: videoFrame(frame) } as ClipKeyframe : keyframe)
+      .sort((left, right) => left.frame - right.frame);
+    commitAnnotations(annotations.map((candidate) => candidate.id === annotation.id ? {
+      ...candidate,
+      keyframes,
+      visibilityKeyframes: candidate.visibilityKeyframes?.filter((keyframe) => keyframe.frame !== frame),
+    } : candidate));
     setSelectedKeyframe({ ...ref, frame });
     seekFrame(frame);
   }, [annotations, commitAnnotations, currentClip, formatNumber, seekFrame, t]);
@@ -2621,6 +2626,10 @@ export default function ClipEditor({
       return () => controller.abort();
     }
 
+    const element = videoElementRef.current;
+    if (element) trackingFrameFollowerRef.current = createTrackingFrameFollower(element, video.fps, updateCurrentFrame);
+    setIsPlaying(false);
+
     void (async () => {
       setMessage(null);
       try {
@@ -2690,6 +2699,7 @@ export default function ClipEditor({
           scheduleTrackingPreview(() => {
             const converted = convertKeyframes(liveKeyframes);
             activeTrackingFrameRef.current = converted.at(-1)?.frame ?? activeTrackingFrameRef.current;
+            if (activeTrackingFrameRef.current != null) trackingFrameFollowerRef.current?.follow(activeTrackingFrameRef.current);
             return annotationsWithTrackedFrames(converted);
           });
         }, sidecar.baseUrl, controller.signal);
@@ -2753,9 +2763,10 @@ export default function ClipEditor({
       controller.abort();
       cancelTrackingPreview();
     };
-  }, [applyTrackingAnnotations, cancelTrackingPreview, currentClip.endFrame, formatNumber, scheduleTrackingPreview, seekFrame, sidecar.baseUrl, t, trackingSession, video.fps, video.frameCount, videoPath, videoRef]);
+  }, [applyTrackingAnnotations, cancelTrackingPreview, currentClip.endFrame, formatNumber, scheduleTrackingPreview, seekFrame, sidecar.baseUrl, t, trackingSession, updateCurrentFrame, video.fps, video.frameCount, videoPath, videoRef]);
 
   const computeHomography = useCallback(async () => {
+    if (homographyAbortRef.current) return;
     if (!videoRef && !videoPath) {
       setMessage(t('clip.videoNotRegistered'));
       return;
@@ -2766,25 +2777,35 @@ export default function ClipEditor({
       return;
     }
     setComputingHomography(true);
+    const controller = new AbortController();
+    homographyAbortRef.current = controller;
+    setHomographyProgress({ phase: 'queued', completed: 0, total: 0 });
     setMessage(null);
     try {
       const startMs = Number(frameToMs(range.startFrame, video.fps));
       const endMs = Number(sidecarSampleEndMs(range, video.fps));
-      const result = await requestHomography({
+      const result = await requestHomographyStream({
         videoRef,
         videoPath,
-        startMs,
-        endMs,
-        fps: 5,
-        skipInterval: CLIP_HOMOGRAPHY_SKIP_INTERVAL,
-      }, sidecar.baseUrl);
+        startFrame: currentClip.startFrame,
+        endFrame: currentClip.endFrame,
+        sourceFps: video.fps,
+        everyNFrames: CLIP_HOMOGRAPHY_FRAME_INTERVAL,
+      }, (progress) => {
+        if (!controller.signal.aborted) setHomographyProgress(progress);
+      }, sidecar.baseUrl, controller.signal);
+      controller.signal.throwIfAborted();
       setHomographyFrames(result.frames);
       if (projectDir) await writeHomographyCache(projectDir, video.id, startMs, endMs, result.frames);
       setMessage(t('clip.homographyLoaded', { count: formatNumber(result.frames.length) }));
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      if (!controller.signal.aborted) setMessage(error instanceof Error ? error.message : String(error));
     } finally {
-      setComputingHomography(false);
+      if (homographyAbortRef.current === controller) {
+        homographyAbortRef.current = null;
+        setComputingHomography(false);
+        setHomographyProgress(null);
+      }
     }
   }, [currentClip.endFrame, currentClip.startFrame, formatNumber, projectDir, sidecar.baseUrl, t, video.fps, video.id, videoPath, videoRef]);
 
@@ -2867,9 +2888,6 @@ export default function ClipEditor({
 
   const selectedCurrentKeyframe = selectedAnnotation
     ? getCurrentKeyframe(selectedAnnotation, videoFrame(currentFrame))
-    : null;
-  const selectedVisibilityKeyframe = selectedAnnotation
-    ? getCurrentVisibilityKeyframe(selectedAnnotation, videoFrame(currentFrame))
     : null;
   const selectedInterpolatedGeometry = selectedAnnotation
     ? interpolateAnnotation(
@@ -3004,6 +3022,7 @@ export default function ClipEditor({
             className="relative min-h-0 flex-1 overflow-hidden bg-black"
           >
               <video
+                crossOrigin="anonymous"
                 ref={videoElementRef}
                 data-testid="clip-source-video"
                 src={videoUrl}
@@ -3463,7 +3482,6 @@ export default function ClipEditor({
             selectedAnnotations={selectedAnnotations}
             trackingState={selectedTrackingState}
             hasPositionKeyframe={!!selectedCurrentKeyframe}
-            hasVisibilityKeyframe={!!selectedVisibilityKeyframe}
             trackingPhase={trackingSession?.phase ?? 'idle'}
             trackingHasCandidate={!!trackingSession?.selectedDetection}
             trackingHasStarted={trackingSession?.hasStarted ?? false}
@@ -3505,10 +3523,19 @@ export default function ClipEditor({
               {computingHomography ? t('clip.computingHomography') : homographyFrames ? t('clip.recomputeHomography') : t('clip.computeHomography')}
             </button>
             {computingHomography && (
-              <progress
-                className="h-1.5 w-full accent-sky-400"
-                aria-label={t('clip.homographyProgress')}
-              />
+              <div className="space-y-1" role="status">
+                <div className="flex items-center justify-between gap-2 text-xs text-secondary">
+                  <span>{t(`clip.homography.${homographyProgress?.phase ?? 'queued'}`)}</span>
+                  {!!homographyProgress?.total && <span className="font-mono">{formatNumber(homographyProgress.completed)}/{formatNumber(homographyProgress.total)}</span>}
+                </div>
+                <progress
+                  className="block h-2 w-full accent-sky-400"
+                  aria-label={t('clip.homographyProgress')}
+                  max={Math.max(1, homographyProgress?.total ?? 0)}
+                  value={homographyProgress?.completed ?? 0}
+                />
+                <button className="button-quiet w-full" onClick={() => homographyAbortRef.current?.abort()}>{t('common.cancel')}</button>
+              </div>
             )}
             <div className="grid grid-cols-2 gap-1">
               <button

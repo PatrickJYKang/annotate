@@ -21,6 +21,8 @@ DerivedData/
 Pods/
 
 # Generated caches and exports
+/output/
+/.playwright-cli/
 # Ignore contents but keep .gitkeep placeholders
 **/cache/*
 !**/cache/.gitkeep

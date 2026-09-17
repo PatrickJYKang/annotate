@@ -1,3 +1,6 @@
+import type { ProjectDirectory } from "../host/contracts";
+import { projectResourceKey } from '../host/projectScope';
+import { broadcastClipChanged } from './clipEvents';
 import { parseAnnotations, type Annotations } from '../types/annotations';
 import {
   canonicalPinAnnotationPath,
@@ -45,31 +48,35 @@ export function pinAnnotationPath(clipId: string, annotationId: string): string[
   return ['analysis', 'clips', clipId, 'annotations', `${annotationId}.json`];
 }
 
-function documentLockName(clipId: string, annotationId: string): string {
-  return `annotate:annotation:${clipId}:${annotationId}`;
+function documentLockName(projectDir: ProjectDirectory, clipId: string, annotationId: string): string {
+  return projectResourceKey(projectDir, `annotation:${clipId}:${annotationId}`);
 }
 
 async function withDocumentExclusive<T>(
+  projectDir: ProjectDirectory,
   clipId: string,
   annotationId: string,
   operation: () => Promise<T>,
 ): Promise<T> {
   const locks = globalThis.navigator?.locks;
+  if (projectDir.withLock) return projectDir.withLock(documentLockName(projectDir, clipId, annotationId), 'exclusive', operation);
   if (!locks) throw new Error('Web Locks are required to save pin annotations safely.');
-  return locks.request(documentLockName(clipId, annotationId), { mode: 'exclusive' }, operation);
+  return locks.request(documentLockName(projectDir, clipId, annotationId), { mode: 'exclusive' }, operation);
 }
 
 async function withDocumentShared<T>(
+  projectDir: ProjectDirectory,
   clipId: string,
   annotationId: string,
   operation: () => Promise<T>,
 ): Promise<T> {
+  if (projectDir.withLock) return projectDir.withLock(documentLockName(projectDir, clipId, annotationId), 'shared', operation);
   const locks = globalThis.navigator?.locks;
   if (!locks) throw new Error('Web Locks are required to read pin annotations safely.');
-  return locks.request(documentLockName(clipId, annotationId), { mode: 'shared' }, operation);
+  return locks.request(documentLockName(projectDir, clipId, annotationId), { mode: 'shared' }, operation);
 }
 
-async function requireClip(projectDir: FileSystemDirectoryHandle, clipId: string): Promise<Clip> {
+async function requireClip(projectDir: ProjectDirectory, clipId: string): Promise<Clip> {
   const result = await readClip(projectDir, clipId);
   if (!result.ok) throw new Error(result.error.message);
   return result.clip;
@@ -99,19 +106,19 @@ function validateDocumentAnchor(document: Annotations, clip: Clip, pin: ClipPin)
 }
 
 async function writePinDocument(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   document: Annotations,
 ): Promise<void> {
   await writeJsonFile(projectDir, pinAnnotationPath(document.clipId, document.annotationId), document);
 }
 
 export async function readPinAnnotationDocument(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
   annotationId: string,
 ): Promise<PinAnnotationReadResult> {
   try {
-    return await withDocumentShared(clipId, annotationId, async () => {
+    return await withDocumentShared(projectDir, clipId, annotationId, async () => {
       const raw = JSON.parse(await readTextFile(projectDir, pinAnnotationPath(clipId, annotationId)));
       return { document: parseAnnotations(raw) };
     });
@@ -122,10 +129,11 @@ export async function readPinAnnotationDocument(
 }
 
 export async function createPinExclusive(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
   pin: ClipPin,
 ): Promise<Clip> {
+  if (projectDir.command) return projectDir.command('pin.create', [clipId, pin]);
   if (pin.annotations.length > 0) {
     throw new Error('A new pin must be created without document refs; create its documents through the repository.');
   }
@@ -148,11 +156,12 @@ export async function createPinExclusive(
 }
 
 export async function renamePinExclusive(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
   pinId: string,
   label?: string,
 ): Promise<Clip> {
+  if (projectDir.command) return projectDir.command('pin.rename', [clipId, pinId, label]);
   return withClipExclusive(projectDir, clipId, async () => {
     const clip = await requireClip(projectDir, clipId);
     requirePin(clip, pinId);
@@ -166,10 +175,11 @@ export async function renamePinExclusive(
 }
 
 export async function createPinAnnotationExclusive(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   documentInput: Annotations,
   options: CreatePinAnnotationOptions = {},
 ): Promise<Clip> {
+  if (projectDir.command) return projectDir.command('annotation.create', [documentInput, options]);
   const document = parseAnnotations(documentInput);
   return withClipExclusive(projectDir, document.clipId, async () => {
     const clip = await requireClip(projectDir, document.clipId);
@@ -185,7 +195,7 @@ export async function createPinAnnotationExclusive(
     if (await pathExists(projectDir, pinAnnotationPath(clip.id, document.annotationId), 'file')) {
       throw new Error(`Annotation file "${document.annotationId}" already exists as an orphan.`);
     }
-    await withDocumentExclusive(clip.id, document.annotationId, () => writePinDocument(projectDir, document));
+    await withDocumentExclusive(projectDir, clip.id, document.annotationId, () => writePinDocument(projectDir, document));
     const reference: PinAnnotationRef = {
       id: document.annotationId,
       file: canonicalPinAnnotationPath(document.annotationId),
@@ -204,9 +214,10 @@ export async function createPinAnnotationExclusive(
 }
 
 export async function savePinAnnotationExclusive(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   documentInput: Annotations,
 ): Promise<void> {
+  if (projectDir.command) return projectDir.command('annotation.save', [documentInput]);
   const document = parseAnnotations(documentInput);
   await withClipExclusive(projectDir, document.clipId, async () => {
     const clip = await requireClip(projectDir, document.clipId);
@@ -215,17 +226,19 @@ export async function savePinAnnotationExclusive(
     if (!pin.annotations.some((reference) => reference.id === document.annotationId)) {
       throw new Error(`Annotation ref "${document.annotationId}" has been deleted.`);
     }
-    await withDocumentExclusive(clip.id, document.annotationId, () => writePinDocument(projectDir, document));
+    await withDocumentExclusive(projectDir, clip.id, document.annotationId, () => writePinDocument(projectDir, document));
+    broadcastClipChanged(projectDir, clip.id);
   });
 }
 
 export async function deletePinAnnotationExclusive(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
   pinId: string,
   annotationId: string,
   options: DeleteClipToTrashOptions = {},
 ): Promise<TrashOperationRecord> {
+  if (projectDir.command) return projectDir.command('annotation.delete', [clipId, pinId, annotationId, options]);
   return withClipExclusive(projectDir, clipId, async () => {
     const clip = await requireClip(projectDir, clipId);
     const pin = requirePin(clip, pinId);
@@ -258,12 +271,13 @@ export async function deletePinAnnotationExclusive(
 }
 
 export async function restorePinAnnotationExclusive(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
   pinId: string,
   annotationId: string,
   operationId: string,
 ): Promise<Clip> {
+  if (projectDir.command) return projectDir.command('annotation.restore', [clipId, pinId, annotationId, operationId]);
   return withClipExclusive(projectDir, clipId, async () => {
     const clip = await requireClip(projectDir, clipId);
     const pin = requirePin(clip, pinId);
@@ -300,11 +314,12 @@ export async function restorePinAnnotationExclusive(
 }
 
 export async function deletePinExclusive(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
   pinId: string,
   options: DeleteClipToTrashOptions = {},
 ): Promise<TrashOperationRecord> {
+  if (projectDir.command) return projectDir.command('pin.delete', [clipId, pinId, options]);
   return withClipExclusive(projectDir, clipId, async () => {
     const clip = await requireClip(projectDir, clipId);
     const pin = requirePin(clip, pinId);
@@ -336,11 +351,12 @@ export async function deletePinExclusive(
 }
 
 export async function restorePinExclusive(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
   pinId: string,
   operationId: string,
 ): Promise<Clip> {
+  if (projectDir.command) return projectDir.command('pin.restore', [clipId, pinId, operationId]);
   return withClipExclusive(projectDir, clipId, async () => {
     const clip = await requireClip(projectDir, clipId);
     const { record, payload } = await readTrashOperation(projectDir, 'pin', pinId, operationId);

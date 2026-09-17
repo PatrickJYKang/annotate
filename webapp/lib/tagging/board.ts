@@ -1,3 +1,4 @@
+import type { ProjectDirectory } from "../host/contracts";
 import type { TaggingSelection } from './selection';
 
 export type BoardCaptureMode = 'instant' | 'range';
@@ -656,7 +657,7 @@ export function conflictedBoardHotkeys(board: TaggingBoard): Set<string> {
 }
 
 export async function readTaggingBoard(
-  dir: FileSystemDirectoryHandle,
+  dir: ProjectDirectory,
 ): Promise<TaggingBoard | null> {
   try {
     const handle = await dir.getFileHandle(TAGGING_BOARD_FILENAME, { create: false });
@@ -677,7 +678,7 @@ export async function fetchDefaultTaggingBoard(): Promise<string> {
 }
 
 export async function writeDefaultTaggingBoard(
-  dir: FileSystemDirectoryHandle,
+  dir: ProjectDirectory,
 ): Promise<TaggingBoard> {
   const source = await fetchDefaultTaggingBoard();
   const board = parseTaggingBoard(source);

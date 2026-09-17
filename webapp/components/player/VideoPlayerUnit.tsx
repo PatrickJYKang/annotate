@@ -621,6 +621,7 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
       </div>
       {/* Video */}
       <video
+        crossOrigin="anonymous"
         ref={videoRef}
         src={src ?? undefined}
         preload={preload}

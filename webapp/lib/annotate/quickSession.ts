@@ -1,3 +1,5 @@
+import type { ProjectDirectory } from "../host/contracts";
+import { getAppHost } from '../host';
 // ---------------------------------------------------------------------------
 // Quick-annotate session helpers — a single uploaded image annotated without
 // a project. Annotation documents persist in the origin-private file system
@@ -23,15 +25,12 @@ export function takeQuickAnnotateFile(): File | null {
 }
 
 export function isQuickAnnotateSupported(): boolean {
-  return typeof navigator !== 'undefined'
-    && !!navigator.storage
-    && typeof navigator.storage.getDirectory === 'function';
+  return getAppHost().files.canUseScratchStorage;
 }
 
 /** OPFS directory that backs quick-annotate sessions (created on demand). */
-export async function getQuickAnnotateDir(): Promise<FileSystemDirectoryHandle> {
-  const root = await navigator.storage.getDirectory();
-  return await root.getDirectoryHandle(QUICK_ROOT_DIR, { create: true });
+export async function getQuickAnnotateDir(): Promise<ProjectDirectory> {
+  return getAppHost().files.getScratchDirectory(QUICK_ROOT_DIR);
 }
 
 function hashString(s: string): string {

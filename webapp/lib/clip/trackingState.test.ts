@@ -66,7 +66,7 @@ describe('frame-native tracking state', () => {
     expect(isAnnotationVisible(annotation, videoFrame(46))).toBe(true);
   });
 
-  it('treats a long tracked interval as lost while allowing short intervals', () => {
+  it('preserves the existing gap rule at a correction keyframe', () => {
     const annotation: ClipAnnotation = {
       ...trackedAnnotation(),
       keyframes: [
@@ -79,5 +79,24 @@ describe('frame-native tracking state', () => {
     expect(getFrameTrackingState(annotation, videoFrame(3), frameBoundary(30))).toBe('tracked');
     expect(getFrameTrackingState(annotation, videoFrame(12), frameBoundary(30))).toBe('lost');
     expect(getFrameTrackingState(annotation, videoFrame(20), frameBoundary(30))).toBe('correction');
+  });
+
+  it('keeps long gaps between tracked highlight observations visible and marked tracked', () => {
+    const annotation: ClipAnnotation = {
+      ...trackedAnnotation(),
+      keyframes: [
+        { frame: videoFrame(0), cx: 0, cy: 0, radius: 5, provenance: 'tracked' },
+        { frame: videoFrame(30), cx: 30, cy: 0, radius: 5, provenance: 'tracked' },
+      ],
+      visibilityKeyframes: [],
+    };
+    expect(getHiddenSpans(annotation, frameBoundary(50))).toEqual([]);
+    expect(getFrameTrackingState(annotation, videoFrame(15), frameBoundary(50))).toBe('tracked');
+
+    annotation.visibilityKeyframes = [{ frame: videoFrame(10), action: 'hide' }];
+    expect(getHiddenSpans(annotation, frameBoundary(50))).toEqual([
+      { startFrame: 10, endFrame: 50 },
+    ]);
+    expect(isAnnotationVisible(annotation, videoFrame(15))).toBe(false);
   });
 });

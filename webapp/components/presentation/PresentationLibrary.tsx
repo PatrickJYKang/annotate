@@ -1,5 +1,6 @@
 "use client";
 
+import type { ProjectDirectory } from "../../lib/host/contracts";
 import { useCallback, useEffect, useState } from 'react';
 import {
   deletePresentation,
@@ -12,7 +13,7 @@ import { createDefaultPresentation, type Presentation } from '../../lib/types/pr
 import { useLocale } from '../../lib/i18n';
 
 interface PresentationLibraryProps {
-  projectDir: FileSystemDirectoryHandle;
+  projectDir: ProjectDirectory;
   onOpen: (presentationId: string) => void;
   onChanged?: () => unknown | Promise<unknown>;
   compact?: boolean;

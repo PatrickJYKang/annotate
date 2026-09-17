@@ -1,4 +1,5 @@
-export async function uniqueFileName(dir: FileSystemDirectoryHandle, originalName: string): Promise<string> {
+import type { ProjectDirectory } from "../host/contracts";
+export async function uniqueFileName(dir: ProjectDirectory, originalName: string): Promise<string> {
   const dot = originalName.lastIndexOf('.');
   const base = dot > 0 ? originalName.slice(0, dot) : originalName;
   const ext = dot > 0 ? originalName.slice(dot) : '';
@@ -14,7 +15,7 @@ export async function uniqueFileName(dir: FileSystemDirectoryHandle, originalNam
   }
 }
 
-export async function fileExists(dir: FileSystemDirectoryHandle, name: string): Promise<boolean> {
+export async function fileExists(dir: ProjectDirectory, name: string): Promise<boolean> {
   try {
     await dir.getFileHandle(name, { create: false });
     return true;

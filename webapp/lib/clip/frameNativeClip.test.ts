@@ -58,6 +58,20 @@ describe('frame-native clip domain', () => {
     ]);
   });
 
+  it('renders a tracked highlight through a long missing-observation interval', () => {
+    const annotation: ClipAnnotation = {
+      ...frameAnnotation(),
+      keyframes: [
+        { frame: videoFrame(20), cx: 100, cy: 100, radius: 20, provenance: 'tracked' },
+        { frame: videoFrame(38), cx: 280, cy: 136, radius: 20, provenance: 'tracked' },
+      ],
+    };
+    expect(resolveClipDrawables([annotation], 29, frameTemporalAdapter(endFrame))).toEqual([
+      expect.objectContaining({ id: 'player', kind: 'ellipse', cx: 190, cy: 118 }),
+    ]);
+    expect(resolveClipDrawables([annotation], 41, frameTemporalAdapter(endFrame))).toEqual([]);
+  });
+
   it('uses absolute frames for visibility, correction lookup, and conservative tracking gaps', () => {
     const annotation = frameAnnotation();
 

@@ -1,5 +1,6 @@
 "use client";
 
+import type { ProjectDirectory } from "../../lib/host/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
@@ -31,7 +32,7 @@ function useToast() {
 
 export default function QuickAnnotatePage() {
   const router = useRouter();
-  const [projectDir, setProjectDir] = useState<FileSystemDirectoryHandle | null>(null);
+  const [projectDir, setProjectDir] = useState<ProjectDirectory | null>(null);
   const { msg, show } = useToast();
 
   const Editor = useMemo(() => dynamic(() => import("../../components/annotate/Editor"), { ssr: false }), []);

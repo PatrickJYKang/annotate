@@ -32,6 +32,37 @@ afterEach(() => {
 });
 
 describe('importVideoIntoProject', () => {
+  it('rolls back the media copy when canceled before the manifest commit', async () => {
+    const controller = new AbortController();
+    const fileSystem = new MockFileSystem({}, {
+      onWrite(path) {
+        if (path.startsWith('media/')) controller.abort();
+      },
+    });
+    const { manifest } = await project(fileSystem);
+    await expect(importVideoIntoProject(fileSystem.root, manifest, new File(['video'], 'source.mp4'), {
+      signal: controller.signal,
+      prepare: normalized,
+    })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fileSystem.list('media')).toEqual([]);
+    expect(await readProjectManifest(fileSystem.root)).toMatchObject({ ok: true, manifest: { videos: [] } });
+  });
+
+  it('does not write media when canceled as preparation finishes', async () => {
+    const fileSystem = new MockFileSystem();
+    const { manifest } = await project(fileSystem);
+    const controller = new AbortController();
+    await expect(importVideoIntoProject(fileSystem.root, manifest, new File(['video'], 'source.mp4'), {
+      signal: controller.signal,
+      prepare: async () => {
+        controller.abort();
+        return normalized();
+      },
+    })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fileSystem.list('media')).toEqual([]);
+    expect(await readProjectManifest(fileSystem.root)).toMatchObject({ ok: true, manifest: { videos: [] } });
+  });
+
   it('commits authoritative metadata and media together', async () => {
     const fileSystem = new MockFileSystem();
     const { manifest } = await project(fileSystem);

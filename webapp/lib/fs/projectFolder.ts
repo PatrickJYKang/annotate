@@ -1,3 +1,4 @@
+import type { ProjectDirectory } from "../host/contracts";
 import {
   fetchDefaultTaggingBoard,
   parseTaggingBoard,
@@ -121,7 +122,7 @@ export function parseProjectManifest(raw: unknown): ProjectManifest {
 }
 
 export async function readProjectManifest(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
 ): Promise<ProjectReadResult> {
   let source: string;
   try {
@@ -157,7 +158,7 @@ export async function readProjectManifest(
 }
 
 export async function writeProjectManifest(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   manifest: ProjectManifest,
 ): Promise<void> {
   const parsed = parseProjectManifest(manifest);
@@ -170,9 +171,10 @@ async function loadDefaultBoardSource(provided?: string): Promise<{ source: stri
 }
 
 export async function createProject(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   options: CreateProjectOptions,
 ): Promise<{ manifest: ProjectManifest; board: TaggingBoard }> {
+  if (projectDir.command) return projectDir.command('project.create', [options]);
   if (!(await directoryIsEmpty(projectDir))) {
     throw new Error('Create project requires an empty folder and will not overwrite existing content.');
   }
@@ -196,7 +198,7 @@ export async function createProject(
 }
 
 export async function ensureProjectBoard(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   defaultBoardSource?: string,
 ): Promise<TaggingBoard> {
   const existing = await readTaggingBoard(projectDir);
@@ -207,9 +209,10 @@ export async function ensureProjectBoard(
 }
 
 export async function validateProjectFolder(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   defaultBoardSource?: string,
 ): Promise<ProjectOpenResult> {
+  if (projectDir.command) return projectDir.command('project.validate', []);
   const manifestResult = await readProjectManifest(projectDir);
   if (!manifestResult.ok) return manifestResult;
   for (const path of AUTHORITATIVE_DIRECTORIES) {

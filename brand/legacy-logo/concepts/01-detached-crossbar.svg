@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Annotate detached crossbar logo concept</title>
+  <desc id="desc">An uppercase A with a detached right-pointing arrow in place of its crossbar.</desc>
+  <path d="M18 108 60 18 108 108" fill="none" stroke="#0e1520" stroke-width="12" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="M43 64h24v-9l14 15-14 15v-9H43z" fill="#2f78c4"/>
+</svg>

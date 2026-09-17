@@ -10,8 +10,22 @@
     "dev:sidecar": "./scripts/run-sidecar.sh",
     "build": "npm --prefix webapp run build",
     "test": "npm --prefix webapp run test",
+    "test:desktop": "npm run build:desktop-host && node --test desktop/test/*.test.mjs",
+    "build:desktop-renderer": "node desktop/scripts/build-renderer.mjs",
+    "test:desktop-renderer": "node desktop/scripts/smoke-renderer.mjs",
+    "test:desktop-services": "node desktop/scripts/smoke-renderer.mjs --with-sidecar",
+    "build:desktop-host": "node desktop/scripts/build-host.mjs",
+    "desktop:dev": "npm run build:desktop-host && electron desktop/main.mjs",
+    "test:electron": "node desktop/scripts/smoke-electron.mjs",
+    "stage:desktop": "node desktop/scripts/stage-runtime.mjs",
+    "package:desktop": "node desktop/scripts/package-desktop.mjs",
     "test:e2e": "npm --prefix webapp run test:e2e",
     "test:e2e:headed": "npm --prefix webapp run test:e2e:headed",
     "playwright:install": "npm --prefix webapp run playwright:install"
+  },
+  "devDependencies": {
+    "electron": "44.2.0",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.28.2"
   }
 }

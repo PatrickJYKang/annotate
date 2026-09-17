@@ -5,13 +5,16 @@ Provides ML-powered object tracking, homography estimation, and export encoding.
 """
 
 import logging
+import os
+import re
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import derived_media, health, track, homography, export, video
+from .routes import derived_media, health, track, homography, export, video, native
 from .video_registry import cleanup_registered_videos
+from .session_auth import SessionAuthMiddleware
 
 logger = logging.getLogger("annotate_sidecar")
 
@@ -57,16 +60,23 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS — allow the Next.js dev server and any localhost origin
+    token = os.getenv("ANNOTATE_AUTH_TOKEN")
+    origins = [value.strip() for value in os.getenv("ANNOTATE_ALLOWED_ORIGINS", "").split(",") if value.strip()]
+    if token:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{32,256}", token) or not origins:
+            raise ValueError("Managed sidecar mode requires a strong session token and explicit allowed origins.")
+        app.add_middleware(SessionAuthMiddleware, token=token, allowed_origins=origins)
+
+    # CORS wraps authentication so allowed preflights work without a bearer header.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
+        allow_origins=origins if token else [
             "http://localhost:3000",
             "http://localhost:3001",
             "http://127.0.0.1:3000",
             "http://127.0.0.1:3001",
         ],
-        allow_origin_regex=r"^http://(localhost|127\.0\.0\.1):\d+$",
+        allow_origin_regex=None if token else r"^http://(localhost|127\.0\.0\.1):\d+$",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -87,5 +97,6 @@ def create_app() -> FastAPI:
     app.include_router(export.router, prefix="/export", tags=["export"])
     app.include_router(derived_media.router, prefix="/derived-media", tags=["derived-media"])
     app.include_router(video.router, prefix="/video", tags=["video"])
+    app.include_router(native.router, prefix="/native", tags=["native-host"])
 
     return app

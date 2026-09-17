@@ -1,3 +1,4 @@
+import type { ProjectDirectory } from "../host/contracts";
 import { annotationPayloadFromDocument } from '../annotate/documentPayload';
 import { createFrameRasterQueue, type FrameRasterQueue } from '../media/frameRaster';
 import { getFilePath, isNotFoundError, removePath, splitSafeRelativePath, writeTextFile } from '../fs/fsAccess';
@@ -113,7 +114,7 @@ export function clipRowsToCsv(rows: readonly ClipExportRow[]): string {
   return `${lines.join('\n')}\n`;
 }
 
-async function ensureWritePermission(projectDir: FileSystemDirectoryHandle): Promise<void> {
+async function ensureWritePermission(projectDir: ProjectDirectory): Promise<void> {
   const current = projectDir.queryPermission ? await projectDir.queryPermission({ mode: 'readwrite' }) : 'granted';
   if (current === 'granted') return;
   const requested = projectDir.requestPermission ? await projectDir.requestPermission({ mode: 'readwrite' }) : 'denied';
@@ -121,7 +122,7 @@ async function ensureWritePermission(projectDir: FileSystemDirectoryHandle): Pro
 }
 
 async function writeBlob(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   segments: readonly string[],
   blob: Blob,
 ): Promise<void> {
@@ -158,7 +159,7 @@ function rowBase(
 }
 
 export async function exportAllClips(args: {
-  projectDir: FileSystemDirectoryHandle;
+  projectDir: ProjectDirectory;
   manifest: ProjectManifest;
   clips: readonly Clip[];
   board: TaggingBoard;

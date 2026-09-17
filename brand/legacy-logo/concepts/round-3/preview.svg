@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700" viewBox="0 0 1000 700" role="img" aria-labelledby="title desc">
+  <title id="title">Annotate one-sided arrow geometry preview</title>
+  <desc id="desc">A large preview of an uppercase A with a flat-topped, one-sided arrow replacing its crossbar.</desc>
+  <rect width="1000" height="700" fill="#0a0f18"/>
+  <g transform="translate(180 60) scale(3.6)">
+    <path fill="#edf1f5" d="M12 146 65 21q4-10 13-10t14 10l17 35-18 9-13-27-40 108Z"/>
+    <path fill="#edf1f5" d="m112 105 19-9 23 50h-25Z"/>
+    <path fill="#2f78c4" d="M66 79h34L90 68h22l12 25H60Z"/>
+  </g>
+</svg>

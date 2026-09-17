@@ -8,7 +8,8 @@
 // ---------------------------------------------------------------------------
 
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
-import { checkHealth, SIDECAR_BASE_URL, type HealthResponse } from "../clip/sidecarClient";
+import { checkHealth, type HealthResponse } from "../clip/sidecarClient";
+import { getSidecarBaseUrl } from '../host/runtime';
 
 export interface SidecarState {
   connected: boolean;
@@ -22,7 +23,7 @@ const SidecarContext = createContext<SidecarState>({
   connected: false,
   capabilities: [],
   models: null,
-  baseUrl: SIDECAR_BASE_URL,
+  baseUrl: getSidecarBaseUrl(),
   retry: () => {},
 });
 
@@ -33,7 +34,7 @@ export function useSidecar(): SidecarState {
 const POLL_INTERVAL = 30_000; // 30 seconds
 
 export function SidecarProvider({ children, baseUrl }: { children: React.ReactNode; baseUrl?: string }) {
-  const url = baseUrl || SIDECAR_BASE_URL;
+  const url = baseUrl || getSidecarBaseUrl();
   const [connected, setConnected] = useState(false);
   const [capabilities, setCapabilities] = useState<string[]>([]);
   const [models, setModels] = useState<HealthResponse["models"] | null>(null);

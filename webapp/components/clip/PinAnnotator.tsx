@@ -1,5 +1,6 @@
 "use client";
 
+import type { ProjectDirectory } from "../../lib/host/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 
 import AnnotateToolbar from '../annotate/AnnotateToolbar';
@@ -34,7 +35,7 @@ import type { VideoEntry } from '../../lib/types/project';
 import { useLocale } from '../../lib/i18n';
 
 interface PinAnnotatorProps {
-  projectDir: FileSystemDirectoryHandle;
+  projectDir: ProjectDirectory;
   clip: Clip;
   pin: ClipPin;
   video: VideoEntry;

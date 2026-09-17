@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="620" viewBox="0 0 1000 620" role="img" aria-label="Annotate mark variations">
+  <rect width="1000" height="620" fill="#0a0f18"/>
+  <g transform="translate(40 40)">
+    <g fill="#ffffff" transform="scale(1.2)">
+      <path d="M80 0H108L139 62H111L94 28L28 160H0Z"/><path d="M138 116H166L188 160H160Z"/><path d="M66 106H161L144 72H116L120 80H79Z"/>
+    </g>
+    <text x="0" y="236" fill="#a7b1bf" font-family="IBM Plex Sans, Helvetica, Arial, sans-serif" font-size="15">01-head-8</text>
+    <text x="0" y="258" fill="#738197" font-family="IBM Plex Sans, Helvetica, Arial, sans-serif" font-size="13">Head rises 8 (short)</text>
+  </g>
+  <g transform="translate(360 40)">
+    <g fill="#ffffff" transform="scale(1.2)">
+      <path d="M80 0H108L136 56H108L94 28L28 160H0Z"/><path d="M138 116H166L188 160H160Z"/><path d="M66 106H161L141 66H113L120 80H79Z"/>
+    </g>
+    <text x="0" y="236" fill="#a7b1bf" font-family="IBM Plex Sans, Helvetica, Arial, sans-serif" font-size="15">02-head-14</text>
+    <text x="0" y="258" fill="#738197" font-family="IBM Plex Sans, Helvetica, Arial, sans-serif" font-size="13">Head rises 14 (current)</text>
+  </g>
+  <g transform="translate(680 40)">
+    <g fill="#ffffff" transform="scale(1.2)">
+      <path d="M80 0H108L131 46H103L94 28L28 160H0Z"/><path d="M138 116H166L188 160H160Z"/><path d="M66 106H161L136 56H108L120 80H79Z"/>
+    </g>
+    <text x="0" y="236" fill="#a7b1bf" font-family="IBM Plex Sans, Helvetica, Arial, sans-serif" font-size="15">03-head-24</text>
+    <text x="0" y="258" fill="#738197" font-family="IBM Plex Sans, Helvetica, Arial, sans-serif" font-size="13">Head rises 24 (tall)</text>
+  </g>
+  <g transform="translate(40 330)">
+    <g fill="#ffffff" transform="scale(1.2)">
+      <path d="M80 0H108L126 36H98L94 28L28 160H0Z"/><path d="M138 116H166L188 160H160Z"/><path d="M66 106H161L131 46H103L120 80H79Z"/>
+    </g>
+    <text x="0" y="236" fill="#a7b1bf" font-family="IBM Plex Sans, Helvetica, Arial, sans-serif" font-size="15">04-head-34</text>
+    <text x="0" y="258" fill="#738197" font-family="IBM Plex Sans, Helvetica, Arial, sans-serif" font-size="13">Head rises 34 (very tall)</text>
+  </g>
+  <g transform="translate(360 330)">
+    <g fill="#ffffff" transform="scale(1.2)">
+      <path d="M80 0H108L143 70H115L94 28L28 160H0Z"/><path d="M138 116H166L188 160H160Z"/><path d="M66 106H161L148 80H79Z"/>
+    </g>
+    <text x="0" y="236" fill="#a7b1bf" font-family="IBM Plex Sans, Helvetica, Arial, sans-serif" font-size="15">05-flat-bar</text>
+    <text x="0" y="258" fill="#738197" font-family="IBM Plex Sans, Helvetica, Arial, sans-serif" font-size="13">No head, plain bar</text>
+  </g>
+  <g transform="translate(680 330)">
+    <g fill="#ffffff" transform="scale(1.2)">
+      <path d="M80 0H108L136 56H108L94 28L28 160H0Z"/><path d="M138 116H166L188 160H160Z"/><path d="M55 106H161L141 66H113L120 80H68Z"/>
+    </g>
+    <text x="0" y="236" fill="#a7b1bf" font-family="IBM Plex Sans, Helvetica, Arial, sans-serif" font-size="15">06-attached</text>
+    <text x="0" y="258" fill="#738197" font-family="IBM Plex Sans, Helvetica, Arial, sans-serif" font-size="13">Head 14, joined to left leg</text>
+  </g>
+</svg>

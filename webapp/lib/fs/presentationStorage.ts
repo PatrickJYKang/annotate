@@ -1,3 +1,4 @@
+import type { ProjectDirectory } from "../host/contracts";
 import { isSafeClipIdSegment } from '../types/clip';
 import type {
   ClipPauseCue,
@@ -226,7 +227,7 @@ function presentationPath(presentationId: string): string[] {
 }
 
 export async function readPresentation(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   presentationId: string,
 ): Promise<PresentationReadResult> {
   let source: string;
@@ -275,18 +276,19 @@ export async function readPresentation(
 }
 
 export async function writePresentation(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   presentation: Presentation,
 ): Promise<void> {
+  if (projectDir.command) return projectDir.command('presentation.save', [presentation]);
   const parsed = parsePresentation(presentation);
   await getDirectoryPath(projectDir, PRESENTATIONS_PATH, true);
   await writeJsonFile(projectDir, presentationPath(parsed.id), parsed);
 }
 
 export async function listPresentations(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
 ): Promise<PresentationListResult> {
-  let directory: FileSystemDirectoryHandle;
+  let directory: ProjectDirectory;
   try {
     directory = await getDirectoryPath(projectDir, PRESENTATIONS_PATH, false);
   } catch (error) {
@@ -315,7 +317,7 @@ export async function listPresentations(
 }
 
 async function requirePresentation(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   presentationId: string,
 ): Promise<Presentation> {
   const result = await readPresentation(projectDir, presentationId);
@@ -324,11 +326,12 @@ async function requirePresentation(
 }
 
 export async function renamePresentation(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   presentationId: string,
   name: string,
   now = new Date(),
 ): Promise<Presentation> {
+  if (projectDir.command) return projectDir.command('presentation.rename', [presentationId, name, now]);
   const current = await requirePresentation(projectDir, presentationId);
   const next: Presentation = {
     ...current,
@@ -346,10 +349,11 @@ export interface DuplicatePresentationOptions {
 }
 
 export async function duplicatePresentation(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   presentationId: string,
   options: DuplicatePresentationOptions,
 ): Promise<Presentation> {
+  if (projectDir.command) return projectDir.command('presentation.duplicate', [presentationId, options]);
   const current = await requirePresentation(projectDir, presentationId);
   const iso = (options.now ?? new Date()).toISOString();
   const copy: Presentation = {
@@ -364,9 +368,10 @@ export async function duplicatePresentation(
 }
 
 export async function deletePresentation(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   presentationId: string,
 ): Promise<void> {
+  if (projectDir.command) return projectDir.command('presentation.delete', [presentationId]);
   await requirePresentation(projectDir, presentationId);
   await removePath(projectDir, presentationPath(presentationId));
 }

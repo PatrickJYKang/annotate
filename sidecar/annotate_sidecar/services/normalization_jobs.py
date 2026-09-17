@@ -14,6 +14,7 @@ from typing import Literal, TypedDict
 
 from .encoder import EncodingCancelledError, normalize_video_fps, remux_video_for_browser
 from .video_probe import VideoProbeMetadata, probe_video_metadata
+from .timestamp_normalization import try_retime_video
 
 logger = logging.getLogger("annotate_sidecar.normalization_jobs")
 
@@ -169,6 +170,7 @@ def _run_job(job: NormalizationJob) -> None:
                 fps=float(job.target_fps),
                 width=int(job.target_width),
                 height=int(job.target_height),
+                source_metadata=source,
                 progress_callback=lambda value: _set_job_state(job, progress=value),
                 cancel_event=job.cancel_event,
             )
@@ -192,17 +194,20 @@ def _run_job(job: NormalizationJob) -> None:
             frame_count_source = "probe"
             result_path = job.output_path
         else:
-            _set_job_state(job, status="transcoding", progress=0.0)
-            normalize_video_fps(
-                str(job.input_path),
-                str(job.output_path),
-                fps=source["fps"],
-                width=source["width"],
-                height=source["height"],
+            _set_job_state(job, status="remuxing", progress=0.0)
+            retimed = try_retime_video(
+                job.input_path, job.output_path, source,
                 progress_callback=lambda value: _set_job_state(job, progress=value),
                 cancel_event=job.cancel_event,
             )
-            strategy = "transcode"
+            if not retimed:
+                _set_job_state(job, status="transcoding", progress=0.0)
+                normalize_video_fps(
+                    str(job.input_path), str(job.output_path),
+                    fps=source["fps"], width=source["width"], height=source["height"], source_metadata=source,
+                    progress_callback=lambda value: _set_job_state(job, progress=value), cancel_event=job.cancel_event,
+                )
+            strategy = "remux" if retimed else "transcode"
             frame_count_source = "normalize"
             result_path = job.output_path
 

@@ -1,5 +1,8 @@
 "use client";
 
+import type { ProjectDirectory } from "../../lib/host/contracts";
+import { projectResourceKey } from '../../lib/host/projectScope';
+import { registerCloseGuard } from '../../lib/host/closeGuard';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Rect as KRect, Circle as KCircle, Arrow as KArrow, Text as KText, Image as KImage, Transformer, Line as KLine, Ellipse as KEllipse, Shape as KShape } from "react-konva";
 import { writeAnnotationDocument } from "../../lib/fs/annotationStorage";
@@ -431,7 +434,7 @@ export default function Editor({
   annotationsLocked?: boolean;
   animationPanelOpen?: boolean;
   onAnimationPanelOpenChange?: (open: boolean) => void;
-  projectDir?: FileSystemDirectoryHandle | null;
+  projectDir?: ProjectDirectory | null;
   persistDocument?: EditorPersistDocument;
 }) {
   const t = useT();
@@ -497,6 +500,7 @@ export default function Editor({
   const [circFrac, setCircFrac] = useState<{ rx: number; ry: number } | null>(null);
   const [ioError, setIoError] = useState<string | null>(null);
   const isSavingRef = useRef(false);
+  const saveErrorRef = useRef<string | null>(null);
   const [backupOffer, setBackupOffer] = useState<any | null>(null);
   const lastSavedHashRef = useRef<string | null>(null);
   const lastManualTickRef = useRef<number | null>(null);
@@ -526,7 +530,8 @@ export default function Editor({
   const defFillOp = defaultFillOpacity ?? 0.3;
   const defFontSz = defaultFontSize ?? 48;
   const defTextHl = defaultTextHighlight ?? false;
-  const backupDocKey = annotationAnchorKey(resolvedAnchor, annotationId);
+  const anchorKey = annotationAnchorKey(resolvedAnchor, annotationId);
+  const backupDocKey = projectDir ? projectResourceKey(projectDir, anchorKey) : anchorKey;
 
   const clearPerspectiveState = useCallback(() => {
     perspectiveRef.current = null;
@@ -611,7 +616,7 @@ export default function Editor({
         let file: File | null = null;
         try {
           const parts = annotationFilePath.split('/').filter(Boolean);
-          let cur: FileSystemDirectoryHandle = projectDir;
+          let cur: ProjectDirectory = projectDir;
           for (let i = 0; i < parts.length - 1; i += 1) {
             cur = await cur.getDirectoryHandle(parts[i], { create: false });
           }
@@ -1097,6 +1102,7 @@ export default function Editor({
       const text = JSON.stringify(body, null, 2);
       const contentHash = hashString(text);
       if (lastSavedHashRef.current && lastSavedHashRef.current === contentHash) {
+        saveErrorRef.current = null;
         const now = new Date().toISOString();
         if (onSaveStatus) onSaveStatus({ state: 'saved', at: now, message: 'already_saved' });
         return;
@@ -1106,6 +1112,7 @@ export default function Editor({
         const anyHandle: any = projectDir as any;
         const q = await (anyHandle?.queryPermission ? anyHandle.queryPermission({ mode: 'readwrite' }) : 'granted');
         if (q !== 'granted' || !hasLoadedRef.current) {
+          saveErrorRef.current = tRef.current('error.writePermission');
           setIoError(tRef.current('error.writePermission'));
           await writeBackup({ docKey: backupDocKey, anchor: resolvedAnchor, annotationId, schema: body.schema, updatedAt: new Date().toISOString(), contentHash, data: body });
           if (onSaveStatus) onSaveStatus({ state: 'error', at: new Date().toISOString(), message: 'permission' });
@@ -1121,9 +1128,10 @@ export default function Editor({
             await writeAnnotationDocument(projectDir, annotationFilePath, body);
           }
           lastSavedHashRef.current = contentHash;
+          saveErrorRef.current = null;
           await writeBackup({ docKey: backupDocKey, anchor: resolvedAnchor, annotationId, schema: body.schema, updatedAt: new Date().toISOString(), contentHash, data: body });
           try {
-            const bc = new BroadcastChannel('annotate-events');
+            const bc = new BroadcastChannel(projectResourceKey(projectDir, 'events'));
             bc.postMessage({
               type: 'annotation-saved',
               anchor: resolvedAnchor,
@@ -1136,6 +1144,7 @@ export default function Editor({
           } catch {}
           if (onSaveStatus) onSaveStatus({ state: 'saved', at: new Date().toISOString() });
         } catch (e: any) {
+          saveErrorRef.current = e?.message || String(e);
           setIoError(e?.message || String(e));
           await writeBackup({ docKey: backupDocKey, anchor: resolvedAnchor, annotationId, schema: body.schema, updatedAt: new Date().toISOString(), contentHash, data: body });
           if (onSaveStatus) onSaveStatus({ state: 'error', at: new Date().toISOString(), message: e?.message || String(e) });
@@ -1154,12 +1163,20 @@ export default function Editor({
         }
       }
     } catch (e: any) {
+      saveErrorRef.current = e?.message || String(e);
       setIoError(e?.message || String(e));
       if (onSaveStatus) onSaveStatus({ state: 'error', at: new Date().toISOString(), message: e?.message || String(e) });
     }
   }, [projectDir, annotationId, annotationFilePath, annotationLabel, backupDocKey, imageInfo.file, imageInfo.height, imageInfo.width, onSaveStatus, persistDocument, resolvedAnchor]);
 
   // Debounced save wrapper
+  useEffect(() => registerCloseGuard(async () => {
+    if (!hasLoadedRef.current) return;
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    await performSave();
+    if (saveErrorRef.current) throw new Error(saveErrorRef.current);
+  }), [performSave]);
+
   const requestSave = useCallback(() => {
     if (!hasLoadedRef.current) return;
     if (saveTimer.current) window.clearTimeout(saveTimer.current);

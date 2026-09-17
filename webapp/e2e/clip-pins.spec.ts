@@ -173,7 +173,8 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   await pinPage.setViewportSize({ width: 1440, height: 1000 });
   let annotator = pinPage.getByTestId('pin-annotator');
   await expect(annotator).toBeVisible({ timeout: 15_000 });
-  await expect(pinPage).toHaveURL(/\/clip\/clip-sequence\?pinId=pin-shape/);
+  expect(new URL(pinPage.url()).searchParams.get('pinId')).toBe('pin-shape');
+  expect(new URL(pinPage.url()).searchParams.get('projectSession')).toBeTruthy();
   await expect(pinPage.getByText(/Frame 15 · clip 5–44/)).toBeVisible();
   await pinPage.keyboard.press('Escape');
   expect(pinPage.isClosed()).toBe(false);
@@ -270,7 +271,7 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   await pinPage.setViewportSize({ width: 1440, height: 1000 });
   annotator = pinPage.getByTestId('pin-annotator');
   await expect(annotator).toBeVisible({ timeout: 15_000 });
-  await expect(pinPage).toHaveURL(/\/clip\/clip-sequence\?pinId=pin-/);
+  await expect(pinPage).toHaveURL(/\/clip\/clip-sequence\?projectSession=[^&]+&pinId=pin-/);
   await expect(pinPage.getByText(/Frame 16 · clip 5–44/)).toBeVisible();
   await expect(annotator.getByRole('button', { name: 'Import into clip' })).toBeEnabled();
 

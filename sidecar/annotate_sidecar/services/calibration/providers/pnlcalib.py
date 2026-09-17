@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import math
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 try:
@@ -13,7 +15,7 @@ import numpy as np
 from ....config import CalibrationDefaults, get_calibration_defaults
 from ....vendor.trackers import PnLCalibProvider
 from ..base import CalibrationProvider
-from ..types import HomographyFrame
+from ..types import CalibrationFrameRange, HomographyFrame
 
 
 IDENTITY_H = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
@@ -27,6 +29,7 @@ class PnLCalibCalibrationProvider(CalibrationProvider):
 
     def __init__(self, defaults: CalibrationDefaults | None = None):
         self._defaults = defaults or get_calibration_defaults()
+        self._calibrator: PnLCalibProvider | None = None
 
     @property
     def available(self) -> bool:
@@ -39,27 +42,58 @@ class PnLCalibCalibrationProvider(CalibrationProvider):
         end_ms: float,
         fps: float = 5.0,
         skip_interval: int = 0,
+        on_progress: Callable[[dict], None] | None = None,
+        frame_range: CalibrationFrameRange | None = None,
     ) -> list[HomographyFrame]:
-        with tempfile.TemporaryDirectory(prefix="annotate-pnlcalib-") as temp_dir:
-            temp_root = Path(temp_dir)
-            clip_path = temp_root / "clip.mp4"
-            sampled_timestamps = self._write_sampled_clip(
-                video_path=video_path,
-                start_ms=start_ms,
-                end_ms=end_ms,
-                fps=fps,
-                output_path=clip_path,
-            )
-            if not sampled_timestamps:
-                return []
-            output_dir = temp_root / "output"
-            calibrator = self._build_calibrator(skip_interval=skip_interval)
-            frames = calibrator.calibrate_video(clip_path, output_dir)
+        import cv2
 
-        return [
-            self._to_public_frame(frame, sampled_timestamps[min(frame.frame_idx - 1, len(sampled_timestamps) - 1)])
-            for frame in frames
-        ]
+        if frame_range is not None:
+            start_ms = frame_range.start_frame * 1000 / frame_range.source_fps
+            end_ms = (frame_range.end_frame - 1) * 1000 / frame_range.source_fps
+            fps = frame_range.source_fps / frame_range.sample_step
+            skip_interval = frame_range.every_n_frames // frame_range.sample_step - 1
+        if not all(math.isfinite(value) for value in (start_ms, end_ms, fps)) or fps <= 0 or start_ms < 0 or end_ms < start_ms:
+            raise ValueError("Invalid homography range or sample rate")
+        on_progress = on_progress or (lambda _progress: None)
+        stride = max(1, skip_interval + 1)
+        count = math.floor((end_ms - start_ms) * fps / 1000 + 1e-6) + 1
+        total = (count + stride - 1) // stride
+        prepare_progress = lambda: on_progress({'phase': 'preparing', 'completed': 0, 'total': total})
+        prepare_progress()
+        # Preserve the established preprocessing pixels. Raw decoding is faster
+        # but changed a few PnLCalib solutions in the real-video parity check.
+        with tempfile.TemporaryDirectory(prefix='annotate-pnlcalib-') as temp:
+            clip_path = Path(temp) / 'clip.mp4'
+            timestamps = self._write_sampled_clip(
+                video_path=video_path, start_ms=start_ms, end_ms=end_ms, fps=fps,
+                output_path=clip_path, on_progress=prepare_progress,
+                frame_range=frame_range,
+            )
+            cap = cv2.VideoCapture(str(clip_path))
+            if not cap.isOpened():
+                cap.release()
+                raise RuntimeError('Cannot read sampled calibration clip')
+            try:
+                def samples():
+                    for index in range(len(timestamps)):
+                        if not cap.grab():
+                            yield None
+                        elif index % stride:
+                            yield None
+                        else:
+                            ok, frame = cap.retrieve()
+                            yield frame if ok else None
+
+                if self._calibrator is None:
+                    self._calibrator = self._build_calibrator(skip_interval=skip_interval)
+                frames = self._calibrator.calibrate_frames(
+                    samples(), frame_width=int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                    frame_height=int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)), fps=fps,
+                    total_frames=len(timestamps), every_n_frames=stride, on_progress=on_progress,
+                )
+                return [self._to_public_frame(frame, timestamps[frame.frame_idx - 1]) for frame in frames]
+            finally:
+                cap.release()
 
     def _build_calibrator(self, *, skip_interval: int) -> PnLCalibProvider:
         config_data = self._load_config_data()
@@ -98,6 +132,8 @@ class PnLCalibCalibrationProvider(CalibrationProvider):
         end_ms: float,
         fps: float,
         output_path: Path | None = None,
+        on_progress: Callable[[], None] | None = None,
+        frame_range: CalibrationFrameRange | None = None,
     ) -> list[float]:
         import cv2
 
@@ -115,21 +151,25 @@ class PnLCalibCalibrationProvider(CalibrationProvider):
             cap.release()
             raise RuntimeError("Video has invalid dimensions for calibration")
 
-        timestamps: list[float] = []
-        current = start_ms
-        interval_ms = 1000.0 / fps
-        while current <= end_ms + 1e-6:
-            timestamps.append(current)
-            current += interval_ms
+        if frame_range is not None:
+            target_frame_indices = list(range(frame_range.start_frame, frame_range.end_frame, frame_range.sample_step))
+            timestamps = [index * 1000 / frame_range.source_fps for index in target_frame_indices]
+        else:
+            timestamps = []
+            current = start_ms
+            interval_ms = 1000.0 / fps
+            while current <= end_ms + 1e-6:
+                timestamps.append(current)
+                current += interval_ms
+            source_fps = float(cap.get(cv2.CAP_PROP_FPS))
+            if source_fps <= 0:
+                source_fps = fps
+            target_frame_indices = [max(0, round(timestamp * source_fps / 1000.0)) for timestamp in timestamps]
 
         if output_path is None:
             cap.release()
             return timestamps
 
-        source_fps = float(cap.get(cv2.CAP_PROP_FPS))
-        if source_fps <= 0:
-            source_fps = fps
-        target_frame_indices = [max(0, round(timestamp * source_fps / 1000.0)) for timestamp in timestamps]
         output_path.parent.mkdir(parents=True, exist_ok=True)
         writer = cv2.VideoWriter(
             str(output_path),
@@ -147,6 +187,8 @@ class PnLCalibCalibrationProvider(CalibrationProvider):
         last_sampled_frame = None
         try:
             for target_frame_index in target_frame_indices:
+                if on_progress:
+                    on_progress()
                 sampled_frame = None
                 while next_frame_index <= target_frame_index:
                     if not cap.grab():

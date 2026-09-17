@@ -71,7 +71,8 @@ export default function TagBoard({
     activeRangeCaptures.map((range) => [range.buttonId, range]),
   ), [activeRangeCaptures]);
   const latestActiveId = activeRangeCaptures[activeRangeCaptures.length - 1]?.buttonId ?? null;
-  const resolvedContextId = contextButtonId ?? latestActiveId ?? firstButtonId(board);
+  const lockedContextId = mode === 'capture' ? latestActiveId : null;
+  const resolvedContextId = lockedContextId ?? contextButtonId ?? firstButtonId(board);
   const contextFacets = resolvedContextId
     ? activeByButton.get(resolvedContextId)?.facets ?? armedFacets
     : armedFacets;
@@ -149,8 +150,8 @@ export default function TagBoard({
                       data-testid={`tag-board-button-${button.id}`}
                       disabled={disabled}
                       aria-pressed={!!active}
-                      onMouseEnter={() => setContextButtonId(button.id)}
-                      onFocus={() => setContextButtonId(button.id)}
+                      onMouseEnter={() => { if (!lockedContextId) setContextButtonId(button.id); }}
+                      onFocus={() => { if (!lockedContextId) setContextButtonId(button.id); }}
                       onClick={() => {
                         setContextButtonId(button.id);
                         void onButtonPress(button.id);

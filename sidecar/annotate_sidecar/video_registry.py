@@ -18,6 +18,7 @@ logger = logging.getLogger("annotate_sidecar.video_registry")
 
 # videoRef -> absolute temp file path
 _registry: dict[str, str] = {}
+_external: set[str] = set()
 
 
 def register_video_file(filename: Optional[str], data: bytes) -> str:
@@ -38,13 +39,15 @@ def register_video_file(filename: Optional[str], data: bytes) -> str:
     return video_ref
 
 
-def register_video_path(path: str | Path) -> str:
-    """Register an existing temp file and transfer cleanup ownership to the registry."""
+def register_video_path(path: str | Path, *, owned: bool = True) -> str:
+    """Register a file; owned=False keeps native project sources on unregister."""
     source = Path(path).resolve()
     if not source.is_file():
         raise FileNotFoundError(f"Video file does not exist: {source}")
     video_ref = uuid.uuid4().hex[:16]
     _registry[video_ref] = str(source)
+    if not owned:
+        _external.add(video_ref)
     logger.info("Registered videoRef %s -> %s", video_ref, source)
     return video_ref
 
@@ -59,15 +62,20 @@ def resolve_video_ref(video_ref: Optional[str]) -> Optional[str]:
     if not Path(path).exists():
         # Stale entry, clean it up.
         _registry.pop(video_ref, None)
+        _external.discard(video_ref)
         return None
     return path
 
 
 def unregister_video_ref(video_ref: str) -> bool:
-    """Remove a registered videoRef and delete its temporary file."""
+    """Remove a reference, deleting only temporary files owned by the registry."""
     path = _registry.pop(video_ref, None)
     if not path:
         return False
+
+    if video_ref in _external:
+        _external.discard(video_ref)
+        return True
 
     try:
         os.remove(path)

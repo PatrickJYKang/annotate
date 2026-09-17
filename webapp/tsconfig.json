@@ -24,11 +24,13 @@
     ]
   },
   "include": [
-    "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
+    ".next-desktop/types/**/*.ts",
+    ".next-playwright/types/**/*.ts",
     ".next/types/**/*.ts",
-    ".next-playwright/types/**/*.ts"
+    "next-env.d.ts",
+    ".next-preview/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

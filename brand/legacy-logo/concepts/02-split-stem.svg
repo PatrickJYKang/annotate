@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Annotate split stem logo concept</title>
+  <desc id="desc">An uppercase A whose detached arrow visually completes a break in the right stem.</desc>
+  <path d="M18 108 60 18" fill="none" stroke="#0e1520" stroke-width="12" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="M60 18 82 58M94 84l13 24" fill="none" stroke="#0e1520" stroke-width="12" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="M42 65h30V54l19 17-19 17V77H42z" fill="#2f78c4"/>
+</svg>

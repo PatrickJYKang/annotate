@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 1080" role="img" aria-labelledby="sheet-title sheet-desc">
+  <title id="sheet-title">Annotate logo concept sheet</title>
+  <desc id="sheet-desc">Six uppercase A logo concepts with detached right-pointing arrow crossbars, shown large, as wordmarks, and at small sizes.</desc>
+  <defs>
+    <filter id="monochrome" color-interpolation-filters="sRGB">
+      <feColorMatrix values="0 0 0 0 0.055 0 0 0 0 0.082 0 0 0 0 0.125 0 0 0 1 0"/>
+    </filter>
+    <symbol id="concept-1" viewBox="0 0 128 128">
+      <path d="M18 108 60 18 108 108" fill="none" stroke="#0e1520" stroke-width="12" stroke-linecap="square" stroke-linejoin="miter"/>
+      <path d="M43 64h24v-9l14 15-14 15v-9H43z" fill="#2f78c4"/>
+    </symbol>
+    <symbol id="concept-2" viewBox="0 0 128 128">
+      <path d="M18 108 60 18" fill="none" stroke="#0e1520" stroke-width="12" stroke-linecap="square" stroke-linejoin="miter"/>
+      <path d="M60 18 82 58M94 84l13 24" fill="none" stroke="#0e1520" stroke-width="12" stroke-linecap="square" stroke-linejoin="miter"/>
+      <path d="M42 65h30V54l19 17-19 17V77H42z" fill="#2f78c4"/>
+    </symbol>
+    <symbol id="concept-3" viewBox="0 0 128 128">
+      <path d="M12 108 52 18h15l-39 90zm40-90h15l49 90H96z" fill="#0e1520"/>
+      <path d="M40 62h31V51l20 19-20 19V78H40z" fill="#2f78c4"/>
+    </symbol>
+    <symbol id="concept-4" viewBox="0 0 128 128">
+      <path d="M18 108 60 18 108 108" fill="none" stroke="#0e1520" stroke-width="9" stroke-linecap="square" stroke-linejoin="miter"/>
+      <path d="M43 71h35m-12-14 15 14-15 14" fill="none" stroke="#2f78c4" stroke-width="9" stroke-linecap="square" stroke-linejoin="miter"/>
+    </symbol>
+    <symbol id="concept-5" viewBox="0 0 128 128">
+      <path d="M20 108 69 18" fill="none" stroke="#0e1520" stroke-width="12" stroke-linecap="square" stroke-linejoin="miter"/>
+      <path d="M69 18 91 57M105 84l13 24" fill="none" stroke="#0e1520" stroke-width="12" stroke-linecap="square" stroke-linejoin="miter"/>
+      <path d="M47 64h39V53l20 18-20 18V78H47z" fill="#2f78c4"/>
+    </symbol>
+    <symbol id="concept-6" viewBox="0 0 128 128">
+      <path d="M21 108 59 21 99 108" fill="none" stroke="#0e1520" stroke-width="14" stroke-linecap="butt" stroke-linejoin="miter"/>
+      <path d="M43 64h20V53l19 18-19 18V78H43z" fill="#2f78c4"/>
+    </symbol>
+    <style>
+      .label { font: 600 20px "IBM Plex Sans", "Helvetica Neue", sans-serif; fill: #0e1520; }
+      .note { font: 400 15px "IBM Plex Sans", "Helvetica Neue", sans-serif; fill: #59677a; }
+      .wordmark { font: 600 38px "IBM Plex Sans", "Helvetica Neue", sans-serif; letter-spacing: -1px; fill: #0e1520; }
+      .index { font: 500 12px "SF Mono", Menlo, monospace; fill: #738197; }
+      .mono { filter: url(#monochrome); }
+    </style>
+  </defs>
+  <rect width="1440" height="1080" fill="#f7f8fa"/>
+  <text x="64" y="68" class="label" font-size="26">Annotate logo studies</text>
+  <text x="64" y="98" class="note">Uppercase A / detached right-arrow crossbar / geometry round</text>
+  <line x1="64" y1="126" x2="1376" y2="126" stroke="#d7dde5"/>
+
+  <g transform="translate(64 160)">
+    <text x="0" y="0" class="index">01</text><text x="36" y="0" class="label">Detached crossbar</text>
+    <text x="36" y="28" class="note">Conventional A; arrow floats between both stems.</text>
+    <use href="#concept-1" x="34" y="64" width="150" height="150" class="mark"/>
+    <use href="#concept-1" x="220" y="98" width="72" height="72" class="mark"/>
+    <text x="300" y="152" class="wordmark">Annotate</text>
+    <use href="#concept-1" x="222" y="194" width="24" height="24" class="mono"/>
+    <use href="#concept-1" x="258" y="198" width="16" height="16" class="mono"/>
+  </g>
+  <g transform="translate(504 160)">
+    <text x="0" y="0" class="index">02</text><text x="36" y="0" class="label">Split stem</text>
+    <text x="36" y="28" class="note">Arrow occupies a deliberate break in the right stem.</text>
+    <use href="#concept-2" x="34" y="64" width="150" height="150" class="mark"/>
+    <use href="#concept-2" x="220" y="98" width="72" height="72" class="mark"/>
+    <text x="300" y="152" class="wordmark">Annotate</text>
+    <use href="#concept-2" x="222" y="194" width="24" height="24" class="mono"/>
+    <use href="#concept-2" x="258" y="198" width="16" height="16" class="mono"/>
+  </g>
+  <g transform="translate(944 160)">
+    <text x="0" y="0" class="index">03</text><text x="36" y="0" class="label">Stencil</text>
+    <text x="36" y="28" class="note">Heavier silhouette for outreach and large display.</text>
+    <use href="#concept-3" x="34" y="64" width="150" height="150" class="mark"/>
+    <use href="#concept-3" x="220" y="98" width="72" height="72" class="mark"/>
+    <text x="300" y="152" class="wordmark">Annotate</text>
+    <use href="#concept-3" x="222" y="194" width="24" height="24" class="mono"/>
+    <use href="#concept-3" x="258" y="198" width="16" height="16" class="mono"/>
+  </g>
+
+  <line x1="64" y1="514" x2="1376" y2="514" stroke="#d7dde5"/>
+
+  <g transform="translate(64 566)">
+    <text x="0" y="0" class="index">04</text><text x="36" y="0" class="label">Outline arrow</text>
+    <text x="36" y="28" class="note">Lighter construction; arrow remains open.</text>
+    <use href="#concept-4" x="34" y="64" width="150" height="150" class="mark"/>
+    <use href="#concept-4" x="220" y="98" width="72" height="72" class="mark"/>
+    <text x="300" y="152" class="wordmark">Annotate</text>
+    <use href="#concept-4" x="222" y="194" width="24" height="24" class="mono"/>
+    <use href="#concept-4" x="258" y="198" width="16" height="16" class="mono"/>
+  </g>
+  <g transform="translate(504 566)">
+    <text x="0" y="0" class="index">05</text><text x="36" y="0" class="label">Forward lean</text>
+    <text x="36" y="28" class="note">Asymmetric form with a longer outgoing arrow.</text>
+    <use href="#concept-5" x="34" y="64" width="150" height="150" class="mark"/>
+    <use href="#concept-5" x="220" y="98" width="72" height="72" class="mark"/>
+    <text x="300" y="152" class="wordmark">Annotate</text>
+    <use href="#concept-5" x="222" y="194" width="24" height="24" class="mono"/>
+    <use href="#concept-5" x="258" y="198" width="16" height="16" class="mono"/>
+  </g>
+  <g transform="translate(944 566)">
+    <text x="0" y="0" class="index">06</text><text x="36" y="0" class="label">Compact</text>
+    <text x="36" y="28" class="note">Narrower mark with heavier stems for small sizes.</text>
+    <use href="#concept-6" x="34" y="64" width="150" height="150" class="mark"/>
+    <use href="#concept-6" x="220" y="98" width="72" height="72" class="mark"/>
+    <text x="300" y="152" class="wordmark">Annotate</text>
+    <use href="#concept-6" x="222" y="194" width="24" height="24" class="mono"/>
+    <use href="#concept-6" x="258" y="198" width="16" height="16" class="mono"/>
+  </g>
+
+  <line x1="64" y1="920" x2="1376" y2="920" stroke="#d7dde5"/>
+  <text x="64" y="966" class="note">Blue separates the arrow for comparison only. The 24 px and 16 px samples are monochrome legibility checks.</text>
+  <text x="64" y="1000" class="note">These are directional studies, not production artwork. Geometry, spacing, color, and wordmark remain open.</text>
+</svg>

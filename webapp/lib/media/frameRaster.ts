@@ -1,4 +1,5 @@
 import type { VideoFrame } from '../clip/frameMath';
+import { createMediaUrl, releaseMediaUrl } from '../host/media';
 import { frameToSeconds } from '../clip/frameMath';
 import { assertSafePathSegment } from '../fs/fsAccess';
 
@@ -145,11 +146,12 @@ export function createFrameRasterQueue(source: File | HTMLVideoElement): FrameRa
   let objectUrl: string | null = null;
   let video: HTMLVideoElement;
   if (source instanceof File) {
-    objectUrl = URL.createObjectURL(source);
+    objectUrl = createMediaUrl(source);
     video = document.createElement('video');
     video.preload = 'auto';
     video.muted = true;
     video.playsInline = true;
+    video.crossOrigin = 'anonymous';
     video.src = objectUrl;
   } else {
     video = cloneVideoSource(source);
@@ -163,7 +165,7 @@ export function createFrameRasterQueue(source: File | HTMLVideoElement): FrameRa
       video.pause();
       video.removeAttribute('src');
       video.load();
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (objectUrl) releaseMediaUrl(objectUrl);
       objectUrl = null;
     },
   };

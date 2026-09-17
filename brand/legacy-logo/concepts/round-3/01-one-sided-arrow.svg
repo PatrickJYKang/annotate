@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-labelledby="title desc">
+  <title id="title">Annotate one-sided arrow mark</title>
+  <desc id="desc">An uppercase A with a one-sided right arrow replacing its crossbar and interrupting its right leg.</desc>
+  <path fill="#0e1520" d="M12 146 65 21q4-10 13-10t14 10l17 35-18 9-13-27-40 108Z"/>
+  <path fill="#0e1520" d="m112 105 19-9 23 50h-25Z"/>
+  <path fill="#2f78c4" d="M66 79h34L90 68h22l12 25H60Z"/>
+</svg>

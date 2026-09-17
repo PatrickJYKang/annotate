@@ -135,6 +135,75 @@ describe('frame-native interpolation', () => {
     });
   });
 
+  it.each([4, 40])('linearly fills a %i-frame tracked highlight interval without adding keyframes', (span) => {
+    const keyframes: ClipKeyframe[] = [
+      { frame: frame(0), cx: 500, cy: 500, radius: 12, provenance: 'tracked' },
+      { frame: frame(10), cx: 100, cy: 100, radius: 12, provenance: 'tracked' },
+      { frame: frame(10 + span), cx: 200, cy: 140, radius: 12, provenance: 'tracked' },
+      { frame: frame(60), cx: 500, cy: 500, radius: 12, provenance: 'tracked' },
+    ];
+    const tracked = annotation(keyframes, { type: 'highlight', source: 'auto' });
+    const before = structuredClone(tracked);
+    for (let offset = 0; offset <= span; offset += 1) {
+      expect(interpolateAnnotation(tracked, frame(10 + offset), frameBoundary(70))).toEqual({
+        type: 'highlight', cx: 100 + 100 * offset / span, cy: 100 + 40 * offset / span, radius: 12,
+      });
+    }
+    expect(tracked).toEqual(before);
+  });
+
+  it('supports older tracked highlights without per-keyframe provenance', () => {
+    const tracked = annotation([
+      { frame: frame(0), cx: 500, cy: 500, radius: 12 },
+      { frame: frame(10), cx: 100, cy: 100, radius: 12 },
+      { frame: frame(50), cx: 200, cy: 140, radius: 12 },
+      { frame: frame(60), cx: 500, cy: 500, radius: 12 },
+    ], { type: 'highlight', source: 'auto' });
+    expect(interpolateAnnotation(tracked, frame(30), frameBoundary(70))).toEqual({
+      type: 'highlight', cx: 150, cy: 120, radius: 12,
+    });
+    expect(interpolateKeyframes(tracked.keyframes, frame(30), 'highlight', 'auto'))
+      .toEqual(interpolateAnnotation(tracked, frame(30), frameBoundary(70)));
+  });
+
+  it('preserves manual and correction highlight interpolation', () => {
+    for (const provenance of ['manual', 'correction'] as const) {
+      const manual = annotation([
+        { frame: frame(0), cx: 500, cy: 500, radius: 12, provenance },
+        { frame: frame(10), cx: 100, cy: 100, radius: 12, provenance },
+        { frame: frame(14), cx: 200, cy: 140, radius: 12, provenance },
+        { frame: frame(60), cx: 500, cy: 500, radius: 12, provenance },
+      ], { type: 'highlight', source: provenance === 'manual' ? 'manual' : 'corrected' });
+      expect(interpolateAnnotation(manual, frame(12), frameBoundary(70))).toEqual({
+        type: 'highlight',
+        cx: catmullRom(500, 100, 200, 500, 0.5),
+        cy: catmullRom(500, 100, 140, 500, 0.5),
+        radius: 12,
+      });
+    }
+  });
+
+  it('does not bridge explicit tracking stops or manual hide events', () => {
+    const tracked = annotation([
+      { frame: frame(10), cx: 100, cy: 100, radius: 12, provenance: 'tracked' },
+      { frame: frame(11), cx: 100, cy: 100, radius: 12, provenance: 'lost', visible: false },
+      { frame: frame(50), cx: 200, cy: 140, radius: 12, provenance: 'tracked' },
+    ], { type: 'highlight', source: 'auto' });
+    expect(interpolateAnnotation(tracked, frame(11), frameBoundary(70))).toBeNull();
+    expect(interpolateAnnotation(tracked, frame(30), frameBoundary(70))).toBeNull();
+    expect(interpolateAnnotation(tracked, frame(50), frameBoundary(70))).not.toBeNull();
+
+    tracked.keyframes = [tracked.keyframes[0], tracked.keyframes[2]];
+    tracked.visibilityKeyframes = [
+      { frame: frame(20), action: 'hide' },
+      { frame: frame(40), action: 'show' },
+    ];
+    expect(interpolateAnnotation(tracked, frame(30), frameBoundary(70))).toBeNull();
+    expect(interpolateAnnotation(tracked, frame(40), frameBoundary(70))).toEqual({
+      type: 'highlight', cx: 175, cy: 130, radius: 12,
+    });
+  });
+
   it('resolves dense exact tracked frames without a linear keyframe scan', () => {
     let frameReads = 0;
     const keyframes = Array.from({ length: 1024 }, (_, index) => {

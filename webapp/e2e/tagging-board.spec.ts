@@ -115,6 +115,50 @@ test('clicking a clip row seeks to its start and reveals it in the timeline', as
   expect(playhead.x).toBeLessThanOrEqual(visibleScroller.x + visibleScroller.width + 1);
 });
 
+test('timeline selection reveals the clip row without disturbing an already visible row', async ({ page }) => {
+  await openCapturePlayer(page);
+  const tree = page.getByTestId('clip-tag-tree');
+  const row = page.getByTestId('clip-tree-row-clip-second');
+  const range = page.getByTestId('video-range-clip-second');
+  const rowIsVisible = () => row.evaluate((element) => {
+    const scroller = element.closest('[data-testid="clip-tag-tree"]')!;
+    const viewport = scroller.getBoundingClientRect();
+    const bounds = element.getBoundingClientRect();
+    const heading = element.closest('section')!.querySelector('[data-clip-group-heading]')!;
+    return bounds.top >= viewport.top + heading.getBoundingClientRect().height - 1
+      && bounds.bottom <= viewport.bottom + 1;
+  });
+  const pageScrollBefore = await page.evaluate(() => window.scrollY);
+  expect(await rowIsVisible()).toBe(false);
+  await range.click();
+  await expect(row).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(rowIsVisible).toBe(true);
+  await expect(page.getByText(/frame 20 \/ 49/)).toBeVisible();
+
+  const visibleScroll = await tree.evaluate((element) => element.scrollTop);
+  await range.click();
+  expect(await tree.evaluate((element) => element.scrollTop)).toBe(visibleScroll);
+
+  // The same selection must reveal again after the user scrolls it out of view.
+  await tree.hover();
+  await page.mouse.wheel(0, -4_000);
+  await expect.poll(() => tree.evaluate((element) => element.scrollTop)).toBe(0);
+  expect(await rowIsVisible()).toBe(false);
+  await range.click();
+  await expect.poll(rowIsVisible).toBe(true);
+
+  await page.getByTestId('video-range-clip-first').click();
+  const first = page.getByTestId('clip-tree-row-clip-first');
+  await expect(first).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => first.evaluate((element) => {
+    const scroller = element.closest('[data-testid="clip-tag-tree"]')!;
+    const heading = element.closest('section')!.querySelector('[data-clip-group-heading]')!;
+    return element.getBoundingClientRect().top >= scroller.getBoundingClientRect().top
+      + heading.getBoundingClientRect().height - 1;
+  })).toBe(true);
+  expect(await page.evaluate(() => window.scrollY)).toBe(pageScrollBefore);
+});
+
 test('captures and re-tags clips exclusively through the tagging board', async ({ page }) => {
   await openCapturePlayer(page);
 
@@ -135,6 +179,17 @@ test('captures and re-tags clips exclusively through the tagging board', async (
   await expect(activePossession).toBeVisible();
   await expect(activePossession).toHaveAttribute('data-pending', 'true');
   await expect(finalThird).toHaveAttribute('aria-pressed', 'true');
+  const otherAction = page.getByTestId('tag-board-button-offensive.open_play.cross');
+  await otherAction.hover();
+  await expect(verticalThird).toBeVisible();
+  await expect(page.getByTestId('tag-board-facet-cross.type')).toHaveCount(0);
+  await otherAction.focus();
+  await expect(verticalThird).toBeVisible();
+  await expect(finalThird).toHaveAttribute('aria-pressed', 'true');
+  // Cross the action grid on the way to a modifier without changing its target.
+  await finalThird.click();
+  await expect(finalThird).toHaveAttribute('aria-pressed', 'false');
+  await finalThird.click();
   await page.getByRole('button', { name: 'Step forward' }).click();
   await page.getByRole('button', { name: 'Step forward' }).click();
   await possession.click();
@@ -168,6 +223,9 @@ test('captures and re-tags clips exclusively through the tagging board', async (
 
   await pass.click();
   await expect(page.getByText('2 ranges armed')).toBeVisible();
+  await transition.hover();
+  await expect(page.getByTestId('tag-board-facet-pass.type')).toBeVisible();
+  await expect(outcome).toHaveCount(0);
   const activeTransition = offensiveOpenPlayLane.getByTestId('video-range-active-offensive.open_play.transition');
   const activePass = offensiveOpenPlayLane.getByTestId('video-range-active-offensive.open_play.pass');
   await expect(activeTransition).toBeVisible();
@@ -181,6 +239,8 @@ test('captures and re-tags clips exclusively through the tagging board', async (
   await pass.click();
   await expect(activePass).toHaveCount(0);
   await expect(activeTransition).toBeVisible();
+  await expect(goalMethod).toBeVisible();
+  await expect(header).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(async () => (await clipDocuments(page)).length).toBe(4);
   expect((await clipDocuments(page)).find((clip) => clip.label === 'Pass')).toMatchObject({
     startFrame: 5,
@@ -193,6 +253,9 @@ test('captures and re-tags clips exclusively through the tagging board', async (
   await expect(possession).toBeEnabled();
   await page.keyboard.press('p');
   await expect(possession).toHaveAttribute('aria-pressed', 'true');
+  await otherAction.hover();
+  await expect(verticalThird).toBeVisible();
+  await expect(page.getByTestId('tag-board-facet-cross.type')).toHaveCount(0);
   await page.getByRole('button', { name: 'Step forward' }).click();
   await page.keyboard.press('p');
   await expect.poll(async () => (await clipDocuments(page)).length).toBe(5);

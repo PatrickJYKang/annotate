@@ -1,6 +1,8 @@
 node_modules/
 .next/
 .next-playwright/
+.next-preview/
+.next-desktop/
 out/
 *.tsbuildinfo
 .env*

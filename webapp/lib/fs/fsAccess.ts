@@ -1,3 +1,4 @@
+import type { ProjectDirectory, ProjectFile } from "../host/contracts";
 export type FileInventoryEntry = {
   path: string;
   size: number;
@@ -35,10 +36,10 @@ export function splitSafeRelativePath(path: string): string[] {
 }
 
 export async function getDirectoryPath(
-  root: FileSystemDirectoryHandle,
+  root: ProjectDirectory,
   segments: readonly string[],
   create = false,
-): Promise<FileSystemDirectoryHandle> {
+): Promise<ProjectDirectory> {
   let current = root;
   for (const segment of segments) {
     assertSafePathSegment(segment);
@@ -48,10 +49,10 @@ export async function getDirectoryPath(
 }
 
 export async function getFilePath(
-  root: FileSystemDirectoryHandle,
+  root: ProjectDirectory,
   segments: readonly string[],
   create = false,
-): Promise<FileSystemFileHandle> {
+): Promise<ProjectFile> {
   if (segments.length === 0) throw new Error('File path cannot be empty.');
   const parent = await getDirectoryPath(root, segments.slice(0, -1), create);
   const name = segments[segments.length - 1];
@@ -60,7 +61,7 @@ export async function getFilePath(
 }
 
 export async function readTextFile(
-  root: FileSystemDirectoryHandle,
+  root: ProjectDirectory,
   segments: readonly string[],
 ): Promise<string> {
   const handle = await getFilePath(root, segments, false);
@@ -68,7 +69,7 @@ export async function readTextFile(
 }
 
 export async function writeTextFile(
-  root: FileSystemDirectoryHandle,
+  root: ProjectDirectory,
   segments: readonly string[],
   text: string,
 ): Promise<void> {
@@ -79,7 +80,7 @@ export async function writeTextFile(
 }
 
 export async function writeJsonFile(
-  root: FileSystemDirectoryHandle,
+  root: ProjectDirectory,
   segments: readonly string[],
   value: unknown,
 ): Promise<void> {
@@ -87,7 +88,7 @@ export async function writeJsonFile(
 }
 
 export async function pathExists(
-  root: FileSystemDirectoryHandle,
+  root: ProjectDirectory,
   segments: readonly string[],
   kind: 'file' | 'directory',
 ): Promise<boolean> {
@@ -101,7 +102,7 @@ export async function pathExists(
   }
 }
 
-export async function directoryIsEmpty(directory: FileSystemDirectoryHandle): Promise<boolean> {
+export async function directoryIsEmpty(directory: ProjectDirectory): Promise<boolean> {
   for await (const _entry of directory.entries()) {
     return false;
   }
@@ -109,44 +110,44 @@ export async function directoryIsEmpty(directory: FileSystemDirectoryHandle): Pr
 }
 
 export async function inventoryDirectory(
-  directory: FileSystemDirectoryHandle,
+  directory: ProjectDirectory,
   prefix = '',
 ): Promise<FileInventoryEntry[]> {
   const inventory: FileInventoryEntry[] = [];
   for await (const [name, handle] of directory.entries()) {
     const path = prefix ? `${prefix}/${name}` : name;
     if (handle.kind === 'file') {
-      const file = await (handle as FileSystemFileHandle).getFile();
+      const file = await (handle as ProjectFile).getFile();
       inventory.push({ path, size: file.size });
     } else {
-      inventory.push(...await inventoryDirectory(handle as FileSystemDirectoryHandle, path));
+      inventory.push(...await inventoryDirectory(handle as ProjectDirectory, path));
     }
   }
   return inventory.sort((left, right) => left.path.localeCompare(right.path));
 }
 
 export async function copyDirectoryContents(
-  source: FileSystemDirectoryHandle,
-  destination: FileSystemDirectoryHandle,
+  source: ProjectDirectory,
+  destination: ProjectDirectory,
 ): Promise<void> {
   for await (const [name, handle] of source.entries()) {
     assertSafePathSegment(name);
     if (handle.kind === 'file') {
-      const sourceFile = await (handle as FileSystemFileHandle).getFile();
+      const sourceFile = await (handle as ProjectFile).getFile();
       const destinationFile = await destination.getFileHandle(name, { create: true });
       const writable = await destinationFile.createWritable();
       await writable.write(sourceFile);
       await writable.close();
     } else {
       const destinationDirectory = await destination.getDirectoryHandle(name, { create: true });
-      await copyDirectoryContents(handle as FileSystemDirectoryHandle, destinationDirectory);
+      await copyDirectoryContents(handle as ProjectDirectory, destinationDirectory);
     }
   }
 }
 
 export async function copyFileVerified(
-  source: FileSystemFileHandle,
-  destination: FileSystemFileHandle,
+  source: ProjectFile,
+  destination: ProjectFile,
 ): Promise<number> {
   const sourceFile = await source.getFile();
   const writable = await destination.createWritable();
@@ -170,7 +171,7 @@ export function inventoriesMatch(
 }
 
 export async function removePath(
-  root: FileSystemDirectoryHandle,
+  root: ProjectDirectory,
   segments: readonly string[],
   recursive = false,
 ): Promise<void> {

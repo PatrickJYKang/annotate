@@ -1,5 +1,9 @@
 "use client";
 
+import ProjectReconnect from '../components/project/ProjectReconnect';
+
+import type { ProjectDirectory } from '../lib/host/contracts';
+import { getAppHost } from '../lib/host';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -8,6 +12,7 @@ import {
   Panels,
 } from '../components/panels/Panels';
 import PresentationLibrary from '../components/presentation/PresentationLibrary';
+import VideoImportProgress from '../components/project/VideoImportProgress';
 import ProjectSetupScreen, {
   type ProjectSetupValues,
 } from '../components/project/ProjectSetupScreen';
@@ -15,6 +20,7 @@ import { createProject } from '../lib/fs/projectFolder';
 import { mutateProjectManifestExclusive } from '../lib/fs/projectManifestRepository';
 import { emptyTrash } from '../lib/fs/trash';
 import { importVideoIntoProject } from '../lib/fs/videoImport';
+import { deleteVideoExclusive } from '../lib/fs/videoDeletion';
 import {
   exportAllClips,
   type ClipExportFailure,
@@ -29,7 +35,7 @@ function projectFolderName(projectName: string): string {
   return projectName.trim().replace(/[/:\\]/g, '-') || 'Untitled Project';
 }
 
-async function ensureReadWritePermission(handle: FileSystemDirectoryHandle, deniedMessage: string): Promise<void> {
+async function ensureReadWritePermission(handle: ProjectDirectory, deniedMessage: string): Promise<void> {
   const current = handle.queryPermission
     ? await handle.queryPermission({ mode: 'readwrite' })
     : 'granted';
@@ -99,6 +105,7 @@ export default function HomePage() {
   const [fsSupported, setFsSupported] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [deleteVideoId, setDeleteVideoId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportProgress, setExportProgress] = useState<ClipExportProgress | null>(null);
@@ -108,11 +115,10 @@ export default function HomePage() {
 
   useEffect(() => {
     setMounted(true);
-    setFsSupported(
-      typeof window !== 'undefined'
-      && typeof (window as Window & { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function',
-    );
+    setFsSupported(getAppHost().files.canPickDirectory);
   }, []);
+
+  useEffect(() => () => importAbortRef.current?.abort(), [projectDir]);
 
   const run = useCallback(async (operation: () => Promise<void>) => {
     setBusy(true);
@@ -131,9 +137,7 @@ export default function HomePage() {
   const createFromSetup = useCallback(async (values: ProjectSetupValues) => {
     await run(async () => {
       if (!fsSupported) throw new Error(t('project.chromiumRequired'));
-      const parent = await (window as Window & {
-        showDirectoryPicker: (options: { mode: 'readwrite' }) => Promise<FileSystemDirectoryHandle>;
-      }).showDirectoryPicker({ mode: 'readwrite' });
+      const parent = await getAppHost().files.pickDirectory();
       await ensureReadWritePermission(parent, t('project.permissionDenied'));
       const project = await parent.getDirectoryHandle(projectFolderName(values.name), { create: true });
       await ensureReadWritePermission(project, t('project.permissionDenied'));
@@ -150,9 +154,7 @@ export default function HomePage() {
   const openExisting = useCallback(async () => {
     await run(async () => {
       if (!fsSupported) throw new Error(t('project.chromiumRequired'));
-      const project = await (window as Window & {
-        showDirectoryPicker: (options: { mode: 'readwrite' }) => Promise<FileSystemDirectoryHandle>;
-      }).showDirectoryPicker({ mode: 'readwrite' });
+      const project = await getAppHost().files.pickDirectory();
       await ensureReadWritePermission(project, t('project.permissionDenied'));
       await openProject(project);
       setMessage(t('project.opened'));
@@ -162,20 +164,10 @@ export default function HomePage() {
   const importVideo = useCallback(async () => {
     await run(async () => {
       if (!projectDir || !manifest) throw new Error(t('project.noOpen'));
-      const picker = (window as Window & {
-        showOpenFilePicker?: (options: unknown) => Promise<FileSystemFileHandle[]>;
-      }).showOpenFilePicker;
-      if (!picker) throw new Error(t('project.chromiumRequired'));
-      const handles = await picker({
-        multiple: false,
-        types: [{
-          description: t('project.importDescription'),
-          accept: { 'video/*': ['.mp4', '.mov', '.webm', '.mkv', '.avi'] },
-        }],
-      });
-      const source = await handles[0]?.getFile();
+      const files = getAppHost().files;
+      if (!files.canPickVideo) throw new Error(t('project.chromiumRequired'));
+      const source = await files.pickVideo(t('project.importDescription'));
       if (!source) return;
-      setMessage(t('project.normalizing', { name: source.name }));
       setNormalizationProgress({ phase: 'uploading', progress: 0 });
       const controller = new AbortController();
       importAbortRef.current = controller;
@@ -184,6 +176,7 @@ export default function HomePage() {
           onProgress: setNormalizationProgress,
           signal: controller.signal,
         });
+        controller.signal.throwIfAborted();
         await openProject(projectDir, false);
         setMessage(t('project.imported', { name: source.name }));
       } finally {
@@ -201,6 +194,16 @@ export default function HomePage() {
       setMessage(t('project.saved'));
     });
   }, [manifest, openProject, projectDir, run, t]);
+
+  const deleteVideo = useCallback(async (videoId: string) => {
+    await run(async () => {
+      if (!projectDir) return;
+      await deleteVideoExclusive(projectDir, videoId);
+      setDeleteVideoId(null);
+      await openProject(projectDir, false);
+      setMessage(t('project.videoDeleted'));
+    });
+  }, [openProject, projectDir, run, t]);
 
   const clearTrash = useCallback(async () => {
     await run(async () => {
@@ -269,6 +272,7 @@ export default function HomePage() {
           <header className="border-b border-border px-5 py-4">
             <h2 className="m-0 text-lg font-semibold">{t('project.openChooser')}</h2>
           </header>
+          <ProjectReconnect />
           <div className="grid grid-cols-2 gap-2 p-5 max-sm:grid-cols-1">
             <button className="button-primary" disabled={busy || !fsSupported} onClick={() => setSetupOpen(true)}>
               {t('project.create')}
@@ -331,7 +335,7 @@ export default function HomePage() {
             <div className="mt-1 flex justify-between"><span>{t('project.clips')}</span><strong>{formatNumber(clips.length)}</strong></div>
             <div className="mt-1 flex justify-between"><span>{t('project.presentations')}</span><strong>{formatNumber(presentations.length)}</strong></div>
           </div>
-          <button className="button-quiet w-full text-left" onClick={() => void closeProject()}>{t('project.close')}</button>
+          <button className="button-quiet w-full text-left" disabled={busy && !normalizationProgress} onClick={() => void closeProject()}>{t('project.close')}</button>
         </div>
       </aside>
         </Panel>
@@ -368,7 +372,8 @@ export default function HomePage() {
 
               <div className="grid">
                 {manifest.videos.map((video) => {
-                  const videoClipCount = clips.filter((clip) => clip.videoId === video.id).length;
+                  const videoClips = clips.filter((clip) => clip.videoId === video.id);
+                  const videoClipCount = videoClips.length;
                   return (
                     <article key={video.id} className="border-t border-border p-3 first:border-t-0" data-testid={`video-card-${video.id}`}>
                       <div className="flex items-start justify-between gap-3">
@@ -384,8 +389,27 @@ export default function HomePage() {
                           </p>
                           <p className="mb-0 mt-2 text-xs text-secondary">{t('project.clipCount', { count: formatNumber(videoClipCount) })}</p>
                         </div>
-                        <button className="button-quiet" aria-label={t('project.openPlayerFor', { name: video.label })} onClick={() => openPlayer(video.id)}>{t('common.open')}</button>
+                        <div className="flex shrink-0 gap-1">
+                          <button className="button-quiet" disabled={busy} aria-label={t('project.openPlayerFor', { name: video.label })} onClick={() => openPlayer(video.id)}>{t('common.open')}</button>
+                          <button className="button-quiet text-danger" disabled={busy || exportBusy} aria-label={t('project.deleteVideoFor', { name: video.label })} onClick={() => setDeleteVideoId(video.id)}>{t('common.delete')}</button>
+                        </div>
                       </div>
+                      {deleteVideoId === video.id && (
+                        <div className="mt-3 border-t border-border pt-3" role="group" aria-label={t('project.confirmVideoDeletion')} onKeyDown={(event) => {
+                          if (event.key === 'Escape' && !busy) { event.stopPropagation(); setDeleteVideoId(null); }
+                        }}>
+                          <p className="m-0 text-sm">{t('project.deleteVideoWarning', {
+                            name: video.label,
+                            clips: formatNumber(videoClipCount),
+                            pins: formatNumber(videoClips.reduce((count, clip) => count + clip.pins.length, 0)),
+                          })}</p>
+                          <p className="mb-3 mt-2 text-xs text-secondary">{t('project.deleteVideoConsequences')}</p>
+                          <div className="flex flex-wrap gap-2">
+                            <button autoFocus disabled={busy} onClick={() => setDeleteVideoId(null)}>{t('common.cancel')}</button>
+                            <button className="button-danger" disabled={busy || exportBusy} onClick={() => void deleteVideo(video.id)}>{busy ? t('project.deletingVideo') : t('project.confirmVideoDeletion')}</button>
+                          </div>
+                        </div>
+                      )}
                     </article>
                   );
                 })}
@@ -396,7 +420,7 @@ export default function HomePage() {
 
               <div className="flex flex-wrap gap-2 border-t border-border p-3">
                 <button className="button-primary" disabled={busy} onClick={() => void importVideo()}>{t('project.importVideo')}</button>
-                <button disabled={exportBusy} onClick={() => void exportReport()}>
+                <button disabled={busy || exportBusy} onClick={() => void exportReport()}>
                   {exportBusy ? t('project.exporting') : t('project.exportReport')}
                 </button>
               </div>
@@ -444,28 +468,7 @@ export default function HomePage() {
           )}
 
           {normalizationProgress && (
-            <section
-              className="panel fixed bottom-5 right-5 z-50 w-[min(28rem,calc(100vw-2.5rem))]"
-              aria-label={t('project.normalizationProgress')}
-              role="status"
-            >
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span>{t(`project.normalization.${normalizationProgress.phase}`)}</span>
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs text-muted">
-                    {formatNumber(Math.round(normalizationProgress.progress * 100))}%
-                  </span>
-                  <button className="px-2 py-1 text-xs" onClick={() => importAbortRef.current?.abort()}>
-                    {t('common.cancel')}
-                  </button>
-                </div>
-              </div>
-              <progress
-                className="mt-2 w-full"
-                max={1}
-                value={normalizationProgress.progress}
-              />
-            </section>
+            <VideoImportProgress progress={normalizationProgress} onCancel={() => importAbortRef.current?.abort()} />
           )}
 
           <details className="panel mt-4" open={issues.length > 0}>
@@ -483,7 +486,7 @@ export default function HomePage() {
             )}
           </details>
 
-          {(message || restoreError) && (
+          {!normalizationProgress && (message || restoreError) && (
             <div role="status" className="toast">
               {message ?? restoreError}
             </div>

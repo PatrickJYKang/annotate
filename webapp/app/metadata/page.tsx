@@ -1,4 +1,5 @@
 "use client";
+import type { ProjectDirectory } from "../../lib/host/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useProject } from "../../lib/state/ProjectContext";
@@ -20,7 +21,7 @@ export default function MetadataPage() {
   const [apiImporterOpen, setApiImporterOpen] = useState(false);
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const infoRef = useRef(info);
-  const initializedProjectRef = useRef<FileSystemDirectoryHandle | null>(null);
+  const initializedProjectRef = useRef<ProjectDirectory | null>(null);
 
   const saveMatchInfo = useCallback(async (next: MatchInfo) => {
     if (!projectDir) return;

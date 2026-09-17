@@ -77,13 +77,17 @@ test('navigates both dashboard wings and restores every deep route', async ({ pa
   await expect(page.getByTestId('project-dashboard')).toBeVisible();
 });
 
-test('clears a denied persisted handle and allows an explicit reopen', async ({ page }) => {
+test('retains a denied persisted handle and reconnects without a folder picker', async ({ page }) => {
   await openProject(page);
   await setOpfsProjectPermission(page, fixture, 'denied');
   await page.reload();
 
   await expect(page.getByRole('heading', { name: 'Projects' })).toBeVisible();
-  await expect(page.getByText(/permission is unavailable/)).toBeVisible();
+  const reconnect = page.getByRole('button', { name: 'Reconnect project' });
+  await expect(reconnect).toBeVisible();
+  await expect(page.getByTestId('project-dashboard')).toHaveCount(0);
+  await reconnect.click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Reconnect the project' })).toBeVisible();
   const keys = await page.evaluate(async () => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open('annotate-db', 1);
@@ -100,10 +104,17 @@ test('clears a denied persisted handle and allows an explicit reopen', async ({ 
       database.close();
     }
   });
-  expect(keys).not.toContain('project');
+  expect(keys).toContain('project');
+  expect(keys.some((key) => typeof key === 'string' && key.startsWith('project-session:'))).toBe(true);
 
   await setOpfsProjectPermission(page, fixture, 'granted');
-  await page.getByRole('button', { name: 'Open Existing Project' }).click();
+  await page.evaluate(() => {
+    Object.defineProperty(window, 'showDirectoryPicker', {
+      configurable: true,
+      value: () => { throw new Error('Reconnect must not require selecting the folder again.'); },
+    });
+  });
+  await reconnect.click();
   await expect(page.getByTestId('project-dashboard')).toBeVisible();
 });
 

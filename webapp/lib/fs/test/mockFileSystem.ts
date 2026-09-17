@@ -1,3 +1,6 @@
+import type { ProjectDirectory } from '../../host/contracts';
+import { wrapBrowserDirectory } from '../../host/browser/fileSystem';
+
 type MockFileNode = {
   kind: 'file';
   bytes: ArrayBuffer;
@@ -42,11 +45,13 @@ function split(path: string): string[] {
 export class MockFileSystem {
   private readonly rootNode: MockDirectoryNode = { kind: 'directory', children: new Map() };
   private readonly options: MockFileSystemOptions;
-  readonly root: FileSystemDirectoryHandle;
+  readonly nativeRoot: FileSystemDirectoryHandle;
+  readonly root: ProjectDirectory;
 
   constructor(files: Record<string, string | Uint8Array> = {}, options: MockFileSystemOptions = {}) {
     this.options = options;
-    this.root = this.directoryHandle('', this.rootNode);
+    this.nativeRoot = this.directoryHandle('', this.rootNode);
+    this.root = wrapBrowserDirectory(this.nativeRoot);
     for (const [path, content] of Object.entries(files)) {
       this.seedFile(path, content);
     }

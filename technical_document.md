@@ -1,8 +1,8 @@
 # Annotate 0.2 As-Built Technical Reference
 
-Date: 2026-08-09
+Updated: 2026-09-04
 
-Status: Annotate 0.2 release candidate. The code is authoritative if this document drifts.
+Status: Annotate 0.2.2 browser application plus an in-development native Electron host with unsigned `0.2.2-desktop.1` preview packaging for Apple Silicon macOS and Windows x64. Windows runtime and clean-machine release verification remain outstanding. The code is authoritative if this document drifts.
 
 ## 1. Product model
 
@@ -49,7 +49,8 @@ Primary code areas:
 webapp/app/                 App Router pages
 webapp/components/          route-level and shared UI
 webapp/lib/types/           runtime domain contracts
-webapp/lib/fs/              File System Access persistence
+webapp/lib/fs/              shared project repositories and persistence operations
+webapp/lib/host/            host contracts and browser capability adapters
 webapp/lib/clip/            frame math, interpolation, tracking adapters
 webapp/lib/presentation/    authoring and playback logic
 webapp/lib/tagging/         board parsing and capture engine
@@ -57,6 +58,24 @@ webapp/lib/i18n/            locale provider and catalogs
 ```
 
 `webapp/app/layout.tsx` installs one `LocaleProvider` and one `ProjectProvider`. The project provider exposes the validated manifest, board, selected video, directory handle, and integrity report. It never publishes partially validated project state.
+
+### Host boundary
+
+`webapp/lib/host/contracts.ts` defines `AppHost` and renderer-facing filesystem/window capabilities. Repositories and React components use `ProjectDirectory`, `ProjectFile`, and `ProjectWritable` rather than native browser handles. The isolated Electron preload selects the native adapter; normal browsers use the browser adapter. Project schemas, frame contracts and drawing code are shared.
+
+The browser adapter wraps File System Access handles, routes folder/video selection and OPFS scratch storage, and owns IndexedDB project bookmarks. The existing raw native handle at `annotate-db` version 1, store `handles`, key `project` remains compatible. Additional `project-session:<id>` handle entries identify directories using `isSameEntry` under a Web Lock; `recent-project-session` records the latest id. Reopening an existing directory refreshes both the recent and session handle without changing its identity. File/blob access and writes retain the existing behavior without additional media buffering.
+
+Editor opening is project-aware. Browser clip/pin URLs include `projectSession`; session storage preserves the originating project through route changes and refresh. An unavailable explicit session refuses fallback. Pin creation still reserves a blank browser tab synchronously before saving and navigating. Native windows instead bind their project in the host and deduplicate by clip/pin identity. Opening another project changes the recent bookmark, not existing editors.
+
+Manifest/clip/document Web Locks, clip-change channels, and annotation backup/change keys include `ProjectDirectory.scopeId`. Old unscoped backups are left untouched but not automatically adopted because project identity is ambiguous. All open editors should be reloaded when moving from the old lock namespace to this build.
+
+`webapp/lib/host/runtime.ts` resolves launch-time sidecar URLs and optional authorization from `window.__ANNOTATE_RUNTIME__`, retaining the browser environment/default and legacy `__SIDECAR_URL` override. Authenticated fetches send bearer headers only to the configured endpoint and reject redirects. XHR video uploads also carry the session header. The optional runtime's `host` field configures connection validation; it does not select a native filesystem host.
+
+`desktop/main.mjs` runs the shared production renderer in sandboxed, context-isolated Electron windows with no renderer Node integration. Native dialogs return opaque grants; named commands execute the shared repositories in the host, preserving schemas, clip locks, pin anchors, tombstones and trash behavior. Original window baselines protect clip/manifest field changes; annotation/presentation saves check document revisions. Generic writes are restricted to auxiliary cache/export directories. Replies are plain envelopes, with DOM errors reconstructed in the renderer. File handles, methods and mutation callbacks do not cross IPC.
+
+Native media uses authorized Range/HEAD URLs for video playback, pin rasterization, presentation thumbnails and report exports. The renderer holds metadata capabilities rather than whole-video Blobs. The host privately registers the original source with the sidecar and retains file ownership. Import reuses the existing preparation strategy, reports progress, supports cancellation, copies directly into the project and commits the manifest or rolls back. The per-window CV proxy rejects paths, foreign video references and private host routes; the upstream sidecar token is never exposed to the renderer.
+
+`npm run build:desktop-renderer` prepares standalone production output; `npm run desktop:dev` builds the host bundle and launches Electron with developer-provided Python, ffmpeg and models. Packaged builds resolve only their bundled runtime, validate required resource checksums and put writable files in user data. Python 3.12.14, the sidecar dependency lock, model weights/source and platform-specific ffmpeg are staged by `npm run stage:desktop -- <target>`. `npm run package:desktop -- <target>` builds an unsigned DMG or NSIS installer. Startup displays service progress; services get private dynamic ports and stop on graceful quit after editor save guards finish. Windows certification, clean-machine testing, publisher signing, durable native recovery, origin-independent preferences and abrupt-crash cleanup remain release gates. Browser and native locks are not cross-host: avoid simultaneous editing of one project in both. See [Desktop Preview](desktop/README.md) and [Pre-Electron Implementation Checklist](plans/pre-electron-implementation-checklist.md).
 
 ### Python sidecar
 
@@ -83,7 +102,7 @@ Every authored media position is an absolute, zero-based source-video frame. The
 
 `webapp/lib/clip/frameMath.ts` is the only conversion boundary. Seeking writes `frame / fps`. Presented-frame identity prefers `requestVideoFrameCallback().mediaTime` and floors with an epsilon; it clamps to `[0, frameCount - 1]`.
 
-The sidecar API remains timestamp-based. Requests convert frames to milliseconds at `sidecarClient.ts`. Its frame sampler includes `endMs`, so a domain range sends `frameToMs(endFrame - 1)`, not the exclusive boundary. One-frame clips are valid data, but tracking and homography range actions need at least two frames because the current sidecar requires `endMs > startMs`.
+Tracking and pin calibration use timestamp-based sidecar requests. Their frame sampler includes `endMs`, so a domain range sends `frameToMs(endFrame - 1)`, not the exclusive boundary. Clip homography uses `startFrame`, exclusive `endFrame`, `sourceFps`, and `everyNFrames` instead; output/cache timestamps remain milliseconds for compatibility. One-frame clips are valid data, but the editor currently enables tracking and homography range actions only for clips of at least two frames.
 
 ## 5. Project folder
 
@@ -202,7 +221,7 @@ Clip validation enforces:
 - keyframes sorted, unique, and in range; and
 - geometry and visibility keyframes do not share a frame.
 
-Animated annotation types are `box`, `circle`, `highlight`, `shadow`, `arrow`, `lob`, `poly`, and `text`. Each object has image- or pitch-coordinate geometry, style, provenance-aware geometry keyframes, and optional show/hide keyframes. Only boxes and circles support pitch coordinates in the current editor.
+Animated annotation types are `box`, `circle`, `highlight`, `shadow`, `arrow`, `lob`, `poly`, and `text`. Each object has image- or pitch-coordinate geometry, style, and provenance-aware geometry keyframes. The editor does not expose manual show/hide keyframes; optional legacy visibility data is still read to preserve older projects' playback. Re-tracking replaces legacy visibility markers within the replaced range along with geometry. Automatic tracking stop/loss markers are unchanged. Only boxes and circles support pitch coordinates in the current editor.
 
 ### Pin annotation document
 
@@ -249,7 +268,7 @@ Transitions are `cut` or `match_video`. A match-video transition is valid only b
 
 ### Open and restore
 
-The app stores the selected directory handle in IndexedDB under key `project`. Restore requests read/write permission, validates schema and required folders, loads or installs the board, performs trash cleanup, and runs integrity checks before context is populated. Denied, stale, or invalid handles are cleared.
+The app stores the recent directory handle in IndexedDB under key `project` and independent editor bindings under `project-session:<id>`. Restore prefers the explicit editor/tab session and checks read/write permission without prompting during page load. If the stored handle is not granted, it first requests a live handle from another authorized tab of the same project over a project-scoped BroadcastChannel, with a one-second timeout. Responses must match the origin, request nonce, and exact directory (`isSameEntry`), and retain granted read/write access. This makes new editor tabs and refreshes automatic while another authorized project tab remains open, without permission prompts or media copying. If no authorized peer can supply access, the stored handle and session remain intact and the project screen, capture player, or clip/pin editor offers Reconnect project. That click requests permission directly under user activation, then opens the same folder without a directory picker; denial leaves the action available for retry. With permission granted, opening validates schema and required folders, loads or installs the board, performs trash cleanup, and runs integrity checks before context is populated. Other failed restores can clear their matching recent bookmark but retain the editor's identity so refresh cannot redirect to a different project. Normal close clears that tab's binding without revoking sibling editors. Async open/restore/close publication is guarded against stale results, with bookmark side effects serialized within the provider.
 
 `project.v1` receives a specific refusal message rather than a generic parser failure.
 
@@ -258,20 +277,26 @@ The app stores the selected directory handle in IndexedDB under key `project`. R
 Import uploads to `/video/normalize/start` (the compatibility URL now fronts a smart import job), polls it, and receives authoritative per-video metadata. The UI reports upload, analysis, remux/transcode, probe, and download progress in an always-visible panel. Import chooses one of three strategies:
 
 - `preserve`: CFR H.264/yuv420p MP4 with browser-compatible audio is stored from the original browser `File`, with no FFmpeg encode or sidecar re-download;
-- `remux`: a compatible CFR H.264 stream is repackaged as MP4 without video encoding; or
-- `transcode`: variable-frame-rate or incompatible video is converted to CFR H.264 while preserving its native FPS and dimensions.
+- `remux`: a compatible CFR H.264 stream is repackaged as MP4, or compatible near-CFR H.264 MP4 is placed on a regular frame clock, without video encoding; or
+- `transcode`: more irregular variable-frame-rate or incompatible video is converted to CFR H.264 while preserving its native FPS and dimensions.
 
-On macOS, transcode prefers `h264_videotoolbox`; software fallback uses `libx264` `veryfast` with at most four encoder threads and two filter threads. Long-video timeouts scale with source duration, and jobs are serialized globally. The prepared file is written under `media/`, then the manifest is committed; a manifest failure removes the new media file. Failed/canceled jobs clean up their temporary directory, and successful jobs clean up after preserve acknowledgement or file delivery.
+`services/timestamp_normalization.py` implements the near-CFR fast path. A packet scan checks the entire source: compatible codecs and geometry, bounded cadence/gaps, no more than 200 ms of displacement from the original timing, and valid decode/presentation ordering. It generates a bounded timestamp expression, including sparse ordering corrections around missing source frames. Two chained `setts` filters first rescale timestamps without erasing B-frame ordering, then reconstruct PTS/DTS on the regular clock. A second packet scan verifies every output timestamp, ordering, duration, and count before accepting the result. Encoded pictures and audio remain unchanged, but their frame timing is slightly redistributed. Up to two terminal reference pictures outside an original edit list may be exposed; leading or interior discarded pictures force fallback. The path is limited to one million packets and 512 sparse corrections, does not apply to explicit FPS/resolution conversion requests, and falls back to encoding on rejection or validation failure. `ANNOTATE_NORMALIZE_RETIME=0` disables it.
+
+`VideoImportProgress` uses `ProgressEstimate` to show a current-step ETA based on observed throughput. `VideoNormalizationProgress.phaseProgress` carries the actual step fraction independently of the browser bar's weighted overall percentage; desktop import progress already has per-step fractions. Estimates use a rolling 30-second sample window, require observed advancement over at least 1.5 seconds, reset on phase changes/retries, and become unavailable after 15 seconds without advancement. They do not predict unmeasured future steps from earlier transfer speed.
+
+On macOS, transcode prefers `h264_videotoolbox`. `services/parallel_normalization.py` uses at most two hardware-decode/encode workers for H.264/yuv420p inputs at least two minutes long with unchanged dimensions, square pixels, and no rotation. Segment preroll and absolute-frame trimming preserve the serial path's frame selection. B-frames are disabled so the stream-copy join can reconstruct exact packet timestamps instead of inheriting rounded segment durations; frame count, rate, and timebase are checked before returning the result. Compatible AAC/MP3 audio is copied from the original input. Aggregate progress reserves its final 5% for joining, and cancellation or worker failure stops both workers and removes temporary segments. Joining temporarily needs an extra output file's worth of space. `ANNOTATE_NORMALIZE_PARALLEL=0` disables this optimization; unsupported inputs or failures retry the original single-stream path.
+
+Software fallback uses `libx264` `veryfast` with at most four encoder threads and two filter threads. Long-video timeouts scale with source duration, and import jobs are serialized globally. The prepared file is written under `media/`, then the manifest is committed; a manifest failure removes the new media file. Failed/canceled jobs clean up their temporary directory, and successful jobs clean up after preserve acknowledgement or file delivery.
 
 There is no browser-duration multiplication fallback in v2.
 
 ### Project manifest mutation boundary
 
-Every post-creation `project.json` write uses the exclusive `annotate:project-manifest` Web Lock through `webapp/lib/fs/projectManifestRepository.ts`. Mutators read the latest manifest inside the lock and replace only their owned field. Video preparation remains outside the lock; filename allocation, media commit, and the video-entry append are serialized together so concurrent imports cannot collide or discard match metadata.
+Every post-creation `project.json` write uses the exclusive `annotate:project:<scopeId>:manifest` Web Lock through `webapp/lib/fs/projectManifestRepository.ts`. Mutators read the latest manifest inside the lock and replace only their owned field. Video preparation remains outside the lock; filename allocation, media commit, and the video-entry append are serialized together so concurrent imports cannot collide or discard match metadata.
 
 ### Clip mutation boundary
 
-Every clip-subtree mutation uses the same Web Lock, `annotate:clip:<clipId>`, through `webapp/lib/fs/clipRepository.ts`. Mutators read the latest document inside the lock and replace only their owned field (`annotations`, `pins`, or `tags`) rather than writing stale snapshots. Web Locks support is mandatory.
+Every clip-subtree mutation uses the same project-scoped Web Lock, `annotate:project:<scopeId>:clip:<clipId>`, through `webapp/lib/fs/clipRepository.ts`. Mutators read the latest document inside the lock and replace only their owned field (`annotations`, `pins`, or `tags`) rather than writing stale snapshots. Web Locks support is mandatory.
 
 Pin annotation saves nest inside this clip lock. Clip tombstones reject queued or late writes after deletion.
 
@@ -282,6 +307,10 @@ The File System Access API cannot move directories. Deletion therefore copies th
 Cleanup runs after a successful open or through Empty Trash. Defaults are 30 days and 500 MiB, oldest first. Tombstones remain until their clip is restored so stale tabs cannot recreate deleted IDs.
 
 Deletion is not blocked by presentation references. Missing assets degrade visibly in playback and are reported by integrity checks.
+
+Dashboard video deletion requires explicit confirmation and runs through `webapp/lib/fs/videoDeletion.ts` (`video.delete` in the native host). It holds the project-manifest lock, then all affected clip locks in sorted order. Clip folders, including pin documents and rasters, are moved through the existing verified trash path; the latest manifest is committed without the video, then its confined `media/` file is removed non-recursively. Other videos, original input files, exports, and presentation decks are not deleted. A file shared by another manifest entry is retained. Missing media is tolerated; unreadable clips stop deletion before mutation. Handled failures restore the manifest and clip payloads; recovery failures leave backups and report an error. This is not a crash-atomic filesystem transaction, and deleting a video has no Undo action.
+
+Clip creation and restoration also acquire the manifest lock before the clip lock and reject absent video IDs. Trash cleanup takes the manifest lock so it cannot consume an in-progress video's rollback payloads. Project-change notifications refresh sibling browser tabs and native windows without switching their bound project; native annotation-only notifications do not reload unchanged manifests.
 
 ### Integrity report
 
@@ -315,13 +344,13 @@ There are no `/stills`, `/annotate/[stillId]`, `/player-legacy`, `/dropdown-test
 
 ## 9. Capture and tagging
 
-The player has resizable video, board, and clip-tree areas.
+The player has resizable video, board, and clip-tree areas. Clicking a timeline clip selects and reveals its row in the clip tree, scrolling only that panel and only when the row is outside its visible area (including its sticky heading). Clicking an already selected timeline clip reveals it again after manual list scrolling. Clicking a clip-tree row seeks to the clip start and reveals it in the timeline.
 
 The project-authored board is a fixed coordinate surface rather than a scrolling menu. `layout.width`/`height`, group `labelRect` values, button `rect` values, and modifier slots determine its visual arrangement. The board still owns tag identity, facet applicability, requirements, and optional hotkeys.
 
 Every primary button is an exact-frame range toggle. The first press arms that tag at the current frame; the second press closes it with an inclusive final frame represented by exclusive `endFrame = frame + 1`. There is no automatic lead/lag or pre-roll in the canonical capture workflow. Multiple different buttons may remain armed concurrently, so clips can overlap. A reverse or zero-length closure waits rather than creating invalid data.
 
-Applicable armed facets are snapshotted when capture begins and then consumed; modifier changes can update the active range independently. Requirement rules are enforced, and changing a primary tag prunes facets that are no longer applicable. Untagged and unknown-tag clips remain separate tree buckets. Re-tagging is paused-only and can be performed from the board or by dragging a clip onto a board-derived tree group.
+Applicable armed facets are snapshotted when capture begins and then consumed; modifier changes can update the active range independently. During capture, the modifier panel stays on the most recently started active range, including keyboard-started ranges; hovering or focusing another action does not switch it. Ending that range returns the panel to any remaining active range. Requirement rules are enforced, and changing a primary tag prunes facets that are no longer applicable. Untagged and unknown-tag clips remain separate tree buckets. Re-tagging is paused-only and can be performed from the board or by dragging a clip onto a board-derived tree group.
 
 The tagging timeline derives one lane from each board group and shows both persisted clips and in-progress captures. Overlapping intervals are packed into subtracks. Its default viewport is one minute, it can zoom out to the whole video or up to 64x beyond the default scale, and manual scrolling suspends playhead auto-follow until five seconds after interaction ends.
 
@@ -334,11 +363,12 @@ The clip editor uses three persisted resizable regions: viewer, inspector, and t
 - Drawing creates a geometry keyframe at the current absolute frame.
 - Moving any object at an unkeyed frame inserts a manual or correction keyframe.
 - Geometry is interpolated between keyframes; the shared renderer is used by both the editor and presentation playback.
+- Gaps bounded by two tracked highlight keyframes are linearly interpolated regardless of gap length, without adding stored keyframes. Explicit lost/stop markers and show/hide events still apply. Manual/correction keyframes and other annotation types keep their existing interpolation behavior; older tracked highlights without per-keyframe provenance use the annotation source as before.
 - `K` adds a position keyframe. Visibility still exists in persisted clips but is not exposed as a manual editor control.
 - Arrow keys step exactly one frame; Space toggles playback.
 - Cmd/Ctrl-Z and redo shortcuts operate on editor history.
 - Delete removes the selected keyframe; Shift-Delete removes the object.
-- Manual/correction and visibility keyframes can be dragged horizontally. Tracked/lost geometry keyframes are intentionally fixed.
+- Manual/correction geometry keyframes can be dragged horizontally. Tracked/lost geometry keyframes are intentionally fixed; legacy visibility markers have no timeline editing controls.
 - The timeline horizontally zooms and scrolls. Pins have their own lane.
 - Trim mode keeps the clip's entry range as a fixed outer boundary and moves frame-snapped in/out handles inward. Apply atomically writes the narrowed range, filters pins and keyframes outside it, and samples boundary geometry so retained animation does not jump. Cancel writes nothing; the immediate Undo trim action restores the complete pre-trim clip. A later edit intentionally expires that trim undo snapshot.
 
@@ -352,13 +382,17 @@ The interactive tracking request stops inference at the first frame where no rea
 
 While tracking runs, `/track/stream` emits each trusted keyframe as NDJSON. The clip editor applies those frames to its in-memory annotation state immediately, so the canvas and keyframe timeline grow live, then performs one persisted commit from the final result. The original `/track` JSON endpoint remains available.
 
+The video follows incoming tracked frames through a bounded preview scheduler: at most 10 seeks per second, one decode in flight, and only the latest pending target retained. The annotation playhead advances on `seeked`, so geometry uses the displayed frame rather than running ahead of decoding. This is paused-frame preview, not normal playback, and does not trigger pin pauses. The tracker never waits for video seeks and all received keyframes are retained even when intermediate preview frames are skipped. Stop, cancellation, and run completion dispose the follower before seeking to the origin or loss/end frame.
+
 Returned timestamps are converted to nearest absolute source frames before merging. Image-space annotations whose `trackingAnchorId` points at the highlight receive the same translated motion, preserving linked arrows, lobs, shadows, and polygons.
 
 `Re-track from here` repairs an existing highlight tail. It snapshots the annotation layer, provisionally removes the selected highlight's future frames and those of its linked followers, and enters the same candidate/reacquisition workflow used after ordinary tracking loss. Candidate selection, streamed tracking, and repeated loss recovery remain in memory until `Done`; `Cancel` restores the snapshot without writing, and `Done` records the replacement as one undoable persisted edit.
 
 ### Homography and pitch coordinates
 
-The editor extracts a 5 FPS calibration sequence and requests sparse PnLCalib solutions with `skipInterval = 4`. The provider discards invalid/corrupt solutions, fills and interpolates the sparse results, and the web layer rejects unusable jumps before resolving a matrix for the current frame. Results are cached under `homography-cache/<videoId>/range-<startMs>-<endMs>.json` because this is a regenerable sidecar-boundary artifact and equal ranges in different videos must not collide.
+Clip homography solves every 15 source frames, anchored at the clip's start frame, with the exclusive end frame omitted. At 30 fps this doubles the previous density of one solution per 30 frames. The sampled-video preprocessing retains intermediate samples every three source frames; PnLCalib solves every fifth such sample. The provider discards invalid/corrupt solutions, fills and interpolates the sparse results, and the web layer rejects unusable jumps before resolving a matrix for the current frame. Results are cached under `homography-cache/<videoId>/range-<startMs>-<endMs>.json` because this is a regenerable sidecar-boundary artifact and equal ranges in different videos must not collide. Existing cached ranges remain usable; Recompute H replaces them at the new density.
+
+Clip computation uses `/homography/stream`: NDJSON progress reports preparation/model-loading phases and actual completed/total calibration samples, followed by the final result. The editor shows a determinate bar and Cancel; cancellation leaves any existing cached result intact and stops the worker at its next checkpoint. Pin calibration retains `/homography`. Both paths run off the HTTP event loop through a serialized calibration service that reuses models between requests. The default device selection is CUDA, then Apple MPS, then CPU; model weights load on CPU before transfer. The existing sampled-video preprocessing and solution filtering remain unchanged.
 
 When a usable matrix exists, box and circle tools default to pitch drawing. Their keyframes store pitch-plane geometry and project through the current homography at render time. All other tactical tools remain image-space.
 
@@ -441,13 +475,16 @@ Important live endpoints:
 | `POST` | `/track` | Highlight tracking |
 | `POST` | `/track/stream` | Live NDJSON highlight tracking |
 | `POST` | `/track/detect` | Per-frame provisional player detection |
-| `POST` | `/homography` | Clip/pin PnLCalib calibration |
+| `POST` | `/homography` | Non-streaming pin/compatibility PnLCalib calibration |
+| `POST` | `/homography/stream` | Clip PnLCalib progress and final result; disconnect cancels remaining computation |
 | `POST` | `/derived-media/exact-motion` | Dormant exact-motion primitive retained for future export use |
 | `POST/GET/DELETE` | `/export/*` | Available client/service boundary; no current clip-export button |
 
 Authoritative probing first uses a positive container `nb_frames` value, which avoids scanning ordinary long MP4s. If absent, `ffprobe -count_frames` scans packets, with an explicit decode/count fallback. Browser duration is never used to invent a frame count.
 
 ## 17. Verification
+
+The 2026-09-04 native integration pass has 305 Vitest tests across 52 files, 49 sidecar tests, 22 native contract tests and all 38 browser Playwright flows passing locally. Strict lint, TypeScript, browser and standalone production builds pass. The actual Electron suite exercises native project opening, preserve import and initial cancellation, separate clip/pin windows, video seeking, drawing, disk persistence/reload, close-time pin autosave, a real YOLO detection request, annotated PNG export, presentation save/playback, window deduplication, stale-write conflicts, denied IPC operations and graceful helper shutdown. Native tests use actual files/processes; chooser selection uses a main-process fixture seam. The copied standalone Chromium checks remain available. This uses installed Python/dependencies/models, not a self-contained runtime, Windows certification or CV-quality benchmark.
 
 The 2026-08-22 Annotate 0.2.2 development gate completed with:
 

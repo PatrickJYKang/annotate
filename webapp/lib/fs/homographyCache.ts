@@ -1,3 +1,4 @@
+import type { ProjectDirectory, ProjectFile } from "../host/contracts";
 // ---------------------------------------------------------------------------
 // Homography cache — per-project cache of homography matrices.
 //
@@ -24,9 +25,9 @@ const CACHE_DIR = 'homography-cache';
 // ---------------------------------------------------------------------------
 
 async function ensureCacheDir(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   videoId: string,
-): Promise<FileSystemDirectoryHandle> {
+): Promise<ProjectDirectory> {
   const root = await projectDir.getDirectoryHandle(CACHE_DIR, { create: true });
   return root.getDirectoryHandle(videoId, { create: true });
 }
@@ -40,7 +41,7 @@ function cacheFileName(startMs: number, endMs: number): string {
 // ---------------------------------------------------------------------------
 
 export async function writeHomographyCache(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   videoId: string,
   startMs: number,
   endMs: number,
@@ -60,7 +61,7 @@ export async function writeHomographyCache(
 // ---------------------------------------------------------------------------
 
 export async function readHomographyCache(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   videoId: string,
   startMs: number,
   endMs: number,
@@ -84,7 +85,7 @@ export async function readHomographyCache(
 // ---------------------------------------------------------------------------
 
 export async function findOverlappingCache(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   videoId: string,
   startMs: number,
   endMs: number,
@@ -98,7 +99,7 @@ export async function findOverlappingCache(
       if (!name.endsWith('.json') || !(handle as any).getFile) continue;
 
       try {
-        const file = await (handle as FileSystemFileHandle).getFile();
+        const file = await (handle as ProjectFile).getFile();
         const text = await file.text();
         const data: CacheFile = JSON.parse(text);
 
@@ -123,7 +124,7 @@ export async function findOverlappingCache(
 }
 
 export async function deleteOverlappingHomographyCache(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   videoId: string,
   startMs: number,
   endMs: number,
@@ -136,7 +137,7 @@ export async function deleteOverlappingHomographyCache(
     for await (const [name, handle] of (dir as any).entries()) {
       if (!name.endsWith('.json') || !(handle as any).getFile) continue;
       try {
-        const file = await (handle as FileSystemFileHandle).getFile();
+        const file = await (handle as ProjectFile).getFile();
         const data: CacheFile = JSON.parse(await file.text());
         if (data.startMs <= endMs && data.endMs >= startMs) names.push(name);
       } catch {

@@ -17,6 +17,7 @@ import {
   savePinAnnotationExclusive,
 } from './pinAnnotationStorage';
 import { createProject } from './projectFolder';
+import { mutateProjectManifestExclusive } from './projectManifestRepository';
 import {
   createSerialLockManager,
   MockFileSystem,
@@ -35,6 +36,10 @@ async function fixture(options: MockFileSystemOptions = {}): Promise<{
     defaultBoardSource: JSON.stringify(defaultBoardDocument),
   });
   vi.stubGlobal('navigator', { locks: createSerialLockManager() });
+  await mutateProjectManifestExclusive(fileSystem.root, (latest) => ({ ...latest, videos: [{
+    id: 'video_main', label: 'Main', file: 'media/main.mp4', fps: 30,
+    width: 1920, height: 1080, frameCount: frameBoundary(300), frameCountSource: 'probe',
+  }] }));
   const clip: Clip = {
     schema: 'clip.v2',
     id: 'clip_pin_test',

@@ -27,10 +27,10 @@ type DetectionRequest = {
 type HomographyRequest = {
   videoRef?: string;
   videoPath?: string;
-  startMs: number;
-  endMs: number;
-  fps?: number;
-  skipInterval?: number;
+  startFrame: number;
+  endFrame: number;
+  sourceFps: number;
+  everyNFrames: number;
 };
 
 type MockSidecarOptions = {
@@ -195,20 +195,26 @@ async function installMockSidecar(page: Page, options: MockSidecarOptions = {}) 
       });
       return;
     }
-    if (url.pathname === '/homography') {
+    if (url.pathname === '/homography' || url.pathname === '/homography/stream') {
       const body = request.postDataJSON() as HomographyRequest;
       homographyRequests.push(body);
       await new Promise((resolve) => setTimeout(resolve, 150));
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          frames: [body.startMs, (body.startMs + body.endMs) / 2, body.endMs].map((tMs) => ({
+      const startMs = body.startFrame * 1000 / body.sourceFps;
+      const endMs = (body.endFrame - 1) * 1000 / body.sourceFps;
+      const result = {
+        frames: [startMs, (startMs + endMs) / 2, endMs].map((tMs) => ({
             tMs,
             matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
             method: 'mock',
-          })),
-        }),
+        })),
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: url.pathname.endsWith('/stream') ? 'application/x-ndjson' : 'application/json',
+        body: url.pathname.endsWith('/stream')
+          ? JSON.stringify({ type: 'progress', phase: 'computing', completed: 1, total: 3 }) + '\n'
+            + JSON.stringify({ type: 'result', result }) + '\n'
+          : JSON.stringify(result),
       });
       return;
     }
@@ -903,10 +909,10 @@ test('edits and tracks a non-zero-start clip on the absolute frame axis', async 
   expect(sidecar.homographyRequests).toHaveLength(1);
   expect(sidecar.homographyRequests[0]).toMatchObject({
     videoRef: 'video-ref',
-    startMs: 200,
-    endMs: 1760,
-    fps: 5,
-    skipInterval: 4,
+    startFrame: 5,
+    endFrame: 45,
+    sourceFps: 25,
+    everyNFrames: 15,
   });
   expect(sidecar.homographyRequests[0].videoPath).toBeUndefined();
 
@@ -953,9 +959,18 @@ test('edits and tracks a non-zero-start clip on the absolute frame axis', async 
     return stored.annotations[stored.annotations.length - 1].keyframes.map((keyframe: { frame: number }) => keyframe.frame);
   }).toEqual([5]);
   await page.keyboard.press('Meta+z');
+  await expect.poll(async () => {
+    const stored = await readClip(page);
+    return stored.annotations.at(-1).keyframes.map((keyframe: { frame: number }) => keyframe.frame);
+  }).toEqual([5, 6]);
 
   await expect(page.getByRole('button', { name: 'Show KF' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Hide KF' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^(Show|Hide) keyframe at frame/ })).toHaveCount(0);
+  const beforeVisibilityShortcuts = await readClip(page);
+  await page.keyboard.press('s');
+  await page.keyboard.press('h');
+  expect((await readClip(page)).annotations).toEqual(beforeVisibilityShortcuts.annotations);
 
   const timelineLaneBox = await page.getByTestId('clip-timeline-lane').boundingBox();
   if (!timelineLaneBox) throw new Error('Timeline lane did not have a layout box.');

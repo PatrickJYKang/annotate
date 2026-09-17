@@ -1,3 +1,7 @@
+import type { ProjectDirectory } from "../host/contracts";
+import { projectResourceKey } from '../host/projectScope';
+import { broadcastClipChanged } from './clipEvents';
+import { requireProjectVideo, withProjectManifestExclusive } from './projectManifestRepository';
 import type { TaggingSelection } from '../tagging/selection';
 import type {
   ClipAnnotation,
@@ -47,17 +51,21 @@ function getLockManager(): LockManager {
   return locks;
 }
 
-export function clipLockName(clipId: string): string {
-  return `annotate:clip:${clipId}`;
+export function clipLockName(projectDir: ProjectDirectory, clipId: string): string {
+  return projectResourceKey(projectDir, `clip:${clipId}`);
 }
 
 export async function withClipExclusive<T>(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
   operation: () => Promise<T>,
   options: ClipExclusiveOptions = {},
 ): Promise<T> {
-  return getLockManager().request(clipLockName(clipId), { mode: 'exclusive' }, async () => {
+  if (projectDir.withLock) return projectDir.withLock(clipLockName(projectDir, clipId), 'exclusive', async () => {
+    if (!options.allowTombstone && await hasClipTombstone(projectDir, clipId)) throw new ClipRepositoryError('deleted', `Clip "${clipId}" has been deleted.`);
+    return operation();
+  });
+  return getLockManager().request(clipLockName(projectDir, clipId), { mode: 'exclusive' }, async () => {
     if (!options.allowTombstone && await hasClipTombstone(projectDir, clipId)) {
       throw new ClipRepositoryError('deleted', `Clip "${clipId}" has been deleted and cannot be modified.`);
     }
@@ -66,7 +74,7 @@ export async function withClipExclusive<T>(
 }
 
 async function requireLatestClip(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
 ): Promise<Clip> {
   const result = await readClip(projectDir, clipId);
@@ -78,15 +86,20 @@ async function requireLatestClip(
 }
 
 export async function mutateClipExclusive(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
   mutator: (latest: Clip) => Clip | Promise<Clip>,
 ): Promise<Clip> {
+  if (projectDir.command) {
+    const base = await requireLatestClip(projectDir, clipId);
+    const next = parseClip(await mutator(structuredClone(base)), { folderId: clipId });
+    return projectDir.command('clip.patch', [clipId, base, next]);
+  }
   return withClipExclusive(projectDir, clipId, async () => {
     const latest = await requireLatestClip(projectDir, clipId);
     const next = await mutator(structuredClone(latest));
-    if (next.id !== clipId || next.id !== latest.id) {
-      throw new ClipRepositoryError('identity-change', 'A clip mutation cannot change the clip id.');
+    if (next.id !== clipId || next.id !== latest.id || next.videoId !== latest.videoId) {
+      throw new ClipRepositoryError('identity-change', 'A clip mutation cannot change the clip or video id.');
     }
     const parsed = parseClip(next, { folderId: clipId });
     await writeClip(projectDir, parsed);
@@ -95,7 +108,7 @@ export async function mutateClipExclusive(
 }
 
 export async function replaceClipAnnotationsExclusive(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
   annotations: ClipAnnotation[],
 ): Promise<Clip> {
@@ -106,7 +119,7 @@ export async function replaceClipAnnotationsExclusive(
 }
 
 export async function replaceClipPinsExclusive(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
   pins: ClipPin[],
 ): Promise<Clip> {
@@ -117,7 +130,7 @@ export async function replaceClipPinsExclusive(
 }
 
 export async function replaceClipTagsExclusive(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
   tags: TaggingSelection,
 ): Promise<Clip> {
@@ -128,11 +141,14 @@ export async function replaceClipTagsExclusive(
 }
 
 export async function createClipExclusive(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clip: Clip,
 ): Promise<Clip> {
+  if (projectDir.command) return projectDir.command('clip.create', [clip]);
   const parsed = parseClip(clip, { folderId: clip.id });
-  return withClipExclusive(projectDir, parsed.id, async () => {
+  // Manifest before clip: creation must not race a cascading video deletion.
+  return withProjectManifestExclusive(projectDir, () => withClipExclusive(projectDir, parsed.id, async () => {
+    await requireProjectVideo(projectDir, parsed.videoId);
     const existing = await readClip(projectDir, parsed.id);
     if (existing.ok || existing.error.code !== 'not-found') {
       throw new ClipRepositoryError(
@@ -142,27 +158,32 @@ export async function createClipExclusive(
     }
     await writeClip(projectDir, parsed);
     return parsed;
-  });
+  }));
 }
 
 export async function deleteClipExclusive(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
   options: DeleteClipToTrashOptions = {},
 ): Promise<TrashOperationRecord> {
+  if (projectDir.command) return projectDir.command('clip.delete', [clipId, options]);
   return withClipExclusive(projectDir, clipId, async () => {
     await requireLatestClip(projectDir, clipId);
-    return deleteClipToTrash(projectDir, clipId, options);
+    const deleted = await deleteClipToTrash(projectDir, clipId, options);
+    broadcastClipChanged(projectDir, clipId);
+    return deleted;
   });
 }
 
 export async function restoreClipExclusive(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
   operationId?: string,
 ): Promise<Clip> {
-  return withClipExclusive(projectDir, clipId, async () => {
+  if (projectDir.command) return projectDir.command('clip.restore', [clipId, operationId]);
+  return withProjectManifestExclusive(projectDir, () => withClipExclusive(projectDir, clipId, async () => {
     await restoreClipFromTrash(projectDir, clipId, operationId);
+    broadcastClipChanged(projectDir, clipId);
     return requireLatestClip(projectDir, clipId);
-  }, { allowTombstone: true });
+  }, { allowTombstone: true }));
 }

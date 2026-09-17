@@ -34,6 +34,18 @@ export function getKeyframeProvenance(
   return fallbackProvenanceFromSource(annotation.source);
 }
 
+export function isTrackedHighlightInterval(
+  annotation: Pick<ClipAnnotation, 'type' | 'source'>,
+  left: ClipKeyframe,
+  right: ClipKeyframe,
+): boolean {
+  return annotation.type === 'highlight'
+    && left.visible !== false
+    && right.visible !== false
+    && getKeyframeProvenance(annotation, left) === 'tracked'
+    && getKeyframeProvenance(annotation, right) === 'tracked';
+}
+
 export function countCorrectionKeyframes(annotation: ClipAnnotation): number {
   return annotation.keyframes.filter(
     (keyframe) => getKeyframeProvenance(annotation, keyframe) === 'correction',
@@ -99,6 +111,7 @@ export function getDerivedHiddenGapSpans(annotation: ClipAnnotation): FrameSpan[
     const left = annotation.keyframes[index];
     const right = annotation.keyframes[index + 1];
     if (right.frame - left.frame <= MAX_INTERPOLATED_TRACK_GAP_FRAMES) continue;
+    if (isTrackedHighlightInterval(annotation, left, right)) continue;
     const leftProvenance = getKeyframeProvenance(annotation, left);
     const rightProvenance = getKeyframeProvenance(annotation, right);
     if (leftProvenance === 'lost' || rightProvenance === 'lost') continue;

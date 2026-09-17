@@ -1,3 +1,4 @@
+import type { ProjectDirectory } from "../host/contracts";
 import {
   isSafeClipIdSegment,
   parseClip,
@@ -42,7 +43,7 @@ function failure(clipId: string, code: StorageReadErrorCode, message: string): C
 }
 
 export async function readClip(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
 ): Promise<ClipReadResult> {
   let source: string;
@@ -70,19 +71,19 @@ export async function readClip(
 }
 
 export async function writeClip(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clip: Clip,
 ): Promise<void> {
   const parsed = parseClip(clip, { folderId: clip.id });
   await getDirectoryPath(projectDir, clipFolderPath(parsed.id), true);
   await writeJsonFile(projectDir, clipDocumentPath(parsed.id), parsed);
-  broadcastClipChanged(parsed.id);
+  broadcastClipChanged(projectDir, parsed.id);
 }
 
 export async function listClips(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
 ): Promise<ClipListResult> {
-  let clipsDirectory: FileSystemDirectoryHandle;
+  let clipsDirectory: ProjectDirectory;
   try {
     clipsDirectory = await getDirectoryPath(projectDir, CLIPS_PATH, false);
   } catch (error) {

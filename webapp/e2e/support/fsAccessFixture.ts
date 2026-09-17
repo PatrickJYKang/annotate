@@ -419,7 +419,7 @@ export async function installDirectoryPickerFixture(page: Page, fixturePath: str
 export async function installOpfsDirectoryPickerFixture(
   page: Page,
   fixturePath: string,
-  options: { rootName?: string } = {},
+  options: { rootName?: string; renewPermissionInEditor?: boolean } = {},
 ): Promise<void> {
   const absoluteFixturePath = path.isAbsolute(fixturePath)
     ? fixturePath
@@ -435,11 +435,22 @@ export async function installOpfsDirectoryPickerFixture(
     ? { ...serializedRoot, name: options.rootName }
     : serializedRoot;
 
-  await page.context().addInitScript(({ root, fixtureStorageKey, fixturePermissionKey }: {
+  await page.context().addInitScript(({ root, fixtureStorageKey, fixturePermissionKey, renewPermissionInEditor }: {
     root: SerializedFixtureDirectory;
     fixtureStorageKey: string;
     fixturePermissionKey: string;
+    renewPermissionInEditor: boolean;
   }) => {
+    // Model dormant IDB bookmarks separately from live handles transferred between tabs.
+    const dormantHandles = new WeakSet<FileSystemDirectoryHandle>();
+    const get = IDBObjectStore.prototype.get;
+    IDBObjectStore.prototype.get = function (key) {
+      const request = get.call(this, key);
+      request.addEventListener('success', () => {
+        if (request.result?.kind === 'directory') dormantHandles.add(request.result);
+      });
+      return request;
+    };
     const decodeBase64 = (value: string): Uint8Array => {
       const binary = atob(value);
       const bytes = new Uint8Array(binary.length);
@@ -482,9 +493,23 @@ export async function installOpfsDirectoryPickerFixture(
       }
       const prototype = Object.getPrototypeOf(project) as Record<string, unknown> | null;
       if (prototype) {
-        const permission = async (): Promise<PermissionState> => (
-          localStorage.getItem(fixturePermissionKey) === 'denied' ? 'denied' : 'granted'
-        );
+        const needsRenewal = renewPermissionInEditor && location.pathname.startsWith('/clip/');
+        const permission = async function (this: FileSystemDirectoryHandle): Promise<PermissionState> {
+          if (needsRenewal && dormantHandles.has(this)) return sessionStorage.getItem('test-folder-granted') === 'yes' ? 'granted' : 'prompt';
+          return localStorage.getItem(fixturePermissionKey) === 'denied' ? 'denied' : 'granted';
+        };
+        const requestPermission = async function (this: FileSystemDirectoryHandle): Promise<PermissionState> {
+          if (!needsRenewal) return permission.call(this);
+          const attempts = Number(sessionStorage.getItem('test-permission-attempts') ?? 0) + 1;
+          sessionStorage.setItem('test-permission-attempts', String(attempts));
+          if (!navigator.userActivation.isActive) {
+            sessionStorage.setItem('test-permission-without-activation', 'yes');
+            throw new DOMException('User activation is required', 'SecurityError');
+          }
+          if (attempts === 1) return 'denied';
+          sessionStorage.setItem('test-folder-granted', 'yes');
+          return 'granted';
+        };
         try {
           Object.defineProperty(prototype, 'queryPermission', {
             configurable: true,
@@ -492,11 +517,11 @@ export async function installOpfsDirectoryPickerFixture(
           });
           Object.defineProperty(prototype, 'requestPermission', {
             configurable: true,
-            value: permission,
+            value: requestPermission,
           });
         } catch {
           Object.defineProperty(project, 'queryPermission', { configurable: true, value: permission });
-          Object.defineProperty(project, 'requestPermission', { configurable: true, value: permission });
+          Object.defineProperty(project, 'requestPermission', { configurable: true, value: requestPermission });
         }
       }
       return project;
@@ -510,7 +535,7 @@ export async function installOpfsDirectoryPickerFixture(
       (window as Window & { __playwrightProjectHandle?: FileSystemDirectoryHandle })
         .__playwrightProjectHandle = handle;
     });
-  }, { root: fixtureRoot, fixtureStorageKey: storageKey, fixturePermissionKey: permissionKey });
+  }, { root: fixtureRoot, fixtureStorageKey: storageKey, fixturePermissionKey: permissionKey, renewPermissionInEditor: options.renewPermissionInEditor ?? false });
 }
 
 export async function setOpfsProjectPermission(

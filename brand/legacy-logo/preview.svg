@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700" viewBox="0 0 1000 700" role="img" aria-labelledby="title desc">
+  <title id="title">Annotate logo preview</title>
+  <desc id="desc">The mark large on the app canvas, on a light panel, and at icon sizes.</desc>
+  <defs>
+    <g id="dark"><path fill="#ffffff" d="M60 0H88L102 35H74L28 150H0Z"/><path fill="#ffffff" d="M106 115H134L148 150H120Z"/><path fill="#a9bfd8" d="M57 105H130L106 45H78L92 80H67Z"/></g>
+    <g id="light"><path fill="#0a0f18" d="M60 0H88L102 35H74L28 150H0Z"/><path fill="#0a0f18" d="M106 115H134L148 150H120Z"/><path fill="#34557a" d="M57 105H130L106 45H78L92 80H67Z"/></g>
+  </defs>
+  <rect width="1000" height="700" fill="#0a0f18"/>
+  <use href="#dark" transform="translate(100 110) scale(3)"/>
+  <rect x="680" y="60" width="260" height="260" fill="#ffffff"/>
+  <use href="#light" transform="translate(736 115)"/>
+  <rect x="680" y="380" width="240" height="120" fill="#0e1520"/>
+  <use href="#dark" transform="translate(700 400) scale(0.5)"/>
+  <use href="#dark" transform="translate(800 410) scale(0.25)"/>
+  <use href="#dark" transform="translate(860 420) scale(0.125)"/>
+  <use href="#dark" transform="translate(890 425) scale(0.0625)"/>
+</svg>

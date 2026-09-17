@@ -15,7 +15,7 @@ import type { ClipTrimImpact } from '../../lib/clip/trimClip';
 
 export type TimelineKeyframeRef = {
   annotationId: string;
-  kind: 'position' | 'visibility';
+  kind: 'position';
   index: number;
   frame: number;
 };
@@ -148,8 +148,7 @@ function sameTimelineAnnotationRows(
     const nextAnnotation = next.annotations[index];
     return annotation.id === nextAnnotation.id
       && annotation.type === nextAnnotation.type
-      && annotation.keyframes === nextAnnotation.keyframes
-      && annotation.visibilityKeyframes === nextAnnotation.visibilityKeyframes;
+      && annotation.keyframes === nextAnnotation.keyframes;
   });
 }
 
@@ -213,45 +212,6 @@ const TimelineAnnotationRows = memo(function TimelineAnnotationRows({
               frame: formatNumber(keyframe.frame),
             })}
             onPointerDown={(event) => onKeyframePointerDown(event, ref, draggable)}
-            onPointerMove={onKeyframePointerMove}
-            onPointerUp={onKeyframePointerEnd}
-            onPointerCancel={onKeyframePointerEnd}
-          />
-        );
-      })}
-      {(annotation.visibilityKeyframes ?? []).map((keyframe, index) => {
-        const ref: TimelineKeyframeRef = {
-          annotationId: annotation.id,
-          kind: 'visibility',
-          index,
-          frame: keyframe.frame,
-        };
-        const selected = selectedKeyframe?.annotationId === annotation.id
-          && selectedKeyframe.kind === 'visibility'
-          && selectedKeyframe.frame === keyframe.frame;
-        return (
-          <button
-            key={`visibility-${keyframe.frame}`}
-            aria-label={t('timeline.visibilityAria', {
-              action: t(`timeline.action.${keyframe.action}`),
-              frame: formatNumber(keyframe.frame),
-            })}
-            aria-pressed={selected}
-            disabled={disabled}
-            className={`absolute top-1/2 h-3 w-3 rounded-full border border-white p-0 ${
-              keyframe.action === 'hide' ? 'bg-rose-500' : 'bg-emerald-500'
-            }`}
-            style={{
-              left: frameToX(keyframe.frame),
-              transform: 'translate(-50%, -50%)',
-              outline: selected ? '2px solid #fff' : undefined,
-              cursor: 'grab',
-            }}
-            title={t('timeline.visibilityTitle', {
-              action: t(`timeline.action.${keyframe.action}`),
-              frame: formatNumber(keyframe.frame),
-            })}
-            onPointerDown={(event) => onKeyframePointerDown(event, ref, true)}
             onPointerMove={onKeyframePointerMove}
             onPointerUp={onKeyframePointerEnd}
             onPointerCancel={onKeyframePointerEnd}

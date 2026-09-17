@@ -1,3 +1,4 @@
+import type { ProjectDirectory } from "../host/contracts";
 import { parseAnnotations } from '../types/annotations';
 import type { ClipPin, Clip, PinAnnotationRef } from '../types/clip';
 import type { PresentationSlide, Presentation } from '../types/presentation';
@@ -100,7 +101,7 @@ function checkAnnotationSelection(
 }
 
 async function checkClipAnnotationDocuments(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clip: Clip,
   issues: ProjectIntegrityIssue[],
 ): Promise<void> {
@@ -152,7 +153,7 @@ async function checkClipAnnotationDocuments(
     }
   }
 
-  let annotationsDirectory: FileSystemDirectoryHandle;
+  let annotationsDirectory: ProjectDirectory;
   try {
     annotationsDirectory = await getDirectoryPath(projectDir, ['analysis', 'clips', clip.id, 'annotations'], false);
   } catch (error) {
@@ -274,7 +275,7 @@ function checkPresentation(
 }
 
 export async function checkProjectIntegrity(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   manifest: ProjectManifest,
 ): Promise<ProjectIntegrityReport> {
   const issues: ProjectIntegrityIssue[] = [];

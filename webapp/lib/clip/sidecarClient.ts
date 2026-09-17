@@ -2,10 +2,8 @@
 // Sidecar API client — communicates with the Python ML sidecar service.
 // ---------------------------------------------------------------------------
 
-export const SIDECAR_BASE_URL =
-  (typeof window !== 'undefined' && (window as any).__SIDECAR_URL) ||
-  process.env.NEXT_PUBLIC_SIDECAR_URL ||
-  'http://127.0.0.1:8321';
+import { getSidecarBaseUrl, sidecarAuthorization, sidecarFetch } from '../host/runtime';
+import { nativeFileInfo } from '../host/media';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -120,6 +118,15 @@ export interface HomographyParams {
   skipInterval?: number;
 }
 
+export interface ClipHomographyParams {
+  videoPath?: string;
+  videoRef?: string;
+  startFrame: number;
+  endFrame: number; // Exclusive source-frame boundary.
+  sourceFps: number;
+  everyNFrames: number;
+}
+
 export interface VideoRegisterResult {
   videoRef: string;
   filename: string;
@@ -152,11 +159,13 @@ export type VideoNormalizationPhase =
   | 'normalizing'
   | 'probing'
   | 'downloading'
+  | 'copying'
   | 'complete';
 
 export interface VideoNormalizationProgress {
   phase: VideoNormalizationPhase;
   progress: number;
+  phaseProgress?: number;
 }
 
 export interface NormalizeVideoImportOptions {
@@ -208,10 +217,10 @@ async function buildErrorMessageFromResponse(
 }
 
 export async function checkHealth(
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
 ): Promise<HealthResponse | null> {
   try {
-    const res = await fetch(`${baseUrl}/health`, {
+    const res = await sidecarFetch(`${baseUrl}/health`, {
       method: 'GET',
       signal: AbortSignal.timeout(5000),
     });
@@ -228,12 +237,14 @@ export async function checkHealth(
 
 export async function registerVideoFile(
   file: File,
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
 ): Promise<VideoRegisterResult> {
+  const native = nativeFileInfo(file);
+  if (native) return native.register();
   const form = new FormData();
   form.append('file', file, file.name || 'video.mp4');
 
-  const res = await fetch(`${baseUrl}/video/register`, {
+  const res = await sidecarFetch(`${baseUrl}/video/register`, {
     method: 'POST',
     body: form,
   });
@@ -247,16 +258,16 @@ export async function registerVideoFile(
 
 export async function unregisterVideoRef(
   videoRef: string,
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
 ): Promise<void> {
-  await fetch(`${baseUrl}/video/${videoRef}`, { method: 'DELETE' }).catch(() => {});
+  await sidecarFetch(`${baseUrl}/video/${videoRef}`, { method: 'DELETE' }).catch(() => {});
 }
 
 async function requestNormalizedVideo(
   file: File,
   fps: number,
   resolution?: { width: number; height: number },
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
 ): Promise<Response> {
   const form = new FormData();
   form.append('file', file, file.name || 'video');
@@ -266,7 +277,7 @@ async function requestNormalizedVideo(
     form.append('height', String(resolution.height));
   }
 
-  const res = await fetch(`${baseUrl}/video/normalize`, {
+  const res = await sidecarFetch(`${baseUrl}/video/normalize`, {
     method: 'POST',
     body: form,
   });
@@ -305,7 +316,20 @@ function emitNormalizationProgress(
   phase: VideoNormalizationPhase,
   progress: number,
 ): void {
-  callback?.({ phase, progress: Math.max(0, Math.min(1, progress)) });
+  const bounds: Partial<Record<VideoNormalizationPhase, [number, number]>> = {
+    uploading: [0, IMPORT_UPLOAD_END],
+    analyzing: [IMPORT_UPLOAD_END, IMPORT_ANALYSIS_END],
+    remuxing: [IMPORT_ANALYSIS_END, IMPORT_MEDIA_END],
+    transcoding: [IMPORT_ANALYSIS_END, IMPORT_MEDIA_END],
+    normalizing: [IMPORT_ANALYSIS_END, IMPORT_MEDIA_END],
+    downloading: [0.95, 1],
+  };
+  const range = bounds[phase];
+  callback?.({
+    phase,
+    progress: Math.max(0, Math.min(1, progress)),
+    ...(range ? { phaseProgress: Math.max(0, Math.min(1, (progress - range[0]) / (range[1] - range[0]))) } : {}),
+  });
 }
 
 const IMPORT_UPLOAD_END = 0.35;
@@ -318,7 +342,7 @@ async function startNormalizationJobWithFetch(
   options: NormalizeVideoImportOptions,
 ): Promise<{ jobId: string }> {
   emitNormalizationProgress(options.onProgress, 'uploading', 0);
-  const response = await fetch(`${baseUrl}/video/normalize/start`, {
+  const response = await sidecarFetch(`${baseUrl}/video/normalize/start`, {
     method: 'POST',
     body: form,
     signal: options.signal,
@@ -343,6 +367,8 @@ function startNormalizationJobWithUploadProgress(
     const abort = () => request.abort();
     const finish = () => options.signal?.removeEventListener('abort', abort);
     request.open('POST', `${baseUrl}/video/normalize/start`);
+    const authorization = sidecarAuthorization(baseUrl);
+    if (authorization) request.setRequestHeader('Authorization', authorization);
     request.responseType = 'json';
     request.upload.onprogress = (event) => {
       const ratio = event.lengthComputable && event.total > 0 ? event.loaded / event.total : 0;
@@ -373,7 +399,8 @@ function startNormalizationJobWithUploadProgress(
       resolve({ jobId: body.jobId });
     };
     if (options.signal?.aborted) {
-      request.abort();
+      finish();
+      reject(new DOMException('Video import was canceled.', 'AbortError'));
       return;
     }
     options.signal?.addEventListener('abort', abort, { once: true });
@@ -456,8 +483,12 @@ async function runVideoImportJob(
   file: File,
   target: { fps: number; width: number; height: number } | null,
   options: NormalizeVideoImportOptions = {},
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
 ): Promise<NormalizedVideoImportResult> {
+  options.signal?.throwIfAborted();
+  const controller = new AbortController();
+  const parentSignal = options.signal;
+  options = { ...options, signal: controller.signal };
   const form = new FormData();
   form.append('file', file, file.name || 'video');
   if (target) {
@@ -467,12 +498,30 @@ async function runVideoImportJob(
   }
   let jobId: string | null = null;
   let metadata: AuthoritativeVideoMetadata | null = null;
+  let cleanup: Promise<unknown> | null = null;
+  const cleanupJob = () => {
+    if (!jobId) return Promise.resolve();
+    // Send immediately, without the aborted signal, so reloads do not orphan a
+    // transcode that keeps every subsequent import waiting for the encoder.
+    cleanup ??= sidecarFetch(`${baseUrl}/video/normalize/${jobId}`, {
+      method: 'DELETE',
+      keepalive: true,
+    }).catch(() => undefined);
+    return cleanup;
+  };
+  const cancel = () => {
+    controller.abort();
+    void cleanupJob();
+  };
+  parentSignal?.addEventListener('abort', cancel, { once: true });
+  if (typeof window !== 'undefined') window.addEventListener('pagehide', cancel);
   try {
     ({ jobId } = await startNormalizationJobWithUploadProgress(form, baseUrl, options));
+    controller.signal.throwIfAborted();
     emitNormalizationProgress(options.onProgress, 'queued', IMPORT_UPLOAD_END);
 
     while (true) {
-      const statusResponse = await fetch(`${baseUrl}/video/normalize/${jobId}`, { signal: options.signal });
+      const statusResponse = await sidecarFetch(`${baseUrl}/video/normalize/${jobId}`, { signal: options.signal });
       if (!statusResponse.ok) {
         throw new Error(await buildErrorMessageFromResponse(
           statusResponse,
@@ -496,22 +545,25 @@ async function runVideoImportJob(
       } else if (status.status === 'complete') {
         metadata = readJobMetadata(status.metadata);
         break;
-      } else {
+      } else if (status.status === 'queued') {
         emitNormalizationProgress(options.onProgress, 'queued', IMPORT_UPLOAD_END);
+      } else {
+        throw new Error(`Video import returned an unknown status: ${status.status}`);
       }
       await waitForNormalizationPoll(options.signal);
     }
 
     if (!metadata) throw new Error('Video import completed without authoritative metadata.');
     if (metadata.importStrategy === 'preserve') {
-      await fetch(`${baseUrl}/video/normalize/${jobId}`, { method: 'DELETE' });
+      await cleanupJob();
+      controller.signal.throwIfAborted();
       jobId = null;
       emitNormalizationProgress(options.onProgress, 'complete', 1);
       return { blob: file, metadata };
     }
 
     emitNormalizationProgress(options.onProgress, 'downloading', 0.95);
-    const response = await fetch(`${baseUrl}/video/normalize/${jobId}/file`, { signal: options.signal });
+    const response = await sidecarFetch(`${baseUrl}/video/normalize/${jobId}/file`, { signal: options.signal });
     if (!response.ok) {
       throw new Error(await buildErrorMessageFromResponse(response, `Video import download failed (${response.status})`));
     }
@@ -520,16 +572,16 @@ async function runVideoImportJob(
     jobId = null; // The sidecar cleans successful jobs after the file response.
     return { blob, metadata };
   } finally {
-    if (jobId) {
-      await fetch(`${baseUrl}/video/normalize/${jobId}`, { method: 'DELETE' }).catch(() => undefined);
-    }
+    parentSignal?.removeEventListener('abort', cancel);
+    if (typeof window !== 'undefined') window.removeEventListener('pagehide', cancel);
+    await cleanupJob();
   }
 }
 
 export async function prepareVideoImportWithMetadata(
   file: File,
   options: NormalizeVideoImportOptions = {},
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
 ): Promise<NormalizedVideoImportResult> {
   return runVideoImportJob(file, null, options, baseUrl);
 }
@@ -539,7 +591,7 @@ export async function normalizeVideoImportWithMetadata(
   fps: number,
   resolution: { width: number; height: number },
   options: NormalizeVideoImportOptions = {},
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
 ): Promise<NormalizedVideoImportResult> {
   return runVideoImportJob(file, { fps, ...resolution }, options, baseUrl);
 }
@@ -548,18 +600,18 @@ export async function normalizeVideoImport(
   file: File,
   fps: number,
   resolution?: { width: number; height: number },
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
 ): Promise<Blob> {
   return (await requestNormalizedVideo(file, fps, resolution, baseUrl)).blob();
 }
 
 export async function probeVideoImport(
   file: File,
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
 ): Promise<AuthoritativeVideoMetadata> {
   const form = new FormData();
   form.append('file', file, file.name || 'video');
-  const response = await fetch(`${baseUrl}/video/probe`, { method: 'POST', body: form });
+  const response = await sidecarFetch(`${baseUrl}/video/probe`, { method: 'POST', body: form });
   if (!response.ok) {
     throw new Error(await buildErrorMessageFromResponse(response, `Video probe failed (${response.status})`));
   }
@@ -594,10 +646,10 @@ export async function probeVideoImport(
 
 export async function requestTracking(
   params: TrackingParams,
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
   signal?: AbortSignal,
 ): Promise<TrackingResult> {
-  const res = await fetch(`${baseUrl}/track`, {
+  const res = await sidecarFetch(`${baseUrl}/track`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
@@ -633,10 +685,10 @@ function trackingErrorFromPayload(body: any, fallback: string): TrackingError {
 export async function requestTrackingStream(
   params: TrackingParams,
   onKeyframe: (keyframe: TrackingKeyframe) => void,
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
   signal?: AbortSignal,
 ): Promise<TrackingResult> {
-  const res = await fetch(`${baseUrl}/track/stream`, {
+  const res = await sidecarFetch(`${baseUrl}/track/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
@@ -687,10 +739,10 @@ export async function requestTrackingStream(
 
 export async function requestPlayerDetections(
   params: PlayerDetectionParams,
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
   signal?: AbortSignal,
 ): Promise<PlayerDetectionResult> {
-  const res = await fetch(`${baseUrl}/track/detect`, {
+  const res = await sidecarFetch(`${baseUrl}/track/detect`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
@@ -706,11 +758,59 @@ export async function requestPlayerDetections(
 // Homography
 // ---------------------------------------------------------------------------
 
+export interface HomographyProgress {
+  phase: 'queued' | 'preparing' | 'loading' | 'computing' | 'interpolating';
+  completed: number;
+  total: number;
+}
+
+export async function requestHomographyStream(
+  params: ClipHomographyParams,
+  onProgress: (progress: HomographyProgress) => void,
+  baseUrl: string = getSidecarBaseUrl(),
+  signal?: AbortSignal,
+): Promise<HomographyResult> {
+  const res = await sidecarFetch(`${baseUrl}/homography/stream`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params), signal,
+  });
+  if (!res.ok) throw new Error(await buildErrorMessageFromResponse(res, `Homography failed (${res.status})`));
+  if (!res.body) throw new Error('Homography stream response had no body.');
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let result: HomographyResult | null = null;
+  const consume = (line: string) => {
+    if (!line.trim()) return;
+    const event = JSON.parse(line);
+    if (event.type === 'progress') onProgress({ phase: event.phase, completed: event.completed, total: event.total });
+    else if (event.type === 'error') throw new Error(event.message || 'Homography failed');
+    else if (event.type === 'result') result = event.result;
+  };
+  try {
+    while (true) {
+      signal?.throwIfAborted();
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      lines.forEach(consume);
+      if (done) break;
+    }
+    consume(buffer);
+    if (!result) throw new Error('Homography stream ended before its final result.');
+    return result;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
 export async function requestHomography(
   params: HomographyParams,
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
 ): Promise<HomographyResult> {
-  const res = await fetch(`${baseUrl}/homography`, {
+  const res = await sidecarFetch(`${baseUrl}/homography`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
@@ -752,9 +852,9 @@ export interface ExactMotionEncodeParams {
 
 export async function startExport(
   params: ExportStartParams,
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
 ): Promise<ExportStartResult> {
-  const res = await fetch(`${baseUrl}/export/start`, {
+  const res = await sidecarFetch(`${baseUrl}/export/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
@@ -769,9 +869,9 @@ export async function sendExportFrame(
   sessionId: string,
   frameIndex: number,
   imageBase64: string,
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
 ): Promise<{ frameIndex: number; path: string }> {
-  const res = await fetch(`${baseUrl}/export/frame`, {
+  const res = await sidecarFetch(`${baseUrl}/export/frame`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessionId, frameIndex, image: imageBase64 }),
@@ -786,9 +886,9 @@ export async function encodeExport(
   sessionId: string,
   fps: number = 30,
   outputPath?: string,
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
 ): Promise<ExportEncodeResult> {
-  const res = await fetch(`${baseUrl}/export/encode`, {
+  const res = await sidecarFetch(`${baseUrl}/export/encode`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessionId, fps, outputPath }),
@@ -801,9 +901,9 @@ export async function encodeExport(
 
 export async function downloadExportFile(
   sessionId: string,
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
 ): Promise<Blob> {
-  const res = await fetch(`${baseUrl}/export/${sessionId}/file`);
+  const res = await sidecarFetch(`${baseUrl}/export/${sessionId}/file`);
   if (!res.ok) {
     throw new Error(await buildErrorMessageFromResponse(res, `Export download failed (${res.status})`));
   }
@@ -812,9 +912,9 @@ export async function downloadExportFile(
 
 export async function requestExactMotionEncode(
   params: ExactMotionEncodeParams,
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
 ): Promise<Blob> {
-  const res = await fetch(`${baseUrl}/derived-media/exact-motion`, {
+  const res = await sidecarFetch(`${baseUrl}/derived-media/exact-motion`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
@@ -827,7 +927,7 @@ export async function requestExactMotionEncode(
 
 export async function cleanupExport(
   sessionId: string,
-  baseUrl: string = SIDECAR_BASE_URL,
+  baseUrl: string = getSidecarBaseUrl(),
 ): Promise<void> {
-  await fetch(`${baseUrl}/export/${sessionId}`, { method: 'DELETE' }).catch(() => {});
+  await sidecarFetch(`${baseUrl}/export/${sessionId}`, { method: 'DELETE' }).catch(() => {});
 }

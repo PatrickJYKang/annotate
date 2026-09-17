@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 180" role="img" aria-labelledby="title desc">
+  <title id="title">Annotate logo mark</title>
+  <desc id="desc">An uppercase A with a detached one-sided arrow replacing its crossbar.</desc>
+  <polygon fill="#0e1520" points="90,10 110,10 30,170 10,170"/>
+  <polygon fill="#0e1520" points="90,10 110,10 140,70 120,70"/>
+  <polygon fill="#0e1520" points="130,105 150,105 180,165 160,165"/>
+  <path fill="#2f78c4" d="M83 85h42l-5-10h20l12 24H76Z"/>
+</svg>

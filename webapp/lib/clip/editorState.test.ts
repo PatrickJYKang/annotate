@@ -189,6 +189,32 @@ describe('mergeClipAnnotations', () => {
 describe('mergeTrackedKeyframesIntoAnnotation', () => {
   const clipEndFrame = frameBoundary(100);
 
+  it.each([
+    ['replace', 30, 70, []],
+    ['forward', 30, 70, [20]],
+    ['range', 70, 30, [20, 80]],
+    ['to_correction', 30, 70, [20, 70, 80]],
+  ] as const)('replaces legacy visibility markers using %s tracking bounds', (mergeMode, start, end, expected) => {
+    const original = {
+      ...annotation('tracked', [box(0, 0), box(90, 9)]),
+      visibilityKeyframes: [20, 30, 40, 70, 80].map((frame) => ({
+        frame: videoFrame(frame),
+        action: 'hide' as const,
+      })),
+    };
+    const result = mergeTrackedKeyframesIntoAnnotation(original, [box(30, 3), box(40, 4)], {
+      mergeMode,
+      currentFrame: videoFrame(start),
+      rangeEndFrame: videoFrame(end),
+      clipEndFrame,
+    });
+    expect((result.visibilityKeyframes ?? []).map((keyframe) => keyframe.frame)).toEqual(expected);
+    expect(original.visibilityKeyframes).toHaveLength(5);
+    expect(result.visibilityKeyframes?.some((visibility) => (
+      result.keyframes.some((position) => position.frame === visibility.frame)
+    )) ?? false).toBe(false);
+  });
+
   it('replaces all keyframes and supplies tracked provenance', () => {
     const result = mergeTrackedKeyframesIntoAnnotation(
       annotation('tracked', [box(0, 0), box(30, 3)]),

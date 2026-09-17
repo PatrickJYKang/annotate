@@ -52,7 +52,7 @@ function truncateTrackedAnnotation(
   frame: VideoFrame,
   clipEndFrame: FrameBoundary,
 ): ClipAnnotation {
-  const value = interpolateKeyframes(annotation.keyframes, frame, annotation.type);
+  const value = interpolateKeyframes(annotation.keyframes, frame, annotation.type, annotation.source);
   if (!value) return annotation;
   const current: ClipKeyframe = {
     frame,

@@ -1,22 +1,22 @@
 # Desktop Application Direction
 
 Date: 2026-08-10
-Status: Adopted product and architecture direction; the Annotate 0.2.2 and user-guide prerequisites are complete, but desktop implementation has not started
+Status: Adopted product and architecture direction; Annotate 0.2.2 and the written guide are complete. Browser session isolation and a working Electron development host with native persistence/media/windows are implemented on `codex/pre-electron`. Self-contained runtime packaging, native crash recovery and Windows certification remain incomplete. See [Pre-Electron Implementation Checklist](pre-electron-implementation-checklist.md) and [Desktop Development Host](../desktop/README.md).
 Scope: Direction record, not an implementation checklist and not a definition of the remaining browser-release features or fixes
 
 ## Decision summary
 
-Annotate will remain a stable and fully usable self-hosted browser application. A macOS desktop application will be added after the 0.2.2 feature release and its user-guide pass because a conventional app is easier for non-technical users to install, launch, update, and understand.
+Annotate will remain a stable and fully usable self-hosted browser application. macOS and Windows desktop applications will be added after the 0.2.2 feature release and its written user-guide pass because a conventional app is easier for non-technical users to install, launch, update, and understand. Initial packaging targets are Apple Silicon macOS and Windows x64.
 
 The browser application and desktop application are two hosts for one product, not separate product forks. They share the project format, domain model, editing behavior, renderers, sidecar contracts, and most of the React interface. Host behavior may differ when the operating environment offers a better convention: browser tabs can become native windows, selected panels can support Pop Out and Dock in the app, and browser file pickers can become native dialogs.
 
-The first desktop distribution will be a directly distributed, signed, and notarized macOS application delivered as a DMG. Mac App Store distribution is explicitly deferred and is not a requirement for the desktop architecture.
+Desktop distribution will be direct: a signed and notarized macOS application delivered as a DMG, and a Windows installer whose final format is selected during packaging. App Store distribution is explicitly deferred and is not a requirement for the desktop architecture.
 
 ## Release sequencing
 
 Annotate 0.2.1 delivers inward clip trimming and post-track tail repair. Annotate 0.2.2 adds pin-annotation animations. Both continue to ship through the current browser-based installation path.
 
-The user guide now covers the completed 0.2.2 browser product. Desktop implementation remains a separate next-stage decision rather than being mixed into the browser release; its useful starting point is this known-good, documented browser build with passing production tests.
+The written user guide covers the completed 0.2.2 browser product. Desktop preparation starts from this known-good, documented browser build with passing production tests. Guide demonstration videos will be recorded after the desktop UI settles; existing video placeholders remain until then.
 
 The browser remains supported after the desktop application ships. It is not a temporary compatibility fallback, and desktop work must not quietly degrade its workflows or test coverage.
 
@@ -44,6 +44,7 @@ The initial desktop window model should be deliberate rather than making every p
 - Presentation playback can use a separate clean output window, including full-screen output on another display, while authoring or presentation controls remain elsewhere.
 - Closing a project closes or detaches all windows owned by that project in a predictable order.
 - Closing the last window follows normal macOS behavior: the application may remain running until the user quits it.
+- On Windows, closing the last window normally quits the application and its owned services, subject to an explicit running-job confirmation.
 
 Selected panels may gain a Pop Out and Dock action. The first candidates are the tagging board, object inspector, and presentation controls because they can benefit from a second display or more working space. Pop-out behavior should render the same panel component in a dedicated window and synchronize its state through the project session; it should not attempt to move a live DOM node between windows.
 
@@ -55,8 +56,8 @@ The desktop host should add the operating-system behavior users reasonably expec
 
 - A compact opening screen for recent projects, Create project, and Open project.
 - Native project-folder, import, export, and Save As dialogs.
-- File, Edit, View, Window, and Help menus with standard macOS shortcuts.
-- Reveal in Finder for projects, media, exports, logs, and diagnostics.
+- File, Edit, View, Window, and Help menus with platform-standard shortcuts.
+- Reveal in Finder or File Explorer for projects, media, exports, logs, and diagnostics.
 - Dragging a project folder or supported video onto the application.
 - Restoration of window positions, sizes, panel layouts, and the last project where safe.
 - Project-aware background tracking, homography, and export jobs with progress, cancellation, completion notification, and failure details.
@@ -122,6 +123,8 @@ Bundled resources such as ffmpeg, ffprobe, the Python runtime, YOLO, PnLCalib co
 - Temporary registrations and working files under the operating-system temporary directory.
 - User projects and exports in locations explicitly selected by the user.
 
+Windows uses its corresponding user-data, cache, log, and temporary locations through host path resolution. Shared product code must not construct macOS home-directory paths.
+
 The packaged ffmpeg build must be self-contained rather than copied from a Homebrew installation with unresolved Homebrew library paths.
 
 ## Development workflow
@@ -134,18 +137,18 @@ Changes should not require duplicate implementations or duplicate full test suit
 - Pytest covers sidecar services and CV boundaries.
 - Playwright Chromium remains the broad end-to-end product suite and protects the supported browser version.
 - A focused Electron integration suite covers application startup, native dialogs through test seams, project persistence, window creation and focusing, cross-window synchronization, helper lifecycle, and graceful shutdown.
-- Release candidates receive a packaged `.app` smoke test rather than being validated only through a development Electron process.
+- Release candidates receive packaged macOS application and installed Windows application smoke tests rather than being validated only through a development Electron process.
 - Clean-machine testing verifies that the application launches and performs representative tracking and homography without external runtimes or package managers.
 
 Browser and desktop release gates should share fixtures where possible. Host-specific assertions should be layered around the same workflow rather than copying every browser scenario into a second suite.
 
 ## Distribution
 
-The initial desktop release target is macOS. The preferred artifact is a signed and notarized DMG containing `Annotate.app`; a PKG is unnecessary unless installation later requires privileged or shared-system changes.
+The initial desktop targets are Apple Silicon macOS and Windows x64. The preferred macOS artifact is a signed and notarized DMG containing `Annotate.app`; a PKG is unnecessary unless installation later requires privileged or shared-system changes. Windows needs its own packaged-runtime and clean-machine verification, not just a successful Electron renderer launch.
 
-Apple Silicon and Intel builds should be distributed separately at first. A universal application would duplicate much of Electron, Python, PyTorch, OpenCV, and other architecture-specific native code while providing little benefit over two clearly labeled downloads.
+Intel macOS and Windows ARM support are deferred until their native dependency stacks are verified. If Intel macOS is added, Apple Silicon and Intel builds should be distributed separately at first. A universal application would duplicate much of Electron, Python, PyTorch, OpenCV, and other architecture-specific native code while providing little benefit over two clearly labeled downloads.
 
-The existing browser installer remains available for the supported self-hosted version and for platforms without a native Annotate build. Desktop downloads should become the recommended path for ordinary macOS users once they are stable.
+The existing browser installer remains available for the supported self-hosted version on its currently supported platforms. Desktop downloads should become the recommended path for ordinary macOS and Windows users once their respective packages are verified. Windows desktop support does not imply that the existing shell installer supports Windows.
 
 Mac App Store distribution is deferred. It would require a separate Electron MAS build, App Sandbox entitlements, sandbox-compatible helper processes and project-folder access, App Review compliance, and legal review of distribution under the current GPL-3.0-only license. The desktop architecture should not be distorted around these constraints unless App Store demand later justifies a dedicated target.
 
@@ -160,7 +163,7 @@ Local measurements after the dependency trim provide a more useful estimate than
 - ffmpeg and ffprobe: approximately 52 MB for the current Homebrew distribution, with the final standalone build still to be selected.
 - Current YOLO model: approximately 6 MB.
 
-The initial expectation is approximately 2.0-2.4 GB installed for one architecture and approximately 1.2-1.6 GB as a compressed DMG. The repository's older 2.4 GB development virtual environment is not a shipping baseline because it still contains removed packages; the clean runtime is approximately 1.0 GB.
+The initial macOS expectation is approximately 2.0-2.4 GB installed for one architecture and approximately 1.2-1.6 GB as a compressed DMG. These older local measurements do not establish the Windows package size. The repository's older 2.4 GB development virtual environment is not a shipping baseline because it still contains removed packages; the clean runtime is approximately 1.0 GB.
 
 A basic development `.app` that starts the existing services is expected to require several focused days. A reliable self-contained Apple Silicon distribution with packaged CV dependencies, correct resource paths, lifecycle handling, and clean-machine verification is more reasonably a one-to-two-week packaging effort. These are directional engineering estimates, not release commitments.
 
@@ -182,7 +185,7 @@ These decisions are intentionally left until desktop work begins:
 - Whether PnLCalib weights ship inside every DMG or are checksum-verified during a first-run setup flow.
 - Whether the production Next application runs as a bundled loopback server or behind a controlled application protocol.
 - Which panels beyond the initial candidates provide enough value to justify Pop Out and Dock behavior.
-- Whether Intel support launches with the first desktop alpha or follows the Apple Silicon build.
+- When Intel macOS and Windows ARM support become worth their additional native-library and release validation.
 - The exact updater and GitHub Release publication flow.
 - Whether a lightweight project bookmark or launcher file is worthwhile while the project itself remains an ordinary folder.
 

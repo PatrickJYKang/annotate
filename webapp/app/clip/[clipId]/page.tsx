@@ -1,10 +1,12 @@
 "use client";
 
 import dynamic from 'next/dynamic';
+import { createMediaUrl, releaseMediaUrl } from '../../../lib/host/media';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ClipEditorSaveStatus } from '../../../components/clip/ClipEditor';
+import ProjectReconnect from '../../../components/project/ProjectReconnect';
 import { registerVideoFile, unregisterVideoRef } from '../../../lib/clip/sidecarClient';
 import {
   mutateClipExclusive,
@@ -29,6 +31,8 @@ export default function ClipPage() {
     projectDir,
     manifest,
     isRestoring,
+    reconnectProjectName,
+    restoreError,
     refreshIntegrity,
     setSelectedVideoId,
   } = useProject();
@@ -46,6 +50,7 @@ export default function ClipPage() {
       const result = await readClip(projectDir, clipId);
       if (!active) return;
       if (!result.ok) {
+        setClip(null);
         setError(result.error.message);
         return;
       }
@@ -78,7 +83,7 @@ export default function ClipPage() {
         const handle = await getFilePath(projectDir, splitSafeRelativePath(video.file), false);
         const file = await handle.getFile();
         if (!active) return;
-        objectUrl = URL.createObjectURL(file);
+        objectUrl = createMediaUrl(file);
         setVideoUrl(objectUrl);
       } catch (cause) {
         if (active) setError(cause instanceof Error ? cause.message : String(cause));
@@ -86,12 +91,18 @@ export default function ClipPage() {
     })();
     return () => {
       active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (objectUrl) releaseMediaUrl(objectUrl);
     };
   }, [projectDir, video]);
 
   useEffect(() => {
-    if (!projectDir || !video) return;
+    if (!projectDir || !video) {
+      const previous = activeVideoRef.current;
+      activeVideoRef.current = null;
+      setVideoRef(null);
+      if (previous) void unregisterVideoRef(previous);
+      return;
+    }
     let active = true;
     void (async () => {
       try {
@@ -163,7 +174,8 @@ export default function ClipPage() {
   if (!projectDir || !manifest) {
     return (
       <div className="panel">
-        <p className="status">{t('project.noOpen')}</p>
+        {reconnectProjectName ? <ProjectReconnect /> : <p className="status">{restoreError ?? t('project.noOpen')}</p>}
+        {reconnectProjectName && restoreError && <p role="alert" className="status text-danger">{restoreError}</p>}
         <button onClick={() => router.push('/')}>{t('player.backProject')}</button>
       </div>
     );

@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { expect, test } from '@playwright/test';
 import {
   installDirectoryPickerFixture,
@@ -22,6 +24,75 @@ async function installVideoFilePicker(page: import('@playwright/test').Page): Pr
     });
   });
 }
+
+for (const action of ['cancel', 'close project', 'navigate', 'reload'] as const) {
+  test(`releases a queued import on ${action} without leaving overlapping status text`, async ({ page }) => {
+    await installDirectoryPickerFixture(page, path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project'));
+    await installVideoFilePicker(page);
+    let deleted = 0;
+    // A real HTTP peer is needed here: browser-owned keepalive requests during
+    // unload are not reliably observable through Playwright route interception.
+    const sidecar = createServer((request, response) => {
+      const headers = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+      };
+      request.resume();
+      if (request.method === 'DELETE') deleted += 1;
+      response.writeHead(request.method === 'OPTIONS' ? 204 : 200, { ...headers, 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ jobId: 'queued-import', status: 'queued', progress: 0 }));
+    });
+    sidecar.listen(0, '127.0.0.1');
+    await once(sidecar, 'listening');
+    const address = sidecar.address() as { port: number };
+    await page.addInitScript((baseUrl) => { window.__SIDECAR_URL = baseUrl; }, `http://127.0.0.1:${address.port}`);
+    try {
+      await page.goto('/');
+      await page.getByRole('button', { name: 'Open Existing Project' }).click();
+      await page.getByLabel('Project controls').getByRole('button', { name: 'Import video…' }).click();
+      const progress = page.getByLabel('Video import progress');
+      await expect(progress).toContainText('Waiting for another import to finish');
+      await expect(progress.getByRole('progressbar')).toHaveAttribute('value', '0.35');
+      await expect(page.locator('.toast')).toHaveCount(0);
+      await expect(page.getByText('Preparing source.mp4…', { exact: true })).toHaveCount(0);
+
+      if (action === 'cancel') await progress.getByRole('button', { name: 'Cancel' }).click();
+      else if (action === 'close project') await page.getByRole('button', { name: 'Close project' }).click();
+      else if (action === 'navigate') await page.getByRole('link', { name: 'User guide' }).click();
+      else await page.reload();
+
+      await expect.poll(() => deleted).toBe(1);
+      await expect(page.getByLabel('Video import progress')).toHaveCount(0);
+    } finally {
+      sidecar.close();
+      sidecar.closeAllConnections();
+    }
+  });
+}
+
+test('estimates import time from live step progress and resets for the next step', async ({ page }) => {
+  await installDirectoryPickerFixture(page, path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project'));
+  await installVideoFilePicker(page);
+  let started = 0;
+  let phase = 'transcoding';
+  await page.route('**/video/normalize/start', (route) => {
+    started = Date.now();
+    return route.fulfill({ json: { jobId: 'eta-import' } });
+  });
+  await page.route('**/video/normalize/eta-import', (route) => route.fulfill({ json: {
+    jobId: 'eta-import', status: phase,
+    progress: phase === 'transcoding' ? Math.min(0.8, (Date.now() - started) / 20_000) : 0,
+  } }));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open Existing Project' }).click();
+  await page.getByLabel('Project controls').getByRole('button', { name: 'Import video…' }).click();
+  const estimate = page.getByTestId('import-time-estimate');
+  await expect(estimate).toHaveText(/About \d+:\d{2} remaining in this step/);
+  phase = 'probing';
+  await expect(estimate).toHaveText('Estimating remaining time...');
+  await page.getByLabel('Video import progress').getByRole('button', { name: 'Cancel' }).click();
+  await expect(estimate).toHaveCount(0);
+});
 
 test('opens a valid project and shows frame-native dashboard counts', async ({ page }) => {
   await installDirectoryPickerFixture(
@@ -47,24 +118,33 @@ test('restores a persisted handle after refresh under the canonical key', async 
   await page.getByRole('button', { name: 'Open Existing Project' }).click();
   await expect(page.getByRole('heading', { name: 'Clip editor fixture' })).toBeVisible();
 
-  const keys = await page.evaluate(async () => {
+  const stored = await page.evaluate(async () => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open('annotate-db', 1);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
     try {
-      return await new Promise<IDBValidKey[]>((resolve, reject) => {
+      const handle = await new Promise<FileSystemDirectoryHandle>((resolve, reject) => {
+        const request = database.transaction('handles', 'readonly').objectStore('handles').get('project');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const keys = await new Promise<IDBValidKey[]>((resolve, reject) => {
         const request = database.transaction('handles', 'readonly').objectStore('handles').getAllKeys();
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
+      const manifest = JSON.parse(await (await (await handle.getFileHandle('project.json')).getFile()).text());
+      return { keys, kind: handle.kind, schema: manifest.schema };
     } finally {
       database.close();
     }
   });
-  expect(keys).toContain('project');
-  expect(keys).not.toContain('project-v2');
+  expect(stored.keys).toContain('project');
+  expect(stored.keys).not.toContain('project-v2');
+  expect(stored.kind).toBe('directory');
+  expect(stored.schema).toBe('project.v2');
 
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Clip editor fixture' })).toBeVisible();

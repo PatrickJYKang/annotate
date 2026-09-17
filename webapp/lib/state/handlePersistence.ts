@@ -1,3 +1,5 @@
+import type { ProjectDirectory } from "../host/contracts";
+import { getAppHost } from '../host';
 import type { TaggingBoard } from '../tagging/board';
 import type { ProjectManifest } from '../types/project';
 import { validateProjectFolder } from '../fs/projectFolder';
@@ -7,76 +9,42 @@ import {
   type ProjectIntegrityReport,
 } from '../utils/projectIntegrity';
 
-const DATABASE_NAME = 'annotate-db';
-const DATABASE_VERSION = 1;
-const HANDLE_STORE = 'handles';
-
-export const PROJECT_HANDLE_KEY = 'project';
-
 export interface RestoredProjectHandle {
-  projectDir: FileSystemDirectoryHandle;
+  projectDir: ProjectDirectory;
   manifest: ProjectManifest;
   board: TaggingBoard;
   integrityReport: ProjectIntegrityReport;
 }
 
-function openHandleDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(HANDLE_STORE)) {
-        request.result.createObjectStore(HANDLE_STORE);
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('Could not open the project handle database.'));
-  });
-}
-
-async function withHandleStore<T>(
-  mode: IDBTransactionMode,
-  operation: (store: IDBObjectStore) => IDBRequest<T>,
-): Promise<T> {
-  const database = await openHandleDatabase();
-  try {
-    return await new Promise<T>((resolve, reject) => {
-      const transaction = database.transaction(HANDLE_STORE, mode);
-      const request = operation(transaction.objectStore(HANDLE_STORE));
-      let result: T;
-      request.onsuccess = () => {
-        result = request.result;
-      };
-      request.onerror = () => reject(request.error ?? new Error('Project handle storage failed.'));
-      transaction.oncomplete = () => resolve(result);
-      transaction.onerror = () => reject(transaction.error ?? new Error('Project handle storage failed.'));
-      transaction.onabort = () => reject(transaction.error ?? new Error('Project handle storage was aborted.'));
-    });
-  } finally {
-    database.close();
+export class ProjectPermissionRequiredError extends Error {
+  constructor(readonly projectDir: ProjectDirectory) {
+    super('Reconnect the project to renew access to its folder.');
+    this.name = 'ProjectPermissionRequiredError';
   }
 }
 
-export async function saveProjectHandle(handle: FileSystemDirectoryHandle): Promise<void> {
-  await withHandleStore('readwrite', (store) => store.put(handle, PROJECT_HANDLE_KEY));
+export async function saveProjectHandle(handle: ProjectDirectory): Promise<ProjectDirectory> {
+  return getAppHost().projects.remember(handle);
 }
 
-export async function loadProjectHandle(): Promise<FileSystemDirectoryHandle | null> {
-  const handle = await withHandleStore<FileSystemDirectoryHandle | undefined>(
-    'readonly',
-    (store) => store.get(PROJECT_HANDLE_KEY),
-  );
-  return handle ?? null;
+export async function loadProjectHandle(): Promise<ProjectDirectory | null> {
+  return getAppHost().projects.restore();
 }
 
 export async function clearProjectHandle(): Promise<void> {
-  await withHandleStore('readwrite', (store) => store.delete(PROJECT_HANDLE_KEY));
+  await getAppHost().projects.forget();
 }
 
-async function requireReadWritePermission(handle: FileSystemDirectoryHandle): Promise<void> {
+export function shareProjectHandle(handle: ProjectDirectory): (() => void) | undefined {
+  return getAppHost().projects.share?.(handle);
+}
+
+async function requireReadWritePermission(handle: ProjectDirectory, allowRequest: boolean): Promise<void> {
   const current = handle.queryPermission
     ? await handle.queryPermission({ mode: 'readwrite' })
     : 'granted';
   if (current === 'granted') return;
+  if (!allowRequest) throw new ProjectPermissionRequiredError(handle);
   const requested = handle.requestPermission
     ? await handle.requestPermission({ mode: 'readwrite' })
     : 'denied';
@@ -86,9 +54,10 @@ async function requireReadWritePermission(handle: FileSystemDirectoryHandle): Pr
 }
 
 export async function openProjectFromHandle(
-  handle: FileSystemDirectoryHandle,
+  handle: ProjectDirectory,
+  options: { requestPermission?: boolean } = {},
 ): Promise<RestoredProjectHandle> {
-  await requireReadWritePermission(handle);
+  await requireReadWritePermission(handle, options.requestPermission !== false);
   const opened = await validateProjectFolder(handle);
   if (!opened.ok) throw new Error(opened.reason);
   await cleanupTrash(handle);
@@ -105,9 +74,10 @@ export async function restoreProjectFromHandle(): Promise<RestoredProjectHandle 
   const handle = await loadProjectHandle();
   if (!handle) return null;
   try {
-    return await openProjectFromHandle(handle);
+    return await openProjectFromHandle(handle, { requestPermission: false });
   } catch (error) {
-    await clearProjectHandle().catch(() => undefined);
+    if (error instanceof ProjectPermissionRequiredError) throw error;
+    await getAppHost().projects.forget({ retainSession: true }).catch(() => undefined);
     throw error;
   }
 }

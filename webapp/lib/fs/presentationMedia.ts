@@ -1,3 +1,4 @@
+import type { ProjectDirectory } from "../host/contracts";
 import { frameBoundary, videoFrame, type FrameBoundary, type VideoFrame } from '../clip/frameMath';
 import { isSafeClipIdSegment } from '../types/clip';
 import { getFilePath, isNotFoundError, readTextFile, writeJsonFile } from './fsAccess';
@@ -93,7 +94,7 @@ export function preparedPresentationAssetKey(args: {
 }
 
 export async function readPresentationMediaIndex(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   presentationId: string,
 ): Promise<PresentationMediaIndex> {
   try {
@@ -105,7 +106,7 @@ export async function readPresentationMediaIndex(
 }
 
 export async function writePreparedPresentationAsset(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   presentationId: string,
   input: Omit<PreparedPresentationAsset, 'key' | 'file' | 'createdAt'>,
   blob: Blob,
@@ -127,7 +128,7 @@ export async function writePreparedPresentationAsset(
 }
 
 export async function readPreparedPresentationAssetFile(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   presentationId: string,
   entry: PreparedPresentationAsset,
 ): Promise<File> {

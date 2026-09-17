@@ -1,3 +1,5 @@
+import type { ProjectDirectory, ProjectFile } from "../host/contracts";
+import { requireProjectVideo, withProjectManifestExclusive } from './projectManifestRepository';
 import { isSafeClipIdSegment, parseClip } from '../types/clip';
 import {
   copyDirectoryContents,
@@ -60,7 +62,7 @@ export interface CreateTrashPayloadOptions {
   sourcePath: string;
   operationId?: string;
   now?: Date;
-  populate: (payload: FileSystemDirectoryHandle) => Promise<void>;
+  populate: (payload: ProjectDirectory) => Promise<void>;
 }
 
 const TRASH_PATH = ['.trash'] as const;
@@ -156,8 +158,8 @@ function payloadName(entityId: string, id: string): string {
 }
 
 export async function copyDirectoryVerified(
-  source: FileSystemDirectoryHandle,
-  destination: FileSystemDirectoryHandle,
+  source: ProjectDirectory,
+  destination: ProjectDirectory,
 ): Promise<FileInventoryEntry[]> {
   const sourceInventory = await inventoryDirectory(source);
   await copyDirectoryContents(source, destination);
@@ -169,7 +171,7 @@ export async function copyDirectoryVerified(
 }
 
 export async function readClipTombstone(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
 ): Promise<ClipTombstone | null> {
   try {
@@ -191,13 +193,13 @@ export async function readClipTombstone(
 }
 
 export async function hasClipTombstone(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
 ): Promise<boolean> {
   return (await readClipTombstone(projectDir, clipId)) !== null;
 }
 
-async function removeTombstone(projectDir: FileSystemDirectoryHandle, clipId: string): Promise<void> {
+async function removeTombstone(projectDir: ProjectDirectory, clipId: string): Promise<void> {
   try {
     await removePath(projectDir, [...TOMBSTONE_PATH, tombstoneFileName(clipId)]);
   } catch (error) {
@@ -206,7 +208,7 @@ async function removeTombstone(projectDir: FileSystemDirectoryHandle, clipId: st
 }
 
 async function removeTrashEntry(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   record: Pick<TrashOperationRecord, 'kind' | 'entityId' | 'operationId'>,
 ): Promise<void> {
   const bucket = bucketFor(record.kind);
@@ -224,7 +226,7 @@ async function removeTrashEntry(
 }
 
 export async function createTrashPayload(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   options: CreateTrashPayloadOptions,
 ): Promise<TrashOperationRecord> {
   if (!isSafeClipIdSegment(options.clipId)) throw new Error(`Unsafe clip id: ${JSON.stringify(options.clipId)}`);
@@ -260,11 +262,11 @@ export async function createTrashPayload(
 }
 
 export async function readTrashOperation(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   kind: TrashEntityKind,
   entityId: string,
   operationIdToRead: string,
-): Promise<{ record: TrashOperationRecord; payload: FileSystemDirectoryHandle }> {
+): Promise<{ record: TrashOperationRecord; payload: ProjectDirectory }> {
   const bucket = bucketFor(kind);
   const name = payloadName(entityId, operationIdToRead);
   const source = await readTextFile(projectDir, [...TRASH_PATH, bucket, `${name}.json`]);
@@ -281,14 +283,14 @@ export async function readTrashOperation(
 }
 
 export async function removeTrashOperation(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   record: Pick<TrashOperationRecord, 'kind' | 'entityId' | 'operationId'>,
 ): Promise<void> {
   await removeTrashEntry(projectDir, record);
 }
 
 export async function deleteClipToTrash(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
   options: DeleteClipToTrashOptions = {},
 ): Promise<TrashOperationRecord> {
@@ -348,7 +350,7 @@ export async function deleteClipToTrash(
 }
 
 export async function restoreClipFromTrash(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   clipId: string,
   operationIdToRestore?: string,
 ): Promise<void> {
@@ -362,6 +364,8 @@ export async function restoreClipFromTrash(
   if (record.clipId !== clipId || record.payloadPath !== tombstone.payloadPath) {
     throw new Error(`Clip "${clipId}" trash record does not match its tombstone.`);
   }
+  const clip = parseClip(JSON.parse(await readTextFile(source, ['clip.json'])), { folderId: clipId });
+  await requireProjectVideo(projectDir, clip.videoId);
   const destinationPath = ['analysis', 'clips', clipId];
   if (await pathExists(projectDir, destinationPath, 'directory')) {
     throw new Error(`Cannot restore clip "${clipId}": destination already exists.`);
@@ -388,10 +392,10 @@ export async function restoreClipFromTrash(
   await removeTrashOperation(projectDir, record).catch(() => undefined);
 }
 
-async function listTrashOperations(projectDir: FileSystemDirectoryHandle): Promise<TrashOperationRecord[]> {
+async function listTrashOperations(projectDir: ProjectDirectory): Promise<TrashOperationRecord[]> {
   const operations: TrashOperationRecord[] = [];
   for (const bucket of ['clips', 'pins', 'annotations'] as const) {
-    let directory: FileSystemDirectoryHandle;
+    let directory: ProjectDirectory;
     try {
       directory = await getDirectoryPath(projectDir, [...TRASH_PATH, bucket], false);
     } catch (error) {
@@ -405,7 +409,7 @@ async function listTrashOperations(projectDir: FileSystemDirectoryHandle): Promi
           ? 'clip'
           : bucket === 'pins' ? 'pin' : 'annotation';
         const record = parseTrashOperationRecord(
-          JSON.parse(await (await (handle as FileSystemFileHandle).getFile()).text()),
+          JSON.parse(await (await (handle as ProjectFile).getFile()).text()),
           { kind: expectedKind },
         );
         if (`${payloadName(record.entityId, record.operationId)}.json` !== name) {
@@ -421,8 +425,16 @@ async function listTrashOperations(projectDir: FileSystemDirectoryHandle): Promi
 }
 
 export async function cleanupTrash(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   options: TrashCleanupOptions = {},
+): Promise<TrashCleanupResult> {
+  if (projectDir.command) return projectDir.command('trash.cleanup', [options]);
+  return withProjectManifestExclusive(projectDir, () => cleanupTrashUnlocked(projectDir, options));
+}
+
+async function cleanupTrashUnlocked(
+  projectDir: ProjectDirectory,
+  options: TrashCleanupOptions,
 ): Promise<TrashCleanupResult> {
   const now = options.now ?? new Date();
   const retentionDays = options.retentionDays ?? DEFAULT_RETENTION_DAYS;
@@ -451,7 +463,7 @@ export async function cleanupTrash(
 }
 
 export async function emptyTrash(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   preserveOperationIds: ReadonlySet<string> = new Set(),
 ): Promise<TrashCleanupResult> {
   return cleanupTrash(projectDir, {

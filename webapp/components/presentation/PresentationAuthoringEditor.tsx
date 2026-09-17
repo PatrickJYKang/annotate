@@ -1,5 +1,9 @@
 "use client";
+import { registerCloseGuard } from '../../lib/host/closeGuard';
+import { createMediaUrl, releaseMediaUrl } from '../../lib/host/media';
 
+import type { ProjectDirectory } from "../../lib/host/contracts";
+import { getAppHost } from '../../lib/host';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listClips } from '../../lib/fs/clipStorage';
 import { subscribeToClipChanges } from '../../lib/fs/clipEvents';
@@ -37,7 +41,7 @@ import PresentationInspector, { type PresentationSourcePreview } from './Present
 import { useLocale } from '../../lib/i18n';
 
 interface PresentationAuthoringEditorProps {
-  projectDir: FileSystemDirectoryHandle;
+  projectDir: ProjectDirectory;
   manifest: ProjectManifest;
   board: TaggingBoard;
   presentation: Presentation;
@@ -77,7 +81,7 @@ export default function PresentationAuthoringEditor({
     };
     void load();
     const refreshAfterClipEdit = () => void load();
-    const unsubscribeClipChanges = subscribeToClipChanges(() => void load());
+    const unsubscribeClipChanges = subscribeToClipChanges(projectDir, () => void load());
     window.addEventListener('focus', refreshAfterClipEdit);
     return () => {
       active = false;
@@ -93,7 +97,7 @@ export default function PresentationAuthoringEditor({
       const resources = new Map<string, PresentationVideoResource>();
       for (const video of manifest.videos) {
         const file = await getFilePath(projectDir, splitSafeRelativePath(video.file), false).then((handle) => handle.getFile());
-        const url = URL.createObjectURL(file);
+        const url = createMediaUrl(file);
         urls.push(url);
         resources.set(video.id, { video, file, url });
       }
@@ -103,7 +107,7 @@ export default function PresentationAuthoringEditor({
     })().catch((error) => active && setMessage(error instanceof Error ? error.message : String(error)));
     return () => {
       active = false;
-      urls.forEach((url) => URL.revokeObjectURL(url));
+      urls.forEach(releaseMediaUrl);
     };
   }, [manifest.videos, projectDir]);
 
@@ -129,6 +133,12 @@ export default function PresentationAuthoringEditor({
     if (immediate) persistLatest();
     else saveTimerRef.current = setTimeout(persistLatest, 300);
   }, [persistLatest]);
+
+  useEffect(() => registerCloseGuard(async () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    await writeTailRef.current;
+    await writePresentation(projectDir, draftRef.current);
+  }), [projectDir]);
 
   useEffect(() => () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -273,8 +283,8 @@ export default function PresentationAuthoringEditor({
   }, []);
 
   const openClipEditor = useCallback((clipId: string) => {
-    window.open(`/clip/${encodeURIComponent(clipId)}`, '_blank', 'noopener,noreferrer');
-  }, []);
+    getAppHost().editors.open(projectDir, { clipId });
+  }, [projectDir]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="presentation-editor">

@@ -1,3 +1,8 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
+
+import pytest
+
 from annotate_sidecar.services.calibration.base import CalibrationProvider
 from annotate_sidecar.services.calibration.service import CalibrationService
 from annotate_sidecar.services.calibration.types import HomographyFrame
@@ -77,3 +82,43 @@ def test_calibration_service_reports_provider_metadata():
             },
         ],
     }
+
+
+@pytest.mark.parametrize('cancel_queued', [False, True])
+def test_calibration_serializes_model_use_and_allows_queued_cancel(cancel_queued):
+    entered, release, queued, second_entered = Event(), Event(), Event(), Event()
+
+    class BlockingProvider(FakeCalibrationProvider):
+        def estimate_range(self, video_path, **kwargs):
+            if video_path == 'first':
+                entered.set()
+                assert release.wait(5)
+            else:
+                second_entered.set()
+            return []
+
+    service = CalibrationService(providers=[BlockingProvider([])])
+
+    def progress(event):
+        assert event == {'phase': 'queued', 'completed': 0, 'total': 0}
+        queued.set()
+        if cancel_queued:
+            raise RuntimeError('canceled')
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(service.estimate_range, 'first', 0, 200)
+        try:
+            assert entered.wait(2)
+            second = pool.submit(service.estimate_range, 'second', 0, 200, on_progress=progress)
+            assert queued.wait(2)
+            assert not second_entered.is_set()
+            if cancel_queued:
+                with pytest.raises(RuntimeError, match='canceled'):
+                    second.result(timeout=2)
+        finally:
+            release.set()
+        assert first.result(timeout=2) == []
+        if not cancel_queued:
+            assert second.result(timeout=2) == []
+        assert second_entered.is_set() is not cancel_queued
+    assert service.estimate_range('next', 0, 200) == []

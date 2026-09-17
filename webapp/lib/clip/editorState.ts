@@ -281,12 +281,15 @@ export function mergeTrackedKeyframesIntoAnnotation(
   const normalized = newKeyframes.map(normalizeTrackedKeyframe);
   const { mergeMode, currentFrame, rangeEndFrame, clipEndFrame } = options;
   let merged: ClipKeyframe[];
+  let visibilityKeyframes = annotation.visibilityKeyframes;
 
   if (mergeMode === 'replace') {
     merged = normalized;
+    visibilityKeyframes = undefined;
   } else if (mergeMode === 'forward') {
     const before = annotation.keyframes.filter((keyframe) => keyframe.frame < currentFrame);
     merged = [...before, ...normalized.filter((keyframe) => keyframe.frame >= currentFrame)];
+    visibilityKeyframes = visibilityKeyframes?.filter((keyframe) => keyframe.frame < currentFrame);
   } else if (mergeMode === 'to_correction') {
     const boundary = rangeEndFrame ?? clipEndFrame;
     const start = Math.min(currentFrame, boundary);
@@ -295,6 +298,7 @@ export function mergeTrackedKeyframesIntoAnnotation(
     const after = annotation.keyframes.filter((keyframe) => keyframe.frame >= end);
     const middle = normalized.filter((keyframe) => keyframe.frame >= start && keyframe.frame < end);
     merged = [...before, ...middle, ...after];
+    visibilityKeyframes = visibilityKeyframes?.filter((keyframe) => keyframe.frame < start || keyframe.frame >= end);
   } else {
     const boundary = rangeEndFrame ?? (clipEndFrame - 1);
     const start = Math.min(currentFrame, boundary);
@@ -303,12 +307,15 @@ export function mergeTrackedKeyframesIntoAnnotation(
     const after = annotation.keyframes.filter((keyframe) => keyframe.frame > end);
     const middle = normalized.filter((keyframe) => keyframe.frame >= start && keyframe.frame <= end);
     merged = [...before, ...middle, ...after];
+    visibilityKeyframes = visibilityKeyframes?.filter((keyframe) => keyframe.frame < start || keyframe.frame > end);
   }
 
   merged.sort((left, right) => left.frame - right.frame);
   return {
     ...annotation,
     keyframes: merged,
+    // Re-tracking supersedes legacy show/hide markers in the replaced range too.
+    visibilityKeyframes: visibilityKeyframes?.length ? visibilityKeyframes : undefined,
     source: mergeMode === 'replace' ? 'auto' : 'corrected',
   };
 }

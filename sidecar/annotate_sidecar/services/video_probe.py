@@ -24,6 +24,8 @@ class VideoProbeMetadata(TypedDict):
     audio_codec_name: str | None
     format_name: str
     constant_frame_rate: bool
+    sample_aspect_ratio: str
+    rotation_degrees: float
 
 
 def _parse_rate(value: object) -> tuple[int, int, float]:
@@ -69,7 +71,8 @@ def _run_ffprobe(path: Path, *, count_frames: bool) -> dict[str, object]:
         "-show_entries",
         (
             "stream=index,codec_type,codec_name,pix_fmt,width,height,"
-            "avg_frame_rate,r_frame_rate,nb_frames,nb_read_frames:"
+            "avg_frame_rate,r_frame_rate,nb_frames,nb_read_frames,sample_aspect_ratio:"
+            "stream_side_data=rotation:"
             "format=format_name,duration"
         ),
         "-of", "json",
@@ -191,4 +194,7 @@ def probe_video_metadata(video_path: str) -> VideoProbeMetadata:
         "audio_codec_name": str(audio_stream.get("codec_name")) if audio_stream.get("codec_name") else None,
         "format_name": str(format_name or ""),
         "constant_frame_rate": constant_frame_rate,
+        "sample_aspect_ratio": str(video_stream.get("sample_aspect_ratio") or ""),
+        "rotation_degrees": next((float(item["rotation"]) for item in video_stream.get("side_data_list", [])
+                                   if isinstance(item, dict) and "rotation" in item), 0.0),
     }

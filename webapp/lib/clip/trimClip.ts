@@ -92,7 +92,7 @@ function sampledKeyframe(
   frame: VideoFrame,
   originalEndFrame: FrameBoundary,
 ): ClipKeyframe | null {
-  const value = interpolateKeyframes(annotation.keyframes, frame, annotation.type);
+  const value = interpolateKeyframes(annotation.keyframes, frame, annotation.type, annotation.source);
   const manualHidden = getVisibilityAction(annotation, frame) === 'hide';
   const state = getFrameTrackingState(annotation, frame, originalEndFrame);
   const provenance: ClipKeyframeProvenance = manualHidden

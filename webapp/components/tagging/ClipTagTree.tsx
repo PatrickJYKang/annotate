@@ -1,6 +1,6 @@
 "use client";
 
-import type { DragEvent } from 'react';
+import { useEffect, useRef, type DragEvent, type Ref } from 'react';
 import { boardTagTree, type TaggingBoard } from '../../lib/tagging/board';
 import type { Clip } from '../../lib/types/clip';
 import { useLocale } from '../../lib/i18n';
@@ -11,6 +11,7 @@ interface ClipTagTreeProps {
   board: TaggingBoard;
   clips: Clip[];
   selectedClipId: string | null;
+  revealSelectionRequest?: number;
   onSelectClip: (clip: Clip) => void;
   onDropClipOnButton: (clipId: string, buttonId: string) => void | Promise<void>;
 }
@@ -18,10 +19,12 @@ interface ClipTagTreeProps {
 function ClipRow({
   clip,
   selected,
+  rowRef,
   onSelectClip,
 }: {
   clip: Clip;
   selected: boolean;
+  rowRef?: Ref<HTMLButtonElement>;
   onSelectClip: (clip: Clip) => void;
 }) {
   const { t, formatNumber } = useLocale();
@@ -34,8 +37,10 @@ function ClipRow({
   return (
     <button
       type="button"
+      ref={rowRef}
       draggable
       data-testid={`clip-tree-row-${clip.id}`}
+      aria-pressed={selected}
       onDragStart={onDragStart}
       onClick={() => onSelectClip(clip)}
       className={`w-full border-0 border-t border-solid border-border px-2 py-2 text-left first:border-t-0 ${
@@ -58,14 +63,33 @@ export default function ClipTagTree({
   board,
   clips,
   selectedClipId,
+  revealSelectionRequest = 0,
   onSelectClip,
   onDropClipOnButton,
 }: ClipTagTreeProps) {
   const { t, formatNumber } = useLocale();
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const selectedRowRef = useRef<HTMLButtonElement>(null);
   const tree = boardTagTree(board);
   const knownButtons = new Set(tree.flatMap((group) => group.buttons.map((button) => button.id)));
   const untagged = clips.filter((clip) => !clip.tags.primary);
   const unknown = clips.filter((clip) => !!clip.tags.primary && !knownButtons.has(clip.tags.primary));
+
+  useEffect(() => {
+    if (!revealSelectionRequest) return;
+    const scroller = scrollerRef.current;
+    const row = selectedRowRef.current;
+    if (!scroller || !row || scroller.clientHeight === 0) return;
+    const viewport = scroller.getBoundingClientRect();
+    const bounds = row.getBoundingClientRect();
+    const heading = row.closest('section')?.querySelector<HTMLElement>('[data-clip-group-heading]');
+    const top = viewport.top + scroller.clientTop;
+    const visibleTop = top + (heading?.getBoundingClientRect().height ?? 0);
+    const visibleBottom = top + scroller.clientHeight;
+    // Scroll this panel only, and leave an already visible row exactly in place.
+    if (bounds.top < visibleTop) scroller.scrollTop += bounds.top - visibleTop;
+    else if (bounds.bottom > visibleBottom) scroller.scrollTop += bounds.bottom - visibleBottom;
+  }, [revealSelectionRequest]);
 
   const drop = (event: DragEvent<HTMLElement>, buttonId: string) => {
     event.preventDefault();
@@ -75,10 +99,10 @@ export default function ClipTagTree({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-surface" data-testid="clip-tag-tree">
+    <div ref={scrollerRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-surface" data-testid="clip-tag-tree">
       {untagged.length > 0 && (
         <section>
-          <div className="sticky top-0 z-[1] border-b border-border bg-raised px-2 py-1.5 text-xs font-semibold text-secondary">
+          <div data-clip-group-heading className="sticky top-0 z-[1] border-b border-border bg-raised px-2 py-1.5 text-xs font-semibold text-secondary">
             {t('tagTree.untagged')}
           </div>
           {untagged.map((clip) => (
@@ -86,6 +110,7 @@ export default function ClipTagTree({
               key={clip.id}
               clip={clip}
               selected={clip.id === selectedClipId}
+              rowRef={clip.id === selectedClipId ? selectedRowRef : undefined}
               onSelectClip={onSelectClip}
             />
           ))}
@@ -94,7 +119,7 @@ export default function ClipTagTree({
 
       {unknown.length > 0 && (
         <section data-testid="clip-tag-unknown">
-          <div className="sticky top-0 z-[1] border-b border-border bg-raised px-2 py-1.5 text-xs font-semibold text-warning">
+          <div data-clip-group-heading className="sticky top-0 z-[1] border-b border-border bg-raised px-2 py-1.5 text-xs font-semibold text-warning">
             {t('tagTree.unknown')}
           </div>
           {unknown.map((clip) => (
@@ -102,6 +127,7 @@ export default function ClipTagTree({
               key={clip.id}
               clip={clip}
               selected={clip.id === selectedClipId}
+              rowRef={clip.id === selectedClipId ? selectedRowRef : undefined}
               onSelectClip={onSelectClip}
             />
           ))}
@@ -110,7 +136,7 @@ export default function ClipTagTree({
 
       {tree.map((group) => (
         <section key={group.id}>
-          <div className="sticky top-0 z-[1] border-y border-border bg-raised px-2 py-1.5 text-xs font-semibold text-secondary">
+          <div data-clip-group-heading className="sticky top-0 z-[1] border-y border-border bg-raised px-2 py-1.5 text-xs font-semibold text-secondary">
             {group.label}
           </div>
           {group.buttons.map((button) => {
@@ -135,6 +161,7 @@ export default function ClipTagTree({
                     key={clip.id}
                     clip={clip}
                     selected={clip.id === selectedClipId}
+                    rowRef={clip.id === selectedClipId ? selectedRowRef : undefined}
                     onSelectClip={onSelectClip}
                   />
                 ))}

@@ -1,6 +1,6 @@
 [provider]
 name = "pnlcalib"
-device = "cpu"
+device = "auto"
 
 [pitch]
 length_m = 105.0

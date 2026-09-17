@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from collections.abc import Callable
 
-from .types import HomographyFrame
+from .types import CalibrationFrameRange, HomographyFrame
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,8 @@ class CalibrationProvider(ABC):
         end_ms: float,
         fps: float = 5.0,
         skip_interval: int = 0,
+        on_progress: Callable[[dict], None] | None = None,
+        frame_range: CalibrationFrameRange | None = None,
     ) -> list[HomographyFrame]:
         raise NotImplementedError
 

@@ -18,6 +18,7 @@ import {
   createProject,
   readProjectManifest,
   validateProjectFolder,
+  writeProjectManifest,
 } from './projectFolder';
 import { mutateProjectManifestExclusive } from './projectManifestRepository';
 import {
@@ -46,12 +47,20 @@ function makeClip(id: string, startFrame = 100): Clip {
   };
 }
 
-async function createEmptyProject(fileSystem: MockFileSystem): Promise<void> {
+async function createEmptyProject(fileSystem: MockFileSystem, withVideo = false): Promise<void> {
   await createProject(fileSystem.root, {
     name: 'Storage test',
     created: '2026-07-11T00:00:00.000Z',
     defaultBoardSource: boardSource,
   });
+  if (withVideo) {
+    const result = await readProjectManifest(fileSystem.root);
+    if (!result.ok) throw new Error(result.reason);
+    await writeProjectManifest(fileSystem.root, { ...result.manifest, videos: [{
+      id: 'video_main', label: 'Main', file: 'media/main.mp4', fps: 30,
+      width: 1920, height: 1080, frameCount: frameBoundary(300), frameCountSource: 'probe',
+    }] });
+  }
 }
 
 afterEach(() => {
@@ -300,7 +309,7 @@ describe('v2 structured storage', () => {
 describe('clip repository and trash', () => {
   it('merges racing field-owned mutations against the latest clip', async () => {
     const fileSystem = new MockFileSystem();
-    await createEmptyProject(fileSystem);
+    await createEmptyProject(fileSystem, true);
     vi.stubGlobal('navigator', { locks: createSerialLockManager() });
     const clip = makeClip('race_clip');
     await createClipExclusive(fileSystem.root, clip);
@@ -332,7 +341,7 @@ describe('clip repository and trash', () => {
 
   it('rejects an autosave queued behind deletion and restores by operation', async () => {
     const fileSystem = new MockFileSystem();
-    await createEmptyProject(fileSystem);
+    await createEmptyProject(fileSystem, true);
     vi.stubGlobal('navigator', { locks: createSerialLockManager() });
     const clip = makeClip('deleted_clip');
     await createClipExclusive(fileSystem.root, clip);
@@ -362,7 +371,7 @@ describe('clip repository and trash', () => {
         if (failTrashCopy && path.includes('.trash/clips/')) throw new Error('simulated copy failure');
       },
     });
-    await createEmptyProject(fileSystem);
+    await createEmptyProject(fileSystem, true);
     vi.stubGlobal('navigator', { locks: createSerialLockManager() });
     const clip = makeClip('copy_failure');
     await createClipExclusive(fileSystem.root, clip);
@@ -384,7 +393,7 @@ describe('clip repository and trash', () => {
         }
       },
     });
-    await createEmptyProject(fileSystem);
+    await createEmptyProject(fileSystem, true);
     vi.stubGlobal('navigator', { locks: createSerialLockManager() });
     const clip = makeClip('retry_restore');
     await createClipExclusive(fileSystem.root, clip);
@@ -406,7 +415,7 @@ describe('clip repository and trash', () => {
 
   it('cleans expired payloads while retaining permanent clip tombstones', async () => {
     const fileSystem = new MockFileSystem();
-    await createEmptyProject(fileSystem);
+    await createEmptyProject(fileSystem, true);
     vi.stubGlobal('navigator', { locks: createSerialLockManager() });
     const clip = makeClip('expired_clip');
     await createClipExclusive(fileSystem.root, clip);

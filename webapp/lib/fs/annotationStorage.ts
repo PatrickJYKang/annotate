@@ -1,3 +1,4 @@
+import type { ProjectDirectory, ProjectFile } from "../host/contracts";
 import {
   parseAnnotationDocument,
   type AnnotationDocument,
@@ -12,7 +13,7 @@ function splitPath(path: string): string[] {
 }
 
 async function getFileForPath(
-  dir: FileSystemDirectoryHandle,
+  dir: ProjectDirectory,
   path: string,
 ): Promise<File> {
   const parts = splitPath(path);
@@ -25,10 +26,10 @@ async function getFileForPath(
 }
 
 async function getFileHandleForPath(
-  dir: FileSystemDirectoryHandle,
+  dir: ProjectDirectory,
   path: string,
   create: boolean,
-): Promise<FileSystemFileHandle> {
+): Promise<ProjectFile> {
   const parts = splitPath(path);
   let current = dir;
   for (let index = 0; index < parts.length - 1; index += 1) {
@@ -44,7 +45,7 @@ export function buildAnnotationPath(stillId: string, annotationId = 'default'): 
 }
 
 export async function readAnnotationDocument(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   filePath: string,
 ): Promise<AnnotationDocument | null> {
   try {
@@ -56,7 +57,7 @@ export async function readAnnotationDocument(
 }
 
 export async function writeAnnotationDocument(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   filePath: string,
   document: AnnotationDocument,
 ): Promise<void> {
@@ -67,7 +68,7 @@ export async function writeAnnotationDocument(
 }
 
 export async function deleteAnnotationDocument(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   filePath: string,
 ): Promise<void> {
   const parts = splitPath(filePath);

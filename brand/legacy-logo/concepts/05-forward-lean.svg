@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Annotate forward leaning logo concept</title>
+  <desc id="desc">A forward-leaning uppercase A with an arrow extending through a break in the right stem.</desc>
+  <path d="M20 108 69 18" fill="none" stroke="#0e1520" stroke-width="12" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="M69 18 91 57M105 84l13 24" fill="none" stroke="#0e1520" stroke-width="12" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="M47 64h39V53l20 18-20 18V78H47z" fill="#2f78c4"/>
+</svg>

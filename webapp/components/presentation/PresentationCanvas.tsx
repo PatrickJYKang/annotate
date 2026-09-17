@@ -1,5 +1,6 @@
 "use client";
 
+import type { ProjectDirectory } from "../../lib/host/contracts";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import {
   hasPendingAnnotationAnimationClick,
@@ -55,7 +56,7 @@ export type PresentationScene =
   | { kind: 'transition'; index: number };
 
 interface PresentationCanvasProps {
-  projectDir: FileSystemDirectoryHandle;
+  projectDir: ProjectDirectory;
   manifest: ProjectManifest;
   presentation: Presentation;
   clips: readonly Clip[];
@@ -675,6 +676,7 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
         <div className="relative max-h-full max-w-full" style={{ width: resolved.video?.width ?? 640, aspectRatio: `${resolved.video?.width ?? 16}/${resolved.video?.height ?? 9}` }}>
           {videoVisible && playbackAsset && (
             <video
+              crossOrigin="anonymous"
               ref={videoRef}
               key={playbackAsset.id}
               src={playbackAsset.url}

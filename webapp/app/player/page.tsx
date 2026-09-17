@@ -1,6 +1,8 @@
 "use client";
+import { createMediaUrl, releaseMediaUrl } from '../../lib/host/media';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getAppHost } from '../../lib/host';
 import { useRouter } from 'next/navigation';
 import VideoPlayerUnit, {
   type FrameRangeMarker,
@@ -13,6 +15,7 @@ import {
   Panels,
 } from '../../components/panels/Panels';
 import ClipTagTree from '../../components/tagging/ClipTagTree';
+import ProjectReconnect from '../../components/project/ProjectReconnect';
 import TagBoard, { type TagBoardMode } from '../../components/tagging/TagBoard';
 import { frameBoundary, videoFrame } from '../../lib/clip/frameMath';
 import {
@@ -107,12 +110,15 @@ export default function CapturePlayerPage() {
     selectedVideoId,
     setSelectedVideoId,
     isRestoring,
+    reconnectProjectName,
+    restoreError,
     refreshIntegrity,
   } = useProject();
   const [player, setPlayer] = useState<VideoPlayerHandle | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [clips, setClips] = useState<Clip[]>([]);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+  const [clipListRevealRequest, setClipListRevealRequest] = useState(0);
   const [presentedFrame, setPresentedFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [armedFacets, setArmedFacets] = useState<TaggingSelection['facets']>({});
@@ -208,7 +214,7 @@ export default function CapturePlayerPage() {
         const handle = await getFilePath(projectDir, splitSafeRelativePath(selectedVideo.file), false);
         const file = await handle.getFile();
         if (!active) return;
-        objectUrl = URL.createObjectURL(file);
+        objectUrl = createMediaUrl(file);
         setVideoUrl(objectUrl);
       } catch (error) {
         if (active) setMessage(error instanceof Error ? error.message : String(error));
@@ -216,7 +222,7 @@ export default function CapturePlayerPage() {
     })();
     return () => {
       active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (objectUrl) releaseMediaUrl(objectUrl);
     };
   }, [projectDir, selectedVideo]);
 
@@ -508,7 +514,8 @@ export default function CapturePlayerPage() {
   if (!projectDir || !manifest || !board) {
     return (
       <div className="panel">
-        <p className="status">{t('project.noOpen')}</p>
+        {reconnectProjectName ? <ProjectReconnect /> : <p className="status">{restoreError ?? t('project.noOpen')}</p>}
+        {reconnectProjectName && restoreError && <p role="alert" className="status text-danger">{restoreError}</p>}
         <button onClick={() => router.push('/')}>{t('player.backProject')}</button>
       </div>
     );
@@ -565,7 +572,7 @@ export default function CapturePlayerPage() {
           className="button-primary"
           onClick={() => {
             if (selectedClip) {
-              window.open(`/clip/${encodeURIComponent(selectedClip.id)}`, '_blank', 'noopener,noreferrer');
+              getAppHost().editors.open(projectDir, { clipId: selectedClip.id });
             }
           }}
           disabled={!selectedClip}
@@ -593,6 +600,7 @@ export default function CapturePlayerPage() {
             selectedRangeId={selectedClipId}
             onSelectRange={(clipId, startFrame) => {
               setSelectedClipId(clipId);
+              setClipListRevealRequest((request) => request + 1);
               player?.seekFrame(startFrame);
             }}
             onPresentedFrameChange={setPresentedFrame}
@@ -636,6 +644,7 @@ export default function CapturePlayerPage() {
                   board={board}
                   clips={videoClips}
                   selectedClipId={selectedClipId}
+                  revealSelectionRequest={clipListRevealRequest}
                   onSelectClip={selectClip}
                   onDropClipOnButton={(clipId, buttonId) => saveTags(clipId, {
                     ...(clips.find((clip) => clip.id === clipId)?.tags ?? createEmptyTaggingSelection()),

@@ -1,3 +1,6 @@
+import type { ProjectDirectory } from "../host/contracts";
+import { nativeFileInfo } from '../host/media';
+import { desktopBridge } from '../host/desktop/bridge';
 import {
   prepareVideoImportWithMetadata,
   type NormalizeVideoImportOptions,
@@ -35,11 +38,29 @@ function generatedVideoId(): string {
 }
 
 export async function importVideoIntoProject(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   manifestInput: ProjectManifest,
   source: File,
   options: ImportVideoOptions = {},
 ): Promise<{ manifest: ProjectManifest; video: VideoEntry }> {
+  if (projectDir.command) {
+    const native = nativeFileInfo(source);
+    if (!native) throw new Error('Choose the source video through the native file dialog.');
+    options.signal?.throwIfAborted();
+    const requestId = crypto.randomUUID();
+    options.onProgress?.({ phase: 'analyzing', progress: 0 });
+    const stop = desktopBridge().onProgress((progress) => {
+      if (progress.requestId === requestId) options.onProgress?.({ phase: progress.phase as VideoNormalizationProgress['phase'], progress: progress.progress, phaseProgress: progress.progress });
+    });
+    const cancel = () => { void desktopBridge().request('video.cancelImport', { requestId }); };
+    try {
+      const pending = projectDir.command<{ manifest: ProjectManifest; video: VideoEntry }>('video.import', [native.id, requestId]);
+      options.signal?.addEventListener('abort', cancel, { once: true });
+      const result = await pending;
+      options.onProgress?.({ phase: 'complete', progress: 1 });
+      return result;
+    } finally { stop(); options.signal?.removeEventListener('abort', cancel); }
+  }
   parseProjectManifest(manifestInput);
   const prepare = options.prepare ?? prepareVideoImportWithMetadata;
 
@@ -48,6 +69,7 @@ export async function importVideoIntoProject(
     onProgress: options.onProgress,
     signal: options.signal,
   });
+  options.signal?.throwIfAborted();
   const { metadata } = prepared;
   if (
     (metadata.frameCountSource !== 'normalize' && metadata.frameCountSource !== 'probe')
@@ -69,6 +91,7 @@ export async function importVideoIntoProject(
   let mediaCreated = false;
   try {
     const next = await mutateProjectManifestExclusive(projectDir, async (latest) => {
+      options.signal?.throwIfAborted();
       if (latest.videos.some((entry) => entry.id === videoId)) {
         throw new Error(`A video with id "${videoId}" already exists.`);
       }
@@ -89,6 +112,7 @@ export async function importVideoIntoProject(
       const writable = await destination.createWritable();
       await writable.write(prepared.blob);
       await writable.close();
+      options.signal?.throwIfAborted();
       return {
         ...latest,
         videos: [...latest.videos, video],

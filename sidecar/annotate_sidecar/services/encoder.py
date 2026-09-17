@@ -410,6 +410,7 @@ def normalize_video_fps(
     cancel_event: threading.Event | None = None,
     encoder: str | None = None,
     thread_limit: int | None = None,
+    source_metadata: dict | None = None,
 ) -> str:
     """Transcode a source video to a browser-compatible constant frame rate."""
     if not check_ffmpeg():
@@ -433,6 +434,22 @@ def normalize_video_fps(
     threads = max(1, min(16, thread_limit or normalization_thread_limit()))
     duration_seconds = _probe_duration_seconds(str(source))
     timeout = max(1800, int((duration_seconds or 0) * 3 + 300))
+
+    if selected_encoder == "h264_videotoolbox":
+        from .parallel_normalization import normalize_parallel, supports_parallel_normalization
+
+        if supports_parallel_normalization(source_metadata, width, height):
+            logger.info("Normalizing with two bounded VideoToolbox streams on one shared frame grid")
+            try:
+                normalize_parallel(str(source), str(out), fps=fps, width=width, height=height,
+                                   source_metadata=source_metadata, timeout=timeout,
+                                   progress_callback=progress_callback, cancel_event=cancel_event)
+                return str(out.resolve())
+            except EncodingCancelledError:
+                raise
+            except (RuntimeError, OSError, subprocess.SubprocessError):
+                logger.warning("Parallel normalization failed; retrying the serial path", exc_info=True)
+                out.unlink(missing_ok=True)
 
     def command_for(video_encoder: str) -> list[str]:
         cmd = [

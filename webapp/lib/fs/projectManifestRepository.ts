@@ -1,3 +1,5 @@
+import type { ProjectDirectory } from "../host/contracts";
+import { projectResourceKey } from '../host/projectScope';
 import type { ProjectManifest } from '../types/project';
 import {
   parseProjectManifest,
@@ -26,20 +28,20 @@ function getLockManager(): LockManager {
   return locks;
 }
 
-export const PROJECT_MANIFEST_LOCK_NAME = 'annotate:project-manifest';
-
 export async function withProjectManifestExclusive<T>(
+  projectDir: ProjectDirectory,
   operation: () => Promise<T>,
 ): Promise<T> {
+  if (projectDir.withLock) return projectDir.withLock(projectResourceKey(projectDir, 'manifest'), 'exclusive', operation);
   return getLockManager().request(
-    PROJECT_MANIFEST_LOCK_NAME,
+    projectResourceKey(projectDir, 'manifest'),
     { mode: 'exclusive' },
     operation,
   );
 }
 
-async function requireLatestProjectManifest(
-  projectDir: FileSystemDirectoryHandle,
+export async function requireLatestProjectManifest(
+  projectDir: ProjectDirectory,
 ): Promise<ProjectManifest> {
   const result = await readProjectManifest(projectDir);
   if (result.ok) return result.manifest;
@@ -49,11 +51,23 @@ async function requireLatestProjectManifest(
   );
 }
 
+export async function requireProjectVideo(projectDir: ProjectDirectory, videoId: string): Promise<void> {
+  const manifest = await requireLatestProjectManifest(projectDir);
+  if (!manifest.videos.some((video) => video.id === videoId)) {
+    throw new Error(`Video "${videoId}" is no longer in this project.`);
+  }
+}
+
 export async function mutateProjectManifestExclusive(
-  projectDir: FileSystemDirectoryHandle,
+  projectDir: ProjectDirectory,
   mutator: (latest: ProjectManifest) => ProjectManifest | Promise<ProjectManifest>,
 ): Promise<ProjectManifest> {
-  return withProjectManifestExclusive(async () => {
+  if (projectDir.command) {
+    const base = await requireLatestProjectManifest(projectDir);
+    const next = parseProjectManifest(await mutator(structuredClone(base)));
+    return projectDir.command('project.patch', [base, next]);
+  }
+  return withProjectManifestExclusive(projectDir, async () => {
     const latest = await requireLatestProjectManifest(projectDir);
     const next = parseProjectManifest(await mutator(structuredClone(latest)));
     await writeProjectManifest(projectDir, next);

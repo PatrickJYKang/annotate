@@ -231,7 +231,6 @@ export function AnnotationInspector({
   selectedAnnotations,
   trackingState,
   hasPositionKeyframe,
-  hasVisibilityKeyframe,
   trackingPhase,
   trackingHasCandidate,
   trackingHasStarted,
@@ -265,7 +264,6 @@ export function AnnotationInspector({
   selectedAnnotations: ClipAnnotation[];
   trackingState: string | null;
   hasPositionKeyframe: boolean;
-  hasVisibilityKeyframe: boolean;
   trackingPhase: 'idle' | 'choosing' | 'running';
   trackingHasCandidate: boolean;
   trackingHasStarted: boolean;
@@ -648,7 +646,7 @@ export function AnnotationInspector({
           {selectedObjectCount === 1 && (
             <div className="grid grid-cols-2 gap-1">
               <button onClick={onAddKeyframe} disabled={hasPositionKeyframe}>{t('clip.keyframeHere')}</button>
-              <button onClick={onDeleteKeyframe} disabled={!hasPositionKeyframe && !hasVisibilityKeyframe}>{t('clip.deleteKeyframe')}</button>
+              <button onClick={onDeleteKeyframe} disabled={!hasPositionKeyframe}>{t('clip.deleteKeyframe')}</button>
             </div>
           )}
           {selectedObjectCount >= 2 && (

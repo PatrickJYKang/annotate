@@ -12,6 +12,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+from collections.abc import Callable, Iterable
 
 try:
     import tomllib
@@ -202,6 +203,54 @@ class PnLCalibProvider(PitchCalibrator):
 
         return frames
 
+    def calibrate_frames(
+        self,
+        samples: Iterable[np.ndarray | None],
+        *,
+        frame_width: int,
+        frame_height: int,
+        fps: float,
+        total_frames: int,
+        every_n_frames: int,
+        on_progress: Callable[[dict], None],
+    ) -> list[CalibrationFrame]:
+        """Calibrate a sample iterator, retaining models and reporting real work."""
+        total = (total_frames + every_n_frames - 1) // every_n_frames
+        on_progress({"phase": "loading", "completed": 0, "total": total})
+        runtime = self._ensure_runtime()
+        model_kp, model_line = self._ensure_models()
+        cam = runtime["FramebyFrameCalib"](iwidth=frame_width, iheight=frame_height, denormalize=True)
+        completed = 0
+        frames: list[CalibrationFrame] = []
+        for index, frame in enumerate(samples):
+            on_progress({"phase": "computing", "completed": completed, "total": total})
+            sampled = index % every_n_frames == 0
+            if sampled and frame is not None:
+                calibration = self._run_frame_inference(
+                    frame=frame, frame_idx=index + 1, timestamp_s=index / fps,
+                    cam=cam, runtime=runtime, model_kp=model_kp, model_line=model_line,
+                )
+            else:
+                calibration = CalibrationFrame(
+                    frame_idx=index + 1, timestamp_s=index / fps, confidence=0.0,
+                    provider=self.name, pitch_dimensions=self.pitch_dimensions,
+                    diagnostics={"sampled": sampled, "reason": "decode_failed" if sampled else "skipped"},
+                )
+            frames.append(calibration)
+            if sampled:
+                completed += 1
+                on_progress({"phase": "computing", "completed": completed, "total": total})
+        on_progress({"phase": "interpolating", "completed": completed, "total": total})
+        smoothing = self._smoothing_config()
+        if bool(smoothing.get("enabled", True)):
+            frames = fill_calibration_gaps(
+                frames, max_gap_frames=int(smoothing.get("max_gap_frames", 15)),
+                min_confidence=float(smoothing.get("min_confidence", 0.4)),
+                mode=str(smoothing.get("mode", "hold")),
+                edge_strategy=str(smoothing.get("edge_strategy", "hold")),
+            )
+        return frames
+
     def _load_config_data(self) -> dict[str, object]:
         if self.config_path is None or not self.config_path.exists():
             return {}
@@ -311,6 +360,8 @@ class PnLCalibProvider(PitchCalibrator):
         if device_name == "auto":
             if torch.cuda.is_available():
                 device = torch.device("cuda:0")
+            elif torch.backends.mps.is_available():
+                device = torch.device("mps")
             else:
                 device = torch.device("cpu")
         else:
@@ -354,13 +405,15 @@ class PnLCalibProvider(PitchCalibrator):
         get_cls_net = runtime["get_cls_net"]
         get_cls_net_l = runtime["get_cls_net_l"]
 
-        loaded_state = torch.load(self._weights_kp_path(), map_location=device)
+        # Construct/load on CPU, then transfer once. Loading the checkpoint on
+        # GPU first otherwise copies every tensor back to the CPU model.
+        loaded_state = torch.load(self._weights_kp_path(), map_location='cpu')
         model_kp = get_cls_net(runtime["cfg"])
         model_kp.load_state_dict(loaded_state)
         model_kp.to(device)
         model_kp.eval()
 
-        loaded_state_l = torch.load(self._weights_line_path(), map_location=device)
+        loaded_state_l = torch.load(self._weights_line_path(), map_location='cpu')
         model_line = get_cls_net_l(runtime["cfg_l"])
         model_line.load_state_dict(loaded_state_l)
         model_line.to(device)

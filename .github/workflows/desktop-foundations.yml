@@ -1,0 +1,29 @@
+name: Desktop foundations
+
+on:
+  push:
+    paths: ['desktop/**', 'webapp/lib/**', '.github/workflows/desktop-foundations.yml', 'package*.json']
+  pull_request:
+    paths: ['desktop/**', 'webapp/lib/**', '.github/workflows/desktop-foundations.yml', 'package*.json']
+
+permissions:
+  contents: read
+
+jobs:
+  native-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-2022]
+        node: ['22', '24']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm run test:desktop

@@ -108,16 +108,16 @@ test('v2 presentations author clips and pins and play source video frame ranges'
   await page.getByLabel('Transition after slide').selectOption('match_video');
   expect(exactRequests).toEqual([]);
 
-  await expect.poll(async () => {
+  await expect(async () => {
     const stored = await readProjectJson(page, ['presentations', 'presentation-sequence.json']);
-    return {
+    expect({
       kinds: stored.slides.map((slide: { kind: string }) => slide.kind),
       transition: stored.transitions[2],
-    };
-  }).toMatchObject({
-    kinds: ['title', 'clip', 'pin', 'pin'],
-    transition: { mode: 'match_video', hideAnnotationsDuringPlayback: true },
-  });
+    }).toMatchObject({
+      kinds: ['title', 'clip', 'pin', 'pin'],
+      transition: { mode: 'match_video', hideAnnotationsDuringPlayback: true },
+    });
+  }).toPass({ timeout: 5000 });
 
   await page.getByTestId('presentation-slide-slide-clip').click();
   await expect(page.getByTestId('presentation-canvas')).toHaveAttribute('data-source-frame', '5');
@@ -125,7 +125,7 @@ test('v2 presentations author clips and pins and play source video frame ranges'
   const editClipPagePromise = page.waitForEvent('popup');
   await page.getByRole('button', { name: 'Edit clip', exact: true }).click();
   const editClipPage = await editClipPagePromise;
-  await expect(editClipPage).toHaveURL(/\/clip\/clip-sequence$/);
+  await expect(editClipPage).toHaveURL(/\/clip\/clip-sequence\?projectSession=/);
   await expect(editClipPage.getByTestId('clip-editor')).toBeVisible();
   await editClipPage.close();
   const shapePauseDetails = page.locator('details').filter({ hasText: 'Shape before pass' });

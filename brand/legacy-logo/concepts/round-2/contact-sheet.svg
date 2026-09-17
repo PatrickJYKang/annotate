@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="920" viewBox="0 0 1500 920" role="img" aria-labelledby="title desc">
+  <title id="title">Annotate logo studies based on the supplied sketch</title>
+  <desc id="desc">Three related uppercase A marks with an arrow replacing the crossbar and interrupting the right leg.</desc>
+
+  <rect width="1500" height="920" fill="#0a0f18"/>
+  <text x="60" y="70" fill="#edf1f5" font-family="IBM Plex Sans, Helvetica, sans-serif" font-size="30" font-weight="600">Annotate mark study</text>
+  <text x="1440" y="70" fill="#738197" font-family="IBM Plex Sans, Helvetica, sans-serif" font-size="15" text-anchor="end">from supplied sketch</text>
+
+  <g transform="translate(60 110)">
+    <rect width="430" height="750" rx="2" fill="#151e2b" stroke="#2a3748"/>
+    <text x="28" y="43" fill="#a7b1bf" font-family="IBM Plex Sans, Helvetica, sans-serif" font-size="15">A / SKETCH</text>
+    <g transform="translate(65 82) scale(1.9)">
+      <path fill="#edf1f5" d="M9 146 68 18Q72 9 82 9q10 0 14 10l16 33-19 9-11-24-47 109Z"/>
+      <path fill="#edf1f5" d="m116 107 19-10 23 49h-26Z"/>
+      <path fill="#2f78c4" d="M65 74h37V59l41 23-41 24V90H59Z"/>
+    </g>
+    <line x1="28" y1="420" x2="402" y2="420" stroke="#2a3748"/>
+    <g transform="translate(28 458)">
+      <g transform="translate(0 0) scale(.34)">
+        <path fill="#edf1f5" d="M9 146 68 18Q72 9 82 9q10 0 14 10l16 33-19 9-11-24-47 109Z"/>
+        <path fill="#edf1f5" d="m116 107 19-10 23 49h-26Z"/>
+        <path fill="#2f78c4" d="M65 74h37V59l41 23-41 24V90H59Z"/>
+      </g>
+      <text x="70" y="43" fill="#edf1f5" font-family="IBM Plex Sans, Helvetica, sans-serif" font-size="31" font-weight="600">Annotate</text>
+    </g>
+    <g transform="translate(28 570)">
+      <rect width="374" height="1" fill="#2a3748"/>
+      <g transform="translate(0 30) scale(.3)">
+        <path fill="#edf1f5" d="M9 146 68 18Q72 9 82 9q10 0 14 10l16 33-19 9-11-24-47 109Z"/>
+        <path fill="#edf1f5" d="m116 107 19-10 23 49h-26Z"/>
+        <path fill="#edf1f5" d="M65 74h37V59l41 23-41 24V90H59Z"/>
+      </g>
+      <g transform="translate(88 37) scale(.2)">
+        <path fill="#edf1f5" d="M9 146 68 18Q72 9 82 9q10 0 14 10l16 33-19 9-11-24-47 109Z"/>
+        <path fill="#edf1f5" d="m116 107 19-10 23 49h-26Z"/>
+        <path fill="#edf1f5" d="M65 74h37V59l41 23-41 24V90H59Z"/>
+      </g>
+      <g transform="translate(150 42) scale(.13)">
+        <path fill="#edf1f5" d="M9 146 68 18Q72 9 82 9q10 0 14 10l16 33-19 9-11-24-47 109Z"/>
+        <path fill="#edf1f5" d="m116 107 19-10 23 49h-26Z"/>
+        <path fill="#edf1f5" d="M65 74h37V59l41 23-41 24V90H59Z"/>
+      </g>
+      <text x="0" y="112" fill="#738197" font-family="IBM Plex Sans, Helvetica, sans-serif" font-size="13">48 / 32 / 20 px · monochrome</text>
+    </g>
+  </g>
+
+  <g transform="translate(535 110)">
+    <rect width="430" height="750" rx="2" fill="#151e2b" stroke="#2a3748"/>
+    <text x="28" y="43" fill="#a7b1bf" font-family="IBM Plex Sans, Helvetica, sans-serif" font-size="15">B / BALANCED</text>
+    <g transform="translate(65 82) scale(1.9)">
+      <path fill="#edf1f5" d="M12 146 65 21q4-10 13-10t14 10l17 35-18 9-13-27-40 108Z"/>
+      <path fill="#edf1f5" d="m112 105 19-9 23 50h-25Z"/>
+      <path fill="#2f78c4" d="M64 75h36V61l37 21-37 22V90H59Z"/>
+    </g>
+    <line x1="28" y1="420" x2="402" y2="420" stroke="#2a3748"/>
+    <g transform="translate(28 458)">
+      <g transform="translate(0 0) scale(.34)">
+        <path fill="#edf1f5" d="M12 146 65 21q4-10 13-10t14 10l17 35-18 9-13-27-40 108Z"/>
+        <path fill="#edf1f5" d="m112 105 19-9 23 50h-25Z"/>
+        <path fill="#2f78c4" d="M64 75h36V61l37 21-37 22V90H59Z"/>
+      </g>
+      <text x="70" y="43" fill="#edf1f5" font-family="IBM Plex Sans, Helvetica, sans-serif" font-size="31" font-weight="600">Annotate</text>
+    </g>
+    <g transform="translate(28 570)">
+      <rect width="374" height="1" fill="#2a3748"/>
+      <g transform="translate(0 30) scale(.3)">
+        <path fill="#edf1f5" d="M12 146 65 21q4-10 13-10t14 10l17 35-18 9-13-27-40 108Z"/>
+        <path fill="#edf1f5" d="m112 105 19-9 23 50h-25Z"/>
+        <path fill="#edf1f5" d="M64 75h36V61l37 21-37 22V90H59Z"/>
+      </g>
+      <g transform="translate(88 37) scale(.2)">
+        <path fill="#edf1f5" d="M12 146 65 21q4-10 13-10t14 10l17 35-18 9-13-27-40 108Z"/>
+        <path fill="#edf1f5" d="m112 105 19-9 23 50h-25Z"/>
+        <path fill="#edf1f5" d="M64 75h36V61l37 21-37 22V90H59Z"/>
+      </g>
+      <g transform="translate(150 42) scale(.13)">
+        <path fill="#edf1f5" d="M12 146 65 21q4-10 13-10t14 10l17 35-18 9-13-27-40 108Z"/>
+        <path fill="#edf1f5" d="m112 105 19-9 23 50h-25Z"/>
+        <path fill="#edf1f5" d="M64 75h36V61l37 21-37 22V90H59Z"/>
+      </g>
+      <text x="0" y="112" fill="#738197" font-family="IBM Plex Sans, Helvetica, sans-serif" font-size="13">48 / 32 / 20 px · monochrome</text>
+    </g>
+  </g>
+
+  <g transform="translate(1010 110)">
+    <rect width="430" height="750" rx="2" fill="#151e2b" stroke="#2a3748"/>
+    <text x="28" y="43" fill="#a7b1bf" font-family="IBM Plex Sans, Helvetica, sans-serif" font-size="15">C / FORWARD</text>
+    <g transform="translate(65 82) scale(1.9)">
+      <path fill="#edf1f5" d="M9 146 70 19q5-10 14-10 10 0 14 10l18 34-19 9-13-25-49 109Z"/>
+      <path fill="#edf1f5" d="m121 107 19-10 20 49h-25Z"/>
+      <path fill="#2f78c4" d="M68 74h38V58l45 24-45 25V90H61Z"/>
+    </g>
+    <line x1="28" y1="420" x2="402" y2="420" stroke="#2a3748"/>
+    <g transform="translate(28 458)">
+      <g transform="translate(0 0) scale(.34)">
+        <path fill="#edf1f5" d="M9 146 70 19q5-10 14-10 10 0 14 10l18 34-19 9-13-25-49 109Z"/>
+        <path fill="#edf1f5" d="m121 107 19-10 20 49h-25Z"/>
+        <path fill="#2f78c4" d="M68 74h38V58l45 24-45 25V90H61Z"/>
+      </g>
+      <text x="70" y="43" fill="#edf1f5" font-family="IBM Plex Sans, Helvetica, sans-serif" font-size="31" font-weight="600">Annotate</text>
+    </g>
+    <g transform="translate(28 570)">
+      <rect width="374" height="1" fill="#2a3748"/>
+      <g transform="translate(0 30) scale(.3)">
+        <path fill="#edf1f5" d="M9 146 70 19q5-10 14-10 10 0 14 10l18 34-19 9-13-25-49 109Z"/>
+        <path fill="#edf1f5" d="m121 107 19-10 20 49h-25Z"/>
+        <path fill="#edf1f5" d="M68 74h38V58l45 24-45 25V90H61Z"/>
+      </g>
+      <g transform="translate(88 37) scale(.2)">
+        <path fill="#edf1f5" d="M9 146 70 19q5-10 14-10 10 0 14 10l18 34-19 9-13-25-49 109Z"/>
+        <path fill="#edf1f5" d="m121 107 19-10 20 49h-25Z"/>
+        <path fill="#edf1f5" d="M68 74h38V58l45 24-45 25V90H61Z"/>
+      </g>
+      <g transform="translate(150 42) scale(.13)">
+        <path fill="#edf1f5" d="M9 146 70 19q5-10 14-10 10 0 14 10l18 34-19 9-13-25-49 109Z"/>
+        <path fill="#edf1f5" d="m121 107 19-10 20 49h-25Z"/>
+        <path fill="#edf1f5" d="M68 74h38V58l45 24-45 25V90H61Z"/>
+      </g>
+      <text x="0" y="112" fill="#738197" font-family="IBM Plex Sans, Helvetica, sans-serif" font-size="13">48 / 32 / 20 px · monochrome</text>
+    </g>
+  </g>
+</svg>
