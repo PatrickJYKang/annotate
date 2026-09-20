@@ -6,9 +6,11 @@ This guide covers the `project.v2` workflow in Annotate 0.2. Annotate 0.1 projec
 
 ## 1. Install and start Annotate
 
-Follow the quick-install command in the [README](README.md#install). The installer creates an `Annotate.command` launcher on the macOS Desktop or an `Annotate.desktop` launcher on Linux, then opens Annotate in a supported Chromium browser.
+For the Apple Silicon Mac app, download the DMG from the [desktop prerelease](https://github.com/PatrickJYKang/annotate/releases/tag/v0.2.2-desktop.2), drag Annotate to Applications, and launch it there. This unsigned preview requires macOS 14 or newer. Its services start and stop with the app; no launcher terminal or separate browser is needed. Open **User guide** in the app header rather than navigating to a fixed localhost port. See the [desktop installation notes](desktop/INSTALL-preview.md) for security warnings, testing limitations and service-log locations.
 
-Keep the launcher terminal open while Annotate is running. Closing it, or pressing `Ctrl+C` in it, stops the local web app and Python sidecar. Application logs are written to `<install-folder>/.runtime/app.log`.
+For the browser version, follow the quick-install command in the [README](README.md#install). The installer creates an `Annotate.command` launcher on the macOS Desktop or an `Annotate.desktop` launcher on Linux, then opens Annotate in a supported Chromium browser. Keep the launcher terminal open while Annotate is running. Closing it, or pressing `Ctrl+C` in it, stops the local web app and Python sidecar. Application logs are written to `<install-folder>/.runtime/app.log`.
+
+The core project workflow is shared. References to editor tabs below mean separate windows in the desktop app. Test the preview with project copies; do not open the same project for editing in both hosts at once.
 
 Annotate is self-hosted on your computer. Project files and videos stay in the project folder you select; they are not uploaded to an Annotate cloud service. The browser does temporarily send video data to the local sidecar at `127.0.0.1` for import, tracking, and homography.
 

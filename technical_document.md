@@ -1,12 +1,12 @@
 # Annotate 0.2 As-Built Technical Reference
 
-Updated: 2026-09-04
+Updated: 2026-09-19
 
-Status: Annotate 0.2.2 browser application plus an in-development native Electron host with unsigned `0.2.2-desktop.1` preview packaging for Apple Silicon macOS and Windows x64. Windows runtime and clean-machine release verification remain outstanding. The code is authoritative if this document drifts.
+Status: Annotate 0.2.2 browser application plus an in-development native Electron host with unsigned `0.2.2-desktop.2` preview packaging for Apple Silicon macOS and Windows x64. The Mac DMG is distributed as a separate [desktop prerelease](https://github.com/PatrickJYKang/annotate/releases/tag/v0.2.2-desktop.2); the Windows build remains a local test artifact. The stable browser release remains v0.2.0. Windows runtime and clean-machine release verification remain outstanding. The code is authoritative if this document drifts.
 
 ## 1. Product model
 
-Annotate is a browser-based, self-hosted football analysis application. The canonical workflow is:
+Annotate is a local football analysis application with a self-hosted browser interface and an Electron desktop preview using the same UI and project format. The canonical workflow is:
 
 1. Create a local project and enter its match metadata.
 2. Import video. The sidecar preserves its own FPS/resolution where possible.

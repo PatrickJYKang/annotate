@@ -4,6 +4,7 @@ import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { sha256File } from '../core/resource-layout.mjs';
+import { desktopPreviewVersion } from '../preview-version.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const target = process.argv[2];
@@ -14,7 +15,7 @@ await mkdir(app, { recursive: true });
 for (const name of ['main.mjs', 'preload.cjs', 'startup.html', 'core', 'dist']) {
   await cp(path.join(root, 'desktop', name), path.join(app, name), { recursive: true });
 }
-await writeFile(path.join(app, 'package.json'), JSON.stringify({ name: 'annotate-desktop', version: '0.2.2-desktop.1',
+await writeFile(path.join(app, 'package.json'), JSON.stringify({ name: 'annotate-desktop', version: desktopPreviewVersion,
   description: 'Football video annotation and analysis', author: 'Patrick Kang', license: 'GPL-3.0-only', main: 'main.mjs' }));
 const electronVersion = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')).devDependencies.electron;
 await build({ projectDir: app, targets: target === 'darwin-arm64' ? Platform.MAC.createTarget(process.argv.includes('--dir') ? 'dir' : 'dmg', Arch.arm64) : Platform.WINDOWS.createTarget('nsis', Arch.x64),

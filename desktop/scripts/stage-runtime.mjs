@@ -5,6 +5,7 @@ import path from 'node:path';
 import { sha256File } from '../core/resource-layout.mjs';
 import { bundleMacTools } from './bundle-macos-tools.mjs';
 import { bundleWindowsRuntime } from './bundle-windows-runtime.mjs';
+import { desktopPreviewVersion } from '../preview-version.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const target = process.argv[2];
@@ -43,6 +44,7 @@ console.log('Staging renderer and sidecar source');
 await rm(path.join(output, 'renderer'), { recursive: true, force: true });
 await cp(path.join(root, 'webapp/.next-desktop/standalone'), path.join(output, 'renderer'), { recursive: true,
   filter: (source) => !source.split(path.sep).includes('cache') });
+await rm(path.join(output, 'sidecar'), { recursive: true, force: true });
 await cp(path.join(root, 'sidecar/annotate_sidecar'), path.join(output, 'sidecar/annotate_sidecar'), { recursive: true,
   filter: (source) => !source.includes('__pycache__') && !source.endsWith('.pyc') });
 await cp(path.join(root, 'sidecar/requirements.lock.txt'), path.join(output, 'sidecar/requirements.lock.txt'));
@@ -112,7 +114,7 @@ for (const [key, [kind, relative]] of Object.entries(entries)) resources[key] = 
 };
 await cp(path.join(root, 'LICENSE'), path.join(output, 'LICENSE'));
 await writeFile(path.join(output, 'THIRD-PARTY-NOTICES.txt'), [
-  'Annotate desktop preview 0.2.2-desktop.1. GPL-3.0-only. https://github.com/PatrickJYKang/annotate',
+  `Annotate desktop preview ${desktopPreviewVersion}. GPL-3.0-only. https://github.com/PatrickJYKang/annotate`,
   'Python 3.12.14 standalone build 20260901: https://github.com/astral-sh/python-build-standalone/releases/tag/20260901',
   'Python package versions and licenses: sidecar/requirements.lock.txt and python/**/site-packages/*.dist-info/{METADATA,licenses,LICENSE*}.',
   'PnLCalib source/weights: https://github.com/mguti97/PnLCalib commit 8c87391d6f4ea40c5e4d65e61529916c7a49ce62. License in pnlcalib/LICENSE.',

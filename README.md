@@ -2,9 +2,17 @@
 
 A self-hosted football video analysis application for capturing passages of play, drawing frame-accurate tactical analysis, tracking players, and assembling presentations.
 
-The current release is [Annotate 0.2](https://github.com/PatrickJYKang/annotate/releases/tag/v0.2.0). It is not compatible with 0.1 projects.
+The current stable browser release is [Annotate 0.2](https://github.com/PatrickJYKang/annotate/releases/tag/v0.2.0). An unsigned [desktop prerelease for Apple Silicon Macs](https://github.com/PatrickJYKang/annotate/releases/tag/v0.2.2-desktop.2) is also available. Neither opens 0.1 projects.
 
 ## Install
+
+### Mac app (desktop prerelease)
+
+Download [Annotate 0.2.2 Desktop Preview 2](https://github.com/PatrickJYKang/annotate/releases/download/v0.2.2-desktop.2/Annotate-0.2.2-desktop.2-mac-arm64.dmg) (976 MB). Requires an Apple Silicon Mac (M1 or later) running macOS 14 or newer. Open the DMG, drag Annotate to Applications, then launch it from Applications. Python, video tools, models and the browser engine are bundled; no terminal setup or separate browser is needed. Allow at least 3 GB for the application and additional space for the download, project videos and exports.
+
+This is an evaluation build, not a signed/notarized stable Mac release. macOS may require approval under System Settings > Privacy & Security; do not disable Gatekeeper globally. Automated packaged-app checks passed on the build Mac, but clean-machine and older-macOS coverage remain incomplete. First launch can be slow. Use project copies for testing and do not edit one project in the browser and desktop app simultaneously. See [installation notes and log locations](desktop/INSTALL-preview.md).
+
+A Windows x64 installer has been built, but is not attached to this Mac prerelease; the refreshed Windows build still needs runtime testing. Intel Mac and Windows ARM builds are not provided.
 
 ### Quick install (macOS and common Linux distributions)
 
@@ -35,9 +43,9 @@ git clone --depth 1 --branch v0.2.0 --single-branch \
   https://github.com/PatrickJYKang/annotate.git ~/Documents/annotate
 ```
 
-### Requirements
+### Browser installation requirements
 
-- **Operating system:** macOS is the primary tested platform. The installer also supports common 64-bit Linux distributions using `apt`, `dnf`, `yum`, or `pacman`. Native Windows installation is not currently supported.
+- **Operating system:** macOS is the primary tested platform. The shell installer also supports common 64-bit Linux distributions using `apt`, `dnf`, `yum`, or `pacman`; it does not support Windows. Desktop preview requirements are listed separately above.
 - **Browser:** a current Chromium-based browser such as Chrome, Edge, Brave, Arc, or Chromium. Safari and Firefox do not expose the required File System Access API.
 - **Hardware:** 8 GB RAM is the practical minimum; 16 GB or more is recommended for tracking and homography. A discrete GPU is not required, but computer-vision operations are slower on CPU.
 - **Storage:** keep at least 6 GB free on macOS or 12 GB on Linux for the application, Python environment, production build, and model weights, plus enough space for project videos and exports. Standard Linux PyTorch wheels include CUDA runtime libraries even when Annotate runs on CPU.
@@ -73,7 +81,7 @@ The Next.js app starts at `http://localhost:3000`; the Python sidecar starts at 
 - **Local project folders** with a `project.json` manifest, project-handle restoration, open-time integrity reporting, and recoverable trash operations.
 - **Observable, per-video import** that preserves compatible CFR H.264 MP4s, remuxes compatible streams without re-encoding video, and transcodes only as a fallback, with byte/media-time progress, Apple VideoToolbox acceleration, and a bounded four-thread software fallback.
 - **Frame-native clip capture** from a configurable button board, including exact-frame start/stop range toggles, overlapping captures, live pending ranges, facets, hotkeys, untagged capture, paused re-tagging, and drag-and-drop re-tagging in the clip tree. The multi-lane tagging timeline opens at a one-minute view and supports horizontal zoom and scrolling.
-- **Clip editor** with absolute-frame transport, inward-only clip trimming with immediate undo, keyframed tactical shapes, position and show/hide keyframes, manual keyframe retiming, horizontal timeline zoom, image/pitch coordinate modes, undo/redo, and persisted resizable panels.
+- **Clip editor** with absolute-frame transport, inward-only clip trimming with immediate undo, keyframed tactical shapes, position keyframes and tracker-managed visibility, manual keyframe retiming, horizontal timeline zoom, image/pitch coordinate modes, undo/redo, and persisted resizable panels.
 - **Player tracking** for highlight objects through YOLO and vendored OC-SORT, with linked image-space tactical shapes following their highlight anchor and provisional re-tracking from any retained frame.
 - **Pitch homography** through vendored PnLCalib, interpolation and sanity filtering, video-namespaced project caching, and pitch-space box/circle authoring.
 - **Clip-local pins** for important frames, with multiple annotation documents, the shared tactical annotation editor, ordered per-shape entrance animations, five-second context preview, automatic or manual calibration, and explicit pin-document import into the animated clip layer.
@@ -97,6 +105,8 @@ The Python sidecar owns smart media preparation, authoritative probing, tracking
 
 - **In-app user guide:** open [`http://localhost:3000/userguide`](http://localhost:3000/userguide) while Annotate is running, or choose **User guide** in the app header.
 - [Offline user guide](USER_GUIDE.md)
+- [Desktop preview installation](desktop/INSTALL-preview.md)
+- [Desktop build and architecture](desktop/README.md)
 - **[As-built technical reference](technical_document.md)**
 - [Annotate 0.2 scope](plans/v0.2/v0.2-scope.md)
 - [Annotate 0.2 implementation ledger](plans/v0.2/implementation-plan.md)
