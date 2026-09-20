@@ -14,6 +14,8 @@ Initial targets are Apple Silicon with macOS 14 or newer and Windows 10/11 x64. 
 
 ## Package
 
+The desktop app icon uses the existing lowercase `a` from `brand/wordmark/a-icon.svg`, without changing web favicons or in-app branding. Committed PNG, ICNS and ICO assets live in `desktop/icons/` and are used for application windows and both platform packages. To regenerate them, run `npm run build:desktop-icons` on a Mac with ImageMagick and the system `iconutil`; normal packaging uses the committed icons and does not require ImageMagick.
+
 Build prerequisites on the packaging Mac are Node/npm, uv, Git, curl, Xcode command-line tools, make and pkg-config, plus the locked PnLCalib checkout/weights and YOLO weight used by the development setup. None of these build tools are needed by recipients. Set `ANNOTATE_PNLCALIB_ROOT` if the checkout is outside `sidecar/third_party/pnlcalib`.
 
 ```bash
@@ -38,7 +40,7 @@ ANNOTATE_TEST_PACKAGED_EXECUTABLE="/path/to/Annotate.app/Contents/MacOS/Annotate
 
 The runtime check removes development search paths and executes actual detection, calibration and H.264 export on a fixture. It verifies model execution, not real-match tracking or homography quality. The Electron smoke accepts either the development executable or a packaged executable. Automated native-chooser fixtures are still used; these tests do not replace a clean-machine installation test.
 
-The 2026-09-16 desktop.2 preview passed the Electron smoke directly from its read-only mounted Mac DMG with `PATH=/usr/bin:/bin`, as well as deep/strict ad-hoc signature and disk-image integrity checks. The Windows installer and its inner 25,328-file payload passed archive tests; recursive runtime checks verified 289 Mac and 251 Windows native binaries, resource hashes and internal-only symlinks. All 23 native-host contract tests and the standalone renderer build passed. Bundled Mac Python executed actual YOLO detection, PnLCalib inference and H.264 export. No Windows execution or clean-machine result is claimed. This is a refresh of the latest app code, not an installer-size or cold-start optimization release.
+The 2026-09-19 desktop.2 icon rebuild passed the Electron smoke directly from its read-only mounted Mac DMG with `PATH=/usr/bin:/bin`, as well as deep/strict ad-hoc signature and disk-image integrity checks. The Windows installer and its inner 25,328-file payload passed archive tests; recursive runtime checks verified 289 Mac and 251 Windows native binaries, resource hashes and internal-only symlinks. All 24 native-host contract tests and the standalone renderer build passed. Bundled Mac Python executed actual YOLO detection, PnLCalib inference and H.264 export. The packaged Mac ICNS, all six Windows executable icon resolutions and both packaged PNGs match the generated artwork. No Windows execution or clean-machine result is claimed. This is an icon and documentation refresh, not an installer-size or cold-start optimization release.
 
 ## Run
 

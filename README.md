@@ -14,7 +14,7 @@ The app is ad-hoc signed, not Developer ID signed or notarized. macOS may requir
 
 ### Windows
 
-Download the [Windows x64 installer](https://github.com/PatrickJYKang/annotate/releases/download/v0.2.2-desktop.2/Annotate-0.2.2-desktop.2-win-x64.exe) (930 MB). Requires Windows 10 or 11, x64. Run the installer, choose an installation folder, then open Annotate using its desktop shortcut. Python, video tools and models are bundled; no separate development tools or browser are required.
+Download the [Windows x64 installer](https://github.com/PatrickJYKang/annotate/releases/download/v0.2.2-desktop.2/Annotate-0.2.2-desktop.2-win-x64.exe) (931 MB). Requires Windows 10 or 11, x64. Run the installer, choose an installation folder, then open Annotate using its desktop shortcut. Python, video tools and models are bundled; no separate development tools or browser are required.
 
 The installer has no verified publisher signature, so SmartScreen or organizational security policies may warn or block it. Do not disable Defender. Installation and the first launch can be slow. The previous preview was tried on Windows; this refreshed build passed packaging checks but still needs Windows runtime testing.
 

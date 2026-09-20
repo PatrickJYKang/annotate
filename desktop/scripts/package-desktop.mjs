@@ -12,7 +12,7 @@ if (!['darwin-arm64', 'win32-x64'].includes(target)) throw new Error('Choose dar
 execFileSync(process.execPath, [path.join(root, 'desktop/scripts/verify-runtime-files.mjs'), path.join(root, 'desktop/build', target, 'runtime')], { stdio: 'inherit' });
 const app = path.join(root, 'desktop/build', target, 'app');
 await mkdir(app, { recursive: true });
-for (const name of ['main.mjs', 'preload.cjs', 'startup.html', 'core', 'dist']) {
+for (const name of ['main.mjs', 'preload.cjs', 'startup.html', 'core', 'dist', 'icons']) {
   await cp(path.join(root, 'desktop', name), path.join(app, name), { recursive: true });
 }
 await writeFile(path.join(app, 'package.json'), JSON.stringify({ name: 'annotate-desktop', version: desktopPreviewVersion,
@@ -25,7 +25,7 @@ await build({ projectDir: app, targets: target === 'darwin-arm64' ? Platform.MAC
     files: ['**/*', '!**/*.test.mjs', '!core/domain-service.ts'], asar: true, npmRebuild: false,
     extraResources: [{ from: path.join(root, 'desktop/build', target, 'runtime'), to: 'runtime', filter: ['**/*'] }],
     artifactName: 'Annotate-${version}-${os}-${arch}.${ext}',
-    mac: { category: 'public.app-category.sports', identity: '-', hardenedRuntime: false, notarize: false, minimumSystemVersion: '14.0' },
+    mac: { icon: path.join(root, 'desktop/icons/annotate.icns'), category: 'public.app-category.sports', identity: '-', hardenedRuntime: false, notarize: false, minimumSystemVersion: '14.0' },
     afterSign: async ({ appOutDir, electronPlatformName }) => {
       if (electronPlatformName !== 'darwin') return;
       const bundle = path.join(appOutDir, 'Annotate.app');
@@ -39,6 +39,6 @@ await build({ projectDir: app, targets: target === 'darwin-arm64' ? Platform.MAC
       execFileSync('codesign', ['--force', '--sign', '-', bundle], { stdio: 'inherit' });
     },
     dmg: { sign: false, contents: [{ x: 140, y: 160 }, { x: 400, y: 160, type: 'link', path: '/Applications' }] },
-    win: { signExecutable: false },
+    win: { icon: path.join(root, 'desktop/icons/annotate.ico'), signExecutable: false },
     nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true, createDesktopShortcut: true, runAfterFinish: true, deleteAppDataOnUninstall: false },
   } });

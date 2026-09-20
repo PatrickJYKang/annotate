@@ -48,4 +48,4 @@ Weight, tracking and colours are constants at the top of the script.
 
 ## Usage note
 
-Not used inside the app UI. Favicon and social profiles only.
+The single-letter `a-icon.svg` also supplies the desktop application icon. `npm run build:desktop-icons` regenerates the committed PNG, ICNS and ICO files under `desktop/icons/` on macOS using ImageMagick and iconutil. This does not install or change a web favicon or any in-app branding.

@@ -15,6 +15,7 @@ import { startSidecarProxy } from './core/sidecar-proxy.mjs';
 import { resolveResourceLayout, sidecarEnvironment } from './core/resource-layout.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+const appIcon = fileURLToPath(new URL('./icons/annotate.png', import.meta.url));
 const require = createRequire(import.meta.url);
 const domain = require('./dist/domain-service.cjs');
 const store = new NativeProjectStore();
@@ -284,7 +285,7 @@ async function dispatch(state, operation, input) {
 
 async function createWindow(project = null, route = '/') {
   const connection = proxy.connect();
-  const window = new BrowserWindow({ width: 1440, height: 960, minWidth: 800, minHeight: 600, title: 'Annotate', show: false,
+  const window = new BrowserWindow({ width: 1440, height: 960, minWidth: 800, minHeight: 600, title: 'Annotate', show: false, icon: appIcon,
     webPreferences: { preload: fileURLToPath(new URL('./preload.cjs', import.meta.url)), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
   const state = { window, project, explicitProject: !!project, grants: new Set(project ? [project.id] : []), connection, files: new Map(), mediaByPath: new Map(), revisions: new Map(), baselines: new Map(), imports: new Map(), mayClose: false, closing: false };
   windows.set(window.webContents.id, state);
@@ -346,6 +347,7 @@ app.on('activate', () => { if (proxy && !windows.size) void createWindow(); });
 // Do not await readiness at ES-module top level: Electron waits for module
 // evaluation before dispatching ready.
 void app.whenReady().then(async () => {
+if (process.platform === 'darwin' && !app.isPackaged) app.dock.setIcon(appIcon);
 session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
 session.defaultSession.setPermissionCheckHandler(() => false);
 Menu.setApplicationMenu(Menu.buildFromTemplate([
@@ -356,7 +358,7 @@ supervisor.on('log', ({ stream, text }) => process[stream].write(text));
 supervisor.on('failure', ({ id }) => { dialog.showErrorBox('Annotate service stopped', `${id} stopped unexpectedly. Restart Annotate.`); app.quit(); });
 try {
   if (!process.env.ANNOTATE_DESKTOP_HEADLESS) {
-    startupWindow = new BrowserWindow({ width: 420, height: 200, title: 'Annotate', resizable: false,
+    startupWindow = new BrowserWindow({ width: 420, height: 200, title: 'Annotate', resizable: false, icon: appIcon,
       webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
     await startupWindow.loadFile(path.join(import.meta.dirname, 'startup.html'));
     startupWindow.on('closed', () => { startupWindow = null; if (!windows.size) app.quit(); });

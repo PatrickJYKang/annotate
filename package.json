@@ -15,6 +15,7 @@
     "test:desktop-renderer": "node desktop/scripts/smoke-renderer.mjs",
     "test:desktop-services": "node desktop/scripts/smoke-renderer.mjs --with-sidecar",
     "build:desktop-host": "node desktop/scripts/build-host.mjs",
+    "build:desktop-icons": "node desktop/scripts/build-icons.mjs",
     "desktop:dev": "npm run build:desktop-host && electron desktop/main.mjs",
     "test:electron": "node desktop/scripts/smoke-electron.mjs",
     "stage:desktop": "node desktop/scripts/stage-runtime.mjs",
