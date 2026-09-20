@@ -2,7 +2,7 @@
 
 Version: 0.2.2-desktop.2. These are unsigned evaluation builds, not a new stable release. This refresh includes the media-import, tracking-preview, homography, video-deletion and editor-session fixes from main as of 2026-09-16. It is not an installer-size or cold-start optimization release.
 
-The Mac DMG, matching application source, installation notes and SHA-256 checksums are available on the [desktop prerelease page](https://github.com/PatrickJYKang/annotate/releases/tag/v0.2.2-desktop.2). This release does not include the superseded desktop.1 DMG or the locally built Windows installer.
+The Mac DMG, Windows x64 installer, application source, installation notes and SHA-256 checksums are available on the [desktop release page](https://github.com/PatrickJYKang/annotate/releases/tag/v0.2.2-desktop.2). The superseded desktop.1 builds are not included. GitHub's prerelease flag is off and the release is marked Latest for repository-homepage visibility; this does not change the testing or signing status.
 
 ## macOS
 
@@ -28,4 +28,4 @@ Use a copy of a project when testing. Project schemas are unchanged, but desktop
 
 Service logs are stored in `~/Library/Application Support/Annotate/logs/services.log` on macOS and `%APPDATA%\Annotate\logs\services.log` on Windows. Project media remains in the project folder. Quit Annotate normally before replacing the application. The Windows uninstaller keeps application settings and does not delete project folders.
 
-The accompanying source archive contains the application source used for this preview, including the desktop.2 packaging changes on top of main commit `140ec2c4` and the updated release documentation. Dependency locks, bundled third-party license material and native-tool build recipes are included in the source/runtime. The new `v0.2.2-desktop.2` tag records the packaging and documentation changes; existing browser release tags have not moved.
+The accompanying source archive and `v0.2.2-desktop.2` tag record the application source and packaging used for these builds. Later documentation changes and the archived command-line installer live on `main`; adding the Windows asset and changing GitHub's Latest label do not rebuild either app or move the tag. Dependency locks, bundled third-party license material and native-tool build recipes are included in the source/runtime. Current installation and support information is in this document and the release notes.

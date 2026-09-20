@@ -20,7 +20,7 @@ const GUIDE_GROUPS: GuideGroup[] = [
     links: [
       { id: 'orientation', label: 'Overview', summary: 'Project structure and the clip, pin, and presentation model.', keywords: 'overview introduction model' },
       { id: 'first-project', label: 'First project workflow', summary: 'From an empty project to a presentation.', keywords: 'setup create import demonstration tutorial' },
-      { id: 'installation', label: 'Install and run', summary: 'Launching, browser support, and local services.', keywords: 'install launch chromium chrome sidecar' },
+      { id: 'installation', label: 'Install and run', summary: 'Desktop downloads, launching, and local services.', keywords: 'install launch mac windows desktop sidecar browser' },
     ],
   },
   {
@@ -58,7 +58,7 @@ const WORKFLOW_STEPS = [
   {
     title: 'Import a video',
     location: 'Dashboard · Videos',
-    action: 'Choose Import video and select the match file. Leave the launcher terminal open while media is prepared.',
+    action: 'Choose Import video and select the match file. Keep Annotate open while media is prepared.',
     result: 'The video appears in the project with its own native frame rate and resolution.',
   },
   {
@@ -143,11 +143,11 @@ const GLOSSARY = [
 ];
 
 const TROUBLESHOOTING = [
-  ['A project folder will not open', 'Use a current Chromium browser and grant read/write access when asked. Safari and Firefox do not provide the required folder API.'],
-  ['The sidecar is offline', 'Keep the launcher terminal open. Restart Annotate and confirm ports 3000 and 8321 are not already occupied. Check .runtime/app.log in the install folder.'],
-  ['A pin opens nowhere', 'Allow pop-ups for localhost:3000 or 127.0.0.1:3000, then choose Add pin or Open pin again.'],
-  ['The first tracking run cannot load', 'The first tracking action downloads the YOLO model. Confirm internet access and write access to the install folder.'],
-  ['Homography is unavailable', 'Run scripts/setup-pnlcalib.sh from the install folder, restart Annotate, and verify the sidecar health indicator.'],
+  ['A project folder will not open', 'Confirm the folder is writable and contains project.json. Browser users also need Chromium folder permissions; Safari and Firefox do not provide the required folder API.'],
+  ['The sidecar is offline', 'Quit and reopen Annotate. Retain the startup error and service log; see Install and run for log locations. The desktop app chooses its own local service ports.'],
+  ['A pin opens nowhere', 'In the desktop app, check for an existing pin window; reopening the same pin focuses it. In a browser, allow pop-ups for the app address and try again.'],
+  ['The first tracking run cannot load', 'Desktop packages bundle the YOLO model. Restart and report the error with the service log. Browser development may download the model on first use.'],
+  ['Homography is unavailable', 'Desktop packages bundle PnLCalib and its model weights. Restart Annotate and report the startup error and service log if it persists.'],
   ['Video import is slow', 'Compatible constant-frame-rate H.264 MP4 is preserved or remuxed. Other codecs and variable-frame-rate media require a full transcode. Canceling safely removes temporary import files.'],
   ['Tracking changes player during an overlap', 'Stop at the last trusted frame, choose Re-track from here, select the correct provisional player, and continue. Cancel leaves the original tail intact.'],
   ['The integrity report lists a missing item', 'Restore it from .trash when possible, or remove the broken presentation reference. Annotate reports the path rather than silently rewriting authored work.'],
@@ -352,9 +352,10 @@ export default function UserGuide() {
 
           <Section id="installation" title="Install and run">
             <div className="space-y-4 text-sm leading-7 text-secondary">
-              <p>Use the quick-install command in the repository README. The installer creates a Desktop launcher and opens Annotate in a supported Chromium browser. Keep the launcher terminal open; closing it stops the web app and its local Python sidecar.</p>
-              <p>Annotate currently supports Chrome, Edge, Brave, Arc, and Chromium. Safari and Firefox cannot grant the project-folder access the app requires. The browser may ask you to renew folder permission after a restart.</p>
-              <p>Application logs are stored at <code className="font-mono text-xs text-primary">&lt;install-folder&gt;/.runtime/app.log</code>. The web interface normally runs at <code className="font-mono text-xs text-primary">http://localhost:3000</code> and the sidecar at <code className="font-mono text-xs text-primary">http://127.0.0.1:8321</code>.</p>
+              <p>Download the Mac DMG or Windows installer from <a href="https://github.com/PatrickJYKang/annotate/releases/latest" target="_blank" rel="noreferrer" className="text-primary underline">GitHub Releases</a>. On macOS, open the DMG and drag Annotate to Applications. On Windows, run the installer and open Annotate from its desktop shortcut. The packages target Apple Silicon with macOS 14 or newer, and Windows 10/11 x64.</p>
+              <p>These are unsigned evaluation builds, even when GitHub labels the release Latest. The operating system may ask for approval; do not disable its security protections. Python, video tools and models are bundled. No terminal or separate browser is needed. Services start and stop with the app; first launch can take longer while libraries initialize.</p>
+              <p>Desktop service logs are at <code className="break-all font-mono text-xs text-primary">~/Library/Application Support/Annotate/logs/services.log</code> on macOS and <code className="break-all font-mono text-xs text-primary">%APPDATA%\Annotate\logs\services.log</code> on Windows. Clip and pin editors open in separate windows.</p>
+              <p>Browser development remains supported with Chrome, Edge, Brave, Arc or Chromium; Safari and Firefox cannot grant the required project-folder access. The archived browser installer and its instructions are in the repository&apos;s <a href="https://github.com/PatrickJYKang/annotate/tree/main/legacy/browser-install" target="_blank" rel="noreferrer" className="text-primary underline">legacy/browser-install</a> folder.</p>
             </div>
           </Section>
 

@@ -9,7 +9,7 @@ const destination = path.join(root, `desktop/artifacts/installers/Annotate-${des
 const candidates = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
 const files = [];
 for (const file of candidates) {
-  if (!/^(webapp\/|sidecar\/|desktop\/|scripts\/|\.github\/|package(-lock)?\.json$|LICENSE$|README\.md$|USER_GUIDE\.md$|THIRD_PARTY_NOTICES\.md$|technical_document\.md$)/.test(file)) continue;
+  if (!/^(webapp\/|sidecar\/|desktop\/|scripts\/|docs\/|legacy\/|\.github\/|package(-lock)?\.json$|LICENSE$|README\.md$|USER_GUIDE\.md$|THIRD_PARTY_NOTICES\.md$|technical_document\.md$)/.test(file)) continue;
   if (/(^|\/)(\.env[^/]*|node_modules|\.venv|__pycache__|test-results|playwright-report|artifacts|build)(\/|$)/.test(file)) continue;
   try { await access(path.join(root, file)); files.push(file); } catch { /* Exclude tracked deletions. */ }
 }

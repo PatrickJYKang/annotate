@@ -3,7 +3,10 @@
 set -euo pipefail
 
 ANNOTATE_VERSION="${ANNOTATE_VERSION:-0.2}"
-ROOT_DIR="${ANNOTATE_APP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="${ANNOTATE_APP_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+INSTALLER="$ROOT_DIR/legacy/browser-install/install.sh"
+[[ -f "$INSTALLER" ]] || INSTALLER="$ROOT_DIR/install.sh"
 WEB_PORT="${PORT:-3000}"
 SIDECAR_PORT="${SIDECAR_PORT:-8321}"
 APP_URL="${ANNOTATE_APP_URL:-http://127.0.0.1:${WEB_PORT}}"
@@ -151,7 +154,7 @@ open_app_url() {
 verify_homography_capability() {
   if ! curl -fsS --max-time 10 "${SIDECAR_URL}/health" \
     | "$ROOT_DIR/sidecar/.venv/bin/python" -c 'import json, sys; raise SystemExit(0 if json.load(sys.stdin).get("models", {}).get("pnlcalib") is True else 1)'; then
-    die "The sidecar started without PnLCalib. Rerun ./install.sh to restore the pinned homography source and weights."
+    die "The sidecar started without PnLCalib. Rerun $INSTALLER to restore the pinned homography source and weights."
   fi
 }
 
@@ -164,10 +167,10 @@ main() {
   command -v npm >/dev/null 2>&1 || die "npm was not found. Install Node.js, then rerun this launcher."
   command -v curl >/dev/null 2>&1 || die "curl was not found."
   [[ -f "$ROOT_DIR/package.json" ]] || die "Could not find package.json in $ROOT_DIR."
-  [[ -d "$ROOT_DIR/webapp/node_modules" ]] || die "Web dependencies are missing. Run ./install.sh from $ROOT_DIR."
-  [[ -x "$ROOT_DIR/sidecar/.venv/bin/python" ]] || die "Python sidecar environment is missing. Run ./install.sh from $ROOT_DIR."
-  [[ -f "$ROOT_DIR/webapp/.next/BUILD_ID" ]] || die "The production web build is missing. Run ./install.sh from $ROOT_DIR."
-  "$ROOT_DIR/scripts/setup-pnlcalib.sh" --check >/dev/null || die "PnLCalib is missing or invalid. Run ./install.sh from $ROOT_DIR."
+  [[ -d "$ROOT_DIR/webapp/node_modules" ]] || die "Web dependencies are missing. Run $INSTALLER."
+  [[ -x "$ROOT_DIR/sidecar/.venv/bin/python" ]] || die "Python sidecar environment is missing. Run $INSTALLER."
+  [[ -f "$ROOT_DIR/webapp/.next/BUILD_ID" ]] || die "The production web build is missing. Run $INSTALLER."
+  "$ROOT_DIR/scripts/setup-pnlcalib.sh" --check >/dev/null || die "PnLCalib is missing or invalid. Run $INSTALLER."
   finish_progress_line
 
   if url_ready "$APP_URL"; then

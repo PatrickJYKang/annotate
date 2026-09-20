@@ -31,7 +31,7 @@ Pods/
 sidecar/yolov8n.pt
 sidecar/third_party/
 
-# Launcher runtime logs (written by start-annotate.sh)
+# Legacy browser launcher runtime logs
 .runtime/
 
 # Python

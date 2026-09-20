@@ -2,79 +2,34 @@
 
 A self-hosted football video analysis application for capturing passages of play, drawing frame-accurate tactical analysis, tracking players, and assembling presentations.
 
-The current stable browser release is [Annotate 0.2](https://github.com/PatrickJYKang/annotate/releases/tag/v0.2.0). An unsigned [desktop prerelease for Apple Silicon Macs](https://github.com/PatrickJYKang/annotate/releases/tag/v0.2.2-desktop.2) is also available. Neither opens 0.1 projects.
+Download [Annotate 0.2.2 Desktop Preview 2 for macOS or Windows](https://github.com/PatrickJYKang/annotate/releases/latest). These are unsigned evaluation builds. Annotate 0.1 projects are not supported.
 
 ## Install
 
-### Mac app (desktop prerelease)
+### macOS
 
 Download [Annotate 0.2.2 Desktop Preview 2](https://github.com/PatrickJYKang/annotate/releases/download/v0.2.2-desktop.2/Annotate-0.2.2-desktop.2-mac-arm64.dmg) (976 MB). Requires an Apple Silicon Mac (M1 or later) running macOS 14 or newer. Open the DMG, drag Annotate to Applications, then launch it from Applications. Python, video tools, models and the browser engine are bundled; no terminal setup or separate browser is needed. Allow at least 3 GB for the application and additional space for the download, project videos and exports.
 
-This is an evaluation build, not a signed/notarized stable Mac release. macOS may require approval under System Settings > Privacy & Security; do not disable Gatekeeper globally. Automated packaged-app checks passed on the build Mac, but clean-machine and older-macOS coverage remain incomplete. First launch can be slow. Use project copies for testing and do not edit one project in the browser and desktop app simultaneously. See [installation notes and log locations](desktop/INSTALL-preview.md).
+The app is ad-hoc signed, not Developer ID signed or notarized. macOS may require approval under System Settings > Privacy & Security; do not disable Gatekeeper globally. Automated packaged-app checks passed on the build Mac, but clean-machine and older-macOS coverage remain incomplete.
 
-A Windows x64 installer has been built, but is not attached to this Mac prerelease; the refreshed Windows build still needs runtime testing. Intel Mac and Windows ARM builds are not provided.
+### Windows
 
-### Quick install (macOS and common Linux distributions)
+Download the [Windows x64 installer](https://github.com/PatrickJYKang/annotate/releases/download/v0.2.2-desktop.2/Annotate-0.2.2-desktop.2-win-x64.exe) (930 MB). Requires Windows 10 or 11, x64. Run the installer, choose an installation folder, then open Annotate using its desktop shortcut. Python, video tools and models are bundled; no separate development tools or browser are required.
 
-Run the following command in a terminal. On the tested Apple Silicon system, a first install usually takes 5-10 minutes on a broadband connection; Linux and slower connections can take longer.
+The installer has no verified publisher signature, so SmartScreen or organizational security policies may warn or block it. Do not disable Defender. Installation and the first launch can be slow. The previous preview was tried on Windows; this refreshed build passed packaging checks but still needs Windows runtime testing.
 
-```bash
-(curl -fsSL https://raw.githubusercontent.com/PatrickJYKang/annotate/v0.2.0/install.sh -o /tmp/install-annotate.sh || wget -qO /tmp/install-annotate.sh https://raw.githubusercontent.com/PatrickJYKang/annotate/v0.2.0/install.sh) && bash /tmp/install-annotate.sh
-```
+### Requirements and limitations
 
-The installer is pinned to `v0.2.0`, bootstraps missing prerequisites where possible, installs locked dependencies and checksum-verified PnLCalib models, builds the production app, and creates a Desktop launcher. It stops with a link to Chrome if no supported browser is installed. Set `ANNOTATE_AUTO_START=0` if the installer should finish without launching Annotate.
+- 8 GB RAM is the practical minimum; 16 GB or more is recommended for tracking and homography. A discrete GPU is not required.
+- Allow at least 3 GB for the installed app, additional temporary space for installation, and separate space for project videos and exports.
+- Intel Mac, native Windows ARM and Linux desktop packages are not provided.
+- These remain evaluation builds despite GitHub's Latest label. Use project copies for testing and do not edit one project in browser and desktop simultaneously. First launch can take longer while bundled libraries initialize.
 
-If the installer fails after cloning the repository, run the dependency and startup commands directly from the installation folder:
+See [installation notes and log locations](desktop/INSTALL-preview.md). Command-line browser installation is archived under [legacy/browser-install](legacy/browser-install/README.md).
 
-```bash
-cd ~/Documents/annotate
-cd webapp && npm ci && cd ..
-python3.12 -m venv sidecar/.venv
-sidecar/.venv/bin/python -m pip install -r sidecar/requirements.lock.txt
-./scripts/setup-pnlcalib.sh
-npm run build
-npm run start
-```
+## Development
 
-If cloning itself failed, first install Git, Node.js 18.18 or newer, Python 3.10-3.12, ffmpeg, and a Chromium browser, then clone the release:
-
-```bash
-git clone --depth 1 --branch v0.2.0 --single-branch \
-  https://github.com/PatrickJYKang/annotate.git ~/Documents/annotate
-```
-
-### Browser installation requirements
-
-- **Operating system:** macOS is the primary tested platform. The shell installer also supports common 64-bit Linux distributions using `apt`, `dnf`, `yum`, or `pacman`; it does not support Windows. Desktop preview requirements are listed separately above.
-- **Browser:** a current Chromium-based browser such as Chrome, Edge, Brave, Arc, or Chromium. Safari and Firefox do not expose the required File System Access API.
-- **Hardware:** 8 GB RAM is the practical minimum; 16 GB or more is recommended for tracking and homography. A discrete GPU is not required, but computer-vision operations are slower on CPU.
-- **Storage:** keep at least 6 GB free on macOS or 12 GB on Linux for the application, Python environment, production build, and model weights, plus enough space for project videos and exports. Standard Linux PyTorch wheels include CUDA runtime libraries even when Annotate runs on CPU.
-- **Network:** internet access is required for the initial install and first YOLO model download.
-
-The installer can provision Git, Node.js 18.18 or newer, Python 3.10-3.12, and ffmpeg. Manual installations must provide those tools before running the commands above.
-
-## Development setup
-
-Install the webapp and sidecar dependencies from the checked-in lockfiles:
-
-```bash
-cd webapp
-npm ci
-cd ../sidecar
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-dev.lock.txt
-cd ..
-./scripts/setup-pnlcalib.sh
-```
-
-Run both services from the repository root:
-
-```bash
-npm run dev
-```
-
-The Next.js app starts at `http://localhost:3000`; the Python sidecar starts at `http://127.0.0.1:8321`. Video import in 0.2 uses the sidecar to obtain an authoritative frame count and choose the least destructive browser-compatible path: preserve compatible CFR H.264 MP4, remux compatible streams, or transcode only incompatible/variable-frame-rate media.
+The browser and desktop app share the UI and project format. See [development setup](docs/development.md) for the browser preview and tests, and [desktop development and packaging](desktop/README.md) for Electron. Browser development remains supported; only the old end-user installation path is archived.
 
 ## Features
 
@@ -103,7 +58,7 @@ The Python sidecar owns smart media preparation, authoritative probing, tracking
 
 ## Documentation
 
-- **In-app user guide:** open [`http://localhost:3000/userguide`](http://localhost:3000/userguide) while Annotate is running, or choose **User guide** in the app header.
+- **In-app user guide:** choose **User guide** in the app header. In a default browser development session it is also available at [`http://localhost:3000/userguide`](http://localhost:3000/userguide).
 - [Offline user guide](USER_GUIDE.md)
 - [Desktop preview installation](desktop/INSTALL-preview.md)
 - [Desktop build and architecture](desktop/README.md)

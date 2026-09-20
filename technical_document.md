@@ -2,7 +2,7 @@
 
 Updated: 2026-09-19
 
-Status: Annotate 0.2.2 browser application plus an in-development native Electron host with unsigned `0.2.2-desktop.2` preview packaging for Apple Silicon macOS and Windows x64. The Mac DMG is distributed as a separate [desktop prerelease](https://github.com/PatrickJYKang/annotate/releases/tag/v0.2.2-desktop.2); the Windows build remains a local test artifact. The stable browser release remains v0.2.0. Windows runtime and clean-machine release verification remain outstanding. The code is authoritative if this document drifts.
+Status: Annotate 0.2.2 browser application plus a native Electron host with unsigned `0.2.2-desktop.2` evaluation packages for Apple Silicon macOS and Windows x64. Both are attached to the [desktop release](https://github.com/PatrickJYKang/annotate/releases/tag/v0.2.2-desktop.2), marked Latest with GitHub's prerelease flag off for homepage visibility. Windows runtime and clean-machine verification remain outstanding; the label does not certify either. The old v0.2.0 terminal installation path is archived in `legacy/browser-install/`; browser development remains supported. The code is authoritative if this document drifts.
 
 ## 1. Product model
 
@@ -515,7 +515,7 @@ Playwright owns `webapp/e2e/**`; Vitest excludes those files. Browser coverage i
 - Chromium and Web Locks are required.
 - 0.1 projects cannot open in 0.2.
 - The sidecar is required for v2 video import, tracking, and homography; authoring can continue without CV once imported media exists. Exact-motion encoding is dormant and matters only to direct API consumers or future export work.
-- PnLCalib is mandatory. The installer provisions its source and checksum-verified weights; the release launcher refuses to start if the provider is unavailable.
+- PnLCalib is mandatory. Desktop packages bundle its source and checksum-verified weights. Browser development provisions them with `scripts/setup-pnlcalib.sh`; the archived browser installer and launcher are retained under `legacy/browser-install/`.
 - The tagging board is file-configurable but has no in-app board designer.
 - Tracking is single-highlight per interactive session; linked followers move with that highlight, but multi-object batch tracking is not exposed.
 - Clip MP4 rendering is not exposed in the current v2 UI.

@@ -2,6 +2,7 @@
 
 set -euo pipefail
 
+# Kept beside install.sh for the legacy browser installer.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SELF_PATH="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
 INSTALLER="$SCRIPT_DIR/install.sh"

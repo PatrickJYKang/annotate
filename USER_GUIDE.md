@@ -6,9 +6,9 @@ This guide covers the `project.v2` workflow in Annotate 0.2. Annotate 0.1 projec
 
 ## 1. Install and start Annotate
 
-For the Apple Silicon Mac app, download the DMG from the [desktop prerelease](https://github.com/PatrickJYKang/annotate/releases/tag/v0.2.2-desktop.2), drag Annotate to Applications, and launch it there. This unsigned preview requires macOS 14 or newer. Its services start and stop with the app; no launcher terminal or separate browser is needed. Open **User guide** in the app header rather than navigating to a fixed localhost port. See the [desktop installation notes](desktop/INSTALL-preview.md) for security warnings, testing limitations and service-log locations.
+Download the Mac DMG or Windows EXE from the [desktop release](https://github.com/PatrickJYKang/annotate/releases/latest). On an Apple Silicon Mac running macOS 14 or newer, open the DMG, drag Annotate to Applications, and launch it there. On Windows 10/11 x64, run the installer, choose an installation folder, and launch Annotate from its desktop shortcut.
 
-For the browser version, follow the quick-install command in the [README](README.md#install). The installer creates an `Annotate.command` launcher on the macOS Desktop or an `Annotate.desktop` launcher on Linux, then opens Annotate in a supported Chromium browser. Keep the launcher terminal open while Annotate is running. Closing it, or pressing `Ctrl+C` in it, stops the local web app and Python sidecar. Application logs are written to `<install-folder>/.runtime/app.log`.
+These are unsigned evaluation builds despite the Latest label. Services start and stop with the app; no launcher terminal or separate browser is needed. Open **User guide** in the app header rather than navigating to a fixed localhost port. See the [desktop installation notes](desktop/INSTALL-preview.md) for security warnings, testing limitations and log locations. The old terminal installer is archived under [legacy/browser-install](legacy/browser-install/README.md).
 
 The core project workflow is shared. References to editor tabs below mean separate windows in the desktop app. Test the preview with project copies; do not open the same project for editing in both hosts at once.
 
@@ -185,13 +185,13 @@ Shortcuts are ignored while typing in an input, text area, or select control.
 
 **The browser cannot create or open a project:** Use Chrome, Edge, Brave, Arc, or Chromium and grant read/write access to the selected folder. Safari and Firefox are not supported for project folders.
 
-**The app opens but the sidecar is offline:** Keep the launcher terminal open and inspect `<install-folder>/.runtime/app.log`. Stop the launcher, rerun it, and confirm that ports 3000 and 8321 are not already occupied.
+**The app opens but the sidecar is offline:** Quit and reopen Annotate. Retain the exact startup error and inspect `~/Library/Application Support/Annotate/logs/services.log` on macOS or `%APPDATA%\Annotate\logs\services.log` on Windows. Desktop services choose their own local ports; do not assume they use 3000 or 8321.
 
-**PnLCalib is unavailable:** From the install folder, run `./scripts/setup-pnlcalib.sh`, then restart Annotate. The launcher deliberately refuses to continue without the pinned source and verified model weights.
+**PnLCalib is unavailable:** The desktop packages include its source and model weights. Restart Annotate and report the startup error and service log if it persists; no separate model installation is required. Browser setup and repair commands are in the [legacy installation guide](legacy/browser-install/README.md) and [developer documentation](docs/development.md).
 
-**Tracking cannot load YOLO:** The first tracking action downloads `yolov8n.pt`. Check the internet connection and write access to the install folder, then retry.
+**Tracking cannot load YOLO:** The desktop app bundles the model, so it should not need a first-use download. Restart and report the error with the service log. Browser development may download the model on first use.
 
-**A pin editor does not open:** Allow pop-ups for `http://127.0.0.1:3000` or `http://localhost:3000`, then choose **Add pin** or **Open pin** again.
+**A pin editor does not open:** In the desktop app, look for an existing pin window; reopening the same pin focuses that window. In a browser, allow pop-ups for the app's local address, then choose **Add pin** or **Open pin** again.
 
 **A long video import appears slow:** Watch the import phase and percentage. Compatible H.264 MP4 files are normally preserved or remuxed quickly; incompatible or variable-frame-rate files require a full transcode. Canceling is safe and removes temporary import files.
 

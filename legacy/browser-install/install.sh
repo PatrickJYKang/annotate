@@ -2,6 +2,7 @@
 
 set -euo pipefail
 
+# Legacy browser installer; desktop downloads are the normal installation path.
 ANNOTATE_VERSION="0.2"
 DEFAULT_REF="v0.2.0"
 REPO_URL="${ANNOTATE_REPO_URL:-https://github.com/PatrickJYKang/annotate.git}"
@@ -573,37 +574,52 @@ run_tests() {
   run_logged "Running sidecar tests" bash -lc 'cd "$1/sidecar" && PYTHONPATH=. .venv/bin/pytest' _ "$INSTALL_DIR"
 }
 
+installed_launcher_path() {
+  if [[ -f "$INSTALL_DIR/legacy/browser-install/start-annotate.sh" ]]; then
+    printf '%s\n' "$INSTALL_DIR/legacy/browser-install/start-annotate.sh"
+  else
+    # Pinned browser releases still keep their launcher at the repository root.
+    printf '%s\n' "$INSTALL_DIR/start-annotate.sh"
+  fi
+}
+
 write_shell_launcher() {
   local output_path="$1"
+  local launcher_path
+  launcher_path="$(installed_launcher_path)"
   cat > "$output_path" <<EOF
 #!/usr/bin/env bash
 export ANNOTATE_APP_DIR="$INSTALL_DIR"
 export ANNOTATE_VERSION="$ANNOTATE_VERSION"
-exec "$INSTALL_DIR/start-annotate.sh"
+exec "$launcher_path"
 EOF
   chmod +x "$output_path"
 }
 
 write_macos_command_launcher() {
   local output_path="$1"
+  local launcher_path
+  launcher_path="$(installed_launcher_path)"
   cat > "$output_path" <<EOF
 #!/usr/bin/env bash
 export ANNOTATE_APP_DIR="$INSTALL_DIR"
 export ANNOTATE_VERSION="$ANNOTATE_VERSION"
-exec "$INSTALL_DIR/start-annotate.sh"
+exec "$launcher_path"
 EOF
   chmod +x "$output_path"
 }
 
 write_linux_desktop_launcher() {
   local output_path="$1"
+  local launcher_path
+  launcher_path="$(installed_launcher_path)"
   cat > "$output_path" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Annotate 0.2
 Comment=Launch Football Analysis Annotator 0.2
 Terminal=true
-Exec=bash -lc 'export ANNOTATE_APP_DIR="$INSTALL_DIR"; export ANNOTATE_VERSION="$ANNOTATE_VERSION"; exec "$INSTALL_DIR/start-annotate.sh"'
+Exec=bash -lc 'export ANNOTATE_APP_DIR="$INSTALL_DIR"; export ANNOTATE_VERSION="$ANNOTATE_VERSION"; exec "$launcher_path"'
 EOF
   chmod +x "$output_path"
 }
@@ -651,6 +667,7 @@ maybe_remove_standalone_installer() {
 }
 
 main() {
+  local launcher_path
   printf "Annotate 0.2 installer\n"
   printf "Version: %s\n" "$ANNOTATE_VERSION"
   printf "Repository: %s\n" "$REPO_URL"
@@ -669,6 +686,7 @@ main() {
 
   progress 18 "Cloning or updating Annotate"
   clone_or_update_repo
+  launcher_path="$(installed_launcher_path)"
 
   progress 26 "Installing Node dependencies"
   install_node_dependencies
@@ -689,7 +707,7 @@ main() {
   create_desktop_launchers
 
   progress 97 "Checking launcher script"
-  bash -n "$INSTALL_DIR/start-annotate.sh"
+  bash -n "$launcher_path"
 
   progress 99 "Cleaning installer"
   maybe_remove_standalone_installer
@@ -697,12 +715,12 @@ main() {
   progress 100 "Done"
   printf "\nInstall complete.\n"
   printf "Double-click Annotate.command on your Desktop, or run:\n"
-  printf "  %s/start-annotate.sh\n" "$INSTALL_DIR"
+  printf "  %s\n" "$launcher_path"
   if [[ "$AUTO_START" == "1" ]]; then
     printf "\nStarting Annotate now...\n"
     export ANNOTATE_APP_DIR="$INSTALL_DIR"
     export ANNOTATE_VERSION
-    exec "$INSTALL_DIR/start-annotate.sh"
+    exec "$launcher_path"
   fi
 }
 
