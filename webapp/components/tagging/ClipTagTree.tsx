@@ -4,6 +4,7 @@ import { useEffect, useRef, type DragEvent, type Ref } from 'react';
 import { boardTagTree, type TaggingBoard } from '../../lib/tagging/board';
 import type { Clip } from '../../lib/types/clip';
 import { useLocale } from '../../lib/i18n';
+import { useLocalizedBoard } from '../../lib/tagging/useLocalizedBoard';
 
 export const CLIP_DRAG_MIME = 'application/x-annotate-clip-id';
 
@@ -60,13 +61,14 @@ function ClipRow({
 }
 
 export default function ClipTagTree({
-  board,
+  board: sourceBoard,
   clips,
   selectedClipId,
   revealSelectionRequest = 0,
   onSelectClip,
   onDropClipOnButton,
 }: ClipTagTreeProps) {
+  const board = useLocalizedBoard(sourceBoard);
   const { t, formatNumber } = useLocale();
   const scrollerRef = useRef<HTMLDivElement>(null);
   const selectedRowRef = useRef<HTMLButtonElement>(null);

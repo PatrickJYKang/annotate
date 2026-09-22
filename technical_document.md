@@ -189,7 +189,7 @@ The parser rejects duplicate or unresolved IDs, invalid defaults, dependency cyc
 
 Older v2 board files using `leadFrames`/`lagFrames` are read as 30 FPS reference durations and converted in memory to seconds. These fields, along with `leadSeconds`, `lagSeconds`, and `mode`, remain parser-compatible, but canonical capture deliberately resolves every button to exact-frame range mode with zero lead/lag.
 
-Board labels are project-authored data. They are intentionally displayed as stored and are not translated by the application locale.
+Unmodified built-in boards follow the application language (English, French, Spanish or Simplified Chinese), including group headings, tiles, modifiers and tag-tree headings. `lib/tagging/localizedBoard.ts` recognizes the complete current or earlier built-in board in any supported language; IDs alone never qualify a custom board. Localization is an in-memory display projection: the project JSON, saved clip labels, tag IDs and captures in progress are unchanged. Customized or uploaded non-default boards retain their authored labels.
 
 ### `clip.json`
 

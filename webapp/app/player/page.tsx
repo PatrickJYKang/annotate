@@ -46,6 +46,7 @@ import {
 import { useProject } from '../../lib/state/ProjectContext';
 import type { Clip } from '../../lib/types/clip';
 import { useLocale } from '../../lib/i18n';
+import { useLocalizedBoard } from '../../lib/tagging/useLocalizedBoard';
 
 function makeId(prefix: string): string {
   const random = globalThis.crypto?.randomUUID?.()
@@ -114,6 +115,7 @@ export default function CapturePlayerPage() {
     restoreError,
     refreshIntegrity,
   } = useProject();
+  const localizedBoard = useLocalizedBoard(board);
   const [player, setPlayer] = useState<VideoPlayerHandle | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [clips, setClips] = useState<Clip[]>([]);
@@ -138,12 +140,12 @@ export default function CapturePlayerPage() {
   const selectedClip = videoClips.find((clip) => clip.id === selectedClipId) ?? null;
   const hotkeys = useMemo(() => board ? buildHotkeyMap(board) : null, [board]);
   const timelineLanes = useMemo<TimelineLane[]>(() => (
-    board?.groups.map((group, index) => ({
+    localizedBoard?.groups.map((group, index) => ({
       id: group.id,
       label: group.label,
       color: TIMELINE_LANE_COLORS[index % TIMELINE_LANE_COLORS.length],
     })) ?? []
-  ), [board]);
+  ), [localizedBoard]);
   const buttonLaneIds = useMemo(() => new Map(
     board?.groups.flatMap((group) => group.buttons.map((button) => [button.id, group.id] as const)) ?? [],
   ), [board]);
@@ -165,7 +167,7 @@ export default function CapturePlayerPage() {
         id: `active-${range.buttonId}`,
         startFrame: range.startFrame,
         endFrame: pendingEndFrame(range.startFrame),
-        label: range.buttonLabel,
+        label: localizedBoard ? findBoardButton(localizedBoard, range.buttonId)?.label ?? range.buttonLabel : range.buttonLabel,
         laneId: buttonLaneIds.get(range.buttonId),
         pending: true,
       })),
@@ -177,7 +179,7 @@ export default function CapturePlayerPage() {
         pending: true,
       }]),
     ];
-  }, [activeRangeCaptures, buttonLaneIds, presentedFrame, selectedVideo, t, untaggedStartFrame, videoClips]);
+  }, [activeRangeCaptures, buttonLaneIds, localizedBoard, presentedFrame, selectedVideo, t, untaggedStartFrame, videoClips]);
 
   const reloadClips = useCallback(async () => {
     if (!projectDir) return;

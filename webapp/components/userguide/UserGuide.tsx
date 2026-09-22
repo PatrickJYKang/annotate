@@ -362,6 +362,7 @@ export default function UserGuide() {
           <Section id="capture" title="Capture and tag clips">
             <div className="space-y-4 text-sm leading-7 text-secondary">
               <p>The tag board is a fixed working surface rather than a menu. Press a main button once to start a clip and press the same button again to stop it. Active captures appear on the timeline before they are finished, and different clip types may overlap.</p>
+              <p>The built-in board follows the language selected in the header. Custom boards keep their own labels. Changing language does not rename saved clips or cancel captures in progress.</p>
               <p>Modifiers add structured details to the active capture. Their availability can change with the selected main tag, but the board itself remains in place. There is no automatic pre-roll or post-roll: the pressed frames become the clip boundaries.</p>
               <p>Click a clip in the timeline or tree to select it and seek to its start. While paused, choose <strong className="text-primary">Retag selected</strong> to change its classification, or drag it onto another tree group. <strong className="text-primary">Open editor</strong> opens the clip in a separate tab.</p>
               <p>The capture timeline uses separate group lanes and packs overlaps into subtracks. Click or drag to seek, scroll horizontally to move through time, and zoom between frame-level inspection and the whole match. Manual scrolling pauses automatic playhead following for five seconds.</p>

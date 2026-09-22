@@ -55,7 +55,7 @@ test('switches every primary route to zh-CN and persists locale-dependent interp
   await expect(page.getByTestId('tag-board')).toBeVisible();
   await expect(page.getByTestId('tag-board-mode')).toHaveText('采集');
   await expect(page.getByText(/第 0 帧 \/ 共 49 帧/)).toBeVisible();
-  await expect(page.getByText('Offensive - open play', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('进攻 - 运动战', { exact: true }).first()).toBeVisible();
   await expectNoRawTranslationKeys(page);
 
   await page.goto('/clip/clip-sequence');

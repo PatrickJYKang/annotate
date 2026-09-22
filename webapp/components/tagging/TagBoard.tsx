@@ -15,6 +15,7 @@ import {
 import type { ActiveRangeCapture } from '../../lib/tagging/capture';
 import type { TaggingSelection } from '../../lib/tagging/selection';
 import { useT } from '../../lib/i18n';
+import { useLocalizedBoard } from '../../lib/tagging/useLocalizedBoard';
 
 export type TagBoardMode = 'capture' | 'retag';
 
@@ -53,7 +54,7 @@ function rectStyle(rect: BoardRect): React.CSSProperties {
 }
 
 export default function TagBoard({
-  board,
+  board: sourceBoard,
   armedFacets,
   activeRangeCaptures,
   mode,
@@ -61,6 +62,7 @@ export default function TagBoard({
   onButtonPress,
   onFacetToggle,
 }: TagBoardProps) {
+  const board = useLocalizedBoard(sourceBoard);
   const t = useT();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
@@ -204,7 +206,7 @@ export default function TagBoard({
                         className="min-h-0 px-3 py-2 text-left text-[17px]"
                       >
                         <span className="flex items-center justify-between gap-2">
-                          <span>{option.label}</span>
+                          <span className="min-w-0 break-words">{option.label}</span>
                           {showHotkey && <kbd className="font-mono text-[14px] text-muted">{hotkey}</kbd>}
                         </span>
                       </button>

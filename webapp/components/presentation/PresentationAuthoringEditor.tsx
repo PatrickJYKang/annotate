@@ -39,6 +39,7 @@ import PresentationCanvas, {
 import PresentationDeck from './PresentationDeck';
 import PresentationInspector, { type PresentationSourcePreview } from './PresentationInspector';
 import { useLocale } from '../../lib/i18n';
+import { useLocalizedBoard } from '../../lib/tagging/useLocalizedBoard';
 
 interface PresentationAuthoringEditorProps {
   projectDir: ProjectDirectory;
@@ -51,10 +52,11 @@ interface PresentationAuthoringEditorProps {
 export default function PresentationAuthoringEditor({
   projectDir,
   manifest,
-  board,
+  board: sourceBoard,
   presentation,
   onBack,
 }: PresentationAuthoringEditorProps) {
+  const board = useLocalizedBoard(sourceBoard);
   const { t, formatNumber } = useLocale();
   const [draft, setDraft] = useState(presentation);
   const draftRef = useRef(presentation);

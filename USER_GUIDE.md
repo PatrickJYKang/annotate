@@ -44,6 +44,8 @@ Different tag buttons can remain active at the same time, so clips may overlap. 
 
 Modifier buttons add facets such as outcome or phase details. Applicable modifiers are captured when a clip begins and may be changed while that capture remains active. The board enforces any requirements defined by the project's `tagging-board.json`.
 
+The built-in board follows the language selected in the header. Custom boards keep their own labels. Changing language does not rename saved clips or cancel captures in progress.
+
 Use **Untagged clip** in the same start/stop manner when a passage is worth keeping before its classification is known. Untagged clips remain visible in their own clip-tree bucket.
 
 Click a clip on the timeline or in the clip tree to select it and jump to its start. Re-tagging is available only while playback is paused: select a clip, choose **Retag selected**, then choose its new board tag and modifiers. A clip can also be dragged from the tree onto a tag group.
