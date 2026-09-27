@@ -35,14 +35,14 @@ The browser and desktop app share the UI and project format. See [development se
 
 - **Local project folders** with a `project.json` manifest, project-handle restoration, open-time integrity reporting, and recoverable trash operations.
 - **Observable, per-video import** that preserves compatible CFR H.264 MP4s, remuxes compatible streams without re-encoding video, and transcodes only as a fallback, with byte/media-time progress, Apple VideoToolbox acceleration, and a bounded four-thread software fallback.
-- **Frame-native clip capture** from a configurable button board, including exact-frame start/stop range toggles, overlapping captures, live pending ranges, facets, hotkeys, untagged capture, paused re-tagging, and drag-and-drop re-tagging in the clip tree. The multi-lane tagging timeline opens at a one-minute view and supports horizontal zoom and scrolling.
+- **Frame-native clip capture** from a configurable button board, including exact-frame start/stop range toggles, overlapping captures, live pending ranges, facets, hotkeys, untagged capture, paused re-tagging, and drag-and-drop re-tagging in the clip tree. The built-in board follows the selected UI language; custom boards keep their labels. The multi-lane tagging timeline opens at a one-minute view and supports horizontal zoom and scrolling.
 - **Clip editor** with absolute-frame transport, inward-only clip trimming with immediate undo, keyframed tactical shapes, position keyframes and tracker-managed visibility, manual keyframe retiming, horizontal timeline zoom, image/pitch coordinate modes, undo/redo, and persisted resizable panels.
 - **Player tracking** for highlight objects through YOLO and vendored OC-SORT, with linked image-space tactical shapes following their highlight anchor and provisional re-tracking from any retained frame.
 - **Pitch homography** through vendored PnLCalib, interpolation and sanity filtering, video-namespaced project caching, and pitch-space box/circle authoring.
 - **Clip-local pins** for important frames, with multiple annotation documents, the shared tactical annotation editor, ordered per-shape entrance animations, five-second context preview, automatic or manual calibration, and explicit pin-document import into the animated clip layer.
-- **Presentations** built from clips, pins, and distinct title-card templates, with source preview, a thumbnail storyboard, frame-native authoring transport, animated pin pauses, document cues, match-video transitions, direct source-video playback, scrubber-free full-screen playback, and graceful handling of missing references. Referenced clips can be opened in the clip editor in a new tab; saved changes refresh in presentation authoring.
+- **Presentations** built from clips, pins, and distinct title-card templates, with source preview, a thumbnail storyboard, frame-native authoring transport, animated pin pauses, document cues, match-video transitions, direct source-video playback, scrubber-free full-screen playback, and graceful handling of missing references. Referenced clips open in a desktop editor window or browser tab; saved changes refresh in presentation authoring.
 - **Exports** written to `exports/report/`: clip JSON and CSV reports plus one native-resolution annotated PNG per pin annotation document. Individual render failures are reported without discarding successful outputs.
-- **English, French, Spanish, and Simplified Chinese UI** with a persisted global locale. All four catalogs are structurally aligned; non-English copy still awaits native-speaker editorial review.
+- **English, French, Spanish, and Simplified Chinese UI** with aligned catalogs and localized built-in tagging boards. Non-English copy still awaits native-speaker editorial review. Locale and panel preferences persist per browser origin; desktop persistence across launches remains incomplete.
 - **Standalone quick annotate route** at `/quick-annotate` for a single image. It is retained as a best-effort compatibility utility and is not part of the canonical `project.v2` workflow.
 
 The Python sidecar owns smart media preparation, authoritative probing, tracking, homography, and export encoding APIs. Its exact-motion segment endpoint remains available as an export-oriented building block but is not used by presentation playback. See the [sidecar documentation](sidecar/README.md) for its endpoints and model requirements.
@@ -60,6 +60,7 @@ The Python sidecar owns smart media preparation, authoritative probing, tracking
 
 - **In-app user guide:** choose **User guide** in the app header. In a default browser development session it is also available at [`http://localhost:3000/userguide`](http://localhost:3000/userguide).
 - [Offline user guide](USER_GUIDE.md)
+- [Demo recording checklist](docs/demo-recording-checklist.md)
 - [Desktop preview installation](desktop/INSTALL-preview.md)
 - [Desktop build and architecture](desktop/README.md)
 - **[As-built technical reference](technical_document.md)**

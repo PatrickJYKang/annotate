@@ -17,6 +17,8 @@ npm run dev
 
 The Next.js app defaults to `http://localhost:3000` and the Python sidecar to `http://127.0.0.1:8321`. Keep the development process running while using the preview. Use `PORT`, `SIDECAR_PORT` and `NEXT_PUBLIC_SIDECAR_URL` to run on different ports. Safari and Firefox do not expose the browser project's required File System Access API.
 
+Set `ANNOTATE_PNLCALIB_ROOT` when using an existing verified provider outside `sidecar/third_party/pnlcalib`. Set `NEXT_DIST_DIR` to isolate a preview's generated output from production builds. When reusing a preview for Playwright, set `PLAYWRIGHT_WEB_PORT` and `PLAYWRIGHT_SIDECAR_PORT` to its actual ports.
+
 Video import obtains authoritative frame metadata from the sidecar and preserves compatible media, remuxes when possible, or transcodes when needed. Existing project schema, drawing and playback code are shared with desktop; avoid simultaneous browser and desktop edits to one project folder.
 
 ## Tests and production build
@@ -32,3 +34,5 @@ npm run start
 ```
 
 `npm run dev` and `npm run start` use the maintained scripts under `scripts/`, not the archived Desktop launchers. Desktop development, production renderer builds and native tests are documented in [desktop/README.md](../desktop/README.md).
+
+Browser tests cover the shared workflows; native-host tests cover filesystem/IPC contracts. Before distributing installers, rebuild the standalone renderer after UI or in-app guide changes, then stage and package each target. Run the packaged Electron smoke separately: a browser pass or a Windows archive-integrity pass does not verify a Windows desktop launch. Guide recording requirements are in the [demo checklist](demo-recording-checklist.md).

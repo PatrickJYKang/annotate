@@ -11,6 +11,12 @@ The implementation is authoritative. Documentation is split into current referen
 - [Annotate 0.2 implementation ledger](v0.2/implementation-plan.md) — completed implementation sequence, amendments, and verification evidence.
 - [Desktop application direction](desktop-application-direction.md) — adopted post-0.2.2 and post-user-guide direction for a shared browser/Electron product, native window behavior, packaging, testing, and direct macOS distribution.
 - [Python sidecar reference](../sidecar/README.md) — setup, endpoints, model discovery, and service behavior.
+- [Desktop installation](../desktop/INSTALL-preview.md) and [desktop architecture/builds](../desktop/README.md) cover the currently distributed Mac and Windows previews and their verification limits.
+- [Desktop implementation checklist](pre-electron-implementation-checklist.md) records completed work and remaining native release gates; development is on `main`.
+- [Source development](../docs/development.md) describes the supported browser preview and test workflow.
+- [Demo recording checklist](../docs/demo-recording-checklist.md) maps the current product workflows to the guide's video placeholders and focused tutorials.
+
+The v0.2 plans preserve their implementation sequence and dated evidence. Later host behavior and release status are documented in the desktop references above; those plans are not a claim that older test counts or browser-only installation instructions describe today's build.
 
 ## Historical records
 

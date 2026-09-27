@@ -4,6 +4,8 @@ Date: 2026-08-09 (rev 10, dependency and user-guide amendment)
 Status: All non-manual phases verified; non-English editorial review pending
 Parents: [v0.2-scope.md](v0.2-scope.md) · [project-v2-schema-and-migration.md](project-v2-schema-and-migration.md)
 
+Current-state amendment, 2026-09-27: desktop packaging and host-specific follow-up are tracked in the [desktop checklist](../pre-electron-implementation-checklist.md). The original phase sequence and dated test counts below are historical evidence, not today's release gate. Built-in tagging boards now follow the active UI locale through a display-only projection; custom boards and canonical project data are unchanged. Shared homography requests now use source-frame bounds and a 15-frame sampling interval for clips, while pin requests and cached matrices retain their millisecond boundary. Manual show/hide controls have been removed; tracking still owns visibility boundaries. Video deletion explicitly confirms cascading removal and is not covered by the recoverable clip-deletion rule. See the [as-built reference](../../technical_document.md) for current behavior.
+
 ## How to read this
 
 - Steps are numbered `phase.step` and ordered — each lands **green** (build + `npm test`; e2e where stated) before the next starts.
@@ -415,7 +417,7 @@ Extract in stable-screen order: dashboard/setup; player/board/tree; clip editor/
 
 ### 5.3 Non-English catalogs and 5.4 e2e
 
-- Maintain aligned French, Spanish, and Simplified Chinese catalogs, obtain native-speaker editorial review, and fix CJK overflow and line-height issues found during that pass. The user-authored default board stays English and editable.
+- Maintain aligned French, Spanish, and Simplified Chinese catalogs, obtain native-speaker editorial review, and fix CJK overflow and line-height issues found during that pass. Canonical board data remains editable; recognized, unmodified built-in boards now display localized labels, while custom boards keep authored labels.
 - `i18n.spec.ts`: persist French and Spanish switching, traverse the primary route surface in Simplified Chinese, verify core labels and interpolation, and reject raw translation keys.
 
 Always last; this phase slips to 0.3 before delaying structural work.

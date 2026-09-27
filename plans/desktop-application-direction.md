@@ -1,22 +1,25 @@
 # Desktop Application Direction
 
 Date: 2026-08-10
-Status: Adopted product and architecture direction; Annotate 0.2.2 and the written guide are complete. Browser session isolation and a working Electron development host with native persistence/media/windows are implemented on `codex/pre-electron`. Self-contained runtime packaging, native crash recovery and Windows certification remain incomplete. See [Pre-Electron Implementation Checklist](pre-electron-implementation-checklist.md) and [Desktop Development Host](../desktop/README.md).
+Updated: 2026-09-27
+
+Status: Adopted direction with a working Electron host and self-contained Apple Silicon DMG/Windows x64 NSIS packages on `main`, distributed as `0.2.2-desktop.2`. Browser session isolation, native persistence/media, clip/pin windows, startup progress, and graceful save/shutdown guards are implemented. Native crash recovery, publisher signing, updates, and full platform certification remain open. Future-facing behavior below is a target, not a claim that every native convenience has shipped. See [Pre-Electron Implementation Checklist](pre-electron-implementation-checklist.md) and [Desktop build and architecture](../desktop/README.md).
+
 Scope: Direction record, not an implementation checklist and not a definition of the remaining browser-release features or fixes
 
 ## Decision summary
 
-Annotate will remain a stable and fully usable self-hosted browser application. macOS and Windows desktop applications will be added after the 0.2.2 feature release and its written user-guide pass because a conventional app is easier for non-technical users to install, launch, update, and understand. Initial packaging targets are Apple Silicon macOS and Windows x64.
+Annotate remains a supported self-hosted browser application. macOS and Windows desktop previews have been added after the 0.2.2 feature release and written user-guide pass because a conventional app is easier for non-technical users to install and launch. Initial packaging targets are Apple Silicon macOS and Windows x64; automatic application updates are not implemented.
 
 The browser application and desktop application are two hosts for one product, not separate product forks. They share the project format, domain model, editing behavior, renderers, sidecar contracts, and most of the React interface. Host behavior may differ when the operating environment offers a better convention: browser tabs can become native windows, selected panels can support Pop Out and Dock in the app, and browser file pickers can become native dialogs.
 
-Desktop distribution will be direct: a signed and notarized macOS application delivered as a DMG, and a Windows installer whose final format is selected during packaging. App Store distribution is explicitly deferred and is not a requirement for the desktop architecture.
+Desktop distribution is direct: a macOS DMG and a per-user Windows NSIS installer. The current previews have no verified publisher signatures; Developer ID signing/notarization and Windows publisher signing remain release work. App Store distribution is deferred and is not a requirement for the desktop architecture.
 
 ## Release sequencing
 
-Annotate 0.2.1 delivers inward clip trimming and post-track tail repair. Annotate 0.2.2 adds pin-annotation animations. Both continue to ship through the current browser-based installation path.
+Annotate 0.2.1 delivered inward clip trimming and post-track tail repair. Annotate 0.2.2 added pin-annotation animations. Desktop packaging now includes these shared features. End-user documentation recommends the desktop downloads; the old command-line browser installer is archived under `legacy/browser-install/`, while browser source development remains supported.
 
-The written user guide covers the completed 0.2.2 browser product. Desktop preparation starts from this known-good, documented browser build with passing production tests. Guide demonstration videos will be recorded after the desktop UI settles; existing video placeholders remain until then.
+The written guide now distinguishes desktop windows from browser tabs and describes the current workflow. The next documentation task is to record the [guide demonstrations](../docs/demo-recording-checklist.md). Existing video placeholders remain until actual recordings are available.
 
 The browser remains supported after the desktop application ships. It is not a temporary compatibility fallback, and desktop work must not quietly degrade its workflows or test coverage.
 
@@ -35,7 +38,7 @@ The two hosts should follow these rules:
 
 ## Desktop window model
 
-The initial desktop window model should be deliberate rather than making every panel detachable.
+The primary workspace and deduplicated clip/pin editor windows are implemented. Separate presentation-output windows, detachable panels, and the remaining native conventions below are proposed behavior, not current features.
 
 - Opening a project creates one primary project workspace window.
 - Opening a clip editor creates or focuses a dedicated clip window.
@@ -52,7 +55,7 @@ Browser mode keeps its tab-based behavior. A shared host action such as `openCli
 
 ## Native application behavior
 
-The desktop host should add the operating-system behavior users reasonably expect from an application:
+The following remains the target native experience. The current host implements native folder/import dialogs, editor-window deduplication, recent-project restoration, startup progress, and graceful service shutdown. This list also includes unfinished conveniences such as a diagnostics action, full native menus, window restoration, and updates:
 
 - A compact opening screen for recent projects, Create project, and Open project.
 - Native project-folder, import, export, and Save As dialogs.
@@ -115,21 +118,13 @@ Electron should supervise the production web runtime and Python sidecar as appli
 
 Desktop mode can pass absolute project media paths to the local sidecar instead of uploading browser `File` objects into temporary registrations. The renderer should receive video through a controlled local protocol or equivalent range-capable media path so long match videos seek without being copied into memory or duplicated on disk.
 
-Bundled resources such as ffmpeg, ffprobe, the Python runtime, YOLO, PnLCalib code, and model weights are read-only application resources. Mutable state belongs in conventional locations:
-
-- Preferences and persistent application state under `~/Library/Application Support/Annotate`.
-- Rebuildable data under `~/Library/Caches/Annotate`.
-- Diagnostic output under `~/Library/Logs/Annotate`.
-- Temporary registrations and working files under the operating-system temporary directory.
-- User projects and exports in locations explicitly selected by the user.
-
-Windows uses its corresponding user-data, cache, log, and temporary locations through host path resolution. Shared product code must not construct macOS home-directory paths.
+Bundled ffmpeg, ffprobe, Python, YOLO, PnLCalib code, and model weights are read-only application resources. The current packages put mutable runtime state outside the installation under Electron user data: `~/Library/Application Support/Annotate` on macOS and `%APPDATA%\Annotate` on Windows. Service logs are in `logs/services.log` there. User projects and exports stay in the selected project folder. Renderer locale/layout preferences are still origin-local and need a native persistence layer; they are not reliably restored across launches. Shared product code must not construct platform-specific home-directory paths.
 
 The packaged ffmpeg build must be self-contained rather than copied from a Homebrew installation with unresolved Homebrew library paths.
 
 ## Development workflow
 
-Development continues against the shared Next/React renderer and Python sidecar. Once desktop work starts, a desktop development command should launch the Next development server, sidecar, and Electron window together so ordinary development exercises the actual application host. The current browser development command remains available for fast renderer work and browser-specific verification.
+Development uses the shared Next/React renderer and Python sidecar. `npm run dev` provides the fast browser preview. `npm run build:desktop-renderer` followed by `npm run desktop:dev` exercises native storage, windows, and managed services using a production renderer. It does not currently hot-reload; rebuild and restart after renderer changes. Packaged tests then verify the bundled resources independently of developer installations.
 
 Changes should not require duplicate implementations or duplicate full test suites. Tests are divided by responsibility:
 
@@ -148,24 +143,13 @@ The initial desktop targets are Apple Silicon macOS and Windows x64. The preferr
 
 Intel macOS and Windows ARM support are deferred until their native dependency stacks are verified. If Intel macOS is added, Apple Silicon and Intel builds should be distributed separately at first. A universal application would duplicate much of Electron, Python, PyTorch, OpenCV, and other architecture-specific native code while providing little benefit over two clearly labeled downloads.
 
-The existing browser installer remains available for the supported self-hosted version on its currently supported platforms. Desktop downloads should become the recommended path for ordinary macOS and Windows users once their respective packages are verified. Windows desktop support does not imply that the existing shell installer supports Windows.
+Desktop downloads are the documented end-user path, with unsigned/evaluation limitations displayed explicitly. The browser installer remains archived for older pinned releases, not recommended for new installations. Browser development remains supported; the shell installer does not support Windows.
 
 Mac App Store distribution is deferred. It would require a separate Electron MAS build, App Sandbox entitlements, sandbox-compatible helper processes and project-folder access, App Review compliance, and legal review of distribution under the current GPL-3.0-only license. The desktop architecture should not be distorted around these constraints unless App Store demand later justifies a dedicated target.
 
-## Current size and effort expectations
+## Package footprint
 
-Local measurements after the dependency trim provide a more useful estimate than a generic Electron comparison:
-
-- Clean Python/CV runtime: approximately 1.0 GB.
-- PnLCalib runtime code and required weights: approximately 510 MB when development-only checkout material is omitted.
-- Next production runtime: approximately 250-320 MB before final standalone tracing and pruning.
-- Electron/Chromium: approximately 250-300 MB installed for one architecture.
-- ffmpeg and ffprobe: approximately 52 MB for the current Homebrew distribution, with the final standalone build still to be selected.
-- Current YOLO model: approximately 6 MB.
-
-The initial macOS expectation is approximately 2.0-2.4 GB installed for one architecture and approximately 1.2-1.6 GB as a compressed DMG. These older local measurements do not establish the Windows package size. The repository's older 2.4 GB development virtual environment is not a shipping baseline because it still contains removed packages; the clean runtime is approximately 1.0 GB.
-
-A basic development `.app` that starts the existing services is expected to require several focused days. A reliable self-contained Apple Silicon distribution with packaged CV dependencies, correct resource paths, lifecycle handling, and clean-machine verification is more reasonably a one-to-two-week packaging effort. These are directional engineering estimates, not release commitments.
+The desktop.2 packages are approximately 976 MB for the Mac DMG and 931 MB for the Windows installer, with an installed application around 2.5 GB. Allow at least 3 GB for installation plus temporary/download space and project media. Exact download sizes and checksums belong to the release assets, not an estimate made before packaging. The Python/CV runtime and bundled weights account for much of the footprint. Installer size and cold-start performance remain optimization work; this refresh does not claim to fix them.
 
 ## Principal risks
 
@@ -178,12 +162,10 @@ A basic development `.app` that starts the existing services is expected to requ
 - Renderer security regressions if broad filesystem or process access is exposed instead of a narrow preload API.
 - Release failures that appear only in the packaged application rather than development mode.
 
-## Open decisions for the desktop implementation phase
+## Settled and remaining decisions
 
-These decisions are intentionally left until desktop work begins:
+PnLCalib source and weights ship in both installers and are checksum-verified. The production Next server runs on private loopback ports, with range-capable media URLs and a per-window CV proxy. Releases currently use direct GitHub assets; no automatic updater is implemented. The remaining decisions are:
 
-- Whether PnLCalib weights ship inside every DMG or are checksum-verified during a first-run setup flow.
-- Whether the production Next application runs as a bundled loopback server or behind a controlled application protocol.
 - Which panels beyond the initial candidates provide enough value to justify Pop Out and Dock behavior.
 - When Intel macOS and Windows ARM support become worth their additional native-library and release validation.
 - The exact updater and GitHub Release publication flow.

@@ -14,10 +14,12 @@ This sidecar actively backs the frame-native project and clip workflows:
 
 ## Requirements
 
-- **Python 3.10–3.12** (3.12 recommended and used for release verification)
-- **ffmpeg** (for export encoding) — `brew install ffmpeg` / `apt install ffmpeg`
+- **Python 3.12** for the locked development environment; desktop packages bundle Python 3.12.14.
+- **ffmpeg and ffprobe** for media preparation, probing, and export encoding. Install the ffmpeg package for source development; desktop packages bundle both tools.
 
 ## Setup
+
+These commands are for contributors running from source. Desktop users do not install or start the sidecar separately.
 
 ```bash
 cd sidecar
@@ -37,7 +39,7 @@ cd ..
 
 > **Note:** `requirements.lock.txt` is the smaller application runtime; `requirements-dev.lock.txt` adds pytest for contributors. Use the corresponding unpinned `.txt` inputs only when intentionally refreshing dependency versions.
 >
-> Tracking depends on `supervision`. Homography is a required 0.2 capability: `scripts/setup-pnlcalib.sh` installs the pinned PnLCalib source and verifies both model weights by SHA-256 under `sidecar/third_party/pnlcalib`. Developers may override that path with `ANNOTATE_PNLCALIB_ROOT`; the release launcher refuses to start when the pinned provider is missing or invalid.
+> Tracking depends on `supervision`. Homography is a required capability: `scripts/setup-pnlcalib.sh` installs the pinned PnLCalib source and verifies both model weights by SHA-256 under `sidecar/third_party/pnlcalib`. Developers may override that path with `ANNOTATE_PNLCALIB_ROOT`. Packaged desktop startup validates its bundled provider and required resources rather than using a developer checkout.
 
 ## Running
 
@@ -92,6 +94,9 @@ Relative `videoPath` values are rejected.
 | `DELETE` | `/video/normalize/{jobId}` | Acknowledge preserve, or cancel and clean up an import job |
 | `POST`   | `/video/probe`      | Count frames and return authoritative FPS/dimensions without normalizing |
 | `DELETE` | `/video/{videoRef}` | Unregister a temporary uploaded video |
+| `POST`   | `/native/register` | Managed-host-only registration of an existing source without taking ownership |
+| `POST`   | `/native/import` | Managed-host-only import from an authorized filesystem path |
+| `GET`    | `/native/import/{jobId}/result` | Managed-host-only result path and metadata for direct copying into the project |
 
 ## Architecture
 
@@ -108,12 +113,13 @@ annotate_sidecar/
     export.py              # Export endpoints
     derived_media.py       # POST /derived-media/exact-motion
     video.py               # Video register, smart import, probe, and cleanup
+    native.py              # Private authenticated desktop registration and import
   services/
     frame_extractor.py     # cv2.VideoCapture → frames by ms
     tracker.py             # annotate-owned tracking adapter / response shaping
     calibration/           # PnLCalib-backed range adapter + public response types
     encoder.py             # ffmpeg MP4 encoding
-    video_probe.py         # fast container count, packet count, decode fallback
+    video_probe.py         # Container count, ffprobe frame count, OpenCV fallback
   vendor/
     trackers/              # Vendored trackers primitives (OC-SORT + PnLCalib)
   models/                  # Optional local model cache (gitignored)
@@ -164,7 +170,7 @@ The v2 webapp uses the background job endpoints rather than the blocking compati
 - near-CFR H.264 MP4 can be `remux`ed onto a regular frame clock without decoding or re-encoding; and
 - more irregular variable-frame-rate or incompatible media is `transcode`d to CFR H.264 at its source FPS and dimensions.
 
-The browser reports upload and result-download bytes; FFmpeg operations report processed media time. For preserve, the browser writes its original `File` directly into the project and acknowledges the sidecar job with `DELETE`. Authoritative probing first accepts positive container `nb_frames`; only files without it incur a packet scan, followed by explicit decoding as a last resort.
+The browser reports upload and result-download bytes; FFmpeg operations report processed media time. For preserve, the browser writes its original `File` directly into the project and acknowledges the sidecar job with `DELETE`. Desktop imports avoid browser upload/download and copy the prepared result directly. Authoritative probing first accepts positive container `nb_frames`; files without it require ffprobe frame counting, followed by an OpenCV decode/count if metadata is still incomplete. The packet-timestamp scans below serve a different purpose: checking whether retiming is safe.
 
 Timestamp-only preparation scans every video packet before choosing the fast path. It requires compatible video/audio, a near-constant cadence, no large gaps, at most 200 ms of timing adjustment anywhere, and a reconstructible decoded/display frame order. A second packet scan verifies the output clock and ordering. Pictures and audio are copied unchanged; frame timing is regularized rather than exactly preserved. Up to two reference pictures immediately beyond an original edit-list end may become visible, but discarded preroll/interior pictures are rejected. Inputs exceeding the bounds, unsupported FFmpeg behavior, or failed verification fall back to encoding. This path uses ordinary FFmpeg rather than platform-specific hardware or new dependencies.
 
@@ -224,6 +230,8 @@ The native host keeps the upstream token private and supplies a distinct per-win
 Managed mode also provides private host-only `POST /native/register`, `POST /native/import` and `GET /native/import/{job_id}/result` routes. They are unavailable without managed authentication and are never forwarded by the renderer proxy. Registration of an existing native source does not transfer file ownership: unregister and import cleanup leave the source intact. Native import reuses the existing preserve/remux/transcode jobs and authoritative probe, allowing the host to copy prepared media directly into the project without a browser upload/download round trip.
 
 ## Troubleshooting
+
+The setup commands below apply to source development. Packaged desktop users should retain the service log and exact failure message; missing bundled tools or models are packaging/startup failures, not a request to install Homebrew or download Python dependencies. See [desktop installation notes](../desktop/INSTALL-preview.md).
 
 - **"ffmpeg not found"** — Install ffmpeg: `brew install ffmpeg` (macOS) or `apt install ffmpeg` (Linux).
 - **PnLCalib unavailable** — from the repository root, rerun `./scripts/setup-pnlcalib.sh`. It repairs the pinned source and verifies both model weights before the next launch.

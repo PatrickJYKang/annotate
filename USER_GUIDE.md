@@ -10,13 +10,13 @@ Download the Mac DMG or Windows EXE from the [desktop release](https://github.co
 
 These are unsigned evaluation builds despite the Latest label. Services start and stop with the app; no launcher terminal or separate browser is needed. Open **User guide** in the app header rather than navigating to a fixed localhost port. See the [desktop installation notes](desktop/INSTALL-preview.md) for security warnings, testing limitations and log locations. The old terminal installer is archived under [legacy/browser-install](legacy/browser-install/README.md).
 
-The core project workflow is shared. References to editor tabs below mean separate windows in the desktop app. Test the preview with project copies; do not open the same project for editing in both hosts at once.
+The core project workflow is shared. Clip and pin editors open in separate windows on desktop and separate tabs in the browser. Test the preview with project copies; do not open the same project for editing in both hosts at once.
 
 Annotate is self-hosted on your computer. Project files and videos stay in the project folder you select; they are not uploaded to an Annotate cloud service. The browser does temporarily send video data to the local sidecar at `127.0.0.1` for import, tracking, and homography.
 
 ## 2. Create or open a project
 
-On the opening screen, choose **Create project** or **Open project**. Grant read/write access when the browser asks; Annotate cannot work with a folder whose permission is read-only or denied.
+On the opening screen, choose **Create New Project** or **Open Existing Project**. Grant read/write access when the browser asks; Annotate cannot work with a folder whose permission is read-only or denied.
 
 When creating a project, enter its name and any available match details. Choose a parent directory, not a pre-existing project folder. Annotate creates a new folder for the project and refuses to overwrite a non-empty folder.
 
@@ -26,13 +26,13 @@ Annotate remembers the last opened project. Your browser may ask for folder perm
 
 ## 3. Dashboard and video import
 
-The dashboard contains project controls, imported videos, presentations, export controls, and the project integrity report. **Edit match info** opens the metadata editor for teams, players, match details, teamsheet import, and football-data.org lookup.
+The dashboard contains project controls, imported videos, presentations, export controls, and the project integrity report. **Match info** opens the metadata editor for teams, players, match details, teamsheet import, and football-data.org lookup.
 
 Choose **Import video** and select an MP4, MOV, WebM, MKV, or AVI file. Every imported video keeps its own FPS and resolution. Annotate preserves a compatible constant-frame-rate H.264 MP4, remuxes a compatible stream when possible, and transcodes only when browser compatibility or variable frame rate requires it.
 
-Import progress stays visible through upload, analysis, media preparation, frame probing, and download. Long incompatible videos can take significant time to transcode; canceling stops the import and removes its temporary files. The completed video is copied into the project's `media/` folder, so allow storage for both the original file and the project copy.
+Import progress shows analysis, media preparation, frame probing, and copying into the project. Browser imports also upload to and download from the local sidecar; desktop imports avoid that round trip. Remaining time is estimated from measured progress in the current step, not previous imports; a stalled step or one without measurable progress has no numerical estimate. Long incompatible videos can take significant time to transcode. Canceling stops the import and removes its temporary files. The completed video is copied into the project's `media/` folder, so allow storage for both the original file and the project copy.
 
-Select **Open** on a video card, or **Open capture**, to enter the tagging workspace. If the project has several videos, the selected video can also be changed from the workspace toolbar.
+Select **Open** on a video card, or **Open capture player**, to enter the tagging workspace. If the project has several videos, the selected video can also be changed from the workspace toolbar.
 
 ## 4. Capture and tag clips
 
@@ -52,7 +52,7 @@ Click a clip on the timeline or in the clip tree to select it and jump to its st
 
 The timeline has one lane per tag-board group and packs overlapping clips into subtracks. Click or drag to seek by frame. Scroll horizontally to move through time; use the timeline's zoom gesture or controls to zoom from a close frame-level view out to the whole match. Manual scrolling disables playhead auto-follow until five seconds after scrolling stops.
 
-Select **Open editor** to open the chosen clip in a new browser tab. Delete moves a clip into recoverable project trash; the immediate **Undo delete** action restores it.
+Select **Open editor** to open or focus the chosen clip's desktop window, or open its browser tab. Delete moves a clip into recoverable project trash; the immediate **Undo delete** action restores it.
 
 ## 5. Clip editor basics
 
@@ -66,7 +66,7 @@ Choose a drawing tool from the top toolbar, then draw in the video. Available an
 
 Move or resize an object on a frame where it has no keyframe to create one there. Boxes and circles have resize and rotation handles. Geometry interpolates between keyframes; style properties such as color, width, pattern, opacity, and font size apply to the whole object rather than being animated.
 
-Use the Select tool to click an object, or drag an empty area to box-select. Hold Shift while clicking objects in the viewer or object list to add them to the selection; hold Cmd on macOS or Ctrl on Linux to subtract them. Inspector changes apply to all compatible selected objects.
+Use the Select tool to click an object, or drag an empty area to box-select. Hold Shift while clicking objects in the viewer or object list to add them to the selection; hold Cmd on macOS or Ctrl on Windows/Linux to subtract them. Inspector changes apply to all compatible selected objects.
 
 **Merge objects** is enabled when two or more selected objects have the same type and do not contain overlapping position keyframes. The merged object keeps their combined keyframes as one timeline object.
 
@@ -105,7 +105,7 @@ Tracker IDs are treated as hints rather than permanent player identity. Correcti
 
 ## 8. Homography and pitch drawing
 
-Choose **Compute H** to calculate pitch homography for the clip. A progress indicator remains visible while PnLCalib samples the video, solves sparse frames, and interpolates usable matrices. Results are cached per video and clip range.
+Choose **Compute H** to calculate pitch homography for the clip. PnLCalib solves every 15 source frames and interpolates usable matrices between samples. The progress bar counts completed calibration samples; preparation and model loading are separate phases. **Cancel** stops remaining work without replacing an existing result. Results are cached per video and clip range.
 
 When homography is available, the editor automatically switches boxes and circles to **Draw: pitch**. Their positions, size, movement, resize handles, and rotation are stored on the pitch plane and projected through the changing camera view. Highlights, arrows, lobs, shadows, polygons, and text remain in image coordinates.
 
@@ -113,7 +113,7 @@ Use **Show H** to overlay the projected pitch grid for inspection. **Delete H** 
 
 ## 9. Add and annotate pins
 
-A pin marks one exact frame inside a clip. Seek to the frame and choose **Add pin**. Annotate creates the pin if needed and opens its frozen-frame editor in a new browser tab; allow pop-ups for the local Annotate address if the tab is blocked.
+A pin marks one exact frame inside a clip. Seek to the frame and choose **Add pin**. Annotate creates the pin if needed and opens or focuses its frozen-frame editor in a separate desktop window. In a browser it opens a new tab; allow pop-ups for the local Annotate address if the tab is blocked.
 
 Each pin can contain multiple independently named annotation sets. The first visit creates a default set. Use **New set** for an alternative explanation, **Delete set** to move a set to trash, and **Undo set delete** to restore it.
 
@@ -139,7 +139,7 @@ Clip slides play the original project video with animated clip annotations. Pin 
 
 When a clip pauses at a pin, or a pin is used directly as a slide, its saved shape animations play on a live overlay. A click, Space, the play control, or **Next** fires a pending on-click step before resuming the clip or advancing the presentation. Presentation annotation cues still control when an entire annotation document enters or exits; the sequence stored inside that document controls how its individual shapes enter.
 
-Clip previews use the same frame-snapped timeline behavior as the clip editor, with only the pin lane shown. When a clip-backed slide is selected, **Edit clip** opens that clip in a new tab; saved changes refresh when you return to the presentation.
+Clip previews use the same frame-snapped timeline behavior as the clip editor, with only the pin lane shown. When a clip-backed slide is selected, **Edit clip** opens or focuses that clip's desktop window, or opens its browser tab; saved changes refresh when you return to the presentation.
 
 **Cut** changes directly to the next slide. **Match video** is available between two forward-ordered pin slides from the same source video and plays the intervening original video as the transition.
 
@@ -153,6 +153,8 @@ Annotate does not currently expose clip MP4 export in the 0.2 interface. Present
 
 Clip, pin, and annotation-set deletion first copies data into `<project>/.trash/`. Use the immediate Undo action when available. **Empty trash** permanently removes retained recovery operations; automatic cleanup also applies age and size limits.
 
+Video deletion is different: **Delete video and clips** asks for confirmation, then permanently removes the project's video copy and all its clips, pins, and annotation sets. It does not delete the original file you imported or rewrite presentation decks; affected slides display missing references. There is no immediate Undo for video deletion. Retained clip trash cannot restore the deleted source video, so back up the project first.
+
 The dashboard integrity section reports missing media, unreadable clips or presentations, invalid annotation documents, and broken presentation references. It is diagnostic and does not silently rewrite the project. Resolve the referenced file or restore/delete the affected item, then reopen the project to refresh the report.
 
 ## 12. Keyboard reference
@@ -163,7 +165,7 @@ The dashboard integrity section reports missing media, unreadable clips or prese
 | Tagging | Escape | Cancel retagging or the most recently started active range |
 | Tagging | Delete / Backspace | Move the selected clip to trash |
 | Tagging | Cmd/Ctrl+Z | Restore the most recently deleted clip when Undo is available |
-| Clip editor | Space | Play or pause the clip |
+| Clip editor | Space | Play/pause, or fire the next animation while paused at a pin |
 | Clip editor | Left / Right | Step one source frame |
 | Clip editor | K | Add a position keyframe for the selected object |
 | Clip editor | Delete / Backspace | Delete the selected keyframe |
@@ -196,5 +198,7 @@ Shortcuts are ignored while typing in an input, text area, or select control.
 **A pin editor does not open:** In the desktop app, look for an existing pin window; reopening the same pin focuses that window. In a browser, allow pop-ups for the app's local address, then choose **Add pin** or **Open pin** again.
 
 **A long video import appears slow:** Watch the import phase and percentage. Compatible H.264 MP4 files are normally preserved or remuxed quickly; incompatible or variable-frame-rate files require a full transcode. Canceling is safe and removes temporary import files.
+
+**Language or panel layout resets after restarting desktop:** These preferences currently use the renderer's local storage. The desktop app selects a new local origin at startup, so preferences are not yet reliable across launches. Project contents are saved separately and are unaffected.
 
 **A project reports missing references:** Expand the dashboard integrity report for the exact path. Restore the missing item from `.trash/` when possible, or remove the broken presentation slide/reference. Annotate keeps broken references visible rather than guessing how to repair authored work.

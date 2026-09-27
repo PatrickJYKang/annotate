@@ -139,7 +139,7 @@ const GLOSSARY = [
   ['Source frame', 'The absolute frame number in an imported video. Annotate uses frames rather than approximate timestamps for authored timing.'],
   ['Tag', 'The primary board classification that describes what a captured clip represents.'],
   ['Tracking', 'Automatic player following that creates highlight position keyframes. Human reacquisition corrects losses or identity changes.'],
-  ['Visibility keyframe', 'A show or hide event for an animated clip object. It does not store position.'],
+  ['Visibility keyframe', 'A tracker-managed show or hide boundary for an animated clip object. It does not store position; there are no manual show/hide controls.'],
 ];
 
 const TROUBLESHOOTING = [
@@ -308,7 +308,7 @@ export default function UserGuide() {
             <div className="space-y-4 text-sm leading-7 text-secondary">
               <p>Annotate is a local application for football video analysis. A project contains imported videos, captured clips, frame pins, annotation data, presentations, exports, caches, and recoverable trash.</p>
               <p>Clip annotations are keyframed objects rendered over video. Pin annotations are documents attached to one exact source frame and may include entrance animations. Tracking generates highlight keyframes, while homography provides pitch coordinates for boxes and circles.</p>
-              <p>Project data is stored in the selected project folder. The browser communicates with a Python sidecar on the same computer for video import, tracking, homography, and export operations.</p>
+              <p>Project data is stored in the selected project folder. The app communicates with a Python sidecar on the same computer for video import, tracking, homography, and export operations. Desktop packages include and manage that service; browser development runs it separately.</p>
             </div>
             <div className="mt-7 grid border-y border-border sm:grid-cols-3">
               {[
@@ -364,7 +364,7 @@ export default function UserGuide() {
               <p>The tag board is a fixed working surface rather than a menu. Press a main button once to start a clip and press the same button again to stop it. Active captures appear on the timeline before they are finished, and different clip types may overlap.</p>
               <p>The built-in board follows the language selected in the header. Custom boards keep their own labels. Changing language does not rename saved clips or cancel captures in progress.</p>
               <p>Modifiers add structured details to the active capture. Their availability can change with the selected main tag, but the board itself remains in place. There is no automatic pre-roll or post-roll: the pressed frames become the clip boundaries.</p>
-              <p>Click a clip in the timeline or tree to select it and seek to its start. While paused, choose <strong className="text-primary">Retag selected</strong> to change its classification, or drag it onto another tree group. <strong className="text-primary">Open editor</strong> opens the clip in a separate tab.</p>
+              <p>Click a clip in the timeline or tree to select it and seek to its start. While paused, choose <strong className="text-primary">Retag selected</strong> to change its classification, or drag it onto another tree group. <strong className="text-primary">Open editor</strong> opens or focuses the clip in a separate desktop window, or opens its browser tab.</p>
               <p>The capture timeline uses separate group lanes and packs overlaps into subtracks. Click or drag to seek, scroll horizontally to move through time, and zoom between frame-level inspection and the whole match. Manual scrolling pauses automatic playhead following for five seconds.</p>
             </div>
           </Section>
@@ -373,7 +373,7 @@ export default function UserGuide() {
             <div className="space-y-4 text-sm leading-7 text-secondary">
               <p>The clip editor combines the original video, animated tactical objects, a properties inspector, and a frame-native keyframe timeline. Playback never leaves the clip’s current in/out range.</p>
               <p>Drawing an object creates its first position keyframe. Move or transform it on another frame to add a new keyframe automatically; Annotate interpolates geometry between those authored positions. Color, line width, opacity, pattern, name, and other style properties belong to the object as a whole and are not keyframed.</p>
-              <p>Use Select to click an object or drag an empty region for box selection. Shift-click adds objects in either the viewer or object list. Cmd-click on macOS or Ctrl-click on Linux subtracts them. Merge is available for selected objects of the same type when their position keyframes do not overlap.</p>
+              <p>Use Select to click an object or drag an empty region for box selection. Shift-click adds objects in either the viewer or object list. Cmd-click on macOS or Ctrl-click on Windows/Linux subtracts them. Merge is available for selected objects of the same type when their position keyframes do not overlap.</p>
               <p>Choose <strong className="text-primary">Trim</strong> to move either boundary inward. Apply commits the range; Cancel leaves it untouched; Undo trim restores the previous bounds until another clip edit is committed.</p>
             </div>
             <h3 className="mb-3 mt-7 text-base font-semibold text-primary">Keyframe rules</h3>
@@ -382,7 +382,7 @@ export default function UserGuide() {
               <li>Manual and correction keyframes can be dragged horizontally; tracked keyframes are fixed.</li>
               <li>Delete removes selected keyframes. Shift+Delete removes selected objects.</li>
               <li>An object must retain at least one position keyframe.</li>
-              <li>Visibility keyframes show or hide an object without changing its position.</li>
+              <li>Tracking manages show/hide boundaries without changing position. There are no manual show/hide keyframe controls.</li>
             </ul>
           </Section>
 
@@ -406,7 +406,7 @@ export default function UserGuide() {
 
           <Section id="pins" title="Pins, annotation sets, and animations">
             <div className="space-y-4 text-sm leading-7 text-secondary">
-              <p>A pin identifies one exact frame inside a clip. Add one from the clip editor to open its frozen-frame editor in a new tab. A pin may contain multiple named annotation sets when the same moment needs alternative explanations.</p>
+              <p>A pin identifies one exact frame inside a clip. Add one from the clip editor to open or focus its frozen-frame editor in a separate desktop window, or open its browser tab. A pin may contain multiple named annotation sets when the same moment needs alternative explanations.</p>
               <p>The pin editor uses the same drawing tools as the clip editor. Hold Left or Right to inspect up to five seconds of surrounding video; annotations hide and editing locks away from the pin frame. Space returns to the exact editable frame.</p>
               <p>Open <strong className="text-primary">Animations</strong> to assign one entrance effect per selected shape: Appear, Fade, Grow, or Wipe. Steps can run On click, With previous, or After previous, with editable delay, duration, and sequence order. Shapes without an entrance animation remain static.</p>
               <p>Clicking a pin marker in the clip timeline displays its annotation. Play starts the first annotation animation when one exists; otherwise it resumes the clip. A later Play, Space, or canvas click advances pending cues before returning to the clip.</p>

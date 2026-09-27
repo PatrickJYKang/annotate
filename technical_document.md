@@ -1,6 +1,6 @@
 # Annotate 0.2 As-Built Technical Reference
 
-Updated: 2026-09-19
+Updated: 2026-09-27
 
 Status: Annotate 0.2.2 browser application plus a native Electron host with unsigned `0.2.2-desktop.2` evaluation packages for Apple Silicon macOS and Windows x64. Both are attached to the [desktop release](https://github.com/PatrickJYKang/annotate/releases/tag/v0.2.2-desktop.2), marked Latest with GitHub's prerelease flag off for homepage visibility. Windows runtime and clean-machine verification remain outstanding; the label does not certify either. The old v0.2.0 terminal installation path is archived in `legacy/browser-install/`; browser development remains supported. The code is authoritative if this document drifts.
 
@@ -348,7 +348,7 @@ The player has resizable video, board, and clip-tree areas. Clicking a timeline 
 
 The project-authored board is a fixed coordinate surface rather than a scrolling menu. `layout.width`/`height`, group `labelRect` values, button `rect` values, and modifier slots determine its visual arrangement. The board still owns tag identity, facet applicability, requirements, and optional hotkeys.
 
-Every primary button is an exact-frame range toggle. The first press arms that tag at the current frame; the second press closes it with an inclusive final frame represented by exclusive `endFrame = frame + 1`. There is no automatic lead/lag or pre-roll in the canonical capture workflow. Multiple different buttons may remain armed concurrently, so clips can overlap. A reverse or zero-length closure waits rather than creating invalid data.
+Every primary button is an exact-frame range toggle. The first press arms that tag at the current frame; the second press closes it with an inclusive final frame represented by exclusive `endFrame = frame + 1`. There is no automatic lead/lag or pre-roll in the canonical capture workflow. Multiple different buttons may remain armed concurrently, so clips can overlap. Closing before the start frame waits rather than creating invalid data; closing on the start frame creates a valid one-frame clip.
 
 Applicable armed facets are snapshotted when capture begins and then consumed; modifier changes can update the active range independently. During capture, the modifier panel stays on the most recently started active range, including keyboard-started ranges; hovering or focusing another action does not switch it. Ending that range returns the panel to any remaining active range. Requirement rules are enforced, and changing a primary tag prunes facets that are no longer applicable. Untagged and unknown-tag clips remain separate tree buckets. Re-tagging is paused-only and can be performed from the board or by dragging a clip onto a board-derived tree group.
 
@@ -356,7 +356,7 @@ The tagging timeline derives one lane from each board group and shows both persi
 
 ## 10. Clip editor
 
-The clip editor uses three persisted resizable regions: viewer, inspector, and timeline. It loads the original video locally and separately registers a temporary `videoRef` with the sidecar for CV operations.
+The clip editor uses three persisted resizable regions: viewer, inspector, and timeline. It loads the original video locally and separately registers a `videoRef` with the sidecar for CV operations. Browser registration uploads a temporary copy; desktop registration grants a non-owning reference to the authorized project file.
 
 ### Animated annotation layer
 
@@ -406,7 +406,7 @@ Holding Left or Right previews video at 1x for at most five seconds on either si
 
 Pin documents are independent from the clip's animated layer. "Import into clip" explicitly copies one saved document into clip annotations at the pin frame, generates fresh object IDs, and remaps highlight-link references. Repeated imports intentionally create independent objects.
 
-The pin inspector can assign one ordered entrance step to a selected shape or shape group. Supported effects are appear, fade, grow, and horizontal wipe. Trigger modes are on-click, with-previous, and after-previous, with non-negative delay and duration values stored in milliseconds. The preview canvas uses the same timing compiler and renderer as downstream playback. Importing into the clip does not copy this sequence because it belongs to the frozen annotation document rather than the clip's frame-keyframed object layer.
+The independent right-side Animations panel can assign one ordered entrance step to a selected shape or shape group and remains open without a selected object. Supported effects are appear, fade, grow, and horizontal wipe. Trigger modes are on-click, with-previous, and after-previous, with non-negative delay and duration values stored in milliseconds. The preview canvas uses the same timing compiler and renderer as downstream playback. Importing into the clip does not copy this sequence because it belongs to the frozen annotation document rather than the clip's frame-keyframed object layer.
 
 ## 12. Presentations
 
@@ -422,7 +422,7 @@ Pin annotation documents render over the rasterized source frame on a separate l
 
 Pin slides rasterize one exact source frame and its selected annotation documents. Title slides render authored text.
 
-When a clip or clip-backed pin is selected, **Edit clip** opens its clip editor in a new browser tab. Clip writes broadcast a project-local change event, and presentation authoring also refreshes on window focus, so edits made in that tab update the asset browser, selected slide, and playback source without reopening the presentation.
+When a clip or clip-backed pin is selected, **Edit clip** opens or focuses its desktop editor window, or opens a project-bound browser tab. Clip writes broadcast a project-local change event, and presentation authoring also refreshes on window focus, so saved edits update the asset browser, selected slide, and playback source without reopening the presentation.
 
 Clip slides and match-video transitions always play an absolute frame range from the owning video's original local file. Entering Present does not upload, prepare, transcode, or copy presentation media, and existing prepared assets are ignored. Range completion, seeking, pin crossings, and annotation sampling all map the original media time back through that video's own FPS.
 
@@ -446,7 +446,7 @@ Exports are deterministic and replace the previous report folder. A bad pin docu
 
 `webapp/lib/i18n/index.tsx` provides `en`, `fr`, `es`, and `zh-CN`, named placeholder interpolation, `Intl` number/date formatting, and development diagnostics for missing keys. Locale is stored under `annotate:locale`; storage failure falls back safely to English. The provider updates `<html lang>` and `data-locale`.
 
-The four catalogs currently contain the same 555 keys and placeholder tokens. Primary route chrome, statuses, accessibility labels, integrity descriptions, structured export progress, and pin-animation authoring controls are localized. Low-level browser, filesystem, or sidecar diagnostic strings may remain English. CJK font/wrapping/layout support is in place; French, Spanish, and Simplified Chinese still need native-speaker editorial review.
+The four catalogs currently contain the same 571 keys and placeholder tokens. Primary route chrome, statuses, accessibility labels, integrity descriptions, structured export progress, and pin-animation authoring controls are localized. Built-in board labels use a separate translation catalog and a display-only projection; custom boards, saved clip labels, IDs, and capture state are not rewritten. Low-level diagnostics and the user-guide prose remain English. French, Spanish, and Simplified Chinese still need native-speaker editorial review. Desktop locale and layout preferences remain origin-local, so the dynamically assigned renderer origin prevents reliable persistence across launches.
 
 Resizable panels use visible, focusable separators, minimum sizes, keyboard operation, and `autoSaveId` persistence. Dashboard, player, clip editor, and presentation authoring are panelized. Metadata forms and present mode are intentionally ordinary, non-panel layouts.
 
@@ -472,6 +472,8 @@ Important live endpoints:
 | `POST` | `/video/probe` | Available authoritative non-normalizing metadata API |
 | `POST` | `/video/register` | Temporary CV/media locator |
 | `DELETE` | `/video/{videoRef}` | Temporary-file cleanup |
+| `POST` | `/native/register`, `/native/import` | Authenticated host-only path registration and import; denied by the renderer proxy |
+| `GET` | `/native/import/{jobId}/result` | Host-only prepared-media path and metadata for direct project copying |
 | `POST` | `/track` | Highlight tracking |
 | `POST` | `/track/stream` | Live NDJSON highlight tracking |
 | `POST` | `/track/detect` | Per-frame provisional player detection |
@@ -480,30 +482,22 @@ Important live endpoints:
 | `POST` | `/derived-media/exact-motion` | Dormant exact-motion primitive retained for future export use |
 | `POST/GET/DELETE` | `/export/*` | Available client/service boundary; no current clip-export button |
 
-Authoritative probing first uses a positive container `nb_frames` value, which avoids scanning ordinary long MP4s. If absent, `ffprobe -count_frames` scans packets, with an explicit decode/count fallback. Browser duration is never used to invent a frame count.
+Authoritative probing first uses a positive container `nb_frames` value, which avoids scanning ordinary long MP4s. If absent, `ffprobe -count_frames` reads and counts frames; an OpenCV decode/count is the final fallback. This is distinct from the packet-timestamp scans used to assess fast remux eligibility. Browser duration is never used to invent a frame count.
 
 ## 17. Verification
 
-The 2026-09-04 native integration pass has 305 Vitest tests across 52 files, 49 sidecar tests, 22 native contract tests and all 38 browser Playwright flows passing locally. Strict lint, TypeScript, browser and standalone production builds pass. The actual Electron suite exercises native project opening, preserve import and initial cancellation, separate clip/pin windows, video seeking, drawing, disk persistence/reload, close-time pin autosave, a real YOLO detection request, annotated PNG export, presentation save/playback, window deduplication, stale-write conflicts, denied IPC operations and graceful helper shutdown. Native tests use actual files/processes; chooser selection uses a main-process fixture seam. The copied standalone Chromium checks remain available. This uses installed Python/dependencies/models, not a self-contained runtime, Windows certification or CV-quality benchmark.
+The 2026-09-27 refresh passes 372 Vitest tests across 57 files, 92 sidecar pytest tests, 24 native-host contract tests, and all 46 Chromium Playwright flows locally. Strict zero-warning ESLint and the standalone production renderer build, including TypeScript checking, pass. The bundled Mac runtime separately executes YOLO detection, one-frame PnLCalib inference, and H.264 encoding without development search paths. These checks are not a real-match CV-quality benchmark, fresh dependency-vulnerability audit, or Windows runtime certification.
 
-The 2026-08-22 Annotate 0.2.2 development gate completed with:
-
-- 274 Vitest tests across 47 files;
-- 42 sidecar pytest tests;
-- 35 Playwright Chromium flows against the development server, including trim, provisional re-track, pin-animation authoring/persistence, clip-pause cue consumption, and presentation pixel output;
-- clean TypeScript checking;
-- clean production build;
-- a clean install from both JavaScript lockfiles;
-- zero known npm or Python dependency vulnerabilities;
-- successful real PnLCalib and YOLO provider smoke tests; and
-- strict ESLint with no errors or warnings.
+Native filesystem/host contracts also passed the macOS 14/Windows 2022 Node 22/24 CI matrix on the underlying `09d51833` code ([run](https://github.com/PatrickJYKang/annotate/actions/runs/35775405345)). The Electron suite exercises project opening, preserve import and cancellation, separate clip/pin windows, seeking, drawing, persistence/reload, close-time autosave, real detection, PNG export, presentation playback, deduplication, stale writes, denied IPC, and graceful shutdown. Chooser selections use a main-process fixture seam. Current packaged-app evidence and unresolved platform gates are in [desktop/README.md](desktop/README.md); older dated results remain in the implementation ledgers rather than being presented as current verification.
 
 Commands:
 
 ```bash
 npm test
 npm run test:e2e
+npm run test:desktop
 npm run build
+npm run build:desktop-renderer
 npm --prefix webapp run lint
 (cd sidecar && .venv/bin/python -m pytest tests)
 ```
@@ -512,7 +506,7 @@ Playwright owns `webapp/e2e/**`; Vitest excludes those files. Browser coverage i
 
 ## 18. Known release boundaries
 
-- Chromium and Web Locks are required.
+- Browser project editing requires Chromium and Web Locks; desktop bundles Chromium and uses the trusted native writer.
 - 0.1 projects cannot open in 0.2.
 - The sidecar is required for v2 video import, tracking, and homography; authoring can continue without CV once imported media exists. Exact-motion encoding is dormant and matters only to direct API consumers or future export work.
 - PnLCalib is mandatory. Desktop packages bundle its source and checksum-verified weights. Browser development provisions them with `scripts/setup-pnlcalib.sh`; the archived browser installer and launcher are retained under `legacy/browser-install/`.

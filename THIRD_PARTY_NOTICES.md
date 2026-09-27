@@ -12,7 +12,11 @@ Parts of the vendored tracking implementation are adapted from [OC-SORT](https:/
 
 ## PnLCalib
 
-Annotate's installer obtains [PnLCalib](https://github.com/mguti97/PnLCalib) at commit 8c87391d6f4ea40c5e4d65e61529916c7a49ce62 and its v1.0.0 model weights. PnLCalib is distributed under GNU GPL version 2. Its upstream LICENSE remains inside sidecar/third_party/pnlcalib/ in every installed copy. The source and weights are downloaded rather than copied into this Git repository so their large artifacts do not inflate Annotate's history.
+Annotate uses [PnLCalib](https://github.com/mguti97/PnLCalib) at commit 8c87391d6f4ea40c5e4d65e61529916c7a49ce62 and its v1.0.0 model weights. PnLCalib is distributed under GNU GPL version 2. Source development provisions it under `sidecar/third_party/pnlcalib/` unless overridden. Desktop staging bundles its source, upstream LICENSE, and weights under `runtime/pnlcalib/` inside the application resources. These downloaded artifacts are not committed to this Git repository.
+
+## Desktop Runtime
+
+Desktop packages also include Electron, standalone Python, ffmpeg/ffprobe, platform-specific native libraries, and their accompanying license material. macOS media-tool source archives and the build recipe accompany the runtime. The matching Annotate source archive is attached to the desktop release; dependency locks and `desktop/scripts/` describe how the package is assembled. These notes are an inventory, not a substitute for the individual licenses or completion of the outstanding distribution-license review.
 
 ## Installed Runtime Dependencies
 
