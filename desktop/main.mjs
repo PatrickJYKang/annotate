@@ -10,6 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { NativeProjectStore, validateRelativePath } from './core/project-store.mjs';
 import { repositoryDirectory, serialized } from './core/repository-directory.mjs';
 import { ServiceSupervisor } from './core/service-supervisor.mjs';
+import { nodeServiceExecutable } from './core/node-service-executable.mjs';
 import { startMediaServer } from './core/media-server.mjs';
 import { startSidecarProxy } from './core/sidecar-proxy.mjs';
 import { resolveResourceLayout, sidecarEnvironment } from './core/resource-layout.mjs';
@@ -377,6 +378,7 @@ try {
   const layout = app.isPackaged
     ? await resolveResourceLayout(path.join(process.resourcesPath, 'runtime'), app.getPath('userData')) : null;
   const renderer = layout?.resources.renderer ?? path.join(root, 'webapp/.next-desktop/standalone/server.js');
+  const rendererExecutable = nodeServiceExecutable(process.execPath);
   const python = layout?.resources.python ?? process.env.ANNOTATE_SIDECAR_PYTHON ?? path.join(root, 'sidecar/.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
   const sidecarCwd = layout?.writable.temp ?? path.join(root, 'sidecar');
   const sidecarEnv = layout ? sidecarEnvironment(layout, { token: sidecarToken, origins: [rendererOrigin] })
@@ -389,14 +391,14 @@ try {
     id === 'sidecar' ? 'Starting video and analysis services...' : 'Opening workspace...',
     id === 'sidecar' ? (phase === 'ready' ? 0.65 : 0.25) : 0.85
   ));
-  await access(renderer); await access(python);
+  await access(renderer); await access(rendererExecutable); await access(python);
   boardSource = await readFile(layout ? path.join(path.dirname(renderer), 'public/tagging/board.json') : path.join(root, 'webapp/public/tagging/board.json'), 'utf8');
   try { recent = JSON.parse(await readFile(settingsPath, 'utf8')).path; } catch { /* First launch. */ }
   await supervisor.start([
     { id: 'sidecar', command: python, args: ['-m', 'annotate_sidecar', '--port', String(sidecarPort)], cwd: sidecarCwd,
       env: sidecarEnv,
       ready: async (signal) => (await fetch(`${sidecarUrl}/health`, { signal, headers: { Authorization: `Bearer ${sidecarToken}` } })).ok },
-    { id: 'renderer', command: process.execPath, args: [renderer], cwd: path.dirname(renderer),
+    { id: 'renderer', command: rendererExecutable, args: [renderer], cwd: path.dirname(renderer),
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', PORT: String(webPort), HOSTNAME: '127.0.0.1', NODE_ENV: 'production' },
       ready: async (signal) => (await fetch(rendererOrigin, { signal })).ok },
   ], { timeoutMs: 120000 });

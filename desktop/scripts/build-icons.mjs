@@ -14,7 +14,9 @@ try {
   const iconset = path.join(temporary, 'annotate.iconset');
   await mkdir(iconset);
   const png = path.join(output, 'annotate.png');
-  execFileSync('magick', ['-background', 'none', '-density', '384', source, '-resize', '1024x1024', `PNG32:${png}`]);
+  // Add desktop-only breathing room without changing the shared wordmark source.
+  execFileSync('magick', ['-background', 'none', '-density', '384', source, '-resize', '922x922',
+    '-background', '#0a0f18', '-gravity', 'center', '-extent', '1024x1024', `PNG32:${png}`]);
   for (const size of [16, 32, 128, 256, 512]) {
     for (const scale of [1, 2]) {
       const name = `icon_${size}x${size}${scale === 2 ? '@2x' : ''}.png`;
