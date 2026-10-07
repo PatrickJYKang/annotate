@@ -16,7 +16,7 @@ test('opens the indexed user guide from the header and searches its reference', 
   })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'User guide' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'First project workflow' })).toBeVisible();
-  await expect(page.getByTestId('guide-video-placeholder')).toHaveCount(3);
+  await expect(page.getByTestId('guide-video')).toHaveCount(12);
   await expect(page.getByText('Keyframe', { exact: true })).toBeVisible();
 
   const search = page.getByLabel('Search guide');
