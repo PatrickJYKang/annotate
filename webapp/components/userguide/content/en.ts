@@ -11,8 +11,7 @@ export const en: GuideContent = {
     noResults: 'No indexed section matches this search.',
     onThisPage: 'On this page',
     video: 'VIDEO',
-    videoComingSoon: 'Video coming soon.',
-    englishRecording: ' (English recording.)',
+    videoOffline: 'This video streams from the online user guide. Connect to the internet to watch it.',
     result: 'Result:',
   },
   title: 'Annotate User Guide',
@@ -80,7 +79,7 @@ export const en: GuideContent = {
   },
   videos: {
     title: 'Video tutorials',
-    intro: 'Each workflow section below includes a short recording of the real app, played from YouTube. The recordings are silent and captioned, and follow the language selected in the header when that language has a recording; otherwise they show the English one. Select a tutorial to jump to it.',
+    intro: 'Each workflow section below includes a short recording of the real app, streamed from the [online user guide](https://patrickjykang.github.io/annotate-docs/), which also has a 13-minute video of the whole workflow. The recordings are silent and captioned, and follow the language selected in the header. Select a tutorial to jump to it.',
   },
   firstProject: {
     title: 'First project workflow',

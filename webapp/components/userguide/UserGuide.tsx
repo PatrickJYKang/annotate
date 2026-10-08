@@ -4,7 +4,7 @@ import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { useLocale } from '../../lib/i18n';
 import { guideContent } from './content';
 import type { GuideContent, GuideLink, TutorialId } from './content/types';
-import { YOUTUBE_VIDEOS } from './youtube';
+import { tutorialVideo } from './videos';
 
 // Order of the tutorials in the index and their numbering.
 const TUTORIAL_ORDER: TutorialId[] = [
@@ -74,10 +74,9 @@ function TutorialVideo({ id, content }: { id: TutorialId; content: GuideContent 
   const { locale } = useLocale();
   const tutorial = content.tutorials[id];
   const number = String(TUTORIAL_ORDER.indexOf(id) + 1).padStart(2, '0');
-  // The current language's recording, else English; a placeholder until a video is uploaded.
-  const videos = YOUTUBE_VIDEOS[id];
-  const videoId = videos[locale] ?? videos.en;
-  const englishFallback = !videos[locale] && !!videos.en && locale !== 'en';
+  // Streamed from the online guide in the current language; a notice replaces it when offline.
+  const video = tutorialVideo(id, locale);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
 
   return (
     <figure id={`video-${id}`} className="my-7 scroll-mt-6" data-testid="guide-video" data-video-id={id}>
@@ -85,24 +84,25 @@ function TutorialVideo({ id, content }: { id: TutorialId; content: GuideContent 
         <span className="text-sm font-semibold text-primary">{tutorial.title}</span>
         <span className="shrink-0 font-mono text-[11px] text-muted">{content.ui.video} {number}</span>
       </div>
-      {videoId ? (
-        <iframe
-          className="block aspect-[1440/930] w-full border border-border bg-black"
-          src={`https://www.youtube-nocookie.com/embed/${videoId}?rel=0`}
-          title={tutorial.title}
-          allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          referrerPolicy="strict-origin-when-cross-origin"
-          allowFullScreen
-          loading="lazy"
-        />
-      ) : (
+      {failedSrc === video.src ? (
         <div className="flex aspect-[1440/930] items-center justify-center border border-border bg-black px-8 text-center">
-          <p className="m-0 max-w-sm text-sm leading-6 text-secondary">{content.ui.videoComingSoon}</p>
+          <p className="m-0 max-w-sm text-sm leading-6 text-secondary">{content.ui.videoOffline}</p>
         </div>
+      ) : (
+        <video
+          key={video.src}
+          className="block aspect-[1440/930] w-full border border-border bg-black"
+          src={video.src}
+          poster={video.poster}
+          aria-label={tutorial.title}
+          controls
+          playsInline
+          preload="metadata"
+          onError={() => setFailedSrc(video.src)}
+        />
       )}
       <figcaption className="border-x border-b border-border px-3 py-2 text-xs leading-5 text-secondary">
         {tutorial.description}
-        {englishFallback ? content.ui.englishRecording : ''}
       </figcaption>
     </figure>
   );
@@ -262,7 +262,7 @@ export default function UserGuide() {
           </Section>
 
           <Section id="videos" title={content.videos.title}>
-            <p className="mb-5 text-sm leading-7 text-secondary">{content.videos.intro}</p>
+            <p className="mb-5 text-sm leading-7 text-secondary"><RichText text={content.videos.intro} /></p>
             <TutorialIndex content={content} />
           </Section>
 

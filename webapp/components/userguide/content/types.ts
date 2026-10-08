@@ -41,8 +41,7 @@ export type GuideContent = {
     noResults: string;
     onThisPage: string;
     video: string;
-    videoComingSoon: string;
-    englishRecording: string;
+    videoOffline: string;
     result: string;
   };
   title: string;

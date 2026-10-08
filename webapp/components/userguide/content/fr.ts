@@ -11,8 +11,7 @@ export const fr: GuideContent = {
     noResults: 'Aucune section ne correspond à cette recherche.',
     onThisPage: 'Sur cette page',
     video: 'VIDÉO',
-    videoComingSoon: 'Vidéo bientôt disponible.',
-    englishRecording: ' (Enregistrement en anglais.)',
+    videoOffline: 'Cette vidéo est diffusée depuis le guide d’utilisation en ligne. Connectez-vous à Internet pour la regarder.',
     result: 'Résultat :',
   },
   title: 'Guide d’utilisation d’Annotate',
@@ -80,7 +79,7 @@ export const fr: GuideContent = {
   },
   videos: {
     title: 'Tutoriels vidéo',
-    intro: 'Chaque section ci-dessous comprend un court enregistrement de l’application, lu depuis YouTube. Les vidéos sont muettes et sous-titrées, et suivent la langue choisie dans l’en-tête quand un enregistrement existe dans cette langue ; sinon, l’enregistrement anglais s’affiche. Sélectionnez un tutoriel pour y accéder.',
+    intro: 'Chaque section ci-dessous comprend un court enregistrement de l’application, diffusé depuis le [guide d’utilisation en ligne](https://patrickjykang.github.io/annotate-docs/fr/), qui propose aussi une vidéo de 13 minutes sur l’ensemble du parcours. Les vidéos sont muettes et sous-titrées, et suivent la langue choisie dans l’en-tête. Sélectionnez un tutoriel pour y accéder.',
   },
   firstProject: {
     title: 'Premier projet',

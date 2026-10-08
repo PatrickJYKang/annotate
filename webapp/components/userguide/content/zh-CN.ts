@@ -11,8 +11,7 @@ export const zhCN: GuideContent = {
     noResults: '没有与此搜索匹配的章节。',
     onThisPage: '本页内容',
     video: '视频',
-    videoComingSoon: '视频即将推出。',
-    englishRecording: '（英文录制。）',
+    videoOffline: '此视频来自在线用户指南，请连接互联网后观看。',
     result: '结果：',
   },
   title: 'Annotate 用户指南',
@@ -80,7 +79,7 @@ export const zhCN: GuideContent = {
   },
   videos: {
     title: '视频教程',
-    intro: '下面每个操作章节都附有一段真实应用的简短录像，通过 YouTube 播放。录像无声，带字幕；如果页眉中选择的语言有对应录像，就会播放该语言版本，否则播放英文版本。点击教程即可跳转。',
+    intro: '下面每个操作章节都附有一段真实应用的简短录像，从[在线用户指南](https://patrickjykang.github.io/annotate-docs/zh-CN/)播放；在线指南还有一段 13 分钟的完整工作流程视频。录像无声，带字幕，并跟随页眉中选择的语言。点击教程即可跳转。',
   },
   firstProject: {
     title: '第一个项目',

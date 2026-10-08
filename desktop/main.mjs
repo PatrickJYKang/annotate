@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { openAsBlob, createWriteStream } from 'node:fs';
 import { createServer } from 'node:net';
@@ -284,6 +284,12 @@ async function dispatch(state, operation, input) {
   }
 }
 
+const EXTERNAL_LINK_HOSTS = new Set(['github.com', 'patrickjykang.github.io']);
+function isExternalGuideLink(url) {
+  try { const parsed = new URL(url); return parsed.protocol === 'https:' && EXTERNAL_LINK_HOSTS.has(parsed.hostname); }
+  catch { return false; }
+}
+
 async function createWindow(project = null, route = '/') {
   const connection = proxy.connect();
   const window = new BrowserWindow({ width: 1440, height: 960, minWidth: 800, minHeight: 600, title: 'Annotate', show: false, icon: appIcon,
@@ -294,7 +300,12 @@ async function createWindow(project = null, route = '/') {
   window.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
     if (isMainFrame && !isInPlace) { state.revisions.clear(); state.baselines.clear(); }
   });
-  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  // New windows are never created; the user guide's links to GitHub and the online guide open in
+  // the system browser instead.
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isExternalGuideLink(url)) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
   window.webContents.on('will-navigate', (event, url) => { if (new URL(url).origin !== rendererOrigin) event.preventDefault(); });
   window.webContents.on('will-attach-webview', (event) => event.preventDefault());
   window.on('close', (event) => {

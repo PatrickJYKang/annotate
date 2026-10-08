@@ -23,13 +23,13 @@ All exports are silent H.264 MP4, 1920 x 1240, 30 fps, `yuv420p`, fast-start, fu
 | Pin animations | 61.53 s | 61.50 s | 61.27 s | 61.50 s | `pin-animations-2026-10-07/recordings/take-<locale>/` |
 | Tracking refinements | 41.90 s | 41.90 s | 42.07 s | 41.97 s | `tracking-refinements-2026-10-07/recordings/take-<locale>/` |
 
-Patrick approved the English take of every tutorial before the other languages were recorded. The French, Spanish and Chinese captions are the assistant's own translations using each catalog's UI labels; none has had native-speaker review. Nothing has been published, embedded in the in-app guide, or cleared for footage rights.
+Patrick approved the English take of every tutorial before the other languages were recorded. The French, Spanish and Chinese captions are the assistant's own translations using each catalog's UI labels; none has had native-speaker review. All of them, plus the complete-workflow video, are published on the [online user guide](https://patrickjykang.github.io/annotate-docs/) and streamed by the in-app guide (see below). The footage has not been cleared for rights.
 
 Superseded and rejected takes are kept in `superseded/`, `rejected/`, or under an obviously named take folder (`take-01`, `take-en-v1-two-pins`). The current files are only the ones in the table.
 
 ## Next steps
 
-1. **All storyboard topics Patrick wants are recorded** (twelve tutorials, four languages each, as of 2026-10-07). Pin context/annotation sets (8b) and installation (11) were dropped by Patrick. Remaining work: native-speaker caption review, a hosting/commit decision for the guide videos (below), re-recording tutorials affected by fixes to the [issue list](demo-recording-bugs.md).
+1. **All storyboard topics Patrick wants are recorded** (twelve tutorials, four languages each, as of 2026-10-07). Pin context/annotation sets (8b) and installation (11) were dropped by Patrick. Remaining work: native-speaker caption review, re-recording tutorials affected by fixes to the [issue list](demo-recording-bugs.md).
 2. **New topics** only if Patrick asks; copy the closest session's scripts (see the table under Production pipeline).
 3. **Repository docs.** Keep this page, the inventory and the storyboard status lines in step with new exports.
 
@@ -45,11 +45,15 @@ Superseded and rejected takes are kept in `superseded/`, `rejected/`, or under a
 
 ## In-app guide integration (2026-10-07)
 
-`webapp/components/userguide/UserGuide.tsx` shows all twelve tutorials (`TutorialVideo`, plus a "Video tutorials" index) as YouTube embeds (`youtube-nocookie.com`). Per Patrick (2026-10-07), the videos are **not bundled** with the app or committed: they will be uploaded to YouTube. Put each video's ID in `webapp/components/userguide/youtube.ts` (per tutorial, per language). The guide plays the current language's video, falls back to English with an "(English recording.)" note, and shows "Video coming soon." while no ID is set.
+The tutorials are published on GitHub Pages, not bundled with the app or committed to this repository (Patrick, 2026-10-07). The site is <https://patrickjykang.github.io/annotate-docs/>, built from the separate repository [PatrickJYKang/annotate-docs](https://github.com/PatrickJYKang/annotate-docs). It serves the guide in all four languages, opening with the complete-workflow video, and hosts every video as `videos/<locale>/<id>.mp4` (1440 x 930) with a `.jpg` poster. Its README covers rebuilding the pages from this repository's guide content and re-encoding the videos.
+
+`webapp/components/userguide/UserGuide.tsx` streams each tutorial (`TutorialVideo`, plus a "Video tutorials" index) from that site in the current UI language (`webapp/components/userguide/videos.ts`). When the site cannot be reached, it shows a notice instead. In the desktop app, guide links to `github.com` and the online guide open in the system browser.
+
+YouTube was tried first and abandoned: Content ID blocked every upload worldwide, because the demo footage is the Premier League broadcast of Tottenham v Chelsea (2015). The "annotate" YouTube channel still holds two blocked uploads and four empty playlists.
 
 The guide text itself is translated: `webapp/components/userguide/content/{en,fr,es,zh-CN}.ts` (inline markup: `**label**`, `` `code` ``, `[text](url)`). Bold labels must match each language's i18n catalog.
 
-Upload sources: the 1920 x 1240 masters listed in the table above (best quality), or 1440 x 930 web encodes in `Annotate Demos/guide-videos-web/` (`SOURCES-en-zh-CN.json` maps them to masters). The combined full-workflow video is in `Annotate Demos/full-workflow/`.
+Sources: the 1920 x 1240 masters listed in the table above. `Annotate Demos/youtube-upload/videos.json` maps every published video (including the combined full-workflow video from `Annotate Demos/full-workflow/`) to its master; the site's `scripts/encode-videos.mjs` reads it.
 
 ## Production pipeline (2026-10-06 sessions)
 

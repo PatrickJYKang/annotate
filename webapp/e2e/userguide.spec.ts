@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('opens the indexed user guide from the header and searches its reference', async ({ page }) => {
   await page.goto('/');
 
-  const guideLink = page.getByRole('link', { name: 'User guide' });
+  const guideLink = page.getByRole('link', { name: 'User guide', exact: true });
   await expect(guideLink).toBeVisible();
   await guideLink.click();
 
@@ -17,6 +17,10 @@ test('opens the indexed user guide from the header and searches its reference', 
   await expect(page.getByRole('navigation', { name: 'User guide' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'First project workflow' })).toBeVisible();
   await expect(page.getByTestId('guide-video')).toHaveCount(12);
+  await expect(page.getByTestId('guide-video').first().locator('video')).toHaveAttribute(
+    'src',
+    'https://patrickjykang.github.io/annotate-docs/videos/en/first-project.mp4',
+  );
   await expect(page.getByText('Keyframe', { exact: true })).toBeVisible();
 
   const search = page.getByLabel('Search guide');
@@ -30,7 +34,11 @@ test('opens the indexed user guide from the header and searches its reference', 
   await expect(page.getByRole('heading', { name: 'Track a player and correct mistakes' })).toBeInViewport();
 
   await page.locator('#app-locale').selectOption('fr');
-  await expect(page.getByRole('link', { name: 'Guide d’utilisation' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByTestId('guide-video').first().locator('video')).toHaveAttribute(
+    'src',
+    'https://patrickjykang.github.io/annotate-docs/videos/fr/first-project.mp4',
+  );
+  await expect(page.getByRole('link', { name: 'Guide d’utilisation', exact: true })).toHaveAttribute('aria-current', 'page');
   await page.getByRole('link', { name: 'Annotate', exact: true }).click();
   await expect(page).toHaveURL(/\/$/);
 });
