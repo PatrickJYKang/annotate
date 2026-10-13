@@ -43,15 +43,15 @@ Superseded and rejected takes are kept in `superseded/`, `rejected/`, or under a
 - Prefers simple, short tutorials ("do clip trimming, it's the simplest"). Captions are short action instructions; add his wording when he asks (for example "Sometimes you may have to do this multiple times.").
 - His projects are read-only. "Tottenham v Chelsea - Demo" in `Annotate Demos/` is his; it was only read and APFS-cloned (`cp -cR`). Never launch the demo app on it.
 
-## In-app guide integration (2026-10-07)
+## Guide integration
 
-The tutorials are published on GitHub Pages, not bundled with the app or committed to this repository (Patrick, 2026-10-07). The site is <https://patrickjykang.github.io/annotate-docs/>, built from the separate repository [PatrickJYKang/annotate-docs](https://github.com/PatrickJYKang/annotate-docs). It serves the guide in all four languages, opening with the complete-workflow video, and hosts every video as `videos/<locale>/<id>.mp4` (1440 x 930) with a `.jpg` poster. Its README covers rebuilding the pages from this repository's guide content and re-encoding the videos.
+The tutorials are published on GitHub Pages, not bundled with the app or committed to this repository (Patrick, 2026-10-07). The site is <https://patrickjykang.github.io/annotate-docs/>, built from the separate repository [PatrickJYKang/annotate-docs](https://github.com/PatrickJYKang/annotate-docs). It serves the guide in all four languages, opening with the complete-workflow video, and hosts every video as `videos/<locale>/<id>.mp4` (1440 x 930) with a `.jpg` poster. Its README covers editing the guide text, rebuilding the pages and re-encoding the videos.
 
-`webapp/components/userguide/UserGuide.tsx` streams each tutorial (`TutorialVideo`, plus a "Video tutorials" index) from that site in the current UI language (`webapp/components/userguide/videos.ts`). When the site cannot be reached, it shows a notice instead. In the desktop app, guide links to `github.com` and the online guide open in the system browser.
+The guide is no longer bundled with the app (Patrick, 2026-10-12): the header's **User guide** button opens that site in the current UI language (`webapp/lib/onlineGuide.ts`), in a new tab in the browser and in the system browser on desktop.
 
 YouTube was tried first and abandoned: Content ID blocked every upload worldwide, because the demo footage is the Premier League broadcast of Tottenham v Chelsea (2015). The "annotate" YouTube channel still holds two blocked uploads and four empty playlists.
 
-The guide text itself is translated: `webapp/components/userguide/content/{en,fr,es,zh-CN}.ts` (inline markup: `**label**`, `` `code` ``, `[text](url)`). Bold labels must match each language's i18n catalog.
+The translated guide text lives in that repository's `content/{en,fr,es,zh-CN}.ts` (inline markup: `**label**`, `` `code` ``, `[text](url)`). Bold labels must match each language's i18n catalog in this repository.
 
 Sources: the 1920 x 1240 masters listed in the table above. `Annotate Demos/youtube-upload/videos.json` maps every published video (including the combined full-workflow video from `Annotate Demos/full-workflow/`) to its master; the site's `scripts/encode-videos.mjs` reads it.
 

@@ -1,6 +1,6 @@
 # Annotate 0.2.2 User Guide
 
-The canonical guide is available inside Annotate at [`/userguide`](http://localhost:3000/userguide), including a first-project walkthrough, indexed reference, glossary, and placeholders for video demonstrations. This Markdown version remains available as an offline reference.
+The canonical guide is the [online user guide](https://patrickjykang.github.io/annotate-docs/), in English, French, Spanish and Simplified Chinese, with a complete-workflow video and twelve tutorial videos; the **User guide** button in the app header opens it in the current UI language. This Markdown version remains available as an offline reference.
 
 This guide covers the `project.v2` workflow in Annotate 0.2. Annotate 0.1 projects are not compatible with 0.2; keep using the pinned 0.1 release for those projects.
 
@@ -8,7 +8,7 @@ This guide covers the `project.v2` workflow in Annotate 0.2. Annotate 0.1 projec
 
 Download the Mac DMG or Windows EXE from the [desktop release](https://github.com/PatrickJYKang/annotate/releases/latest). On an Apple Silicon Mac running macOS 14 or newer, open the DMG, drag Annotate to Applications, and launch it there. On Windows 10/11 x64, run the installer, choose an installation folder, and launch Annotate from its desktop shortcut.
 
-These are unsigned evaluation builds despite the Latest label. Services start and stop with the app; no launcher terminal or separate browser is needed. Open **User guide** in the app header rather than navigating to a fixed localhost port. See the [desktop installation notes](desktop/INSTALL-preview.md) for security warnings, testing limitations and log locations. The old terminal installer is archived under [legacy/browser-install](legacy/browser-install/README.md).
+These are unsigned evaluation builds despite the Latest label. Services start and stop with the app; no launcher terminal or separate browser is needed. **User guide** in the app header opens the online guide in your browser. See the [desktop installation notes](desktop/INSTALL-preview.md) for security warnings, testing limitations and log locations. The old terminal installer is archived under [legacy/browser-install](legacy/browser-install/README.md).
 
 The core project workflow is shared. Clip and pin editors open in separate windows on desktop and separate tabs in the browser. Test the preview with project copies; do not open the same project for editing in both hosts at once.
 

@@ -284,9 +284,9 @@ async function dispatch(state, operation, input) {
   }
 }
 
-const EXTERNAL_LINK_HOSTS = new Set(['github.com', 'patrickjykang.github.io']);
-function isExternalGuideLink(url) {
-  try { const parsed = new URL(url); return parsed.protocol === 'https:' && EXTERNAL_LINK_HOSTS.has(parsed.hostname); }
+// The online user guide (GitHub Pages); see webapp/lib/onlineGuide.ts.
+function isOnlineGuideLink(url) {
+  try { const parsed = new URL(url); return parsed.protocol === 'https:' && parsed.hostname === 'patrickjykang.github.io' && parsed.pathname.startsWith('/annotate-docs/'); }
   catch { return false; }
 }
 
@@ -300,10 +300,10 @@ async function createWindow(project = null, route = '/') {
   window.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
     if (isMainFrame && !isInPlace) { state.revisions.clear(); state.baselines.clear(); }
   });
-  // New windows are never created; the user guide's links to GitHub and the online guide open in
-  // the system browser instead.
+  // New windows are never created; the header's User guide button opens the online guide in the
+  // system browser instead.
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (isExternalGuideLink(url)) void shell.openExternal(url);
+    if (isOnlineGuideLink(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
   window.webContents.on('will-navigate', (event, url) => { if (new URL(url).origin !== rendererOrigin) event.preventDefault(); });

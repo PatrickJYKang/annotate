@@ -1,13 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import React, { useCallback } from 'react';
 import { SUPPORTED_LOCALES, useLocale, type Locale } from '../lib/i18n';
+import { onlineGuideUrl } from '../lib/onlineGuide';
 
 export default function HeaderControls() {
   const { locale, setLocale, t } = useLocale();
-  const pathname = usePathname();
   const toggleBrowserFullscreen = useCallback(() => {
     const doc: any = document;
     const isFs = !!(doc.fullscreenElement || doc.webkitFullscreenElement);
@@ -25,17 +24,15 @@ export default function HeaderControls() {
     <>
       <h1><Link href="/">{t('app.title')}</Link></h1>
       <div className="flex items-stretch">
-        <Link
-          href="/userguide"
-          aria-current={pathname === '/userguide' ? 'page' : undefined}
-          className={`flex min-h-[37px] items-center border-l border-border px-4 text-xs no-underline ${
-            pathname === '/userguide'
-              ? 'bg-selected text-primary'
-              : 'text-secondary hover:bg-hover hover:text-primary'
-          }`}
+        {/* The guide is the online site; the desktop app opens it in the system browser. */}
+        <a
+          href={onlineGuideUrl(locale)}
+          target="_blank"
+          rel="noreferrer"
+          className="flex min-h-[37px] items-center border-l border-border px-4 text-xs text-secondary no-underline hover:bg-hover hover:text-primary"
         >
           {t('header.userGuide')}
-        </Link>
+        </a>
         <label className="sr-only" htmlFor="app-locale">{t('header.locale')}</label>
         <select
           id="app-locale"

@@ -338,11 +338,10 @@ The dashboard shows errors and warnings with stable issue codes and paths. Integ
 | `/presentations` | Full presentation library view; the dashboard embeds the same library |
 | `/presentation/[presentationId]` | Presentation authoring and full-screen present mode |
 | `/metadata` | Match and team metadata editor/importers |
-| `/userguide` | In-app first-use workflow, indexed product reference, glossary, shortcuts, and troubleshooting |
 | `/quick-annotate` | Standalone single-image compatibility utility, outside project.v2 |
 | `/api/football-data` | Server-side football-data.org proxy |
 
-There are no `/stills`, `/annotate/[stillId]`, `/player-legacy`, `/dropdown-test`, or temporary `/v2` routes in the canonical application.
+There are no `/stills`, `/annotate/[stillId]`, `/player-legacy`, `/dropdown-test`, or temporary `/v2` routes in the canonical application. The user guide is not bundled: the header's **User guide** link opens the [online guide](https://patrickjykang.github.io/annotate-docs/) (`webapp/lib/onlineGuide.ts`, built from the separate `annotate-docs` repository) in the current UI language, in a new tab in the browser and in the system browser on desktop.
 
 ## 9. Capture and tagging
 
@@ -448,7 +447,7 @@ Exports are deterministic and replace the previous report folder. A bad pin docu
 
 `webapp/lib/i18n/index.tsx` provides `en`, `fr`, `es`, and `zh-CN`, named placeholder interpolation, `Intl` number/date formatting, and development diagnostics for missing keys. Locale is stored under `annotate:locale`; storage failure falls back safely to English. The provider updates `<html lang>` and `data-locale`.
 
-The four catalogs currently contain the same 571 keys and placeholder tokens. Primary route chrome, statuses, accessibility labels, integrity descriptions, structured export progress, and pin-animation authoring controls are localized. Built-in board labels use a separate translation catalog and a display-only projection; custom boards, saved clip labels, IDs, and capture state are not rewritten. Low-level diagnostics and the user-guide prose remain English. French, Spanish, and Simplified Chinese still need native-speaker editorial review. Desktop locale and layout preferences remain origin-local, so the dynamically assigned renderer origin prevents reliable persistence across launches.
+The four catalogs currently contain the same 571 keys and placeholder tokens. Primary route chrome, statuses, accessibility labels, integrity descriptions, structured export progress, and pin-animation authoring controls are localized. Built-in board labels use a separate translation catalog and a display-only projection; custom boards, saved clip labels, IDs, and capture state are not rewritten. Low-level diagnostics remain English; the online user guide is translated separately. French, Spanish, and Simplified Chinese still need native-speaker editorial review. Desktop locale and layout preferences remain origin-local, so the dynamically assigned renderer origin prevents reliable persistence across launches.
 
 Resizable panels use visible, focusable separators, minimum sizes, keyboard operation, and `autoSaveId` persistence. Dashboard, player, clip editor, and presentation authoring are panelized. Metadata forms and present mode are intentionally ordinary, non-panel layouts.
 

@@ -58,7 +58,7 @@ The Python sidecar owns smart media preparation, authoritative probing, tracking
 
 ## Documentation
 
-- **In-app user guide:** choose **User guide** in the app header. In a default browser development session it is also available at [`http://localhost:3000/userguide`](http://localhost:3000/userguide).
+- **[User guide](https://patrickjykang.github.io/annotate-docs/)** in English, French, Spanish and Simplified Chinese, with tutorial videos. The **User guide** button in the app header opens it in the current UI language.
 - [Offline user guide](USER_GUIDE.md)
 - [Demo recording checklist](docs/demo-recording-checklist.md)
 - [Desktop preview installation](desktop/INSTALL-preview.md)

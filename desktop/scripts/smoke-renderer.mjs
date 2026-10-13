@@ -81,8 +81,7 @@ try {
   await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Create New Project' }).click();
   await page.getByRole('button', { name: 'Create project folder...' }).waitFor();
-  await page.goto(`${origin}/userguide`);
-  await page.getByRole('heading', { name: 'Annotate User Guide', exact: true }).waitFor();
+  assert.equal(await page.getByRole('link', { name: 'User guide', exact: true }).getAttribute('href'), 'https://patrickjykang.github.io/annotate-docs/');
   if (runtime) {
     assert.equal((await fetch(`${runtime.sidecar.baseUrl}/health`)).status, 401);
     assert.equal((await fetch(`${runtime.sidecar.baseUrl}/health`, { headers: { Origin: 'https://example.com', Authorization: `Bearer ${runtime.sidecar.token}` } })).status, 403);
@@ -114,7 +113,7 @@ try {
     console.log('Managed sidecar passed authentication, CORS, real clip-editor health polling, source-video registration, and video loading.');
   }
   assert.deepEqual(errors, []);
-  console.log('Standalone renderer passed real Chromium startup, hydration, project setup, and user-guide checks outside the checkout.');
+  console.log('Standalone renderer passed real Chromium startup, hydration, project setup, and the user-guide link outside the checkout.');
 } finally {
   await browser?.close();
   await supervisor.stop();

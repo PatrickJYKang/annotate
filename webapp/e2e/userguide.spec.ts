@@ -1,62 +1,30 @@
 import { expect, test } from '@playwright/test';
 
-test('opens the indexed user guide from the header and searches its reference', async ({ page }) => {
+const ONLINE_GUIDE = 'https://patrickjykang.github.io/annotate-docs/';
+
+test('links the header user guide button to the online guide in the current language', async ({ page }) => {
   await page.goto('/');
 
   const guideLink = page.getByRole('link', { name: 'User guide', exact: true });
   await expect(guideLink).toBeVisible();
+  await expect(guideLink).toHaveAttribute('href', ONLINE_GUIDE);
+  await expect(guideLink).toHaveAttribute('target', '_blank');
+
+  for (const [locale, label] of [['fr', 'Guide d’utilisation'], ['es', 'Guía de usuario'], ['zh-CN', '用户指南']] as const) {
+    await page.locator('#app-locale').selectOption(locale);
+    await expect(page.getByRole('link', { name: label, exact: true })).toHaveAttribute('href', `${ONLINE_GUIDE}${locale}/`);
+  }
+
+  // Opening the guide leaves the app where it was.
+  await page.locator('#app-locale').selectOption('en');
+  await page.context().route(`${ONLINE_GUIDE}**`, (route) => route.fulfill({ contentType: 'text/html', body: '<title>Annotate User Guide</title>' }));
+  const popup = page.waitForEvent('popup');
   await guideLink.click();
-
-  await expect(page).toHaveURL(/\/userguide$/);
-  await expect(guideLink).toHaveAttribute('aria-current', 'page');
-  await expect(page.getByTestId('user-guide')).toBeVisible();
-  await expect(page.getByRole('heading', {
-    level: 1,
-    name: 'Annotate User Guide',
-  })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'User guide' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'First project workflow' })).toBeVisible();
-  await expect(page.getByTestId('guide-video')).toHaveCount(12);
-  await expect(page.getByTestId('guide-video').first().locator('video')).toHaveAttribute(
-    'src',
-    'https://patrickjykang.github.io/annotate-docs/videos/en/first-project.mp4',
-  );
-  await expect(page.getByText('Keyframe', { exact: true })).toBeVisible();
-
-  const search = page.getByLabel('Search guide');
-  await search.fill('tracking');
-  const desktopIndex = page.getByRole('navigation', { name: 'User guide' });
-  await expect(desktopIndex.getByText('1 result', { exact: true })).toBeVisible();
-  const trackingResult = desktopIndex.getByRole('link', { name: /Track and correct/ });
-  await expect(trackingResult).toBeVisible();
-  await trackingResult.click();
-  await expect(page).toHaveURL(/\/userguide#tracking$/);
-  await expect(page.getByRole('heading', { name: 'Track a player and correct mistakes' })).toBeInViewport();
-
-  await page.locator('#app-locale').selectOption('fr');
-  await expect(page.getByTestId('guide-video').first().locator('video')).toHaveAttribute(
-    'src',
-    'https://patrickjykang.github.io/annotate-docs/videos/fr/first-project.mp4',
-  );
-  await expect(page.getByRole('link', { name: 'Guide d’utilisation', exact: true })).toHaveAttribute('aria-current', 'page');
-  await page.getByRole('link', { name: 'Annotate', exact: true }).click();
+  expect((await popup).url()).toBe(ONLINE_GUIDE);
   await expect(page).toHaveURL(/\/$/);
 });
 
-test('keeps the guide readable on a narrow screen without leading with the full index', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/userguide');
-
-  await expect(page.getByRole('heading', {
-    level: 1,
-    name: 'Annotate User Guide',
-  })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'User guide' })).toBeHidden();
-  const browse = page.getByText('Browse sections', { exact: true });
-  await expect(browse).toBeVisible();
-  await browse.click();
-  await expect(page.getByRole('navigation', { name: 'Mobile user guide' })).toBeVisible();
-
-  const guideBounds = await page.getByTestId('user-guide').boundingBox();
-  expect(guideBounds?.width).toBeLessThanOrEqual(390);
+test('removes the bundled guide route', async ({ page }) => {
+  const response = await page.goto('/userguide');
+  expect(response?.status()).toBe(404);
 });

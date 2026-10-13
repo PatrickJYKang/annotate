@@ -75,7 +75,7 @@ Keep the established 1920 x 1240 framing, cropped macOS title bar, small synthet
 
 ## Main guide videos
 
-The IDs below are the existing `DemoPlaceholder` IDs in `webapp/components/userguide/UserGuide.tsx`. Publishing/embedding is a separate task. The first-project placeholder currently describes an end-to-end workflow through presentation, so its wording must be narrowed to match the recorded tutorial or the separate presentation tutorial must be linked alongside it.
+The IDs below are the tutorial IDs used by the [online user guide](https://patrickjykang.github.io/annotate-docs/) (repository `annotate-docs`), which publishes every video listed here.
 
 | Guide slot / topic | Status | Length | Scope |
 | --- | --- | --- | --- |

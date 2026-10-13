@@ -58,7 +58,7 @@ for (const action of ['cancel', 'close project', 'navigate', 'reload'] as const)
 
       if (action === 'cancel') await progress.getByRole('button', { name: 'Cancel' }).click();
       else if (action === 'close project') await page.getByRole('button', { name: 'Close project' }).click();
-      else if (action === 'navigate') await page.getByRole('link', { name: 'User guide' }).click();
+      else if (action === 'navigate') await page.getByLabel('Project controls').getByRole('button', { name: 'Match info' }).click();
       else await page.reload();
 
       await expect.poll(() => deleted).toBe(1);
