@@ -28,7 +28,7 @@ export class ServiceSupervisor extends EventEmitter {
           shell: false,
           windowsHide: true,
           detached: process.platform !== 'win32',
-          stdio: ['ignore', 'pipe', 'pipe'],
+          stdio: [service.env?.ANNOTATE_PARENT_PIPE === '1' ? 'pipe' : 'ignore', 'pipe', 'pipe'],
         });
         const record = { child, id: service.id, exited: false, closed: false, error: null, close: null };
         record.close = new Promise((resolve) => child.once('close', () => { record.closed = true; resolve(); }));

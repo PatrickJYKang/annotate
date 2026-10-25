@@ -572,4 +572,8 @@
   ,"metadata.teamsheetTitle": "导入球队名单"
   ,"metadata.venue": "比赛场地"
   ,"metadata.venuePlaceholder": "例如：老特拉福德"
+  ,"annotation.recoveryTitle": "有更新的标注恢复副本可用。"
+  ,"annotation.recoveryRestore": "恢复副本"
+  ,"annotation.recoveryKeep": "保留已保存版本"
+  ,"annotation.recoveryFailed": "无法更新恢复副本。请重试后再编辑。"
 }

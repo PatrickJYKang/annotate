@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .routes import derived_media, health, track, homography, export, video, native
 from .video_registry import cleanup_registered_videos
 from .session_auth import SessionAuthMiddleware
+from .version import product_version
 
 logger = logging.getLogger("annotate_sidecar")
 
@@ -56,7 +57,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="annotate-sidecar",
         description="ML sidecar for the annotate tool",
-        version="0.2.2",
+        version=product_version(),
         lifespan=lifespan,
     )
 

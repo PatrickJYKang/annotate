@@ -572,4 +572,8 @@
   "metadata.teamsheetTitle": "Importar alineación",
   "metadata.venue": "Estadio",
   "metadata.venuePlaceholder": "p. ej., Old Trafford"
+  ,"annotation.recoveryTitle": "Hay una copia de recuperación más reciente disponible."
+  ,"annotation.recoveryRestore": "Restaurar copia de recuperación"
+  ,"annotation.recoveryKeep": "Conservar versión guardada"
+  ,"annotation.recoveryFailed": "No se pudo actualizar la copia de recuperación. Vuelve a intentarlo antes de editar."
 }

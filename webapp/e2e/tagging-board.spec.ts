@@ -58,6 +58,15 @@ async function openCapturePlayer(page: Page, board?: unknown): Promise<void> {
   await expect(page.locator('[data-testid^="video-range-lane-label-"]')).toHaveCount(0);
 }
 
+async function settleFrame(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const video = document.querySelector('video');
+    return video && !video.seeking && video.readyState >= 2;
+  });
+  // A seek resolves before requestVideoFrameCallback publishes its decoded frame.
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+}
+
 test('manual timeline scrolling suspends playhead following', async ({ page }) => {
   await openCapturePlayer(page);
 
@@ -101,8 +110,10 @@ test('exclusive possession switches save adjacent clips while an overlapping pas
   await page.getByRole('button', { name: 'Play', exact: true }).click();
   await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime)).toBeGreaterThan(0.2);
   await page.getByRole('button', { name: 'Pause', exact: true }).click();
+  await settleFrame(page);
   await pass.click();
   await page.getByRole('button', { name: 'Step forward' }).click();
+  await settleFrame(page);
   await defense.click();
   await expect(offense).toHaveAttribute('aria-pressed', 'false');
   await expect(defense).toHaveAttribute('aria-pressed', 'true');
@@ -116,6 +127,7 @@ test('exclusive possession switches save adjacent clips while an overlapping pas
   expect(first.endFrame).toBeGreaterThan(0);
 
   await page.getByRole('button', { name: 'Step forward' }).click();
+  await settleFrame(page);
   await page.keyboard.press('p');
   await expect(defense).toHaveAttribute('aria-pressed', 'false');
   await expect(offense).toHaveAttribute('aria-pressed', 'true');
@@ -126,6 +138,7 @@ test('exclusive possession switches save adjacent clips while an overlapping pas
   expect(second.endFrame).toBe(second.startFrame + 1);
   expect(second.tags.facets).toEqual({});
   await page.getByRole('button', { name: 'Step forward' }).click();
+  await settleFrame(page);
   await offense.click();
   await pass.click();
   await expect.poll(async () => (await clipDocuments(page)).length).toBe(6);

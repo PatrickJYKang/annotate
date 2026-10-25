@@ -9,6 +9,9 @@ import { desktopPreviewVersion } from '../preview-version.mjs';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const target = process.argv[2];
 if (!['darwin-arm64', 'win32-x64'].includes(target)) throw new Error('Choose darwin-arm64 or win32-x64.');
+const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+const dirty = !!execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim();
+if (dirty && !process.argv.includes('--allow-dirty')) throw new Error('Commit the release inputs before packaging, or use --allow-dirty for a local development build.');
 execFileSync(process.execPath, [path.join(root, 'desktop/scripts/verify-runtime-files.mjs'), path.join(root, 'desktop/build', target, 'runtime')], { stdio: 'inherit' });
 const app = path.join(root, 'desktop/build', target, 'app');
 await mkdir(app, { recursive: true });
@@ -18,6 +21,7 @@ for (const name of ['main.mjs', 'preload.cjs', 'startup.html', 'core', 'dist', '
 await writeFile(path.join(app, 'package.json'), JSON.stringify({ name: 'annotate-desktop', version: desktopPreviewVersion,
   description: 'Football video annotation and analysis', author: 'Patrick Kang', license: 'GPL-3.0-only', main: 'main.mjs' }));
 const electronVersion = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')).devDependencies.electron;
+await writeFile(path.join(app, 'build-info.json'), JSON.stringify({ version: desktopPreviewVersion, commit, dirty, builtAt: new Date().toISOString(), target }, null, 2) + '\n');
 await build({ projectDir: app, targets: target === 'darwin-arm64' ? Platform.MAC.createTarget(process.argv.includes('--dir') ? 'dir' : 'dmg', Arch.arm64) : Platform.WINDOWS.createTarget('nsis', Arch.x64),
   publish: 'never', config: {
     appId: 'com.patrickjykang.annotate', productName: 'Annotate', electronVersion,

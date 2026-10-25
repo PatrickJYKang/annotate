@@ -1,0 +1,31 @@
+name: Bug report
+description: Report a problem using Annotate.
+body:
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps and result
+      description: What did you do, what happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Version and diagnostics
+      description: In the desktop app, use Help > Copy diagnostic information. For browser mode, include the commit, browser and operating system.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs or screenshots
+      description: Help > Open logs opens the local log folder. Review logs for personal paths or filenames before attaching them. Do not upload private footage, project folders, credentials or personal information.
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: Frequency
+      options:
+        - Every time
+        - Sometimes
+        - Once so far

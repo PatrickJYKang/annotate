@@ -6,6 +6,7 @@ import { sha256File } from '../core/resource-layout.mjs';
 import { bundleMacTools } from './bundle-macos-tools.mjs';
 import { bundleWindowsRuntime } from './bundle-windows-runtime.mjs';
 import { desktopPreviewVersion } from '../preview-version.mjs';
+import { collectNotices } from './collect-notices.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const target = process.argv[2];
@@ -56,6 +57,8 @@ const localPnl = process.env.ANNOTATE_PNLCALIB_ROOT ?? path.join(root, 'sidecar/
 const sourceArchive = path.join(cache, `pnlcalib-8c87391-${target}.tar`);
 await run('git', ['-C', localPnl, 'archive', '--format=tar', '--output', sourceArchive, '8c87391d6f4ea40c5e4d65e61529916c7a49ce62']);
 await run('tar', ['-xf', sourceArchive, '-C', pnl]);
+// Upstream demonstration footage and figures are not needed for inference.
+for (const directory of ['examples', 'figures']) await rm(path.join(pnl, directory), { recursive: true, force: true });
 for (const [name, sha] of [['SV_kp', '7ea78fa76aaf94976a8eca428d6e3c59697a93430cba1a4603e20284b61f5113'], ['SV_lines', 'd72f4ed71734a2e3df9fa084f666e9b8adaef21bf69bac8952d6d3f970ff7455']]) {
   const weight = path.join(localPnl, 'weights', name);
   if (await sha256File(weight) !== sha) throw new Error(`Invalid PnLCalib weight: ${name}`);
@@ -113,8 +116,9 @@ for (const [key, [kind, relative]] of Object.entries(entries)) resources[key] = 
   kind, path: relative, ...(kind === 'file' ? { sha256: await sha256File(path.join(output, relative)) } : {}),
 };
 await cp(path.join(root, 'LICENSE'), path.join(output, 'LICENSE'));
+await collectNotices(root, output, sitePackages);
 await writeFile(path.join(output, 'THIRD-PARTY-NOTICES.txt'), [
-  `Annotate desktop preview ${desktopPreviewVersion}. GPL-3.0-only. https://github.com/PatrickJYKang/annotate`,
+  `Annotate ${desktopPreviewVersion}. Annotate-owned source: GPL-3.0-only. Third-party components retain their own terms. https://github.com/PatrickJYKang/annotate`,
   'Python 3.12.14 standalone build 20260901: https://github.com/astral-sh/python-build-standalone/releases/tag/20260901',
   'Python package versions and licenses: sidecar/requirements.lock.txt and python/**/site-packages/*.dist-info/{METADATA,licenses,LICENSE*}.',
   'PnLCalib source/weights: https://github.com/mguti97/PnLCalib commit 8c87391d6f4ea40c5e4d65e61529916c7a49ce62. License in pnlcalib/LICENSE.',
@@ -122,7 +126,8 @@ await writeFile(path.join(output, 'THIRD-PARTY-NOTICES.txt'), [
   'FFmpeg and codec dependencies: see ffmpeg/licenses on macOS; ffmpeg/LICENSE and ffmpeg/README.txt on Windows.',
   'Windows FFmpeg 8.1.1 source/build recipe: https://github.com/GyanD/codexffmpeg/releases/tag/8.1.1',
   'macOS FFmpeg/x264 complete source archives, GPL licenses and build recipe: ffmpeg/licenses/. Only Apple system libraries are linked dynamically.',
-  'Electron licenses are included alongside the application. Web renderer dependency licenses remain in renderer/node_modules.',
+  'Electron licenses are included alongside the application. Web renderer dependency notices and a dependency inventory are collected in licenses/.',
+  'Distribution review is NOT complete: see licenses/licence-review.md for the model-weight, GPL compatibility and corresponding-source questions. Do not treat this test build as distribution clearance.',
   'This unsigned preview is for evaluation; no Windows runtime validation or publisher signature is claimed.',
 ].join('\n\n') + '\n');
 await writeFile(path.join(output, 'runtime-manifest.json'), JSON.stringify({ version: 1, platform: windows ? 'win32' : 'darwin', arch: windows ? 'x64' : 'arm64', resources }, null, 2) + '\n');

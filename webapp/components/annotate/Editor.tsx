@@ -342,8 +342,9 @@ function hashString(s: string): string {
   return (h >>> 0).toString(16);
 }
 
-async function readBackup(docKey: string): Promise<any | null> {
+async function readBackup(docKey: string, project: ProjectDirectory | null, resource: string): Promise<any | null> {
   try {
+    if (project?.command) return await project.command('recovery.read', [resource]);
     const db = await openBackupDB();
     return await new Promise((resolve, reject) => {
       const tx = db.transaction('ann-backup', 'readonly');
@@ -356,8 +357,12 @@ async function readBackup(docKey: string): Promise<any | null> {
   }
 }
 
-async function writeBackup(entry: any): Promise<void> {
+async function writeBackup(entry: any, project: ProjectDirectory, resource: string): Promise<boolean> {
   try {
+    if (project.command) {
+      await project.command('recovery.write', [resource, entry]);
+      return true;
+    }
     const db = await openBackupDB();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('ann-backup', 'readwrite');
@@ -365,7 +370,10 @@ async function writeBackup(entry: any): Promise<void> {
       tx.oncomplete = () => { db.close(); resolve(); };
       tx.onerror = () => { const e = tx.error; db.close(); reject(e); };
     });
-  } catch {
+    return true;
+  } catch (error) {
+    console.warn('Could not save annotation recovery copy', error);
+    return false;
   }
 }
 
@@ -398,7 +406,7 @@ export default function Editor({
   onHomographyAvailabilityChange,
   backgroundVideoElement,
   backgroundFrameTick,
-  annotationsLocked,
+  annotationsLocked: externalAnnotationsLocked,
   animationPanelOpen = false,
   onAnimationPanelOpenChange,
   projectDir,
@@ -502,7 +510,9 @@ export default function Editor({
   const [ioError, setIoError] = useState<string | null>(null);
   const isSavingRef = useRef(false);
   const saveErrorRef = useRef<string | null>(null);
+  const backupSaveFailedRef = useRef(false);
   const [backupOffer, setBackupOffer] = useState<any | null>(null);
+  const annotationsLocked = externalAnnotationsLocked || !!backupOffer;
   const lastSavedHashRef = useRef<string | null>(null);
   const lastManualTickRef = useRef<number | null>(null);
   const hasLoadedRef = useRef(false);
@@ -605,6 +615,7 @@ export default function Editor({
   // Load annotations JSON
   useEffect(() => {
     const token = ++loadGenRef.current;
+    setBackupOffer(null);
     lastNonNullPerspectiveRef.current = null;
     (async () => {
       if (!projectDir) return;
@@ -701,13 +712,14 @@ export default function Editor({
         if (token !== loadGenRef.current) return;
 
         try {
-          const bk = await readBackup(backupDocKey);
+          const bk = await readBackup(backupDocKey, projectDir, annotationFilePath);
           if (bk && bk.contentHash && bk.data) {
             const diskHash = hashString(text);
             const fileTs = (file && typeof file.lastModified === 'number') ? file.lastModified : 0;
             const bkTs = Date.parse(bk.updatedAt || '') || 0;
             if (bk.contentHash !== diskHash && bkTs > fileTs) {
-              setBackupOffer(bk);
+              const recovered = parseAnnotationDocument(bk.data);
+              if (token === loadGenRef.current && annotationAnchorsEqual(recovered.anchor, resolvedAnchor)) setBackupOffer(bk);
             }
           }
         } catch {}
@@ -1079,7 +1091,7 @@ export default function Editor({
 
   // Core save routine with permission checks
   const performSave = useCallback(async () => {
-    if (!projectDir) return;
+    if (!projectDir || !hasLoadedRef.current || backupOffer) return;
     try {
       setIoError(null);
       const liveShapes = shapesRef.current;
@@ -1102,7 +1114,7 @@ export default function Editor({
       });
       const text = JSON.stringify(body, null, 2);
       const contentHash = hashString(text);
-      if (lastSavedHashRef.current && lastSavedHashRef.current === contentHash) {
+      if (lastSavedHashRef.current && lastSavedHashRef.current === contentHash && !backupSaveFailedRef.current) {
         saveErrorRef.current = null;
         const now = new Date().toISOString();
         if (onSaveStatus) onSaveStatus({ state: 'saved', at: now, message: 'already_saved' });
@@ -1110,12 +1122,13 @@ export default function Editor({
       }
       const doWrite = async () => {
         if (onSaveStatus) onSaveStatus({ state: 'saving' });
+        // Keep a durable recovery copy before attempting the authoritative save.
+        backupSaveFailedRef.current = !await writeBackup({ docKey: backupDocKey, anchor: resolvedAnchor, annotationId, schema: body.schema, updatedAt: new Date().toISOString(), contentHash, data: body }, projectDir, annotationFilePath);
         const anyHandle: any = projectDir as any;
         const q = await (anyHandle?.queryPermission ? anyHandle.queryPermission({ mode: 'readwrite' }) : 'granted');
         if (q !== 'granted' || !hasLoadedRef.current) {
           saveErrorRef.current = tRef.current('error.writePermission');
           setIoError(tRef.current('error.writePermission'));
-          await writeBackup({ docKey: backupDocKey, anchor: resolvedAnchor, annotationId, schema: body.schema, updatedAt: new Date().toISOString(), contentHash, data: body });
           if (onSaveStatus) onSaveStatus({ state: 'error', at: new Date().toISOString(), message: 'permission' });
           return;
         }
@@ -1130,7 +1143,7 @@ export default function Editor({
           }
           lastSavedHashRef.current = contentHash;
           saveErrorRef.current = null;
-          await writeBackup({ docKey: backupDocKey, anchor: resolvedAnchor, annotationId, schema: body.schema, updatedAt: new Date().toISOString(), contentHash, data: body });
+          if (backupSaveFailedRef.current) setIoError(tRef.current('annotation.recoveryFailed'));
           try {
             const bc = new BroadcastChannel(projectResourceKey(projectDir, 'events'));
             bc.postMessage({
@@ -1147,7 +1160,6 @@ export default function Editor({
         } catch (e: any) {
           saveErrorRef.current = e?.message || String(e);
           setIoError(e?.message || String(e));
-          await writeBackup({ docKey: backupDocKey, anchor: resolvedAnchor, annotationId, schema: body.schema, updatedAt: new Date().toISOString(), contentHash, data: body });
           if (onSaveStatus) onSaveStatus({ state: 'error', at: new Date().toISOString(), message: e?.message || String(e) });
         }
       };
@@ -1168,7 +1180,37 @@ export default function Editor({
       setIoError(e?.message || String(e));
       if (onSaveStatus) onSaveStatus({ state: 'error', at: new Date().toISOString(), message: e?.message || String(e) });
     }
-  }, [projectDir, annotationId, annotationFilePath, annotationLabel, backupDocKey, imageInfo.file, imageInfo.height, imageInfo.width, onSaveStatus, persistDocument, resolvedAnchor]);
+  }, [projectDir, annotationId, annotationFilePath, annotationLabel, backupDocKey, backupOffer, imageInfo.file, imageInfo.height, imageInfo.width, onSaveStatus, persistDocument, resolvedAnchor]);
+
+  const resolveRecovery = async (restore: boolean) => {
+    if (!backupOffer || !projectDir) return;
+    try {
+      if (restore) {
+        const recovered = parseAnnotationDocument(backupOffer.data);
+        if (!annotationAnchorsEqual(recovered.anchor, resolvedAnchor)) throw new Error(t('error.annotationAnchor'));
+        shapesRef.current = recovered.payload.shapes;
+        setShapes(recovered.payload.shapes);
+        const restoredAnimations = recovered.payload.animations ?? [];
+        animationsRef.current = restoredAnimations;
+        setAnimations(restoredAnimations);
+        if (recovered.payload.perspective?.quad) applyPerspectiveQuadState(recovered.payload.perspective.quad);
+        else clearPerspectiveState();
+        lastSavedHashRef.current = null;
+      } else {
+        const data = serializeAnnotationDocument({
+          image: { width: imageInfo.width, height: imageInfo.height },
+          shapes: shapesRef.current, animations: animationsRef.current,
+          perspective: perspectiveRef.current ?? undefined,
+        }, resolvedAnchor, { annotationId, label: annotationLabel, imageFile: imageInfo.file });
+        const saved = await writeBackup({ ...backupOffer, data, contentHash: hashString(JSON.stringify(data, null, 2)), updatedAt: new Date().toISOString() }, projectDir, annotationFilePath);
+        if (!saved) throw new Error(t('annotation.recoveryFailed'));
+        // Persist once to make the chosen disk version the new baseline.
+        lastSavedHashRef.current = null;
+      }
+      setIoError(null);
+      setBackupOffer(null);
+    } catch (error) { setIoError(error instanceof Error ? error.message : String(error)); }
+  };
 
   // Debounced save wrapper
   useEffect(() => registerCloseGuard(async () => {
@@ -3189,6 +3231,15 @@ export default function Editor({
           <div className="status mt-1.5">{ioError}</div>
           <div className="toolbar mt-2 flex gap-2">
             <button onClick={() => { setIoError(null); void performSave(); }}>{t('annotation.retrySave')}</button>
+          </div>
+        </div>
+      )}
+      {backupOffer && (
+        <div role="dialog" aria-label={t('annotation.recoveryTitle')} className="panel absolute inset-x-4 top-4 z-50 p-4" data-testid="annotation-recovery">
+          <strong>{t('annotation.recoveryTitle')}</strong>
+          <div className="toolbar mt-2 flex gap-2">
+            <button onClick={() => void resolveRecovery(true)}>{t('annotation.recoveryRestore')}</button>
+            <button onClick={() => void resolveRecovery(false)}>{t('annotation.recoveryKeep')}</button>
           </div>
         </div>
       )}

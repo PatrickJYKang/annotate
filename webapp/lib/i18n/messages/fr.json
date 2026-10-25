@@ -572,4 +572,8 @@
   "metadata.teamsheetTitle": "Importer la feuille de match",
   "metadata.venue": "Stade",
   "metadata.venuePlaceholder": "ex. Old Trafford"
+  ,"annotation.recoveryTitle": "Une copie de récupération plus récente est disponible."
+  ,"annotation.recoveryRestore": "Restaurer la copie de récupération"
+  ,"annotation.recoveryKeep": "Conserver la version enregistrée"
+  ,"annotation.recoveryFailed": "Impossible de mettre à jour la copie de récupération. Réessayez avant de modifier."
 }

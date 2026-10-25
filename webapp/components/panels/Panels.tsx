@@ -1,6 +1,7 @@
 "use client";
 
 import type { ComponentProps } from 'react';
+import { preferenceStorage } from '../../lib/host/preferences';
 import {
   Panel as ResizablePanel,
   PanelGroup as ResizablePanelGroup,
@@ -14,6 +15,7 @@ type PanelsProps = ComponentProps<typeof ResizablePanelGroup> & {
 export function Panels({ className = '', ...props }: PanelsProps) {
   return (
     <ResizablePanelGroup
+      storage={preferenceStorage}
       {...props}
       className={`min-h-0 min-w-0 ${className}`}
     />

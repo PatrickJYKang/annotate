@@ -8,6 +8,8 @@ import sys
 
 
 def main():
+    from .parent_lifetime import watch_parent
+    watch_parent()
     parser = argparse.ArgumentParser(
         prog="annotate_sidecar",
         description="ML sidecar for the annotate tool",

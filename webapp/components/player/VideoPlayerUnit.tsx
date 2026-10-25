@@ -241,7 +241,10 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
     const v = videoRef.current;
     if (!v) return;
     if (effectiveFrameCount) {
-      seekFrame(getCurrentFrame() + dir);
+      // The decoded frame can be one ahead of the media clock when pausing.
+      // Step from what is visible, otherwise "forward" can repeat that frame.
+      const base = v.paused && presentedFrameRef.current >= 0 ? presentedFrameRef.current : getCurrentFrame();
+      seekFrame(base + dir);
     } else {
       const dt = 1 / (fps || 30);
       v.currentTime = Math.max(0, Math.min(v.duration || Number.MAX_SAFE_INTEGER, v.currentTime + dir * dt));

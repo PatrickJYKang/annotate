@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, session, shell } from 'electron';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { openAsBlob, createWriteStream } from 'node:fs';
 import { createServer } from 'node:net';
@@ -6,6 +6,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import os from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { NativeProjectStore, validateRelativePath } from './core/project-store.mjs';
 import { repositoryDirectory, serialized } from './core/repository-directory.mjs';
@@ -14,10 +15,12 @@ import { nodeServiceExecutable } from './core/node-service-executable.mjs';
 import { startMediaServer } from './core/media-server.mjs';
 import { startSidecarProxy } from './core/sidecar-proxy.mjs';
 import { resolveResourceLayout, sidecarEnvironment } from './core/resource-layout.mjs';
+import { UserState } from './core/user-state.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const appIcon = fileURLToPath(new URL('./icons/annotate.png', import.meta.url));
 const require = createRequire(import.meta.url);
+const productVersion = app.isPackaged ? app.getVersion() : require('../package.json').version;
 const domain = require('./dist/domain-service.cjs');
 const store = new NativeProjectStore();
 const supervisor = new ServiceSupervisor();
@@ -33,6 +36,52 @@ let serviceLog;
 app.setName('Annotate');
 if (process.env.ANNOTATE_DESKTOP_USER_DATA) app.setPath('userData', process.env.ANNOTATE_DESKTOP_USER_DATA);
 const settingsPath = path.join(app.getPath('userData'), 'recent-project.json');
+const userState = new UserState(app.getPath('userData'));
+const primaryInstance = app.requestSingleInstanceLock();
+if (!primaryInstance) app.quit();
+app.on('second-instance', () => {
+  const window = [...windows.values()][0]?.window ?? startupWindow;
+  if (window && !window.isDestroyed()) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); }
+  else if (proxy) void createWindow();
+});
+
+async function diagnostics() {
+  let build = { version: productVersion, commit: 'development' };
+  try { build = JSON.parse(await readFile(path.join(import.meta.dirname, 'build-info.json'), 'utf8')); } catch { /* Source run. */ }
+  let health = null;
+  try {
+    const response = await fetch(`${sidecarUrl}/health`, { signal: AbortSignal.timeout(2500), headers: { Authorization: `Bearer ${sidecarToken}` } });
+    if (response.ok) { const result = await response.json(); health = { capabilities: result.capabilities, models: result.models }; }
+  } catch { /* An unavailable service is itself useful diagnostic information. */ }
+  return { app: 'Annotate', ...build, platform: process.platform, architecture: process.arch, os: os.release(), electron: process.versions.electron, packaged: app.isPackaged, services: { sidecar: health ?? 'unavailable' } };
+}
+
+async function copyDiagnostics() {
+  clipboard.writeText(JSON.stringify(await diagnostics(), null, 2));
+  await dialog.showMessageBox({ type: 'info', message: 'Diagnostic information copied.', detail: 'Includes build, operating system and service status. No project paths, videos, credentials or logs are included.' });
+}
+
+async function recoverWindow(state, reason) {
+  if (state.recoveryPrompt || state.reloading || state.window.isDestroyed()) return;
+  state.recoveryPrompt = true;
+  clearTimeout(state.closeTimer);
+  try {
+    const result = await dialog.showMessageBox(state.window, {
+      type: 'warning', message: reason,
+      detail: 'Reload or close may lose changes not yet saved or backed up. Recovery copies are kept locally. Waiting will not discard changes.',
+      buttons: ['Keep waiting', 'Reload window', 'Close window'], defaultId: 0, cancelId: 0,
+    });
+    if (state.window.isDestroyed()) return;
+    state.closing = false;
+    quitting = false;
+    if (result.response === 1) {
+      state.reloading = true;
+      if (!state.window.webContents.isCrashed()) state.window.webContents.forcefullyCrashRenderer();
+      state.window.reload();
+    }
+    if (result.response === 2) { state.mayClose = true; state.window.destroy(); }
+  } finally { state.recoveryPrompt = false; }
+}
 
 async function freePort() {
   const server = createServer();
@@ -171,6 +220,12 @@ async function importVideo(state, input, fileId, requestId) {
 
 async function projectCommand(state, input) {
   const directory = authorizedDirectory(state, input);
+  if (input.command === 'recovery.read' || input.command === 'recovery.write') {
+    const root = await store.resolvePath(input.id, input.path);
+    const [resource, entry] = input.args ?? [];
+    validateRelativePath(resource);
+    return input.command === 'recovery.read' ? userState.readRecovery(root, resource) : userState.writeRecovery(root, resource, entry);
+  }
   if (input.command === 'video.import') return importVideo(state, input, input.args?.[0], input.args?.[1]);
   return serialized(`commands:${input.id}`, async () => {
     let args = input.args;
@@ -211,6 +266,13 @@ async function projectCommand(state, input) {
 
 async function dispatch(state, operation, input) {
   switch (operation) {
+    case 'preferences.set': {
+      await userState.setPreference(input?.key, input?.value);
+      for (const other of windows.values()) if (!other.window.isDestroyed()) other.window.webContents.send('annotate:preference-changed', input.key, input.value);
+      return null;
+    }
+    case 'state.flush': await userState.flush(); return null;
+    case 'support.diagnostics': return diagnostics();
     case 'dialog.directory': {
       const chosen = process.env.ANNOTATE_DESKTOP_TEST_PROJECT ? { canceled: false, filePaths: [process.env.ANNOTATE_DESKTOP_TEST_PROJECT] }
         : await dialog.showOpenDialog(state.window, { properties: ['openDirectory', 'createDirectory'] });
@@ -297,6 +359,7 @@ async function createWindow(project = null, route = '/') {
   const state = { window, project, explicitProject: !!project, grants: new Set(project ? [project.id] : []), connection, files: new Map(), mediaByPath: new Map(), revisions: new Map(), baselines: new Map(), imports: new Map(), mayClose: false, closing: false };
   windows.set(window.webContents.id, state);
   const webContentsId = window.webContents.id;
+  window.webContents.on('did-finish-load', () => { state.reloading = false; });
   window.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
     if (isMainFrame && !isInPlace) { state.revisions.clear(); state.baselines.clear(); }
   });
@@ -311,9 +374,16 @@ async function createWindow(project = null, route = '/') {
   window.on('close', (event) => {
     if (state.mayClose) return;
     event.preventDefault();
-    if (!state.closing) { state.closing = true; window.webContents.send('annotate:prepare-close'); }
+    if (!state.closing) {
+      state.closing = true;
+      window.webContents.send('annotate:prepare-close');
+      state.closeTimer = setTimeout(() => void recoverWindow(state, 'The editor has not finished closing.'), 15000);
+    }
   });
+  window.webContents.on('render-process-gone', () => void recoverWindow(state, 'The editor stopped unexpectedly.'));
+  window.on('unresponsive', () => void recoverWindow(state, 'The editor is not responding.'));
   window.once('closed', () => {
+    clearTimeout(state.closeTimer);
     windows.delete(webContentsId);
     for (const controller of state.imports.values()) controller.abort();
     for (const file of state.files.values()) media.release(file.id);
@@ -328,13 +398,17 @@ async function createWindow(project = null, route = '/') {
 ipcMain.on('annotate:runtime', (event) => {
   try { event.returnValue = stateFor(event, true).connection.runtime; } catch { event.returnValue = null; }
 });
+ipcMain.on('annotate:preferences', (event) => {
+  try { stateFor(event, true); event.returnValue = userState.snapshot(); } catch { event.returnValue = {}; }
+});
 ipcMain.handle('annotate:request', async (event, operation, input) => {
   try { return { ok: true, result: await dispatch(stateFor(event), operation, input) }; }
   catch (error) { return { ok: false, error: { message: String(error.message ?? 'Host operation failed.'), name: error.code === 'NOT_FOUND' ? 'NotFoundError' : error.name } }; }
 });
-ipcMain.on('annotate:close-ready', (event) => { const state = stateFor(event); state.mayClose = true; state.window.close(); });
+ipcMain.on('annotate:close-ready', (event) => { const state = stateFor(event); clearTimeout(state.closeTimer); state.mayClose = true; state.window.close(); });
 ipcMain.on('annotate:close-error', async (event, message) => {
   const state = stateFor(event);
+  clearTimeout(state.closeTimer);
   const answer = await dialog.showMessageBox(state.window, { type: 'warning', message: 'The window has unfinished changes.', detail: String(message).slice(0, 500), buttons: ['Keep open', 'Discard and close'], cancelId: 0, defaultId: 0 });
   state.closing = false;
   if (answer.response === 1) { state.mayClose = true; state.window.close(); }
@@ -342,6 +416,7 @@ ipcMain.on('annotate:close-error', async (event, message) => {
 });
 
 app.on('before-quit', (event) => {
+  if (!primaryInstance) return;
   if (shutdownComplete) return;
   event.preventDefault();
   if (shuttingDown) return;
@@ -359,16 +434,30 @@ app.on('activate', () => { if (proxy && !windows.size) void createWindow(); });
 // Do not await readiness at ES-module top level: Electron waits for module
 // evaluation before dispatching ready.
 void app.whenReady().then(async () => {
+if (!primaryInstance) return;
 if (process.platform === 'darwin' && !app.isPackaged) app.dock.setIcon(appIcon);
 session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
 session.defaultSession.setPermissionCheckHandler(() => false);
 Menu.setApplicationMenu(Menu.buildFromTemplate([
   ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
   { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
+  { role: 'help', submenu: [
+    { label: 'User guide', click: () => void shell.openExternal(`https://patrickjykang.github.io/annotate-docs/?lang=${userState.snapshot()['annotate:locale'] ?? 'en'}`) },
+    { label: 'Open logs', click: async () => {
+      const logs = path.join(app.getPath('userData'), 'logs');
+      await mkdir(logs, { recursive: true });
+      const error = await shell.openPath(logs);
+      if (error) dialog.showErrorBox('Could not open logs', error);
+    } },
+    { label: 'Copy diagnostic information', click: () => void copyDiagnostics() },
+    { label: 'Report a problem', click: () => void shell.openExternal('https://github.com/PatrickJYKang/annotate/issues/new?template=bug-report.yml') },
+    { label: 'Downloads and updates', click: () => void shell.openExternal('https://github.com/PatrickJYKang/annotate/releases') },
+  ] },
 ]));
 supervisor.on('log', ({ stream, text }) => process[stream].write(text));
 supervisor.on('failure', ({ id }) => { dialog.showErrorBox('Annotate service stopped', `${id} stopped unexpectedly. Restart Annotate.`); app.quit(); });
 try {
+  await userState.load();
   if (!process.env.ANNOTATE_DESKTOP_HEADLESS) {
     startupWindow = new BrowserWindow({ width: 420, height: 200, title: 'Annotate', resizable: false, icon: appIcon,
       webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
@@ -407,10 +496,10 @@ try {
   try { recent = JSON.parse(await readFile(settingsPath, 'utf8')).path; } catch { /* First launch. */ }
   await supervisor.start([
     { id: 'sidecar', command: python, args: ['-m', 'annotate_sidecar', '--port', String(sidecarPort)], cwd: sidecarCwd,
-      env: sidecarEnv,
+      env: { ...sidecarEnv, ANNOTATE_PARENT_PIPE: '1', ANNOTATE_APP_VERSION: productVersion },
       ready: async (signal) => (await fetch(`${sidecarUrl}/health`, { signal, headers: { Authorization: `Bearer ${sidecarToken}` } })).ok },
-    { id: 'renderer', command: rendererExecutable, args: [renderer], cwd: path.dirname(renderer),
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', PORT: String(webPort), HOSTNAME: '127.0.0.1', NODE_ENV: 'production' },
+    { id: 'renderer', command: rendererExecutable, args: ['--require', path.join(import.meta.dirname, 'core/service-parent.cjs'), renderer], cwd: path.dirname(renderer),
+      env: { ...process.env, ANNOTATE_PARENT_PIPE: '1', ELECTRON_RUN_AS_NODE: '1', PORT: String(webPort), HOSTNAME: '127.0.0.1', NODE_ENV: 'production' },
       ready: async (signal) => (await fetch(rendererOrigin, { signal })).ok },
   ], { timeoutMs: 120000 });
   media = await startMediaServer(store, { allowedOrigins: [rendererOrigin] });

@@ -1,6 +1,6 @@
 {
   "name": "annotate",
-  "version": "0.2.2",
+  "version": "0.2.3-rc.1",
   "private": true,
   "license": "GPL-3.0-only",
   "scripts": {
@@ -18,6 +18,7 @@
     "build:desktop-icons": "node desktop/scripts/build-icons.mjs",
     "desktop:dev": "npm run build:desktop-host && electron desktop/main.mjs",
     "test:electron": "node desktop/scripts/smoke-electron.mjs",
+    "test:electron-recovery": "node desktop/scripts/smoke-recovery.mjs",
     "stage:desktop": "node desktop/scripts/stage-runtime.mjs",
     "package:desktop": "node desktop/scripts/package-desktop.mjs",
     "test:e2e": "npm --prefix webapp run test:e2e",
@@ -25,7 +26,7 @@
     "playwright:install": "npm --prefix webapp run playwright:install"
   },
   "devDependencies": {
-    "electron": "44.2.0",
+    "electron": "44.9.3",
     "electron-builder": "26.15.3",
     "esbuild": "0.28.2"
   }

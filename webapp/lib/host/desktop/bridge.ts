@@ -1,5 +1,10 @@
 export interface DirectoryToken { id: string; path: string; name: string }
 export interface DesktopBridge {
+  preferences: {
+    getItem(key: string): string | null;
+    setItem(key: string, value: string): Promise<void>;
+    onChange(listener: (key: string, value: string | null) => void): () => void;
+  };
   request<T>(operation: string, input?: unknown): Promise<T>;
   onChange(listener: (projectId: string) => void): () => void;
   onProgress(listener: (progress: { requestId: string; phase: string; progress: number }) => void): () => void;

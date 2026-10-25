@@ -1,6 +1,6 @@
 # Desktop Preview
 
-The Electron host runs the shared Annotate UI against native project files. Self-contained unsigned preview packages are built as `0.2.2-desktop.2` for Apple Silicon macOS and Windows x64. The package version is defined in `desktop/preview-version.mjs` and shared by packaging, notices and source archives. This is not a new stable release; the browser version and `v0.2.2` tag remain unchanged. Both hosts use the same project.v2 schemas, drawing code, frame contracts and repository rules.
+The Electron host runs the shared Annotate UI against native project files. Current source and local test builds use **0.2.3-rc.1** for both desktop and browser. The published downloads remain `0.2.2-desktop.2`; they have not been replaced by this candidate. The root `package.json` supplies the desktop version through `desktop/preview-version.mjs`, and matching lockfiles/webapp versions are tested. Both hosts use the same project.v2 schemas, drawing code, frame contracts and repository rules. See [versioning](../docs/versioning.md), [candidate notes](releases/0.2.3-rc.1.md) and [licence review](../docs/licence-review.md).
 
 ## Install Preview
 
@@ -56,7 +56,7 @@ npm run build:desktop-renderer
 npm run desktop:dev
 ```
 
-The desktop command rebuilds the trusted domain-service bundle and launches Electron 44.2.0. It uses a production renderer, not hot reload: rebuild the desktop renderer and restart after UI changes. Startup selects private loopback ports, starts the sidecar and standalone Next server, waits for readiness, then opens the workspace. It does not reuse or stop the browser preview. Electron supplies the web server's Node runtime; on macOS, the server runs through the background Helper executable rather than the foreground app executable so it does not create a second Dock icon. No separate Chrome is required. The development command uses developer-provided Python, ffmpeg and models; installed packages use their bundled runtime exclusively.
+The desktop command rebuilds the trusted domain-service bundle and launches Electron 44.9.3. It uses a production renderer, not hot reload: rebuild the desktop renderer and restart after UI changes. Startup selects private loopback ports, starts the sidecar and standalone Next server, waits for readiness, then opens the workspace. It does not reuse or stop the browser preview. Electron supplies the web server's Node runtime; on macOS, the server runs through the background Helper executable rather than the foreground app executable so it does not create a second Dock icon. No separate Chrome is required. The development command uses developer-provided Python, ffmpeg and models; installed packages use their bundled runtime exclusively.
 
 ANNOTATE_SIDECAR_PYTHON selects an absolute interpreter path; ANNOTATE_PNLCALIB_ROOT selects the verified model installation; ANNOTATE_DESKTOP_USER_DATA overrides development settings. The integration test's chooser-path and hidden-window overrides are main-process environment settings, never renderer permissions.
 
@@ -72,6 +72,8 @@ ANNOTATE_SIDECAR_PYTHON selects an absolute interpreter path; ANNOTATE_PNLCALIB_
 | core/media-server.mjs | Loopback capability URLs with Range, HEAD and exact Origin checks. |
 | core/sidecar-proxy.mjs | Per-window CV proxy limited to health, owned-reference detection/tracking/homography and reference cleanup. |
 | core/service-supervisor.mjs | Explicit executable startup without a shell, readiness deadlines, cancellation, rollback and owned-process shutdown. |
+| core/user-state.mjs | Atomic native preferences and canonical-project-scoped pin annotation recovery copies; pending-write drain. |
+| core/service-parent.cjs | Private lifetime-pipe handling for the renderer service after main-process death. The sidecar has an equivalent Python watcher. |
 | core/node-service-executable.mjs | Selects the background Electron Helper for macOS Node-mode services; other platforms keep the main executable. |
 | core/resource-layout.mjs | Packaged architecture/resource/checksum validation and writable directories outside the bundle. |
 | scripts/stage-runtime.mjs | Target-specific Python, dependencies, model/source, renderer and media-tool assembly. |
@@ -90,13 +92,16 @@ The sidecar's private bearer token stays in the host. Renderers receive separate
 
 The current source disables Ultralytics usage analytics and unused HUB integration before loading prediction callbacks. The packaged environment explicitly identifies its existing app-private settings directory, and the sidecar updates only `sync` and `hub`, including for older profiles. It does not change unrelated Ultralytics settings or disable model downloads. The runtime verification script uses the same initialization path. This fix is not yet included in the published desktop.2 installers; see [sidecar privacy settings](../sidecar/README.md#yolo-privacy-settings).
 
-Closing an editor runs save guards before destroying the window. Pin autosave and pending clip/presentation writes are flushed. Unfinished trim/retrack/tracking sessions or save errors keep the window open unless the user explicitly discards. Quit waits for window closure and owned-service shutdown. This is graceful-close protection, not crash recovery.
+Closing an editor runs save guards before destroying the window. Pin autosave and pending clip/presentation writes are flushed. Unfinished trim/retrack/tracking sessions or save errors keep the window open unless the user explicitly discards. Quit waits for window closure and owned-service shutdown. Crashed/unresponsive editors and closes stalled for 15 seconds now offer explicit wait/reload/close choices. Lifetime pipes stop services after abrupt main-process death, and a single-instance lock avoids duplicate service sets for the same profile.
+
+Locale and panel layouts persist atomically in native user data independently of renderer origins. Pin annotation recovery copies use canonical project/document paths and are written before authoritative saves. A newer differing copy prompts for restore or keeping the saved version; autosave cannot replace it until the decision. This is not every-keystroke or multi-file crash recovery, and does not migrate ambiguous older preview/browser backups. See [support and recovery](../docs/support.md) for the limitations and Help-menu diagnostics.
 
 ## Checks
 
 ```bash
 npm run test:desktop
 npm run test:electron
+npm run test:electron-recovery
 npm test
 npm run test:e2e
 ```
@@ -122,9 +127,9 @@ Manifest/clip/document locks, change channels and backup keys include project sc
 
 - Verify the assembled Python/native libraries, ffmpeg/ffprobe and models on clean Apple Silicon macOS and Windows x64 machines. The manifest requires renderer, python, sidecar, ffmpeg, ffprobe, yolo, pnlcalib, keypoints and lines; file resources carry SHA-256 checksums. Finish distribution/license review before public release.
 - Verify representative tracking, homography, long-video import/playback and cancellation through the native host, including Windows. The fixture smoke is not a clean-machine or CV-quality test.
-- Add durable native recovery records, multi-file crash recovery, crashed/hung-renderer handling and abrupt main-process crash cleanup. Graceful quit and tombstones do not cover every crash boundary.
-- Persist preferences independently of the renderer's dynamically assigned origin. Locale, panel layouts and recovery records remain origin-local. Native Quick Annotate scratch storage is not implemented; canonical project annotation is supported.
+- Multi-file crash recovery and uncommitted provisional tracking recovery remain incomplete. Native pin copies, crashed/hung-renderer handling and private-pipe cleanup cover specific failures, not every crash boundary.
+- Native Quick Annotate scratch storage is not implemented; canonical project annotation is supported. Older ambiguous origin-local preferences/backups are not automatically migrated.
 - Complete all-resource cross-window synchronization, capability release on navigation/project switching and project/session eviction. Native committed change notifications and editor deduplication are not a collaborative editing system.
-- Complete updater behavior, publisher signing/notarization and clean-machine installer testing before claiming stable desktop support. Startup progress, resource checks and unsigned evaluation downloads exist; GitHub's Latest label does not close these gates. Written desktop instructions are current; [guide recordings](../docs/demo-recording-checklist.md) remain to be made.
+- Complete publisher signing/notarization and clean-machine installer testing before claiming stable desktop support. Updates are manual through Help > Downloads and updates. Startup progress, resource checks and unsigned evaluation downloads exist; GitHub's Latest label does not close these gates. [Guide recordings](../docs/demo-recording-checklist.md) document their own completed and pending coverage.
 
 The store rejects traversal, links, Windows drive/UNC/device/ADS names and case/Unicode collisions. It is not a race-proof sandbox against hostile local path replacement. Queues/revisions protect cooperating callers, not arbitrary external applications; other filesystems' replacement behavior needs separate validation. See [the implementation checklist](../plans/pre-electron-implementation-checklist.md).

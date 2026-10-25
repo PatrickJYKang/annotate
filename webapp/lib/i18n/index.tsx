@@ -13,6 +13,7 @@ import en from './messages/en.json';
 import es from './messages/es.json';
 import fr from './messages/fr.json';
 import zhCN from './messages/zh-CN.json';
+import { onPreferenceChange, preferenceStorage } from '../host/preferences';
 
 export const SUPPORTED_LOCALES = ['en', 'fr', 'es', 'zh-CN'] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
@@ -54,11 +55,14 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     try {
-      const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+      const stored = preferenceStorage.getItem(LOCALE_STORAGE_KEY);
       if (isLocale(stored)) updateLocale(stored);
     } catch {
       // A blocked storage area should not prevent the app from using English.
     }
+    return onPreferenceChange((key, value) => {
+      if (key === LOCALE_STORAGE_KEY && isLocale(value)) updateLocale(value);
+    });
   }, []);
 
   useEffect(() => {
@@ -69,7 +73,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   const setLocale = useCallback((nextLocale: Locale) => {
     updateLocale(nextLocale);
     try {
-      window.localStorage.setItem(LOCALE_STORAGE_KEY, nextLocale);
+      preferenceStorage.setItem(LOCALE_STORAGE_KEY, nextLocale);
     } catch {
       // Locale still applies for this session when persistence is unavailable.
     }

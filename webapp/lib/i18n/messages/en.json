@@ -572,4 +572,8 @@
   ,"metadata.teamsheetTitle": "Import Teamsheet"
   ,"metadata.venue": "Venue"
   ,"metadata.venuePlaceholder": "e.g. Old Trafford"
+  ,"annotation.recoveryTitle": "A newer annotation recovery copy is available."
+  ,"annotation.recoveryRestore": "Restore recovery copy"
+  ,"annotation.recoveryKeep": "Keep saved version"
+  ,"annotation.recoveryFailed": "Could not update the recovery copy. Retry before editing."
 }
