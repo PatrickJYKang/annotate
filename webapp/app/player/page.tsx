@@ -132,8 +132,10 @@ export default function CapturePlayerPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const captureEngineRef = useRef<CaptureEngine | null>(null);
+  const capturePressBusyRef = useRef(false);
   const armedFacetsRef = useRef<TaggingSelection['facets']>({});
-  const localizationRef = useRef({ t, formatNumber });
+  const localizationRef = useRef({ t, formatNumber, board: localizedBoard });
+  const untaggedLabelRef = useRef(t('player.untaggedClip'));
 
   const selectedVideo = manifest?.videos.find((video) => video.id === selectedVideoId) ?? null;
   const videoClips = clips.filter((clip) => clip.videoId === selectedVideoId);
@@ -167,7 +169,7 @@ export default function CapturePlayerPage() {
         id: `active-${range.buttonId}`,
         startFrame: range.startFrame,
         endFrame: pendingEndFrame(range.startFrame),
-        label: localizedBoard ? findBoardButton(localizedBoard, range.buttonId)?.label ?? range.buttonLabel : range.buttonLabel,
+        label: range.buttonLabel,
         laneId: buttonLaneIds.get(range.buttonId),
         pending: true,
       })),
@@ -175,11 +177,11 @@ export default function CapturePlayerPage() {
         id: 'active-untagged',
         startFrame: untaggedStartFrame,
         endFrame: pendingEndFrame(untaggedStartFrame),
-        label: t('player.untaggedClip'),
+        label: untaggedLabelRef.current,
         pending: true,
       }]),
     ];
-  }, [activeRangeCaptures, buttonLaneIds, localizedBoard, presentedFrame, selectedVideo, t, untaggedStartFrame, videoClips]);
+  }, [activeRangeCaptures, buttonLaneIds, presentedFrame, selectedVideo, untaggedStartFrame, videoClips]);
 
   const reloadClips = useCallback(async () => {
     if (!projectDir) return;
@@ -201,8 +203,8 @@ export default function CapturePlayerPage() {
   }, [armedFacets]);
 
   useEffect(() => {
-    localizationRef.current = { t, formatNumber };
-  }, [formatNumber, t]);
+    localizationRef.current = { t, formatNumber, board: localizedBoard };
+  }, [formatNumber, localizedBoard, t]);
 
   useEffect(() => {
     if (!projectDir || !selectedVideo) {
@@ -253,6 +255,10 @@ export default function CapturePlayerPage() {
       videoFrameCount: selectedVideo.frameCount,
       videoFps: selectedVideo.fps,
       videoId: selectedVideo.id,
+      getButtonLabel: (buttonId) => {
+        const displayedBoard = localizationRef.current.board;
+        return displayedBoard ? findBoardButton(displayedBoard, buttonId)?.label : undefined;
+      },
       getArmedFacets: () => armedFacetsRef.current,
       onFacetsConsumed: (facetGroupIds) => {
         setArmedFacets((current) => {
@@ -279,20 +285,22 @@ export default function CapturePlayerPage() {
     }
   }, [refreshIntegrity, reloadClips]);
 
+  const saveCapturedClip = useCallback(async (clip: Clip) => {
+    if (!projectDir) throw new Error(t('project.noOpen'));
+    const created = await createClipExclusive(projectDir, clip);
+    setSelectedClipId(created.id);
+    setLastCreatedClipId(created.id);
+    setUndoDeletion(null);
+    setMessage(t('player.captured', {
+      label: created.label || created.id,
+      start: formatNumber(created.startFrame),
+      end: formatNumber(created.endFrame - 1),
+    }));
+  }, [formatNumber, projectDir, t]);
+
   const persistCapturedClip = useCallback(async (clip: Clip) => {
-    if (!projectDir) return;
-    await runMutation(async () => {
-      const created = await createClipExclusive(projectDir, clip);
-      setSelectedClipId(created.id);
-      setLastCreatedClipId(created.id);
-      setUndoDeletion(null);
-      setMessage(t('player.captured', {
-        label: created.label || created.id,
-        start: formatNumber(created.startFrame),
-        end: formatNumber(created.endFrame - 1),
-      }));
-    });
-  }, [formatNumber, projectDir, runMutation, t]);
+    await runMutation(() => saveCapturedClip(clip));
+  }, [runMutation, saveCapturedClip]);
 
   const selectClip = useCallback((clip: Clip) => {
     setSelectedClipId(clip.id);
@@ -304,14 +312,17 @@ export default function CapturePlayerPage() {
     const next = selection.primary && findBoardButton(board, selection.primary)
       ? pruneInapplicableFacets(board, selection.primary, selection)
       : createEmptyTaggingSelection();
+    const displayedLabel = next.primary && localizedBoard
+      ? findBoardButton(localizedBoard, next.primary)?.label
+      : t('player.untaggedClip');
     await runMutation(async () => {
-      await replaceClipTagsExclusive(projectDir, clipId, next);
+      await replaceClipTagsExclusive(projectDir, clipId, next, displayedLabel);
       setMessage(next.primary ? t('player.retagSaved') : t('player.retagCleared'));
     });
-  }, [board, projectDir, runMutation, t]);
+  }, [board, localizedBoard, projectDir, runMutation, t]);
 
   const toggleFacet = useCallback((facetGroupId: string, optionId: string, contextButtonId?: string | null) => {
-    if (!board) return;
+    if (!board || capturePressBusyRef.current) return;
     const activeButtonId = contextButtonId
       ?? activeRangeCaptures[activeRangeCaptures.length - 1]?.buttonId
       ?? null;
@@ -328,7 +339,7 @@ export default function CapturePlayerPage() {
   }, [activeRangeCaptures, board, boardMode]);
 
   const pressBoardButton = useCallback(async (buttonId: string) => {
-    if (!board || !selectedVideo || busy) return;
+    if (!board || !selectedVideo || busy || capturePressBusyRef.current) return;
     if (boardMode === 'retag') {
       if (!selectedClip) {
         setMessage(t('player.selectClipFirst'));
@@ -355,9 +366,17 @@ export default function CapturePlayerPage() {
 
     const engine = captureEngineRef.current;
     if (!engine) return;
+    capturePressBusyRef.current = true;
+    setBusy(true);
+    setMessage(null);
     try {
-      const result = engine.pressButton(buttonId, presentedFrame);
+      const result = await engine.pressButtonAndPersist(buttonId, presentedFrame, saveCapturedClip);
+      if (captureEngineRef.current !== engine) return;
       setActiveRangeCaptures(engine.getActiveRanges());
+      if (result.kind === 'created' || (result.kind === 'armed' && result.closedClip)) {
+        await reloadClips();
+        await refreshIntegrity();
+      }
       if (result.kind === 'armed') {
         setMessage(t('player.rangeArmed', {
           label: result.range.buttonLabel,
@@ -368,17 +387,19 @@ export default function CapturePlayerPage() {
           frame: formatNumber(result.range.startFrame),
           label: result.range.buttonLabel,
         }));
-      } else {
-        await persistCapturedClip(result.clip);
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      capturePressBusyRef.current = false;
+      setBusy(false);
     }
-  }, [board, boardMode, busy, formatNumber, persistCapturedClip, playing, presentedFrame, saveTags, selectedClip, selectedVideo, t]);
+  }, [board, boardMode, busy, formatNumber, playing, presentedFrame, refreshIntegrity, reloadClips, saveCapturedClip, saveTags, selectedClip, selectedVideo, t]);
 
   const createUntaggedClip = useCallback(async () => {
     if (!projectDir || !selectedVideo || !board || busy) return;
     if (untaggedStartFrame === null) {
+      untaggedLabelRef.current = t('player.untaggedClip');
       setUntaggedStartFrame(presentedFrame);
       setMessage(t('player.rangeArmed', {
         label: t('player.untaggedClip'),
@@ -390,7 +411,7 @@ export default function CapturePlayerPage() {
     if (endFrame <= untaggedStartFrame) {
       setMessage(t('player.rangeCloseHint', {
         frame: formatNumber(untaggedStartFrame),
-        label: t('player.untaggedClip'),
+        label: untaggedLabelRef.current,
       }));
       return;
     }
@@ -402,7 +423,8 @@ export default function CapturePlayerPage() {
       videoId: selectedVideo.id,
       startFrame: videoFrame(startFrame),
       endFrame: frameBoundary(endFrame),
-      label: 'Untagged clip',
+      label: untaggedLabelRef.current,
+      generatedLabel: untaggedLabelRef.current,
       tags: createEmptyTaggingSelection(),
       pins: [],
       annotations: [],
@@ -465,6 +487,7 @@ export default function CapturePlayerPage() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (capturePressBusyRef.current) return;
       const boardAction = hotkeys?.resolve(event);
       if (boardAction) {
         event.preventDefault();
@@ -492,7 +515,7 @@ export default function CapturePlayerPage() {
         if (untaggedStartFrame !== null) {
           event.preventDefault();
           setUntaggedStartFrame(null);
-          setMessage(t('player.rangeCanceled', { label: t('player.untaggedClip') }));
+          setMessage(t('player.rangeCanceled', { label: untaggedLabelRef.current }));
           return;
         }
       }
@@ -540,6 +563,7 @@ export default function CapturePlayerPage() {
           aria-label={t('player.selectVideo')}
           className="border-0 border-r border-border bg-raised px-3 text-xs text-accent"
           value={selectedVideo.id}
+          disabled={busy}
           onChange={(event) => setSelectedVideoId(event.target.value)}
         >
           {manifest.videos.map((video) => <option key={video.id} value={video.id}>{video.label}</option>)}

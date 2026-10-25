@@ -81,6 +81,12 @@ describe('frame-native clip annotation history', () => {
 });
 
 describe('clip annotation selection and object-level styles', () => {
+  it('clears single and multiple selections with an empty replacement', () => {
+    expect(updateClipAnnotationSelection(['a'], [], 'replace')).toEqual([]);
+    expect(updateClipAnnotationSelection(['a', 'b'], [], 'replace')).toEqual([]);
+    expect(updateClipAnnotationSelection([], [], 'replace')).toEqual([]);
+  });
+
   it('uses replace, additive, and subtractive selection without toggling additive items', () => {
     expect(updateClipAnnotationSelection(['a'], ['b', 'b'], 'replace')).toEqual(['b']);
     expect(updateClipAnnotationSelection(['a'], ['a', 'b'], 'add')).toEqual(['a', 'b']);

@@ -1,6 +1,6 @@
 # Demo Storyboards
 
-Updated: 2026-10-06. Companions: [recording inventory](demo-recording-checklist.md) and [capture/editing workflow](demo-recording-workflow.md). First project, basic pin annotation, basic tracking, tracking correction, presentation authoring, and clip trimming, and export and recovery are recorded in four languages. Status lines below say what was actually recorded where it differs from the plan; the session `RECORDING-NOTES.txt` files and the [handoff](demo-recording-handoff.md) are authoritative for recorded takes. Other sections are proposed shooting instructions, not completed recordings. No capture process or input logging is enabled by this document.
+Updated: 2026-10-23. Companions: [recording inventory](demo-recording-checklist.md), [handoff](demo-recording-handoff.md), and [capture/editing workflow](demo-recording-workflow.md). All twelve requested tutorials are recorded and published in four languages. The sequences below describe the actual exports, replacing the broader original proposals. Pin context/sets and installation were dropped. Session `RECORDING-NOTES.txt` files preserve detailed take information; current publication status is in the handoff. No capture or input logging is enabled by this document.
 
 ## Recommended division of work
 
@@ -41,7 +41,7 @@ The [workflow](demo-recording-workflow.md) is the source for capture setup, timi
 
 ## Shared footage map
 
-The source is `$HOME/Downloads/Tottenham Hotspur vs. Chelsea FC 2014-2015 Footballia.mp4`. The recorded pin is at source frame 750 (about 30 seconds), with blue highlights on the Chelsea carrier and the near-side outlet. The first-project and pin tutorials reuse that material. The later tracking passage and correction frames have not been selected; do not assume that the existing pin passage contains a suitable tracking error.
+The source is `$HOME/Downloads/Tottenham Hotspur vs. Chelsea FC 2014-2015 Footballia.mp4`. The basic pin is at source frame 750, with blue highlights on the Chelsea carrier and near-side outlet. Basic tracking uses f548-800. Correction and refinements use Patrick's f10579-10829 passage; the named players in refinements are Willian (blue) and Bentaleb (white), with Latin-script names in every language. Capture/tagging follows Patrick's f11910-13105 passage. Clip editing and homography use f12955-13104. These are source-frame references, not tracker IDs.
 
 For future tutorials, fill this direction map after inspecting the footage. These symbols are placeholders, not verified frame selections or tracker IDs.
 
@@ -59,7 +59,7 @@ An overview may reuse finished footage from the detailed tutorials. It does not 
 
 ## 1. First project
 
-Status: recorded in English, French, Spanish, and Simplified Chinese, about 113-116 seconds. Intended guide slot: `first-project`, with the surrounding description adjusted to match this narrower scope when embedded. The current export ends at the blank pin editor, not a finished presentation.
+Status: recorded and published in four languages, about 113-116 seconds. Guide ID: `first-project`. The export ends at the blank pin editor, not a finished presentation.
 
 | Shot | Recorded sequence | Visible result |
 | --- | --- | --- |
@@ -70,11 +70,11 @@ Status: recorded in English, French, Spanish, and Simplified Chinese, about 113-
 | Open editor | Select the captured clip and click **Open editor**. | The native clip editor window. |
 | Add pin | At the demonstration frame, click **Add pin**. | The separate pin editor, ready to annotate. |
 
-Project/video chooser paths are preselected for the demo workflow; do not present it as a tutorial on navigating arbitrary filesystem locations. Drawing is covered in section 8a. Presentation construction and playback remain separate, unrecorded tutorials.
+Project/video chooser paths are preselected for the demo workflow; do not present it as a tutorial on navigating arbitrary filesystem locations. Drawing and presentation are covered by separate published tutorials.
 
 ## 2a. Basic player tracking
 
-Status: recorded in four languages (about 40 s): clip f548-800, Chelsea #2, Stop near f777, normal-speed playback; no timelapse was needed. Target: 45-60 seconds. Start in an untracked disposable clip with one clearly identifiable Chelsea player at F0. Inspect the passage and confirm that target before filming; do not require a loss or overlap in this basic demonstration.
+Status: recorded in four languages, about 40 seconds. Clip f548-800, Chelsea #2, Stop near f777, then normal-speed playback. No timelapse was needed. The starting state is an untracked disposable clip.
 
 | Shot | Click/action sequence | Result to hold on screen |
 | --- | --- | --- |
@@ -85,83 +85,81 @@ Status: recorded in four languages (about 40 s): clip f548-800, Chelsea #2, Stop
 | Finish | Click **Stop**. | Tracking finishes and the playhead returns to where this track started. |
 | Inspect | Play the result at normal speed, with the pointer parked away from the player. | The viewer can judge that the highlight follows the intended player. |
 
-Keep captions to operating instructions. No homography, naming, linked shapes, or staged failure is needed here. Produce English for review before repeating the same sequence in the other three languages.
+The captions give operating instructions. Homography, naming, linked shapes, and correction are not part of this basic video.
 
 ## 2b. Correct a track
 
-Status: recorded in four languages (about 97-99 s) on Patrick's passage f10579-10829: tracking the white player jumps to the blue player at f10687; fixed by stepping back to f10686, **Re-track from here**, a one-frame **Step forward** after the next loss, **Continue**, **Done**, and normal-speed playback. Captions name players by shirt colour. The Cancel branch was not recorded. Intended guide slot: `tracking-correction`. Target: 60-90 seconds if both branches below fit clearly; otherwise use separate short takes. Preflight a real wrong-player result or genuine loss and identify A on both sides of the problem. Recheck the installed build's labels and state before filming rather than executing this sequence blindly.
+Status: recorded in four languages, about 97-99 seconds. Guide ID: `tracking-correction`. On Patrick's f10579-10829 passage, tracking the white player jumps to the blue player at f10687. Captions identify the players by shirt color. The Cancel branch was not recorded.
 
-1. Play an existing incorrect track briefly, then pause at the last correct frame. Show the problem instead of narrating an invisible hypothetical error.
-2. Select the highlight and click **Re-track from here**. Show that the following track is provisionally being replaced.
-3. Choose the correct provisional candidate, then **Continue**. Show real tracking replacing the incorrect section.
-4. Finish the replacement and use **Done** to keep it. Play the repaired passage at normal speed.
-5. In a short separate branch, demonstrate **Cancel** restoring the old track if explaining both outcomes would obscure the main repair.
+1. Show the genuine wrong-player result, then step back to the last correct frame, f10686.
+2. Select the highlight and click **Re-track from here**. The following track is provisionally replaced.
+3. Choose the correct provisional candidate and continue. After the next loss, step forward one frame, choose the player again, and click **Continue**.
+4. Finish with **Done** and play the repaired passage at normal speed. The caption acknowledges that correction may need repeating.
 
-For recovery from a genuine tracking loss rather than a wrong-player tail, show the tracker stopping and candidates returning, scrub or step to FR, choose the same player, and click **Continue**. Show the interpolated gap and continued motion. Do not deliberately damage data or fabricate a loss to get that shot; choose a passage that actually demonstrates it. Patrick can identify the player after an ambiguous overlap or perform that short take directly.
+The loss and reacquisition are real, not staged by damaging data. For a retake after tracking changes, preflight the passage again: an old error is not guaranteed to recur in a new build.
 
 ## 3. Build and play a presentation
 
-Status: recorded in four languages (about 72-77 s). Patrick's revision: the deck is title, clip (pausing at P1) and only the P2 pin slide; P2 is a blue box plus a dashed white lob. No slide reorder beyond moving the title, no Match video. Guide slot: `presentation-authoring`. Edited target: 60-90 seconds. Operator: assistant. Start with one clip, two annotated pins, and an empty presentation; the pin animations can already be prepared in tutorial 9.
+Status: recorded in four languages, about 72-77 seconds. Guide ID: `presentation-authoring`. The starting state has one clip, two prepared annotated pins, and an empty presentation. Patrick's final deck is title, clip with a pause at P1, and a direct P2 pin slide. P2 has a blue box and dashed white lob.
 
 1. From the dashboard, create and open a presentation. Give it a short descriptive title.
 2. Click the clip in the asset browser to preview it; hold on the still-empty deck so the preview/add distinction is clear.
-3. Drag the clip into the deck. Drag P1 and P2 after it. Briefly reorder a slide by dragging its thumbnail.
+3. Drag the clip into the deck, then add P2 after it. P1 is a pause inside the clip, not an additional direct pin slide.
 4. Click **Add title**, enter a short title, and drag that card to the front. Skip alternative templates in the main take.
 5. Select the clip slide. Leave P1 included as a pause point and use a manual-resume pause for this example, rather than an auto-resume timeout.
 6. Click **Present**, advance from the title to the clip, and let it play into P1. Show clip objects yielding to the pin annotation.
 7. Click once for the prepared on-click annotation entrance; wait for it to finish. Click again to resume the clip after the pending sequence has completed.
-8. Optional follow-up take: select P1's direct pin slide, choose **Match video** under **Transition after slide**, and play into the later P2 slide. Both pins must be forward-ordered and belong to the same source video. Do not force this into the main cut if it obscures the basic workflow.
+8. Advance to P2 and exit Present. Match video transitions and reordering beyond moving the title were not recorded.
 
 Proof: the same deck plays without authoring panels, the pin sequence responds to clicks, and playback resumes rather than getting stuck at the pin.
 
 ## 4. Capture, overlap, and re-tag
 
-Edited target: 60-90 seconds. Operator: assistant. Start in the tagging workspace with no active captures and an empty or clearly identifiable demo clip list.
+Status: recorded in four languages, about 77 seconds, as one continuous normal-speed take. The starting state is a disposable clone with an empty clip list. The passage reproduces Patrick's tagging at f11910-13105; Tottenham is the project's offensive team.
 
-1. Seek to F0 and click **Possession** under **Offensive - open play**, if that fits the passage. Pause briefly on the tile's active indicator and live timeline range.
-2. While that capture is active, select an applicable modifier such as **Middle third**. Move across another primary tile on the way to show that the active capture's modifiers remain available.
-3. Near the actual pass, click **Pass** to start a second capture. Choose applicable pass modifiers, then click **Pass** again at its end. Finish **Possession** later by clicking its tile again.
-4. Show the overlapping saved ranges. Click one in the timeline and let its row become visible in the clip list.
-5. Pause playback, select the demo clip, click **Re-tag selected**, then choose the appropriate replacement classification and modifiers. Show the updated list entry.
-6. Scroll away from the playhead, then zoom in and out using the timeline gesture/controls. Keep this brief; the clip remains selected.
-7. Optional five-second insert: switch English to Spanish, show **Possession** becoming **Posesión**, then return to English. Do not imply that authored custom boards or saved clip names are translated.
+1. Start playback just before the passage and start/stop the possession tiles at Patrick's frame boundaries. Add **Middle third** to the early possession captures.
+2. Show overlapping Offensive and Defensive Possession ranges, followed later by Defensive Transition and Defensive Possession. No Pass capture was used in the final take.
+3. Pause after the passage, then click the fourth clip on the timeline.
+4. Click **Re-tag selected**, choose Offensive set piece > **Throw in** with Outcome **Turnover**, and confirm.
+5. Scroll the list to the Throw in grouping and drag timeline zoom to approximately x4.
 
-Proof: viewers see both the start/stop toggle and the distinction between active modifiers and editing an already saved clip.
+The recorded build keeps the old clip name after re-tagging, permits the overlapping captures, and saves English clip names even in localized takes. These are observations #1, #2, and #13, not behavior corrected for the video. The working tree now addresses all three, pending packaged verification: generated names follow re-tagging, the default possession buttons switch exclusively while unrelated captures can overlap, and new captures use the displayed label at capture start. Retake the affected segments after verification, using a Pass within a Possession to demonstrate intentional overlap and showing localized generated names in the non-English takes. There is no on-camera language switch.
 
 ## 5. Edit and trim a clip
 
-Status: recorded as two tutorials in four languages. Clip editing (about 63 s, clip f12955-13104): box with keyframes at f12955/f13079, playback, resize and rotate at keyframe 2, a circle, Shift-click multi-select, shared Fill Opacity and Width (not colour: the native colour panel cannot be recorded). Clip trimming (25.8 s): steps 5-6 without Cancel. Edited target: 60-90 seconds. Operator: assistant. Start in a clip copy with clear empty space and at least a few seconds available at each end; use a simple image-space shape so this is not also a calibration tutorial.
+Status: recorded as two tutorials in four languages. Clip editing is about 63 seconds on f12955-13104, with box keyframes at f12955/f13079. Clip trimming is a separate 25.8-second take. Both use disposable clips; the editing tutorial uses image-space geometry.
 
 1. At F1 choose **Box**, drag a small rectangle over the agreed area, and show its first position keyframe in the timeline.
 2. Step forward with Right, then scrub to a visibly later frame. Move the box to the second agreed position. Show the new keyframe and a short playback between the two positions.
 3. Pause, select the box, drag a resize handle and then its rotation handle. Show that these are geometry edits at the current frame.
-4. Select a second object with Shift-click. Change a shared stroke/fill color in the inspector; show both updating. This is an object-wide style change, not a color animation.
+4. Add a circle and select it with the box using Shift-click. Change shared **Fill Opacity** and **Width**. Color-picker interaction was not recorded because the native panel could not be captured reliably.
 5. Click **Trim** and drag each boundary inward by a modest amount. Show the impact summary before choosing **Apply trim**.
-6. Click **Undo trim** and show the original bounds returning. Optionally show **Cancel** on a separate trim preview; do not make another clip edit before demonstrating immediate Undo.
+6. Click **Undo trim** immediately and show the original bounds returning. Cancel and outward extension are not demonstrated.
 
 Proof: frame-snapped geometry changes and a reversible inward trim. Avoid cutting away during the important handle gesture.
 
+The source fix for #14 removes the initial default-size Box/Circle flash without changing click placement or final drag geometry. After packaged verification, retake only drawing gestures where that old flash is visible. The published clips have not been replaced.
+
 ## 6. Name highlights and attach tactical shapes
 
-Status: recorded in four languages (about 42 s) with Patrick's two tracked players on clip f10579-10829: highlights named Willian and Bentaleb (Latin script in every language), Display name, Text size 20, an arrow attached Willian -> Bentaleb, playback f10689-10790. No poly, no third player, no extend/merge. Edited target: 45-75 seconds. Operator: assistant with a marked A/B/C reference; Patrick can perform a complex poly take. Start with genuinely tracked A/B/C highlights already present at the same frame. Caption this starting state rather than pretending three targets were tracked at once.
+Status: recorded in four languages, about 42 seconds, with Patrick's corrected tracks on f10579-10829. The two players are Willian and Bentaleb, named in Latin script in every language. Patrick requested all four versions together, without a separate English approval step.
 
-1. Select A's highlight. Enter **Ball carrier** in **Name** if accurate, enable **Display name**, and set a readable label size.
-2. Choose **Arrow**; click A's highlight, then B's highlight. Pause on the snapped preview before the second click so the attachment is visible.
-3. Choose **Poly**; click the agreed highlights in order. Use **Shift+Enter** for an open unit line, or **Enter** for a closed area with at least three points. Use the shape that matches Patrick's tactical explanation.
-4. Play several seconds and show the endpoints/vertices following their highlights. Keep the cursor away from the action.
-5. Optional additional take: demonstrate same-type object merging with two deliberately prepared non-overlapping spans. Do not add this to the main tutorial unless the split-span workflow is being explained.
+1. At f10739 select Willian's blue highlight, enter **Willian**, enable **Display name**, and set **Text size** to 20 using the arrow keys.
+2. Repeat for Bentaleb's white highlight with the name **Bentaleb** and size 20.
+3. Choose **Arrow**, click Willian's highlight, then Bentaleb's. Return to Select and clear the selection.
+4. Skip back to f10689 and play to f10790. The names and attached arrow follow the players.
 
-Proof: the label follows its player and the linked geometry moves with its anchors; it is not redrawn frame by frame.
+The recorded build uses text-size arrow keys to work around issue #15; direct typing is not demonstrated. The source fix now allows typing the complete number and committing with Enter or blur, in both editors. That fix alone does not require replacing these takes, but use direct entry plus Enter if re-recording them. There is no poly, third player, extra tracked span, or merge in this video.
 
 ## 7. Calibrate and draw on the pitch
 
-Status: recorded in four languages (about 47 s) on clip f12955-13104: Compute H (2x badge), Show H, pitch box with a corner resize, Hide H, playback through the pan to f13056. Captions name the homography without explaining it (Patrick). Delete H and an image-space comparison shape were not recorded. Edited target: 45-60 seconds. Operator: assistant; Patrick approves the highlighted pitch area. Start with a wide-angle clip containing a modest camera pan and no cached homography in this disposable copy.
+Status: recorded in four languages, about 47 seconds, on f12955-13104 with no cached homography in the disposable starting copy. Captions name the homography and controls without a technical explanation, as requested by Patrick.
 
-1. Click **Compute H**. Hold on preparation/loading, then the sample-count progress bar. Retain the wait as a visibly labelled timelapse if necessary.
+1. Click **Compute H** and show the computation with a 2x speed badge.
 2. Once complete, click **Show H**. Show the grid aligned with visible pitch markings; reject a poor result rather than presenting it as correct.
-3. Show **Draw: pitch**. Choose **Box** and drag over the agreed pitch area; select it and adjust a size/rotation handle.
+3. With **Draw: pitch**, draw a box and resize it using a corner handle.
 4. Turn off the grid and play through camera motion. Pause on the projected box staying on the pitch plane.
-5. Optional comparison: show an image-space highlight following a player, with a caption explaining that tracking does not require H. Demonstrate **Delete H** only in a separate copy/take, not before capturing the finished playback.
+5. Pause at f13056. Delete H, rotation, and an image-space comparison were not recorded.
 
 Proof: actual camera-dependent projection, not just a grid over a still frame. No need to record every sampled frame of computation at normal speed.
 
@@ -184,27 +182,27 @@ Dropped: Patrick does not use annotation sets (2026-10-07).
 
 ## 9. Animate a pin annotation
 
-Status: recorded in four languages (about 61.5 s). Per Patrick, uses the presentation tutorial's P1 (blue highlight, white highlight, attached blue arrow; no poly) made static: blue Fade/On click, arrow Wipe/After previous, white Fade/On click; Preview with Next; Save, Close pin; then the cues from the pin pause in clip playback. No Reset/With previous comparison. Edited target: 60-90 seconds. Operator: assistant after the final drawing and reveal order are approved. Start with a static pin set containing a highlight, an arrow, and a poly.
+Status: recorded in four languages, about 61 seconds. The starting state reuses the presentation tutorial's P1 with its old animation removed: a blue highlight, white highlight, and attached blue arrow. No poly is involved.
 
-1. Click **Animations** with no object selected to show that the panel opens independently.
-2. Select the highlight, click **Add**, choose **Fade**, **On click**, duration **0.3 s**, and delay **0 s**.
-3. Select the arrow, click **Add**, choose **Wipe**, **After previous**, duration **0.5 s**, and delay **0.2 s**.
-4. Select the poly, click **Add**, choose **Grow**, **On click**, duration **0.4 s**, and delay **0 s**. These timings are proposed tutorial settings, not defaults required by the app.
-5. Click **Preview**. Click the frame or **Next** once: the highlight enters and the arrow follows. Click again: the poly enters. Leave time to see the finished state.
-6. Use **Reset** and change the arrow to **With previous**, delay **0 s**, to show the distinction in a short second preview. Restore the agreed final sequence before saving the take's project.
-7. Stop preview, return to the clip, and play into the pin. Demonstrate that the same click sequence works at the pause, then resume playback after the final pending step.
+1. Open the pin, then **Animations**.
+2. Select the blue highlight and **Add** the default **Fade / On click** entrance.
+3. Select the arrow and **Add**, then change Effect to **Wipe** and Trigger to **After previous**.
+4. Select the white highlight and **Add** the default **Fade / On click** entrance.
+5. Click **Preview**, then **Next** for the blue highlight and following arrow. Click **Next** again for the white highlight.
+6. Stop preview, **Save**, and **Close pin**. Return focus to the clip editor, skip back, and play into the pin pause.
+7. Use Play for the first cue, click the video for the second cue, then click again to resume the clip. Pause before P2.
 
-Proof: click groups, duration/delay, and shared playback behavior. It is more useful to teach these three shapes clearly than cycle through all four effects without context.
+This demonstrates cue groups and shared playback behavior. Explicit duration/delay editing, Grow, Reset, and a With previous comparison were not recorded.
 
 ## 10. Export and recover
 
-Status: recorded in four languages (about 47 s; Finder stays in the system language). App main window and a Finder window are recorded together; Finder is driven by AppleScript with a synthetic pointer. Report shown in Finder list and gallery views; clip f9,438-9,940 deleted and restored in the capture player; ends on the folder containing the project. The video-deletion safety segment was not recorded. Edited target: 45-60 seconds. Operator: assistant. Start with the completed demo project, at least one annotated pin, and no unrelated Finder/File Explorer windows visible.
+Status: recorded in four languages, about 47 seconds; Finder remains in the system language. App and Finder windows are recorded together, with Finder driven by AppleScript and a synthetic pointer. The take uses a disposable project and ends on the folder containing it.
 
 1. Return to the dashboard and click **Export report...**. Show real progress and the completion message.
-2. In Finder/File Explorer, open the known demo project folder and `exports/report/`. Show `clips.csv`, `clips.json`, and the `annotated` folder. This is an OS action, not an unimplemented "Reveal exports" button.
-3. Open one annotated PNG and pause so the native-resolution result is readable. Briefly show a report row if a suitable viewer is already available; do not require a spreadsheet app just to make the recording.
-4. Return to a disposable clip, delete it, then immediately click **Undo delete**. Show the clip returning.
-5. End with a caption: "Back up the whole project folder." If video deletion is explained, use a separate safety segment: its cascade permanently deletes the project video copy and dependent clips/pins, unlike clip-trash Undo. Do not demonstrate it on the master demo project.
+2. In Finder open the demo project and `exports/report/`. Show the CSV/JSON files and annotated PNGs in list and gallery views. This is an OS action, not an app Reveal exports button.
+3. Hold on the annotation preview so the saved result is readable.
+4. Return to the capture player, delete clip f9438-9940, then immediately **Undo delete**. Show the clip returning.
+5. End on the project folder with the reminder to back up the whole folder. Video deletion and an integrity-report demonstration were not recorded.
 
 Proof: actual files created on disk, a readable annotation export, and the correct limits of deletion recovery. Do not imply MP4 clip export exists in the current UI.
 
@@ -214,6 +212,6 @@ Dropped: Patrick decided on 2026-10-07 that installation does not need recording
 
 ## Next action
 
-See the [handoff](demo-recording-handoff.md). In short: all requested topics are recorded; pin sets and installation were dropped. Record English first for review each time.
+See the [handoff](demo-recording-handoff.md). All requested topics are recorded; pin context/sets and installation were dropped. Review the 15 app observations individually next. For any resulting retake, verify the new behavior first and record English for approval before localization unless Patrick requests otherwise.
 
-Later, a 30-45 second outreach montage for `@annotate_app` can reuse approved tutorial footage without another end-to-end recording session. Publication and guide integration remain separate from local recording and editing.
+Later, a 30-45 second outreach montage for `@annotate_app` can reuse tutorial footage without another end-to-end session, following the footage plan in the handoff. The online guide is already published; an outreach post is a separate task.

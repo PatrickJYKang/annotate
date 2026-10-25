@@ -98,6 +98,8 @@ export interface Clip {
   startFrame: VideoFrame;
   endFrame: FrameBoundary;
   label?: string;
+  // Last generated label; null marks a custom name, absent supports older clips.
+  generatedLabel?: string | null;
   tags: TaggingSelection;
   pins: ClipPin[];
   annotations: ClipAnnotation[];
@@ -493,6 +495,9 @@ export function parseClip(raw: unknown, options: ValidateClipOptions = {}): Clip
   }
   if (raw.label !== undefined && typeof raw.label !== 'string') {
     throw new Error('clip.json label must be a string.');
+  }
+  if (raw.generatedLabel !== undefined && raw.generatedLabel !== null && typeof raw.generatedLabel !== 'string') {
+    throw new Error('clip.json generatedLabel must be a string or null.');
   }
   if (!Number.isInteger(raw.startFrame) || !Number.isInteger(raw.endFrame)) {
     throw new Error('clip.json requires integer startFrame and endFrame fields.');

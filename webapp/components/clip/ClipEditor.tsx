@@ -21,6 +21,7 @@ import {
 } from '../../lib/annotate/animation';
 import { annotationPayloadFromDocument } from '../../lib/annotate/documentPayload';
 import { bboxToHighlight, convertTrackingKeyframes } from '../../lib/clip/bboxConvert';
+import { boxOrCircleGeometryFromDrag } from '../../lib/clip/drawingGeometry';
 import {
   cloneClipAnnotations,
   inspectClipAnnotationMerge,
@@ -329,19 +330,13 @@ function translateGeometry(
   }
 }
 
-function geometryFromDrag(tool: ClipTool, start: Point, end: Point): Record<string, unknown> {
+function geometryFromDrag(tool: ClipTool, start: Point, end: Point, phase: 'preview' | 'commit'): Record<string, unknown> | null {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const distance = Math.max(8, Math.hypot(dx, dy));
   switch (tool) {
-    case 'box': {
-      if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return { x: start.x - 60, y: start.y - 40, w: 120, h: 80 };
-      return { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), w: Math.abs(dx), h: Math.abs(dy) };
-    }
-    case 'circle': {
-      if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return { cx: start.x, cy: start.y, rx: 50, ry: 30 };
-      return { cx: (start.x + end.x) / 2, cy: (start.y + end.y) / 2, rx: Math.abs(dx) / 2, ry: Math.abs(dy) / 2 };
-    }
+    case 'box':
+    case 'circle': return boxOrCircleGeometryFromDrag(tool, start, end, phase);
     case 'shadow': return {
       x: start.x,
       y: start.y,
@@ -630,9 +625,7 @@ export default function ClipEditor({
   const [color, setColor] = useState('#ffffff');
   const [strokeWidth, setStrokeWidth] = useState(() => defaultAnnotationStrokeWidth(video.width, video.height));
   const defaultFontSize = defaultAnnotationFontSize(video.width, video.height);
-  const [selectedAnnotationIds, setSelectedAnnotationIds] = useState<string[]>(
-    () => clip.annotations[0]?.id ? [clip.annotations[0].id] : [],
-  );
+  const [selectedAnnotationIds, setSelectedAnnotationIds] = useState<string[]>([]);
   const [selectedKeyframe, setSelectedKeyframe] = useState<TimelineKeyframeRef | null>(null);
   const [selectedPinId, setSelectedPinId] = useState<string | null>(initialPinId ?? clip.pins[0]?.id ?? null);
   const [timelineRevealRequest, setTimelineRevealRequest] = useState<{ frame: number; id: number } | null>(null);
@@ -1592,7 +1585,8 @@ export default function ClipEditor({
       };
     }
     if (tool === 'select' || tool === 'poly' || tool === 'arrow') return null;
-    let geometry = geometryFromDrag(tool, pointerDraft.start, pointerDraft.current);
+    let geometry = geometryFromDrag(tool, pointerDraft.start, pointerDraft.current, 'preview');
+    if (!geometry) return null;
     const usePitch = drawCoordMode === 'pitch' && activeToolSupportsPitch && !!currentHomographyInverse;
     if (usePitch) geometry = convertImageGeometryToPitchGeometry(tool, geometry, currentHomographyInverse);
     return createAnnotation(tool, currentFrame, geometry, color, strokeWidth, usePitch ? 'pitch' : 'image', defaultFontSize);
@@ -2873,6 +2867,9 @@ export default function ClipEditor({
         setPolyCursor(null);
         setArrowStart(null);
         setArrowCursor(null);
+        if (!pointerDraft && polyPoints.length === 0 && !arrowStart) {
+          selectAnnotationFromUi(null);
+        }
         return;
       }
       if (event.key === 'Delete' || event.key === 'Backspace') {
@@ -2884,7 +2881,7 @@ export default function ClipEditor({
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [cancelRetracking, cancelTrim, currentFrame, deleteSelectedKeyframe, deleteSelectedObject, editingPinId, editorMutationLocked, finishPoly, polyPoints.length, redo, retrackSession, seekFrame, selectedAnnotationId, togglePlayback, tool, trimSession, undo, upsertKeyframe]);
+  }, [arrowStart, cancelRetracking, cancelTrim, currentFrame, deleteSelectedKeyframe, deleteSelectedObject, editingPinId, editorMutationLocked, finishPoly, pointerDraft, polyPoints.length, redo, retrackSession, seekFrame, selectAnnotationFromUi, selectedAnnotationId, togglePlayback, tool, trimSession, undo, upsertKeyframe]);
 
   const selectedCurrentKeyframe = selectedAnnotation
     ? getCurrentKeyframe(selectedAnnotation, videoFrame(currentFrame))
@@ -3424,7 +3421,11 @@ export default function ClipEditor({
                       });
                     }
                   } else if (tool !== 'select' && tool !== 'poly') {
-                    let geometry = geometryFromDrag(tool, pointerDraft.start, end);
+                    let geometry = geometryFromDrag(tool, pointerDraft.start, end, 'commit');
+                    if (!geometry) {
+                      setPointerDraft(null);
+                      return;
+                    }
                     const usePitch = drawCoordMode === 'pitch' && activeToolSupportsPitch && !!currentHomographyInverse;
                     if (usePitch) geometry = convertImageGeometryToPitchGeometry(tool, geometry, currentHomographyInverse);
                     const annotation = createAnnotation(tool, currentFrame, geometry, color, strokeWidth, usePitch ? 'pitch' : 'image', defaultFontSize);

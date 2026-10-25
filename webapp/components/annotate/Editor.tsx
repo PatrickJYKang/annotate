@@ -53,6 +53,7 @@ import type {
   AnnotationAnimationTrigger,
 } from "../../lib/types/annotations";
 import ColorLinkToggle from "./ColorLinkToggle";
+import CommittedNumberInput from "./CommittedNumberInput";
 import { useT } from "../../lib/i18n";
 
 export type Tool = 'select' | 'box' | 'circle' | 'shadow' | 'arrow' | 'lob' | 'text' | 'poly' | 'highlight' | 'calibrate';
@@ -3307,16 +3308,15 @@ export default function Editor({
                     {first.displayName && (
                       <>
                         <label className="status" htmlFor={`highlight-text-size-${first.id}`}>{t('annotation.textSize')}</label>
-                        <input
+                        <CommittedNumberInput
+                          key={first.id}
                           id={`highlight-text-size-${first.id}`}
                           aria-label={t('annotation.textSize')}
-                          type="number"
                           min={8}
                           max={300}
                           step={1}
                           value={first.style?.fontSize || defFontSz}
-                          onChange={(event) => {
-                            const fontSize = Math.max(8, Math.min(300, Number(event.target.value) || defFontSz));
+                          onCommit={(fontSize) => {
                             setShapes((previous) => previous.map((shape) => (
                               shape.id === first.id
                                 ? { ...shape, style: { ...shape.style, fontSize } }

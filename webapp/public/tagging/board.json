@@ -15,6 +15,12 @@
     "lagSeconds": 0,
     "mode": "range"
   },
+  "exclusiveGroups": [
+    {
+      "id": "possession",
+      "buttonIds": ["offensive.open_play.possession", "defensive.open_play.possession"]
+    }
+  ],
   "groups": [
     {
       "id": "offensive.open_play",

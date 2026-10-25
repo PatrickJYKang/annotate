@@ -3,6 +3,8 @@ import { projectResourceKey } from '../host/projectScope';
 import { broadcastClipChanged } from './clipEvents';
 import { requireProjectVideo, withProjectManifestExclusive } from './projectManifestRepository';
 import type { TaggingSelection } from '../tagging/selection';
+import { readTaggingBoard } from '../tagging/board';
+import { retagClip } from '../tagging/clipLabel';
 import type {
   ClipAnnotation,
   ClipPin,
@@ -133,11 +135,13 @@ export async function replaceClipTagsExclusive(
   projectDir: ProjectDirectory,
   clipId: string,
   tags: TaggingSelection,
+  displayedLabel?: string,
 ): Promise<Clip> {
-  return mutateClipExclusive(projectDir, clipId, (latest) => ({
-    ...latest,
-    tags: structuredClone(tags),
-  }));
+  if (projectDir.command) return projectDir.command('clip.retag', displayedLabel === undefined
+    ? [clipId, tags] : [clipId, tags, displayedLabel]);
+  return mutateClipExclusive(projectDir, clipId, async (latest) => (
+    retagClip(latest, tags, await readTaggingBoard(projectDir), displayedLabel)
+  ));
 }
 
 export async function createClipExclusive(

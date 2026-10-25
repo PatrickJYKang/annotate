@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { frameBoundary, videoFrame } from '../clip/frameMath';
+import en from '../i18n/messages/en.json';
+import es from '../i18n/messages/es.json';
+import fr from '../i18n/messages/fr.json';
+import zhCN from '../i18n/messages/zh-CN.json';
 import type { TaggingBoard } from '../tagging/board';
 import type { Clip } from '../types/clip';
 import { createDefaultPresentation } from '../types/presentation';
@@ -8,6 +12,7 @@ import {
   buildPresentationAssetIndex,
   createClipSlide,
   createPinSlide,
+  createTitleSlide,
   insertSlide,
   moveSlide,
   validateMatchVideoEdge,
@@ -39,6 +44,23 @@ function clip(id: string, primary: string | null, start: number, pinFrame = star
 }
 
 describe('v2 presentation authoring', () => {
+  it.each([
+    ['en', en, 'Untitled title slide'],
+    ['fr', fr, 'Diapositive sans titre'],
+    ['es', es, 'Diapositiva sin título'],
+    ['zh-CN', zhCN, '未命名标题幻灯片'],
+  ] as const)('creates a title slide with the %s default supplied by the UI', (_locale, catalog, expected) => {
+    expect(createTitleSlide(catalog['presentation.untitledTitleSlide'], 'section', 'slide-title')).toEqual({
+      id: 'slide-title', kind: 'title', template: 'section', title: expected, body: '', notes: '',
+    });
+  });
+
+  it('preserves supplied titles, including deliberately blank titles', () => {
+    for (const title of ['Chelsea : pressing', 'Untitled title slide', '']) {
+      expect(createTitleSlide(title).title).toBe(title);
+    }
+  });
+
   it('groups clip-first assets by the board and preserves chronology', () => {
     const known = clip('known', 'attack.pass', 30);
     const untagged = clip('untagged', null, 10);

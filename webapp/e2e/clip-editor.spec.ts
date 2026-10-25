@@ -593,6 +593,7 @@ test('edits and tracks a non-zero-start clip on the absolute frame axis', async 
   await page.getByLabel('Name', { exact: true }).blur();
   await page.getByLabel('Display name', { exact: true }).check();
   await page.getByLabel('Text size', { exact: true }).fill('36');
+  await page.getByLabel('Text size', { exact: true }).press('Enter');
   await expect(page.getByRole('button', { name: '3. Left winger', exact: true })).toBeVisible();
   await expect.poll(async () => {
     const annotation = (await readClip(page)).annotations.at(-1);

@@ -29,6 +29,7 @@ function ClipRow({
   onSelectClip: (clip: Clip) => void;
 }) {
   const { t, formatNumber } = useLocale();
+  const frameCount = clip.endFrame - clip.startFrame;
   const onDragStart = (event: DragEvent<HTMLButtonElement>) => {
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData(CLIP_DRAG_MIME, clip.id);
@@ -50,10 +51,10 @@ function ClipRow({
     >
       <span className="block truncate text-sm font-semibold">{clip.label || clip.id}</span>
       <span className="mt-0.5 block font-mono text-[10px] text-muted">
-        {t('tagTree.frameRange', {
+        {t(frameCount === 1 ? 'tagTree.frameRangeSingle' : 'tagTree.frameRange', {
           start: formatNumber(clip.startFrame),
           end: formatNumber(clip.endFrame - 1),
-          count: formatNumber(clip.endFrame - clip.startFrame),
+          count: formatNumber(frameCount),
         })}
       </span>
     </button>

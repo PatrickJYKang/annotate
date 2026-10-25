@@ -1,6 +1,6 @@
 # Demo Recording Handoff
 
-Updated: 2026-10-06. **Start here** if you are taking over recording of the in-app user-guide tutorials. This page gives the current state, what to do next, how Patrick works, and the practical lessons from the 2026-10-06 sessions. Companions: the [inventory](demo-recording-checklist.md) (deliverables and remaining topics), the [storyboards](demo-storyboards.md) (click sequences), and the [workflow](demo-recording-workflow.md) (visual style, capture method, coordinate transform, verification). Each local session folder also has a `RECORDING-NOTES.txt` with the exact details of that tutorial.
+Updated: 2026-10-23. **Start here** if you are taking over maintenance of the online user-guide tutorials. The requested recordings are complete: twelve tutorials in four languages plus a combined walkthrough per language. This page gives the current state, next steps, and practical lessons from the October recording sessions. Companions: the [inventory](demo-recording-checklist.md) (deliverables), the [storyboards](demo-storyboards.md) (recorded click sequences), and the [workflow](demo-recording-workflow.md) (capture, editing, and verification). Each local session folder has a `RECORDING-NOTES.txt`; its take details remain useful, but old "publication not done" notes are superseded by the publication status here.
 
 Everything below `$HOME/Documents/Annotate Demos/` is local production material: raw captures, scripts, disposable project clones and exports. None of it is in this repository. Back it up separately.
 
@@ -17,21 +17,22 @@ All exports are silent H.264 MP4, 1920 x 1240, 30 fps, `yuv420p`, fast-start, fu
 | Presentation authoring | 73.80 s | 73.80 s | 76.80 s | 71.80 s | `presentation-authoring-2026-10-06/recordings/take-<locale>/` |
 | Clip trimming | 25.80 s | 25.80 s | 25.80 s | 25.80 s | `clip-trimming-2026-10-06/recordings/take-<locale>/` |
 | Export and recovery | 47.00 s | 47.07 s | 46.97 s | 46.90 s | `export-recovery-2026-10-06/recordings/take-<locale>/` |
-| Capture and tagging | 77.40 s | 77.43 s | 77.43 s | 77.43 s | `capture-tagging-2026-10-07/recordings/take-en/` |
-| Clip editing (shapes, keyframes) | 63.23 s | 63.13 s | 63.23 s | 63.23 s | `clip-editing-2026-10-07/recordings/take-<locale>/` |
+| Capture and tagging | 77.40 s | 77.43 s | 77.43 s | 77.43 s | `capture-tagging-2026-10-07/recordings/take-<locale>/` |
+| Clip editing (shapes, keyframes) | 63.23 s | 63.13 s | 63.17 s | 63.23 s | `clip-editing-2026-10-07/recordings/take-<locale>/` |
 | Homography | 46.80 s | 47.07 s | 47.03 s | 46.97 s | `homography-2026-10-07/recordings/take-<locale>/` |
 | Pin animations | 61.53 s | 61.50 s | 61.27 s | 61.50 s | `pin-animations-2026-10-07/recordings/take-<locale>/` |
 | Tracking refinements | 41.90 s | 41.90 s | 42.07 s | 41.97 s | `tracking-refinements-2026-10-07/recordings/take-<locale>/` |
 
-Patrick approved the English take of every tutorial before the other languages were recorded. The French, Spanish and Chinese captions are the assistant's own translations using each catalog's UI labels; none has had native-speaker review. All of them, plus the complete-workflow video, are published on the [online user guide](https://patrickjykang.github.io/annotate-docs/) and streamed by the in-app guide (see below). The footage has not been cleared for rights.
+English-first review was the normal workflow; for tracking refinements Patrick explicitly requested all four languages together without a separate English review. French, Spanish, and Chinese captions use the app catalogs' UI labels but have not had native-speaker review. All 48 tutorials plus four chaptered, approximately 13-minute walkthroughs are published on the [online user guide](https://patrickjykang.github.io/annotate-docs/). The app links to that website; it no longer embeds or bundles a guide page. The videos remain silent and captioned.
 
 Superseded and rejected takes are kept in `superseded/`, `rejected/`, or under an obviously named take folder (`take-01`, `take-en-v1-two-pins`). The current files are only the ones in the table.
 
 ## Next steps
 
-1. **All storyboard topics Patrick wants are recorded** (twelve tutorials, four languages each, as of 2026-10-07). Pin context/annotation sets (8b) and installation (11) were dropped by Patrick. Remaining work: native-speaker caption review, re-recording tutorials affected by fixes to the [issue list](demo-recording-bugs.md).
-2. **New topics** only if Patrick asks; copy the closest session's scripts (see the table under Production pipeline).
-3. **Repository docs.** Keep this page, the inventory and the storyboard status lines in step with new exports.
+1. **Verify the accumulated fixes in a packaged build before filming replacements.** All fifteen observations have been reviewed; Patrick approved #14/#15 together. #1, #2, #4-9 and #11-15 are implemented in the working tree but not packaged. #3 remains unconfirmed after investigation with the original build, current renderer and native recording; #10 is intentional plain-frame export for existing empty annotation sets. The final fixes separate Box/Circle drag previews from click-placement defaults and let highlight-name text-size drafts commit on Enter/blur in both editors. They passed real-browser checks over copied match footage, including image/pitch drawing, typing, cancellation, undo and persistence. All 468 unit tests, nine clip/pin browser regressions, TypeScript and lint pass. See the [issue list](demo-recording-bugs.md) for detailed verification and retake status; no recordings, installers or release tags were replaced during these fixes.
+2. **All requested recordings are complete.** Pin context/annotation sets (8b) and installation (11) were dropped. Remaining production work is native-speaker caption review and targeted retakes after agreed fixes to the [issue list](demo-recording-bugs.md).
+3. **New topics** only if Patrick asks; copy the closest session's scripts (see the table under Production pipeline).
+4. **Repository docs.** Keep this page, the inventory, and the storyboards in step with replaced exports and site publication.
 
 ## How Patrick works
 
@@ -49,11 +50,17 @@ The tutorials are published on GitHub Pages, not bundled with the app or committ
 
 The guide is no longer bundled with the app (Patrick, 2026-10-12): the header's **User guide** button opens that site in the current UI language (`webapp/lib/onlineGuide.ts`), in a new tab in the browser and in the system browser on desktop.
 
-YouTube was tried first and abandoned: Content ID blocked every upload worldwide, because the demo footage is the Premier League broadcast of Tottenham v Chelsea (2015). The "annotate" YouTube channel still holds two blocked uploads and four empty playlists.
+The language contract is explicit: the app's English link uses `?lang=en`, which bypasses the homepage's browser-language detection. French, Spanish, and Simplified Chinese use their named paths. The bare homepage still detects browser language for ordinary first-time visitors. The fix spans both repositories; publish the site change and ship the updated app link together. A local fix does not update an existing installed binary or the live site by itself.
 
 The translated guide text lives in that repository's `content/{en,fr,es,zh-CN}.ts` (inline markup: `**label**`, `` `code` ``, `[text](url)`). Bold labels must match each language's i18n catalog in this repository.
 
 Sources: the 1920 x 1240 masters listed in the table above. `Annotate Demos/youtube-upload/videos.json` maps every published video (including the combined full-workflow video from `Annotate Demos/full-workflow/`) to its master; the site's `scripts/encode-videos.mjs` reads it.
+
+## Footage and outreach
+
+Patrick's decision on 2026-10-12 is to retain the current match footage for the user guide. For an eventual X/Twitter outreach clip on `@annotate_app`, the plan is to try the existing footage and, if the platform blocks it, remake that outreach clip with footage Patrick owns. This is the production plan, not a claim of rights clearance or a guarantee of platform acceptance. No additional upload or outreach recording is authorized by this document.
+
+YouTube was tried and abandoned after worldwide Content ID blocks on the Tottenham v Chelsea broadcast. At the time of the handoff, the channel held two blocked uploads and four empty playlists. The guide is instead hosted on GitHub Pages; that publication change is not evidence of rights clearance.
 
 ## Production pipeline (2026-10-06 sessions)
 
@@ -114,9 +121,9 @@ Control is Playwright `chromium.connectOverCDP('http://127.0.0.1:9227')` from th
 
 ## Lessons and gotchas
 
-- **Language switch with a clip editor open** leaves that editor's video black in the native window. Switch the language in the main window first, then open the editor (`prepare-take.cjs` does this).
+- **Language switching:** the original session reported a black editor video and worked around it by setting the main-window language before opening the editor. The 2026-10-13 investigation could not reproduce this in the original or current build, including native capture; do not present it as a confirmed app defect. Existing recording scripts still set the language before opening windows, which also ensures consistent labels because locale changes are not live-synchronized between open windows. See issue #3 for evidence and recurrence diagnostics.
 - **Localized labels and numbers:** look up the exact i18n key in `webapp/lib/i18n/messages/<locale>.json` (for example `presentation.slidePosition`, not an invented key). Numbers are locale-formatted (`10 579` with a narrow no-break space in French, `10.579` in Spanish). Saved data names ("Possession", "Pin f10740") are not translated. Identify items by their own text, not by translated badges (a French take once dragged the wrong slide because of this).
-- **Clip editor auto-selects the first annotation** on open. Escape does not clear it; Cmd-click the selected shape toggles it off.
+- **Clip-editor selection (#11):** the old packaged recording build auto-selects the first annotation and needs Cmd-click to deselect. The current working tree opens with no object selected; Escape clears object/keyframe selection after any active drawing, trim or re-track cancellation. Verify the recording build before relying on the new behaviour.
 - **Controls at the window edge** (the clip trim end handle at x 1434 of 1440): grab at the left border (`box.x + 2`), not the centre.
 - **Frame readout patterns:** match the timeline text including what follows the number (`timeline.frameRange` up to `{start}`); in zh-CN the clip header "第 12,955–13,104 帧" also starts with "第 ".
 - **Capture interruptions:** opening a new app window, or listing windows with `record-localized --list`, interrupts running captures (-3805). List windows before recording; record a new window with a separate recorder once it exists, and restart the parent window's recorder after it closes (pin-animations `record-take.cjs`). The recorder's FINISHED duration is whole seconds: probe real durations when trimming at a file's end.
@@ -126,7 +133,7 @@ Control is Playwright `chromium.connectOverCDP('http://127.0.0.1:9227')` from th
 - **Finder (export and recovery):** drive it with `osascript` (`tell application "Finder"`); its window `id` equals the ScreenCaptureKit window id. A new window auto-selects the first row, so `select {}`. Hide the sidebar (`sidebar width 0`) and status bar. `qlmanage -p` shows a "[DEBUG]" title and renders CSV blank, so use Finder's gallery view (`flow view`) for images. Never `activate` an app named "Annotate" by name: that can launch Patrick's real install. Make each Finder change at the moment of the logged synthetic click.
 - **Recorder success:** `FINISHED` is not enough; confirm with ffprobe and a full decode.
 - **QA timing:** `clicks-N.png` grabs 0.06 s after a click and can precede the UI update; check a later frame before calling it a fault.
-- **Fresh app profiles** create Ultralytics settings on first launch; the demo profile has `"sync": true` (flagged, not changed).
+- **Fresh app profiles:** the original recording build creates Ultralytics settings with `"sync": true`. Current source disables `sync` and `hub` for both fresh and existing Annotate profiles before prediction callbacks load, without touching unrelated Python settings. This has not yet been packaged; do not assume older recording builds contain the fix. No visible workflow changes or tutorial retakes are needed for #12.
 
 ## App issues found while recording
 

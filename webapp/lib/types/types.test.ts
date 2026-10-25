@@ -85,6 +85,14 @@ function cloneClip(): Clip {
 }
 
 describe('v2 canonical types', () => {
+  it('round-trips optional generated labels and accepts existing clips without them', () => {
+    expect(parseClip(canonicalClip)).not.toHaveProperty('generatedLabel');
+    for (const generatedLabel of ['Possession', null]) {
+      expect(parseClip({ ...canonicalClip, generatedLabel }).generatedLabel).toBe(generatedLabel);
+    }
+    expect(() => parseClip({ ...canonicalClip, generatedLabel: true })).toThrow('generatedLabel');
+  });
+
   it('constructs the canonical project, clip, annotation, and presentation documents', () => {
     const project = {
       schema: 'project.v2',

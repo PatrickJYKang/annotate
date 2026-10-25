@@ -5,5 +5,6 @@ import type { Locale } from './i18n';
 export const ONLINE_GUIDE = 'https://patrickjykang.github.io/annotate-docs/';
 
 export function onlineGuideUrl(locale: Locale): string {
-  return locale === 'en' ? ONLINE_GUIDE : `${ONLINE_GUIDE}${locale}/`;
+  // The bare homepage detects browser language; an app choice must take precedence.
+  return locale === 'en' ? `${ONLINE_GUIDE}?lang=en` : `${ONLINE_GUIDE}${locale}/`;
 }

@@ -1,6 +1,6 @@
 # Annotate 0.2 As-Built Technical Reference
 
-Updated: 2026-09-27
+Updated: 2026-10-23
 
 Status: Annotate 0.2.2 browser application plus a native Electron host with unsigned `0.2.2-desktop.2` evaluation packages for Apple Silicon macOS and Windows x64. Both are attached to the [desktop release](https://github.com/PatrickJYKang/annotate/releases/tag/v0.2.2-desktop.2), marked Latest with GitHub's prerelease flag off for homepage visibility. Windows runtime and clean-machine verification remain outstanding; the label does not certify either. The old v0.2.0 terminal installation path is archived in `legacy/browser-install/`; browser development remains supported. The code is authoritative if this document drifts.
 
@@ -91,6 +91,8 @@ The local FastAPI service runs on `http://127.0.0.1:8321` by default. It owns:
 
 `npm run dev` starts both development services. `npm run build` followed by `npm run start` runs the production web build with the sidecar. The client base URL can be changed with `NEXT_PUBLIC_SIDECAR_URL`. See `sidecar/README.md` for the full HTTP contract and model requirements.
 
+`annotate_sidecar/ultralytics_runtime.py` is the shared YOLO initialization boundary for health checks and tracking. It selects an Annotate-private configuration root and sets Ultralytics `sync` and `hub` to false before lazy prediction callbacks initialize. Packaged desktop passes the existing profile directory through `ANNOTATE_ULTRALYTICS_CONFIG_DIR`; source runs use a separate OS configuration subdirectory. It preserves other settings, refuses an already-imported foreign configuration, and does not enable offline mode or alter inference/download behavior. Real-library subprocess tests cover fresh, existing and reset profiles without allowing network traffic. This source fix has not yet been packaged into the published desktop.2 release.
+
 ## 4. Frame contract
 
 Every authored media position is an absolute, zero-based source-video frame. The domain does not store clip-relative frame numbers or media timestamps.
@@ -102,7 +104,7 @@ Every authored media position is an absolute, zero-based source-video frame. The
 - `endFrame` may equal the video's `frameCount`.
 - Presentation cue durations remain wall-clock milliseconds because they are not media positions.
 
-`webapp/lib/clip/frameMath.ts` is the only conversion boundary. Seeking writes `frame / fps`. Presented-frame identity prefers `requestVideoFrameCallback().mediaTime` and floors with an epsilon; it clamps to `[0, frameCount - 1]`.
+`webapp/lib/clip/frameMath.ts` is the conversion boundary. Frame boundaries use `frame / fps`; frame-centred seeking uses `(frame + 0.5) / fps` so browser timestamp quantization does not select the preceding frame. The capture player, clip editor and pin annotator use frame-centred seeks. Arbitrary playback-clock times use `mediaTimeToVideoFrame` (floor with an epsilon). The capture player's decoded-frame callbacks use `presentedTimeToVideoFrame` (nearest boundary), because `requestVideoFrameCallback().mediaTime` identifies a decoded frame's start and may be rounded just below its exact timestamp. Both conversions clamp to `[0, frameCount - 1]`. The clip editor and presentation playback still use their existing floor-based presented-frame conversion; this capture-player fix does not change those paths.
 
 Tracking and pin calibration use timestamp-based sidecar requests. Their frame sampler includes `endMs`, so a domain range sends `frameToMs(endFrame - 1)`, not the exclusive boundary. Clip homography uses `startFrame`, exclusive `endFrame`, `sourceFps`, and `everyNFrames` instead; output/cache timestamps remain milliseconds for compatibility. One-frame clips are valid data, but the editor currently enables tracking and homography range actions only for clips of at least two frames.
 
@@ -183,15 +185,20 @@ The required `tagging-board.v1` file contains:
 
 - an optional fixed coordinate layout with board dimensions, modifier slots, group-label rectangles, and button rectangles;
 - flat visual groups of primary-tag buttons;
+- optional `exclusiveGroups`, each with an `id` and `buttonIds`, independent of visual groups;
 - optional per-button hotkeys and compatibility capture fields;
 - per-button applicable facet-group IDs; and
 - single- or multi-select facet groups with optional `requiresAny` rules.
 
 The parser rejects duplicate or unresolved IDs, invalid defaults, dependency cycles, and malformed requirements. Conflicting hotkeys disable every binding in that collision rather than selecting one implicitly. If a valid v2 project is missing its board, open installs the default board from `webapp/public/tagging/board.json`.
 
+Each exclusive group requires at least two distinct existing primary-button IDs. A button may belong to only one exclusive group. Missing `exclusiveGroups` or an explicit empty array permits all captures to overlap. The built-in board groups only `offensive.open_play.possession` and `defensive.open_play.possession` into the `possession` exclusive group; no football-specific IDs are hardcoded in the capture engine.
+
 Older v2 board files using `leadFrames`/`lagFrames` are read as 30 FPS reference durations and converted in memory to seconds. These fields, along with `leadSeconds`, `lagSeconds`, and `mode`, remain parser-compatible, but canonical capture deliberately resolves every button to exact-frame range mode with zero lead/lag.
 
-Unmodified built-in boards follow the application language (English, French, Spanish or Simplified Chinese), including group headings, tiles, modifiers and tag-tree headings. `lib/tagging/localizedBoard.ts` recognizes the complete current or earlier built-in board in any supported language; IDs alone never qualify a custom board. Localization is an in-memory display projection: the project JSON, saved clip labels, tag IDs and captures in progress are unchanged. Customized or uploaded non-default boards retain their authored labels.
+Unmodified built-in boards follow the application language (English, French, Spanish or Simplified Chinese), including group headings, tiles, modifiers and tag-tree headings. `lib/tagging/localizedBoard.ts` recognizes the complete current or earlier built-in board in any supported language; IDs alone never qualify a custom board. Switching language changes an in-memory display projection, not the project board JSON, saved clip labels, tag IDs or captures in progress. A new capture snapshots the displayed tile label when it starts and uses that name for both its pending marker and saved clip, even if the language changes before it ends. Untagged capture also snapshots its localized name at the start. Customized or uploaded non-default boards retain their authored labels.
+
+On load, exact earlier built-in boards without `exclusiveGroups` gain the default possession exclusion in memory without rewriting the project file. Customized boards keep their authored capture behaviour, and explicit `exclusiveGroups: []` opts out even on an otherwise default board. Recognition compares the complete known board, including layout, labels, hotkeys and capture settings, rather than assuming familiar IDs imply a default board.
 
 ### `clip.json`
 
@@ -205,6 +212,7 @@ interface Clip {
   startFrame: VideoFrame;
   endFrame: FrameBoundary;
   label?: string;
+  generatedLabel?: string | null;
   tags: { primary: string | null; facets: Record<string, string | string[]> };
   pins: ClipPin[];
   annotations: ClipAnnotation[];
@@ -343,17 +351,25 @@ The dashboard shows errors and warnings with stable issue codes and paths. Integ
 
 There are no `/stills`, `/annotate/[stillId]`, `/player-legacy`, `/dropdown-test`, or temporary `/v2` routes in the canonical application. The user guide is not bundled: the header's **User guide** link opens the [online guide](https://patrickjykang.github.io/annotate-docs/) (`webapp/lib/onlineGuide.ts`, built from the separate `annotate-docs` repository) in the current UI language, in a new tab in the browser and in the system browser on desktop.
 
+The explicit English app link adds `?lang=en` so the guide homepage does not replace the app's choice with the browser's language. The other locales link directly to `/fr/`, `/es/`, or `/zh-CN/`. The bare website homepage retains first-visit language detection. This contract requires the matching guide-site deployment; updating either repository locally does not replace published pages or installed desktop packages.
+
 ## 9. Capture and tagging
 
 The player has resizable video, board, and clip-tree areas. Clicking a timeline clip selects and reveals its row in the clip tree, scrolling only that panel and only when the row is outside its visible area (including its sticky heading). Clicking an already selected timeline clip reveals it again after manual list scrolling. Clicking a clip-tree row seeks to the clip start and reveals it in the timeline.
 
 The project-authored board is a fixed coordinate surface rather than a scrolling menu. `layout.width`/`height`, group `labelRect` values, button `rect` values, and modifier slots determine its visual arrangement. The board still owns tag identity, facet applicability, requirements, and optional hotkeys.
 
-Every primary button is an exact-frame range toggle. The first press arms that tag at the current frame; the second press closes it with an inclusive final frame represented by exclusive `endFrame = frame + 1`. There is no automatic lead/lag or pre-roll in the canonical capture workflow. Multiple different buttons may remain armed concurrently, so clips can overlap. Closing before the start frame waits rather than creating invalid data; closing on the start frame creates a valid one-frame clip.
+Every primary button is an exact-frame range toggle. The first press arms that tag at the current frame; the second press closes it with an inclusive final frame represented by exclusive `endFrame = frame + 1`. There is no automatic lead/lag or pre-roll in the canonical capture workflow. Different buttons may remain armed concurrently unless their board places them in the same exclusive group. Closing before the start frame waits rather than creating invalid data; closing on the start frame creates a valid one-frame clip.
+
+Starting a different button in an active exclusive group at frame F saves the previous capture as `[startFrame, F)` and starts the new capture at F, with no shared frame. A switch at the original start frame replaces the empty draft without saving a zero-length clip; switching before its start is refused. The old capture retains its modifiers, which are not implicitly copied to the new capture. Unrelated captures continue unchanged, so a Pass may overlap a Possession even though offensive and defensive possession cannot remain active together on the default board. These rules govern new capture, not existing saved clips.
+
+The capture player saves a closing clip before committing the engine transition. Save failure leaves the previous active range and its modifiers intact for retry. Capture presses, cancellation and modifier changes are blocked while that save is pending, preventing competing transitions or lost edits. Mouse clicks and board hotkeys use the same path.
 
 Applicable armed facets are snapshotted when capture begins and then consumed; modifier changes can update the active range independently. During capture, the modifier panel stays on the most recently started active range, including keyboard-started ranges; hovering or focusing another action does not switch it. Ending that range returns the panel to any remaining active range. Requirement rules are enforced, and changing a primary tag prunes facets that are no longer applicable. Untagged and unknown-tag clips remain separate tree buckets. Re-tagging is paused-only and can be performed from the board or by dragging a clip onto a board-derived tree group.
 
 The tagging timeline derives one lane from each board group and shows both persisted clips and in-progress captures. Overlapping intervals are packed into subtracks. Its default viewport is one minute, it can zoom out to the whole video or up to 64x beyond the default scale, and manual scrolling suspends playhead auto-follow until five seconds after interaction ends.
+
+Re-tagging changes generated clip names to the new primary tag's displayed label, localized for a built-in board or authored for a custom board, but preserves custom names. New captures store the last generated name in optional `generatedLabel`; a differing `label`, or explicit `generatedLabel: null`, is custom. For older clips without this field, only an absent/empty label or an exact match to the previous primary tag's source-board label (or `Untagged clip` for untagged clips) is treated as generated. Unknown older names are preserved rather than guessed. Clearing a tag uses the localized untagged label; changing facets alone does not rename a clip. The UI passes the displayed label to `replaceClipTagsExclusive`, which saves tags and names together under the clip lock after checking the latest document. Desktop forwards it through `clip.retag` to the same authoritative repository. Callers without a display label retain the authored-board/English-untagged fallback. Display-language switching alone does not rewrite saved clip names.
 
 ## 10. Clip editor
 
@@ -371,9 +387,13 @@ The clip editor uses three persisted resizable regions: viewer, inspector, and t
 - Delete removes the selected keyframe; Shift-Delete removes the object.
 - Manual/correction geometry keyframes can be dragged horizontally. Tracked/lost geometry keyframes are intentionally fixed; legacy visibility markers have no timeline editing controls.
 - The timeline horizontally zooms and scrolls. Pins have their own lane.
-- Trim mode keeps the clip's entry range as a fixed outer boundary and moves frame-snapped in/out handles inward. Apply atomically writes the narrowed range, filters pins and keyframes outside it, and samples boundary geometry so retained animation does not jump. Cancel writes nothing; the immediate Undo trim action restores the complete pre-trim clip. A later edit intentionally expires that trim undo snapshot.
+- Trim mode keeps the clip's entry range as a fixed outer boundary and moves frame-snapped in/out handles inward. Apply atomically writes the narrowed range and filters pins and keyframes outside it. Boundary geometry is sampled only on sides where keyframe data was removed, retaining required interpolation anchors and hidden/lost sentinels without inventing extra keys before an existing track starts or after it ends. Cancel writes nothing; the immediate Undo trim action restores the complete pre-trim clip. A later edit intentionally expires that trim undo snapshot.
 
 Selecting a shape on the object lane makes it the movement target even when another shape visually overlaps it.
+
+Box/Circle drag previews use the actual pointer extent and start empty, rather than showing click-placement defaults while the pointer is down. Mouse-up retains the existing default dimensions for a gesture under four source-image pixels on both axes. Pitch-mode preview and committed geometry go through the same image-to-pitch conversion. Escape cancels a draft without creating an object.
+
+Highlight-name Text size uses the shared `CommittedNumberInput` in both clip and pin inspectors. The field keeps an uncommitted text draft; Enter or blur normalizes finite values to 8-300 and writes one edit. Empty/invalid input restores the previous value, Escape cancels, and native number stepping and decimal sizes remain supported. Field instances are keyed by shape ID, so changing selection cannot reuse another object's draft. External changes such as undo update the displayed value. Font size remains object-level style data and does not add geometry keyframes.
 
 ### Tracking
 
@@ -421,7 +441,7 @@ Clip slides play source motion with the shared animated-annotation renderer. Pin
 
 Pin annotation documents render over the rasterized source frame on a separate live canvas. Presentation-level cues determine when a whole document is visible; the document's own ordered animation sequence determines how its shapes enter after that point. A canvas click, Space, Play, presentation Next, or Right first consumes the next pending on-click step. Only when no step is pending does the same action resume a paused clip or advance the scene. Automatic slide/pause holds do not bypass a pending click step.
 
-Pin slides rasterize one exact source frame and its selected annotation documents. Title slides render authored text.
+Pin slides rasterize one exact source frame and its selected annotation documents. Title slides render authored text. New title slides receive a localized default in the current UI language; that title is saved as ordinary slide text. Later language changes do not rewrite saved defaults or custom titles.
 
 When a clip or clip-backed pin is selected, **Edit clip** opens or focuses its desktop editor window, or opens a project-bound browser tab. Clip writes broadcast a project-local change event, and presentation authoring also refreshes on window focus, so saved edits update the asset browser, selected slide, and playback source without reopening the presentation.
 

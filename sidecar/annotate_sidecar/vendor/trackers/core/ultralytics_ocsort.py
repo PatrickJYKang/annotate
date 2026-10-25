@@ -14,6 +14,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from ....ultralytics_runtime import load_ultralytics
 from .ocsort.tracker import OCSORTTracker
 from .types import BBox, FrameTrackResult
 
@@ -91,7 +92,7 @@ class UltralyticsOCSORTCore:
         if self._model is not None:
             return
         try:
-            from ultralytics import YOLO
+            YOLO = load_ultralytics().YOLO
         except ImportError as exc:
             raise RuntimeError(
                 "ultralytics is required for tracking. Install with: pip install ultralytics"

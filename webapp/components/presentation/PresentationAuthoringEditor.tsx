@@ -299,7 +299,7 @@ export default function PresentationAuthoringEditor({
           onChange={(event) => commit({ ...draftRef.current, name: event.target.value || 'Untitled presentation', updatedAt: new Date().toISOString() })}
         />
         <button className="button-quiet border-r border-border px-3" onClick={() => {
-          const slide = createTitleSlide('section');
+          const slide = createTitleSlide(t('presentation.untitledTitleSlide'), 'section');
           const index = Math.min(draftRef.current.slides.length, selectedIndex + 1);
           commit(insertSlide(draftRef.current, slide, index), true);
           setPreviewSource(null);

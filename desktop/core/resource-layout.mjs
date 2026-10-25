@@ -94,6 +94,7 @@ export function sidecarEnvironment(layout, { token, origins, inherited = process
     XDG_CACHE_HOME: writable.cache,
     MPLCONFIGDIR: path.join(writable.cache, 'matplotlib'),
     TORCH_HOME: path.join(writable.cache, 'torch'),
+    ANNOTATE_ULTRALYTICS_CONFIG_DIR: path.join(writable.settings, 'ultralytics'),
     YOLO_CONFIG_DIR: path.join(writable.settings, 'ultralytics'),
     TMPDIR: writable.temp, TMP: writable.temp, TEMP: writable.temp,
   };

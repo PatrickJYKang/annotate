@@ -7,6 +7,7 @@ import {
   Panels,
 } from '../panels/Panels';
 import ColorLinkToggle from '../annotate/ColorLinkToggle';
+import CommittedNumberInput from '../annotate/CommittedNumberInput';
 import type {
   ClipAnnotation,
   ClipAnnotationStyle,
@@ -416,15 +417,15 @@ export function AnnotationInspector({
                 {annotation.displayName && (
                   <label className="block px-2 py-1.5 text-muted">
                     <span className="mb-1 block">{t('annotation.textSize')}</span>
-                    <input
+                    <CommittedNumberInput
+                      key={annotation.id}
                       aria-label={t('annotation.textSize')}
                       className="w-full"
-                      type="number"
                       min={8}
                       max={300}
                       step={1}
                       value={annotation.style.fontSize || defaultFontSize}
-                      onChange={(event) => onHighlightNameFontSize(Number(event.target.value) || defaultFontSize)}
+                      onCommit={onHighlightNameFontSize}
                     />
                   </label>
                 )}

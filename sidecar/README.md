@@ -63,6 +63,14 @@ cd sidecar
 .venv/bin/python -m pytest tests
 ```
 
+## YOLO privacy settings
+
+Both the capability check and tracker load Ultralytics through `annotate_sidecar/ultralytics_runtime.py`. It sets `sync=false` (usage analytics) and `hub=false` (unused HUB callbacks) before loading YOLO's prediction callbacks. This is enforced on each process startup, including existing app profiles and settings reset by the library. Other settings are preserved, and repeated health polls do not rewrite an already-configured file. Detection, OC-SORT, PnLCalib and model downloads are unchanged; this is not an offline-mode switch.
+
+Packaged desktop supplies `ANNOTATE_ULTRALYTICS_CONFIG_DIR` pointing to its existing `settings/ultralytics` directory in app user data. Source development defaults to `Annotate/sidecar/ultralytics` below macOS Application Support, Windows `%APPDATA%`, or Linux `$XDG_CONFIG_HOME` (default `~/.config`). Ultralytics adds its own `Ultralytics/settings.json` beneath that directory. Set the Annotate-specific override to a disposable directory for isolated testing. An inherited generic `YOLO_CONFIG_DIR` is not reused, so unrelated Python projects' settings are not modified. A pre-existing import using another settings directory is rejected; restart the sidecar rather than sharing that runtime.
+
+The initialization contract is checked against pinned Ultralytics 8.4.19, whose model/event imports are lazy and whose Sentry initializer is restricted to its `yolo` CLI, not Annotate's entry point. The privacy regression runs the actual library in separate interpreters, forces the online/non-test analytics conditions, blocks socket connections, and checks fresh, existing and reset profiles, disabled event/HUB callbacks, unchanged unrelated settings and model-download dispatch. Re-run it when changing the Ultralytics pin. These source changes are not yet in the published desktop.2 installers.
+
 Routes that take a video locator (`/track`, `/homography`) expect either:
 - `videoRef` from `POST /video/register` (recommended)
 - absolute `videoPath` (legacy/manual)
@@ -105,6 +113,7 @@ annotate_sidecar/
   __init__.py
   __main__.py              # CLI entry point (arg parsing + uvicorn)
   server.py                # FastAPI app, CORS, lifespan events
+  ultralytics_runtime.py   # Private YOLO settings and analytics-disabled initialization
   video_registry.py        # Temporary videoRef -> temp-file registry
   routes/
     health.py              # GET /health

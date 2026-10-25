@@ -21,7 +21,7 @@ interface InternalRangeCapture extends Omit<ActiveRangeCapture, 'facets'> {
 }
 
 export type CapturePressResult =
-  | { kind: 'armed'; range: ActiveRangeCapture }
+  | { kind: 'armed'; range: ActiveRangeCapture; closedClip?: Clip }
   | { kind: 'waiting'; range: ActiveRangeCapture }
   | { kind: 'created'; clip: Clip; mode: 'range' };
 
@@ -30,6 +30,7 @@ export interface CaptureEngineOptions {
   videoFrameCount: number;
   videoFps: number;
   videoId: string;
+  getButtonLabel?: (buttonId: string) => string | undefined;
   getArmedFacets?: () => TaggingSelection['facets'];
   onFacetsConsumed?: (facetGroupIds: string[]) => void;
   createId?: () => string;
@@ -37,6 +38,11 @@ export interface CaptureEngineOptions {
 
 export interface CaptureEngine {
   pressButton: (buttonId: string, playheadFrame: number) => CapturePressResult;
+  pressButtonAndPersist: (
+    buttonId: string,
+    playheadFrame: number,
+    persist: (clip: Clip) => Promise<void>,
+  ) => Promise<CapturePressResult>;
   cancelRange: (buttonId: string) => ActiveRangeCapture | null;
   cancelMostRecentRange: () => ActiveRangeCapture | null;
   cancelAllRanges: () => ActiveRangeCapture[];
@@ -77,17 +83,20 @@ export function createCaptureEngine(options: CaptureEngineOptions): CaptureEngin
     throw new RangeError('videoFps must be positive.');
   }
   const activeRanges = new Map<string, InternalRangeCapture>();
+  const exclusivePeers = new Map<string, Set<string>>();
+  for (const group of options.board.exclusiveGroups ?? []) {
+    const members = new Set(group.buttonIds);
+    for (const id of members) exclusivePeers.set(id, members);
+  }
   let order = 0;
+  let saving = false;
 
   const snapshotTags = (buttonId: string): TaggingSelection => {
     const selection: TaggingSelection = {
       primary: buttonId,
       facets: structuredClone(options.getArmedFacets?.() ?? {}),
     };
-    const tags = pruneInapplicableFacets(options.board, buttonId, selection);
-    const consumed = Object.keys(tags.facets);
-    if (consumed.length > 0) options.onFacetsConsumed?.(consumed);
-    return tags;
+    return pruneInapplicableFacets(options.board, buttonId, selection);
   };
 
   const createClip = (
@@ -103,6 +112,7 @@ export function createCaptureEngine(options: CaptureEngineOptions): CaptureEngin
     startFrame: videoFrame(startFrame),
     endFrame: frameBoundary(endFrame),
     label,
+    generatedLabel: label,
     tags: structuredClone(tags),
     pins: [],
     annotations: [],
@@ -114,29 +124,49 @@ export function createCaptureEngine(options: CaptureEngineOptions): CaptureEngin
       .map(publicRange)
   );
 
-  return {
-    pressButton(buttonId, playheadFrame) {
-      const capture = resolveButtonCapture(options.board, buttonId);
-      const frame = clampPlayhead(playheadFrame, options.videoFrameCount);
-      const active = activeRanges.get(buttonId);
-      if (!active) {
-        const range: InternalRangeCapture = {
-          buttonId,
-          buttonLabel: capture.button.label,
-          startFrame: frame,
-          order: order++,
-          tags: snapshotTags(buttonId),
-        };
-        activeRanges.set(buttonId, range);
-        return { kind: 'armed', range: publicRange(range) };
+  const preparePress = (buttonId: string, playheadFrame: number): {
+    result: CapturePressResult;
+    commit: () => void;
+  } => {
+    const capture = resolveButtonCapture(options.board, buttonId);
+    const frame = clampPlayhead(playheadFrame, options.videoFrameCount);
+    const active = activeRanges.get(buttonId);
+    if (!active) {
+      const previous = [...activeRanges.values()].find((range) => exclusivePeers.get(buttonId)?.has(range.buttonId));
+      if (previous && frame < previous.startFrame) {
+        return { result: { kind: 'waiting', range: publicRange(previous) }, commit() {} };
       }
-
-      const endFrame = Math.min(options.videoFrameCount, frame + 1);
-      if (endFrame <= active.startFrame) {
-        return { kind: 'waiting', range: publicRange(active) };
-      }
-      activeRanges.delete(buttonId);
+      // A switch owns its first frame. The previous half-open range stops there.
+      // Switching on the initial frame replaces an empty draft, not a saved clip.
+      const closedClip = previous && frame > previous.startFrame
+        ? createClip((options.createId ?? defaultClipId)(), previous.buttonLabel, previous.startFrame, frame, previous.tags)
+        : undefined;
+      const range: InternalRangeCapture = {
+        buttonId,
+        // Keep the name seen at capture start, even if the UI language changes.
+        buttonLabel: options.getButtonLabel?.(buttonId) ?? capture.button.label,
+        startFrame: frame,
+        order,
+        tags: snapshotTags(buttonId),
+      };
       return {
+        result: { kind: 'armed', range: publicRange(range), ...(closedClip ? { closedClip } : {}) },
+        commit() {
+          if (previous) activeRanges.delete(previous.buttonId);
+          activeRanges.set(buttonId, range);
+          order++;
+          const consumed = Object.keys(range.tags.facets);
+          if (consumed.length > 0) options.onFacetsConsumed?.(consumed);
+        },
+      };
+    }
+
+    const endFrame = Math.min(options.videoFrameCount, frame + 1);
+    if (endFrame <= active.startFrame) {
+      return { result: { kind: 'waiting', range: publicRange(active) }, commit() {} };
+    }
+    return {
+      result: {
         kind: 'created',
         mode: 'range',
         clip: createClip(
@@ -146,27 +176,56 @@ export function createCaptureEngine(options: CaptureEngineOptions): CaptureEngin
           endFrame,
           active.tags,
         ),
-      };
+      },
+      commit() { activeRanges.delete(buttonId); },
+    };
+  };
+
+  return {
+    pressButton(buttonId, playheadFrame) {
+      if (saving) throw new Error('A capture is being saved.');
+      const press = preparePress(buttonId, playheadFrame);
+      press.commit();
+      return press.result;
+    },
+    async pressButtonAndPersist(buttonId, playheadFrame, persist) {
+      if (saving) throw new Error('A capture is being saved.');
+      saving = true;
+      try {
+        const press = preparePress(buttonId, playheadFrame);
+        const clip = press.result.kind === 'created' ? press.result.clip
+          : press.result.kind === 'armed' ? press.result.closedClip : undefined;
+        if (clip) await persist(clip);
+        // Do not discard the old capture or consume the new facets before saving.
+        press.commit();
+        return press.result;
+      } finally {
+        saving = false;
+      }
     },
     cancelRange(buttonId) {
+      if (saving) return null;
       const active = activeRanges.get(buttonId);
       if (!active) return null;
       activeRanges.delete(buttonId);
       return publicRange(active);
     },
     cancelMostRecentRange() {
+      if (saving) return null;
       const active = [...activeRanges.values()].sort((left, right) => right.order - left.order)[0];
       if (!active) return null;
       activeRanges.delete(active.buttonId);
       return publicRange(active);
     },
     cancelAllRanges() {
+      if (saving) return [];
       const ranges = getActiveRanges();
       activeRanges.clear();
       return ranges;
     },
     getActiveRanges,
     setRangeFacets(buttonId, facets) {
+      if (saving) return null;
       const active = activeRanges.get(buttonId);
       if (!active) return null;
       active.tags = pruneInapplicableFacets(options.board, buttonId, {

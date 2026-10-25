@@ -57,6 +57,49 @@ try {
   assert.match(await editor.locator('video').getAttribute('src'), /^http:\/\/127\.0\.0\.1:/);
   await editor.getByRole('button', { name: 'Step forward', exact: true }).click();
   await expect(editor.getByText(/Frame 6 · clip 5–44/)).toBeVisible();
+  await editor.waitForFunction(() => !document.querySelector('video').seeking);
+  const unchangedClip = await readFile(clipPath, 'utf8');
+  const localeProbe = await editor.evaluateHandle(() => {
+    const video = document.querySelector('video');
+    const events = [];
+    const types = ['loadstart', 'emptied', 'seeking', 'pause', 'play', 'error'];
+    const observe = (event) => events.push(event.type);
+    types.forEach((type) => video.addEventListener(type, observe));
+    const canvas = document.createElement('canvas');
+    canvas.width = 32; canvas.height = 18;
+    const sample = () => {
+      const context = canvas.getContext('2d');
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return Array.from(context.getImageData(0, 0, canvas.width, canvas.height).data);
+    };
+    return { video, events, sample, originalPixels: sample(), time: video.currentTime, src: video.currentSrc,
+      cleanup: () => types.forEach((type) => video.removeEventListener(type, observe)) };
+  });
+  try {
+    for (const target of [home, editor]) {
+      for (const locale of ['fr', 'es', 'zh-CN', 'en']) {
+        await target.locator('#app-locale').selectOption(locale);
+        await expect(target.locator('html')).toHaveAttribute('lang', locale);
+        // Allow locale effects and layout to settle without seeking or forcing playback.
+        await editor.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const state = await localeProbe.evaluate(({ video, events, sample, originalPixels, time, src }) => ({
+          sameElement: video === document.querySelector('video'),
+          sameSource: video.currentSrc === src,
+          sameTime: video.currentTime === time,
+          sameFrame: JSON.stringify(sample()) === JSON.stringify(originalPixels),
+          ready: video.readyState >= 2,
+          paused: video.paused,
+          events: [...events],
+        }));
+        assert.deepEqual(state, { sameElement: true, sameSource: true, sameTime: true, sameFrame: true, ready: true, paused: true, events: [] }, `Locale ${locale} must not reset clip media`);
+      }
+    }
+    assert.equal(await readFile(clipPath, 'utf8'), unchangedClip, 'Language changes must not rewrite clip data');
+    await expect(editor.getByText(/Frame 6 · clip 5–44/)).toBeVisible();
+  } finally {
+    await localeProbe.evaluate(({ cleanup }) => cleanup());
+    await localeProbe.dispose();
+  }
   const before = (await readClip()).annotations.length;
   await editor.getByRole('button', { name: 'Highlight', exact: true }).click();
   const stage = await editor.getByTestId('clip-stage').boundingBox();
@@ -145,7 +188,7 @@ try {
   assert.equal(application.windows().length, 2, 'Opening an existing clip must focus its window');
   await editor.screenshot({ path: path.join(artifacts, 'native-clip-editor.png') });
   assert.deepEqual(errors, []);
-  console.log('Electron smoke passed: native project opening/import/cancel, editor/pin windows, range-backed video, seek/drawing, persistence/reload, close-time autosave, real detection request, report PNG export, presentation save/playback, deduplication, stale-write conflicts and IPC denial checks.');
+  console.log('Electron smoke passed: native project opening/import/cancel, editor/pin windows, range-backed video, locale changes without media resets, seek/drawing, persistence/reload, close-time autosave, real detection request, report PNG export, presentation save/playback, deduplication, stale-write conflicts and IPC denial checks.');
 } catch (error) {
   for (const [index, page] of (application?.windows() ?? []).entries()) {
     console.error(`Window ${index}: ${page.url()}\n${(await page.locator('body').innerText().catch(() => '')).slice(0, 8000)}`);

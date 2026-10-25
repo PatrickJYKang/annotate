@@ -6,6 +6,7 @@ import {
   TAGGING_BOARD_FILENAME,
   type TaggingBoard,
 } from '../tagging/board';
+import { upgradeDefaultBoardExclusions } from '../tagging/localizedBoard';
 import {
   type MatchInfo,
 } from '../types/metadata';
@@ -167,7 +168,7 @@ export async function writeProjectManifest(
 
 async function loadDefaultBoardSource(provided?: string): Promise<{ source: string; board: TaggingBoard }> {
   const source = provided ?? await fetchDefaultTaggingBoard();
-  return { source, board: parseTaggingBoard(source) };
+  return { source, board: upgradeDefaultBoardExclusions(parseTaggingBoard(source)) };
 }
 
 export async function createProject(
@@ -202,7 +203,7 @@ export async function ensureProjectBoard(
   defaultBoardSource?: string,
 ): Promise<TaggingBoard> {
   const existing = await readTaggingBoard(projectDir);
-  if (existing) return existing;
+  if (existing) return upgradeDefaultBoardExclusions(existing);
   const { source, board } = await loadDefaultBoardSource(defaultBoardSource);
   await writeTextFile(projectDir, [TAGGING_BOARD_FILENAME], source);
   return board;

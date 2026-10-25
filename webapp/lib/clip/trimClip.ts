@@ -183,8 +183,14 @@ function trimAnnotation(
     }
   };
 
-  addBoundarySample(range.startFrame, 1);
-  if (range.endFrame - range.startFrame > 1) {
+  // Only replace geometry removed on that side. Outside the keyframe range,
+  // playback already holds the nearest keyframe without an extra edge key.
+  const removedStartGeometry = annotation.keyframes.some((keyframe) => (
+    keyframe.frame < range.startFrame
+    || (keyframe.frame === range.startFrame && actionAtStart === 'hide')
+  ));
+  if (removedStartGeometry) addBoundarySample(range.startFrame, 1);
+  if (annotation.keyframes.some((keyframe) => keyframe.frame >= range.endFrame)) {
     addBoundarySample(range.endFrame - 1, -1);
   }
   keyframes.sort((left, right) => left.frame - right.frame);

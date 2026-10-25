@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { validateClip, type Clip } from '../types/clip';
 import { frameBoundary, videoFrame } from './frameMath';
+import { interpolateAnnotation } from './interpolation';
 import { inspectClipTrim, trimClipInward } from './trimClip';
 
 function clipFixture(): Clip {
@@ -51,6 +52,66 @@ function clipFixture(): Clip {
 }
 
 describe('trimClipInward', () => {
+  it('does not add edge keyframes when trimming outside the existing keyframe range', () => {
+    const source = clipFixture();
+    const result = trimClipInward(source, {
+      startFrame: videoFrame(7),
+      endFrame: frameBoundary(44),
+    });
+
+    expect(result.annotations[0].keyframes).toEqual(source.annotations[0].keyframes);
+    expect(result.annotations[1].keyframes.map((keyframe) => keyframe.frame)).toEqual([7]);
+    for (let frame: number = result.startFrame; frame < result.endFrame; frame += 1) {
+      for (let index = 0; index < result.annotations.length; index += 1) {
+        expect(interpolateAnnotation(result.annotations[index], videoFrame(frame), result.endFrame))
+          .toEqual(interpolateAnnotation(source.annotations[index], videoFrame(frame), source.endFrame));
+      }
+    }
+    expect(validateClip(result)).toEqual([]);
+  });
+
+  it('does not change keyframes when applying the unchanged range', () => {
+    const source = clipFixture();
+    const result = trimClipInward(source, source);
+
+    expect(result.annotations.map((annotation) => annotation.keyframes))
+      .toEqual(source.annotations.map((annotation) => annotation.keyframes));
+  });
+
+  it.each([
+    { start: 5, end: 8, anchor: 7 },
+    { start: 39, end: 45, anchor: 39 },
+  ])('retains held geometry with no original keyframe between $start and $end', ({ start, end, anchor }) => {
+    const source = clipFixture();
+    source.annotations = [source.annotations[0]];
+    const result = trimClipInward(source, {
+      startFrame: videoFrame(start),
+      endFrame: frameBoundary(end),
+    });
+
+    expect(result.annotations[0].keyframes.map((keyframe) => keyframe.frame)).toEqual([anchor]);
+    for (let frame = start; frame < end; frame += 1) {
+      expect(interpolateAnnotation(result.annotations[0], videoFrame(frame), result.endFrame))
+        .toEqual(interpolateAnnotation(source.annotations[0], videoFrame(frame), source.endFrame));
+    }
+    expect(validateClip(result)).toEqual([]);
+  });
+
+  it('keeps a hidden boundary sentinel when a trim removes the earlier loss marker', () => {
+    const source = clipFixture();
+    source.annotations[0].keyframes.unshift({
+      frame: videoFrame(5), cx: 80, cy: 100, radius: 20, provenance: 'lost', visible: false,
+    });
+    const result = trimClipInward(source, {
+      startFrame: videoFrame(7), endFrame: frameBoundary(44),
+    });
+
+    expect(result.annotations[0].keyframes[0]).toMatchObject({ frame: 7, visible: false, provenance: 'lost' });
+    expect(result.annotations[0].keyframes.slice(1)).toEqual(source.annotations[0].keyframes.slice(1));
+    expect(interpolateAnnotation(result.annotations[0], videoFrame(7), result.endFrame)).toBeNull();
+    expect(validateClip(result)).toEqual([]);
+  });
+
   it('crops pins and keyframes while preserving boundary geometry', () => {
     const source = clipFixture();
     const range = { startFrame: videoFrame(10), endFrame: frameBoundary(35) };
@@ -67,7 +128,7 @@ describe('trimClipInward', () => {
       provenance: 'lost',
       visible: false,
     });
-    expect(result.annotations[1].keyframes.map((keyframe) => keyframe.frame)).toEqual([10, 34]);
+    expect(result.annotations[1].keyframes.map((keyframe) => keyframe.frame)).toEqual([10]);
     expect(validateClip(result)).toEqual([]);
     expect(source.startFrame).toBe(5);
     expect(source.annotations[0].keyframes.map((keyframe) => keyframe.frame)).toEqual([8, 20, 38]);

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import defaultBoardDocument from '../../public/tagging/board.json';
+import { readTaggingBoard } from '../tagging/board';
 import { frameBoundary, videoFrame } from '../clip/frameMath';
 import type { Clip } from '../types/clip';
 import { defaultMatchInfo } from '../types/metadata';
@@ -8,6 +9,7 @@ import { createDefaultPresentation } from '../types/presentation';
 import {
   createClipExclusive,
   deleteClipExclusive,
+  mutateClipExclusive,
   replaceClipAnnotationsExclusive,
   replaceClipTagsExclusive,
   restoreClipExclusive,
@@ -149,6 +151,18 @@ describe('projectFolder', () => {
     const opened = await validateProjectFolder(fileSystem.root, boardSource);
     expect(opened.ok).toBe(true);
     expect(fileSystem.exists('tagging-board.json')).toBe(true);
+  });
+
+  it('upgrades unchanged default exclusions on open without rewriting the board file', async () => {
+    const fileSystem = new MockFileSystem();
+    await createEmptyProject(fileSystem);
+    const { exclusiveGroups: _groups, ...previousBoard } = defaultBoardDocument;
+    const source = JSON.stringify(previousBoard);
+    await writeTextFile(fileSystem.root, ['tagging-board.json'], source);
+    expect(await validateProjectFolder(fileSystem.root)).toMatchObject({
+      ok: true, board: { exclusiveGroups: defaultBoardDocument.exclusiveGroups },
+    });
+    expect(await fileSystem.readText('tagging-board.json')).toBe(source);
   });
 
   it('recreates missing disposable project folders during open validation', async () => {
@@ -307,6 +321,57 @@ describe('v2 structured storage', () => {
 });
 
 describe('clip repository and trash', () => {
+  it('persists generated re-tagged names and respects the latest custom name under the lock', async () => {
+    const fileSystem = new MockFileSystem();
+    await createEmptyProject(fileSystem, true);
+    vi.stubGlobal('navigator', { locks: createSerialLockManager() });
+    const clip = { ...makeClip('retag_clip'), label: 'Possession', tags: {
+      primary: 'offensive.open_play.possession', facets: {},
+    } };
+    await createClipExclusive(fileSystem.root, clip);
+    const tags = { primary: 'offensive.open_play.pass', facets: {} };
+    await replaceClipTagsExclusive(fileSystem.root, clip.id, tags);
+    expect(await readClip(fileSystem.root, clip.id)).toMatchObject({
+      ok: true, clip: { label: 'Pass', generatedLabel: 'Pass', tags },
+    });
+
+    await Promise.all([
+      mutateClipExclusive(fileSystem.root, clip.id, (latest) => ({ ...latest, label: 'Custom name' })),
+      replaceClipTagsExclusive(fileSystem.root, clip.id, clip.tags),
+    ]);
+    expect(await readClip(fileSystem.root, clip.id)).toMatchObject({
+      ok: true, clip: { label: 'Custom name', generatedLabel: null, tags: clip.tags },
+    });
+  });
+
+  it('delegates desktop re-tagging to the authoritative repository', async () => {
+    const fileSystem = new MockFileSystem();
+    const command = vi.fn().mockResolvedValue(makeClip('native_clip'));
+    fileSystem.root.command = command;
+    const tags = { primary: 'offensive.open_play.pass', facets: {} };
+    await replaceClipTagsExclusive(fileSystem.root, 'native_clip', tags);
+    expect(command).toHaveBeenCalledWith('clip.retag', ['native_clip', tags]);
+    await replaceClipTagsExclusive(fileSystem.root, 'native_clip', tags, 'Pase');
+    expect(command).toHaveBeenLastCalledWith('clip.retag', ['native_clip', tags, 'Pase']);
+  });
+
+  it('persists translated generated names without changing the project board', async () => {
+    const fileSystem = new MockFileSystem();
+    await createEmptyProject(fileSystem, true);
+    vi.stubGlobal('navigator', { locks: createSerialLockManager() });
+    const clip = { ...makeClip('translated_clip'), label: 'Possession', tags: {
+      primary: 'offensive.open_play.possession', facets: {},
+    } };
+    const boardBefore = await readTaggingBoard(fileSystem.root);
+    await createClipExclusive(fileSystem.root, clip);
+    const tags = { primary: 'offensive.open_play.pass', facets: {} };
+    await replaceClipTagsExclusive(fileSystem.root, clip.id, tags, 'Pase');
+    expect(await readClip(fileSystem.root, clip.id)).toMatchObject({
+      ok: true, clip: { label: 'Pase', generatedLabel: 'Pase', tags },
+    });
+    expect(await readTaggingBoard(fileSystem.root)).toEqual(boardBefore);
+  });
+
   it('merges racing field-owned mutations against the latest clip', async () => {
     const fileSystem = new MockFileSystem();
     await createEmptyProject(fileSystem, true);

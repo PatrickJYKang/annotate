@@ -60,7 +60,7 @@ The Python sidecar owns smart media preparation, authoritative probing, tracking
 
 - **[User guide](https://patrickjykang.github.io/annotate-docs/)** in English, French, Spanish and Simplified Chinese, with tutorial videos. The **User guide** button in the app header opens it in the current UI language.
 - [Offline user guide](USER_GUIDE.md)
-- [Demo recording checklist](docs/demo-recording-checklist.md)
+- Demo production: [recording inventory](docs/demo-recording-checklist.md), [storyboards](docs/demo-storyboards.md), and [capture/editing workflow](docs/demo-recording-workflow.md)
 - [Desktop preview installation](desktop/INSTALL-preview.md)
 - [Desktop build and architecture](desktop/README.md)
 - **[As-built technical reference](technical_document.md)**

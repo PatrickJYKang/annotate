@@ -1,6 +1,6 @@
 # Demo Recording Workflow
 
-Updated: 2026-10-06. This records the method used for the first-project and pin-annotation tutorials, including revisions requested during review. The later 2026-10-06 tutorials (tracking, correction, presentation, trimming, export/recovery) use the same visual treatment with a shared per-session script set; the [handoff](demo-recording-handoff.md) describes that pipeline, current status, and lessons, and is the place to start. This page is not a request to start recording. See the [inventory](demo-recording-checklist.md) for current deliverables and the [storyboards](demo-storyboards.md) for completed and proposed click sequences.
+Updated: 2026-10-12. This records the production method established with the first-project and pin tutorials and reused for all twelve tutorials through October 7. The [handoff](demo-recording-handoff.md) describes the later shared per-session pipeline and is the place to start. All twelve topics and the combined walkthrough are published in four languages on the online guide. This page preserves technical details for editing and retakes; it is not a request to record. See the [inventory](demo-recording-checklist.md) for deliverables and the [storyboards](demo-storyboards.md) for the recorded sequences.
 
 ## Working arrangement
 
@@ -8,7 +8,7 @@ Patrick chooses or approves the football passage and the analysis. The assistant
 
 Automation is most useful for repeated UI sequences, localization, and editing revisions. Patrick may be faster at intricate drawing or a difficult correction than explaining every gesture. Those takes should use the same framing and final cursor/caption treatment. Do not build a global keylogger to reproduce them: log only the explicit demonstration actions and their timing. A sequence of keystrokes does not describe which player was intended or whether the UI was ready.
 
-Basic tracking, tracking correction, presentation authoring, and clip trimming have since been recorded in four languages, and export and recovery, all in four languages; see the [inventory](demo-recording-checklist.md). Do not treat the remaining storyboards as recordings already made or as standing permission to capture the desktop.
+The requested series is complete; pin context/annotation sets and installation were deliberately dropped. Next is the numbered app-issue review, followed by retakes only where an agreed fix changes the demonstrated behavior. No standing permission to capture the desktop is implied by a storyboard.
 
 ## Established visual and editing style
 
@@ -155,6 +155,6 @@ Saved data names are distinct from interface labels. Names such as Possession or
 7. Check all final files with ffprobe and full FFmpeg decoding. The existing pin checker also verifies resolution, frame rate, lack of audio, duration against the plan, and creates contact sheets around Dotted, Close pin, and the return to the clip.
 8. Visually inspect contact sheets and play the edited video, including native-window seams. A decodable file and valid JSON do not establish that the tutorial is understandable or the UI sequence is correct.
 9. Retain raw media, action timestamps, capture logs, captions, edit plans, script versions, QA images, and an explicit current-output manifest. Keep rejected takes separate from deliverables.
-10. Obtain content approval and confirm footage publication rights before embedding or posting. The eight current files are local exports; the in-app guide placeholders have not been replaced by this documentation work.
+10. Confirm the intended content and current footage decision before publishing a replacement or outreach edit. The 48 short tutorials and four combined walkthroughs are already on the online guide. Follow the [handoff](demo-recording-handoff.md#footage-and-outreach) for Patrick's guide/outreach plan; do not describe platform acceptance as rights clearance.
 
-When videos are eventually embedded, align the surrounding guide description with what the video actually covers. The current first-project export stops at a blank pin editor; it does not fulfill the existing placeholder's broader promise of a complete workflow through presentation. The separate pin tutorial and later presentation tutorial should make that division explicit.
+When replacing published videos, align each description with its actual scope. The first-project tutorial ends at a blank pin editor; drawing and presentation are separate tutorials. The combined walkthrough assembles all twelve topics. The guide lives in `annotate-docs`, with no bundled app page or unfilled tutorial placeholders. Its web encodes are 1440 x 930; retain the 1920 x 1240 masters for re-editing.

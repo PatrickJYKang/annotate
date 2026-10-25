@@ -18,6 +18,39 @@ function defaultBoard(): TaggingBoard {
 }
 
 describe('tagging board', () => {
+  it('supports optional explicit exclusions independently of visual groups', () => {
+    const board = defaultBoard();
+    expect(board.exclusiveGroups).toEqual([{
+      id: 'possession', buttonIds: ['offensive.open_play.possession', 'defensive.open_play.possession'],
+    }]);
+    delete board.exclusiveGroups;
+    expect(validateTaggingBoard(board)).toEqual([]);
+    board.exclusiveGroups = [];
+    expect(validateTaggingBoard(board)).toEqual([]);
+  });
+
+  it.each([
+    null,
+    {},
+    [null],
+    [{ id: 'empty', buttonIds: [] }],
+    [{ id: 'one', buttonIds: ['offensive.open_play.pass'] }],
+    [{ id: 'repeated', buttonIds: ['offensive.open_play.pass', 'offensive.open_play.pass'] }],
+    [{ id: 'unknown', buttonIds: ['offensive.open_play.pass', 'missing'] }],
+    [{ id: 'facet', buttonIds: ['offensive.open_play.pass', 'zone.vertical_third'] }],
+    [{ id: 'bad id', buttonIds: ['offensive.open_play.pass', 'offensive.open_play.cross'] }],
+    [
+      { id: 'same', buttonIds: ['offensive.open_play.pass', 'offensive.open_play.cross'] },
+      { id: 'same', buttonIds: ['defensive.open_play.pass', 'defensive.open_play.cross'] },
+    ],
+    [
+      { id: 'a', buttonIds: ['offensive.open_play.pass', 'offensive.open_play.cross'] },
+      { id: 'b', buttonIds: ['offensive.open_play.pass', 'defensive.open_play.cross'] },
+    ],
+  ].map((exclusiveGroups) => ({ exclusiveGroups })))('rejects malformed or ambiguous exclusion rules %#', ({ exclusiveGroups }) => {
+    expect(() => parseTaggingBoard({ ...defaultBoard(), exclusiveGroups })).toThrow(TaggingBoardValidationError);
+  });
+
   it('parses the canonical board with every legacy leaf action represented', () => {
     const board = defaultBoard();
     const buttonIds = board.groups.flatMap((group) => group.buttons.map((button) => button.id));

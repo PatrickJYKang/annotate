@@ -1,8 +1,8 @@
 # Demo Recording Checklist
 
-Updated: 2026-10-06. The current recordings show the packaged Annotate 0.2.2 desktop app with real football footage. These are instructional demonstrations, not promises of unfinished desktop features. This is a recording inventory, not a release announcement.
+Updated: 2026-10-23. The requested recording set is complete and published on the online guide: twelve tutorials and one combined walkthrough in each of four languages. The recordings show the packaged Annotate 0.2.2 desktop app with real football footage. This is a recording inventory, not a release announcement.
 
-Taking over production? Start with the [handoff](demo-recording-handoff.md). Use the [storyboards](demo-storyboards.md) for click sequences and the [recording workflow](demo-recording-workflow.md) for capture, cursor synchronization, localization, re-rendering, and verification. Durations for completed exports are measured; targets for unrecorded videos are editing budgets, not application performance claims.
+Taking over production? Start with the [handoff](demo-recording-handoff.md). Use the [storyboards](demo-storyboards.md) for recorded click sequences and the [recording workflow](demo-recording-workflow.md) for capture, cursor synchronization, localization, re-rendering, and verification. Export durations are measured video lengths, not application performance claims.
 
 ## Completed recordings
 
@@ -44,7 +44,7 @@ Twelve tutorials have been exported in English, French, Spanish, and Simplified 
 | Capture and tagging | Simplified Chinese | 77.43 s | `capture-tagging-2026-10-07/recordings/take-zh-CN/capture-tagging-zh-CN.mp4` |
 | Clip editing | English | 63.23 s | `clip-editing-2026-10-07/recordings/take-en/clip-editing-en.mp4` |
 | Clip editing | French | 63.13 s | `clip-editing-2026-10-07/recordings/take-fr/clip-editing-fr.mp4` |
-| Clip editing | Spanish | 63.23 s | `clip-editing-2026-10-07/recordings/take-es/clip-editing-es.mp4` |
+| Clip editing | Spanish | 63.17 s | `clip-editing-2026-10-07/recordings/take-es/clip-editing-es.mp4` |
 | Clip editing | Simplified Chinese | 63.23 s | `clip-editing-2026-10-07/recordings/take-zh-CN/clip-editing-zh-CN.mp4` |
 | Homography | English | 46.80 s | `homography-2026-10-07/recordings/take-en/homography-en.mp4` |
 | Homography | French | 47.07 s | `homography-2026-10-07/recordings/take-fr/homography-fr.mp4` |
@@ -65,11 +65,26 @@ The pin tutorial adds two blue Chelsea highlights, joins them with an attached a
 
 The 2026-10-06 tutorials are summarized in the [handoff](demo-recording-handoff.md); each session folder's `RECORDING-NOTES.txt` has the passage, decisions, rejected takes, and repeatable steps. Basic tracking follows the blue #2 on clip f548-800. Tracking correction uses Patrick's passage f10579-10829: the white player's track jumps to the blue player and is fixed with Re-track from here and a one-frame step. Presentation authoring builds a title, clip and pin deck, presents it with a pin pause and reveal, and exits. Clip trimming drags both handles inward, applies, and immediately undoes. Export and recovery exports the report, shows it in Finder (gallery view of the annotated PNGs), deletes and restores a clip, and ends on backing up the project folder.
 
-File existence, dimensions, frame rate, codec, lack of audio, and durations were rechecked on 2026-10-06. Rendering records and QA assets are retained beside the files; the production passes included full decoding and visual checks. Exported does not mean published, embedded in the guide, or finally approved in every language. The guide still contains placeholders.
+All 48 tutorial masters were checked on 2026-10-12 for file existence, dimensions, frame rate, codec, lack of audio, and duration. Rendering records and QA assets are retained beside the files; the original production passes included full decoding and visual checks. This later metadata check was not a fresh visual review of every recording. French, Spanish, and Chinese captions still need native-speaker review.
+
+## Combined walkthrough and publication
+
+The twelve tutorials are also assembled into a chaptered walkthrough in each language. The silent local masters are under `$HOME/Documents/Annotate Demos/full-workflow/`:
+
+| Language | Duration | Master |
+| --- | --- | --- |
+| English | 13:02.87 | `annotate-full-workflow-en.mp4` |
+| French | 13:06.86 | `annotate-full-workflow-fr.mp4` |
+| Spanish | 13:10.53 | `annotate-full-workflow-es.mp4` |
+| Simplified Chinese | 13:05.56 | `annotate-full-workflow-zh-CN.mp4` |
+
+The [online guide](https://patrickjykang.github.io/annotate-docs/) serves 52 web encodes (1440 x 930), with posters and chapter navigation, from the separate `annotate-docs` repository. Each language page contains twelve tutorials plus the combined walkthrough. All four live pages and sample video endpoints returned successfully on 2026-10-12; all 52 video files and posters are present in the local site checkout. The app opens the website in a new browser tab or the desktop system browser; the old bundled `/userguide` route has been removed. There are no tutorial placeholders waiting to be filled.
+
+Guide text and web media belong to `annotate-docs`; raw footage, production scripts, and 1920 x 1240 masters remain outside Git. See the [handoff](demo-recording-handoff.md#guide-integration) for the media manifest and build workflow.
 
 ## Prepare once
 
-Use the isolated demo app, app profile, and disposable project copies described in the workflow. Keep clean starting states for import, captured clips, annotated pins, and presentations. Never reset Patrick's working projects for a take. The reference source is `$HOME/Downloads/Tottenham Hotspur vs. Chelsea FC 2014-2015 Footballia.mp4`. Local availability is not publication permission; confirm footage rights before publishing the tutorials or an outreach edit.
+Use the isolated demo app, app profile, and disposable project copies described in the workflow. Keep clean starting states for import, captured clips, annotated pins, and presentations. Never reset Patrick's working projects for a take. The reference source is `$HOME/Downloads/Tottenham Hotspur vs. Chelsea FC 2014-2015 Footballia.mp4`. Patrick's current guide/outreach footage decision is recorded in the [handoff](demo-recording-handoff.md#footage-and-outreach).
 
 Keep the established 1920 x 1240 framing, cropped macOS title bar, small synthetic cursor, visible click rings, and white-on-near-black captions. Do not silently change the series to 16:9. Captions explain the action, not promotional claims or unnecessary tactical interpretation. Retain raw takes. Preserve complete import and playback intervals, using labelled timelapse when necessary; show final tracking playback at normal speed. Cuts may remove idle setup and join native windows, but must not conceal a failed result or skipped processing.
 
@@ -80,24 +95,24 @@ The IDs below are the tutorial IDs used by the [online user guide](https://patri
 | Guide slot / topic | Status | Length | Scope |
 | --- | --- | --- | --- |
 | `first-project` | Four localized exports available | 113-116 seconds | Setup through adding a pin; see completed inventory above. |
-| Basic pin annotation | Four localized exports available; no dedicated placeholder | About 46 seconds | Two highlights, attached arrow, Dotted style, Save, Close pin. |
-| Basic player tracking | Four localized exports available | About 40 seconds | Track, select a provisional Chelsea player, Start, live progress, Stop, return to start, normal-speed playback. |
+| `pin-annotation` | Published in four languages | About 46 seconds | Two highlights, attached arrow, Dotted style, Save, Close pin. |
+| `basic-tracking` | Published in four languages | About 40 seconds | Track, select a provisional Chelsea player, Start, live progress, Stop, return to start, normal-speed playback. |
 | `tracking-correction` | Four localized exports available | About 97-99 seconds | Genuine wrong-player result; Re-track from here, one-frame step, Continue, Done, normal-speed playback. |
 | `presentation-authoring` | Four localized exports available | About 72-77 seconds | Preview, drag clip and pin into a deck, add and reorder a title, set the pin pause, Present, reveal, resume, Exit. |
 
 ## Focused reference videos
 
-These topics remain unrecorded unless noted. Recorded: clip editing (shapes, keyframes, resize/rotate, shared Fill Opacity/Width; colour change not shown because the native colour panel cannot be recorded) and clip trimming, four languages each and Export and recovery (four languages). They can be added beside the corresponding guide sections later; these are not additional implemented placeholders. The basic pin tutorial does not cover context preview, alternative sets, import into clips, or animation.
+All seven topics below are recorded and published in four languages. This table describes the actual exports rather than the broader original proposals.
 
-| Topic | Target length | Record |
+| Tutorial ID | Length | Recorded scope |
 | --- | --- | --- |
-| Capture and tagging | 60-90 seconds | Start/stop a board tile, change applicable modifiers, create overlapping clips, select a timeline range and see its clip in the list, re-tag while paused, and zoom/scroll the timeline. Briefly switch UI language to show the built-in board following it; custom boards are not automatically translated. |
-| Clip editing and trimming | 60-90 seconds | Frame-step and scrub, add/move a shape to create position keyframes, select several objects, edit shared stroke/fill, resize/rotate a box or circle, and trim inward with Apply, Cancel, and immediate Undo. Do not demonstrate outward extension beyond the original clip range. |
-| Tracking refinements | 45-60 seconds | Name a highlight, enable Display name and change label size, attach a poly/arrow to highlights, and show the links following motion. Extend a selected highlight with another tracked span; optionally merge compatible non-overlapping objects. This supplements, rather than repeats, the correction video. |
-| Homography | 45-60 seconds | Compute H with visible progress, show the pitch grid, draw a pitch-space box/circle and manipulate its handles, then play through camera movement. Contrast image-space highlights with pitch-space geometry. Show Delete H or recomputation on a spare take. Tracking does not require homography. |
-| Pins and annotation sets | 60-90 seconds | Add a pin, show its separate editor window, draw and style linked tactical shapes, create an alternative set, hold Left/Right for context, and return with Space. Import one set into the clip and show that the original pin remains independent. |
-| Pin animations | 60-90 seconds | Open the independent Animations panel, assign two or three contrasting entrance effects, adjust duration/delay, demonstrate On click versus With/After previous, reorder, preview, and trigger the sequence from a pin pause in clip playback. Effects belong to the annotation set, not clip position keyframes. |
-| Export and recovery | 45-60 seconds | Export report, open the resulting CSV/JSON and annotated PNGs, delete a clip and use immediate Undo, and show the integrity report or whole-folder backup. Use only the disposable project for destructive demonstrations. Video deletion permanently removes its project copy and dependent clips/pins; it is not the same recoverable operation as deleting a clip. |
+| `capture-tagging` | About 77 seconds | Normal-speed capture of Patrick's passage, modifiers, overlapping clips, select a clip, re-tag it as Throw in with Turnover, inspect the grouping, and zoom. Saved labels remain English in localized takes because of issue #13. |
+| `clip-editing` | About 63 seconds | Box position keyframes, playback, resize/rotate, circle, Shift-click selection, shared Fill Opacity and Width. No color-picker demonstration. |
+| `clip-trimming` | 25.8 seconds | Drag both bounds inward, Apply trim, immediate Undo trim. Cancel and outward extension are not shown. |
+| `tracking-refinements` | About 42 seconds | Name Willian and Bentaleb, enable Display name, set Text size 20, attach an arrow, and play. No poly, extra tracking span, or merge. |
+| `homography` | About 47 seconds | Compute H with a 2x badge, Show H, draw/resize a pitch box, Hide H, and play through camera movement. No Delete H or image-space comparison. |
+| `pin-animations` | About 61 seconds | Two highlights and an arrow; Fade/On click, Wipe/After previous, Fade/On click; Preview, Save, Close pin, then trigger the cues during clip playback. No poly, Grow, or With previous comparison. |
+| `export-recovery` | About 47 seconds | Export report, Finder list/gallery views of report files and annotated PNGs, delete/restore a clip, and show the project folder for backup. No video deletion. |
 
 ## Installation clips
 
@@ -105,8 +120,12 @@ Not needed: Patrick decided on 2026-10-07 that installation does not need record
 
 ## Recording order and reuse
 
-Next: to be chosen with Patrick. Issues seen while recording are tracked in [demo-recording-bugs.md](demo-recording-bugs.md). All requested topics are recorded; pin sets and installation were dropped by Patrick (2026-10-07). Installation clips are not needed (Patrick, 2026-10-07). Details are in the [handoff](demo-recording-handoff.md).
+The original fifteen [app observations](demo-recording-bugs.md) have all been reviewed. #1, #2, #4-9 and #11-15 are implemented but not yet packaged; the issue list records each fix and its verification. #3 remains an unconfirmed blackout report after investigation, and #10 is intentional: an existing empty annotation set exports a plain-frame PNG. The last two fixes remove the initial Box/Circle drag-preview flash and make highlight-name text-size entry commit on Enter/blur in both editors. They passed browser interaction checks over copied match footage, including image/pitch drawing and digit-by-digit text entry. Next is packaged verification, followed by targeted retakes, not another unapproved feature pass.
 
-A later 30-45 second outreach video for `@annotate_app` can reuse approved tutorial footage: capture a passage, track a player, annotate a pin, present the result. It does not require another end-to-end walkthrough. Review footage rights and visible build/UI changes before reuse.
+After packaged verification, retake Clip trimming (combining #4 with the #11 opening/selection change) and the affected clip-selection segments of Export and recovery and Capture and tagging. Combine the capture retake with #1/#2/#13 and the export retake with #8 dashboard shots and the #9 one-frame clip-list shot in English/French/Spanish. Also retake the Add title segment of Presentation authoring in French, Spanish and Simplified Chinese, including the French/Spanish present-mode Exit control for #7, and the Box/Circle gestures in Clip editing wherever the #14 flash is visible. #12 changes backend privacy defaults and needs no visible retake. #15 does not require replacing the existing Tracking refinements take, which uses working arrow-key entry; direct typing plus Enter can be used in any replacement take. All requested topics are recorded; pin context/sets and installation were dropped on 2026-10-07. Re-record only sections affected by an agreed app change, after verifying that change in the build being filmed.
 
-Retain raw captures, action logs, edit plans, caption text, QA images, and the explicit list of current exports. Review the visible labels against the distributed build before inserting videos into the guide. Do not claim MP4 clip export, automatic updates, arbitrary panel pop-outs, or full Windows certification on the basis of these recordings.
+The existing Capture and tagging recordings still show the older re-tagging, possession-overlap and saved-name behaviour. After packaged verification, retake those segments in all four languages, demonstrating automatic possession switching, a Pass overlapping a Possession and localized generated names. No published recordings have been replaced for these fixes yet.
+
+A later 30-45 second outreach video for `@annotate_app` can reuse tutorial footage: capture a passage, track a player, annotate a pin, present the result. It does not require another end-to-end walkthrough. Follow the footage decision in the handoff and review visible build/UI changes before reuse.
+
+Retain raw captures, action logs, edit plans, caption text, QA images, and the explicit list of current exports. Review visible labels against the distributed build when replacing a published video. Do not claim MP4 clip export, automatic updates, arbitrary panel pop-outs, or full Windows certification on the basis of these recordings.

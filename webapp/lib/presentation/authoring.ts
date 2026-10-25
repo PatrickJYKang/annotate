@@ -119,6 +119,7 @@ export function createPinSlide(clipId: string, pinId: string, id = newId('slide'
 }
 
 export function createTitleSlide(
+  title: string,
   template: TitleSlide['template'] = 'title',
   id = newId('slide'),
 ): TitleSlide {
@@ -126,7 +127,7 @@ export function createTitleSlide(
     id,
     kind: 'title',
     template,
-    title: 'Untitled title slide',
+    title,
     body: '',
     notes: '',
   };

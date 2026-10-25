@@ -41,6 +41,11 @@ export interface BoardGroup {
   buttons: BoardButton[];
 }
 
+export interface BoardExclusiveGroup {
+  id: string;
+  buttonIds: string[];
+}
+
 export interface BoardFacetRequirement {
   facetGroupId: string;
   optionId: string;
@@ -65,6 +70,7 @@ export interface TaggingBoard {
   layout?: BoardLayout;
   defaults: BoardDefaults;
   groups: BoardGroup[];
+  exclusiveGroups?: BoardExclusiveGroup[];
   facets: BoardFacetGroup[];
 }
 
@@ -77,6 +83,8 @@ export type BoardIssueCode =
   | 'duplicate-id'
   | 'invalid-capture-setting'
   | 'invalid-layout'
+  | 'invalid-exclusive-group'
+  | 'unresolved-button-reference'
   | 'unresolved-facet-reference'
   | 'unresolved-requirement'
   | 'facet-dependency-cycle'
@@ -391,6 +399,35 @@ export function validateTaggingBoard(value: unknown): BoardIssue[] {
           'facetGroupIds must be an array.',
         );
       }
+    });
+  });
+
+  if (value.exclusiveGroups !== undefined && !Array.isArray(value.exclusiveGroups)) {
+    addIssue(issues, 'error', 'invalid-exclusive-group', 'exclusiveGroups', 'Exclusive groups must be an array.');
+  }
+  const exclusiveIds = new Set<string>();
+  const exclusiveMembers = new Set<string>();
+  if (Array.isArray(value.exclusiveGroups)) value.exclusiveGroups.forEach((rawGroup, index) => {
+    const path = `exclusiveGroups[${index}]`;
+    if (!isRecord(rawGroup)) {
+      addIssue(issues, 'error', 'invalid-exclusive-group', path, 'Exclusive group must be an object.');
+      return;
+    }
+    registerId(rawGroup.id, `${path}.id`, exclusiveIds, 'Exclusive group');
+    if (!Array.isArray(rawGroup.buttonIds) || rawGroup.buttonIds.length < 2) {
+      addIssue(issues, 'error', 'invalid-exclusive-group', `${path}.buttonIds`, 'Exclusive groups require at least two distinct buttons.');
+      return;
+    }
+    rawGroup.buttonIds.forEach((id, memberIndex) => {
+      const memberPath = `${path}.buttonIds[${memberIndex}]`;
+      if (typeof id !== 'string' || !buttonIds.has(id)) {
+        addIssue(issues, 'error', 'unresolved-button-reference', memberPath, `Button "${String(id)}" does not exist.`);
+        return;
+      }
+      if (exclusiveMembers.has(id)) {
+        addIssue(issues, 'error', 'invalid-exclusive-group', memberPath, 'Each button may occur in only one exclusive group, once.');
+      }
+      exclusiveMembers.add(id);
     });
   });
 

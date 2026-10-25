@@ -61,10 +61,7 @@ export function assertFrameRange(range: FrameRange): void {
   }
 }
 
-/**
- * Maps media time for the frame currently presented by a video element.
- * `requestVideoFrameCallback().mediaTime` should be preferred by callers.
- */
+/** Maps an arbitrary playback-clock time to the frame interval containing it. */
 export function mediaTimeToVideoFrame(
   mediaTimeSeconds: number,
   fps: number,
@@ -75,6 +72,22 @@ export function mediaTimeToVideoFrame(
   const finiteSeconds = Number.isFinite(mediaTimeSeconds) ? mediaTimeSeconds : 0;
   const frame = Math.floor(finiteSeconds * fps + FRAME_INDEX_EPSILON);
   return videoFrame(Math.max(0, Math.min(frameCount - 1, frame)));
+}
+
+/**
+ * A decoded frame timestamp identifies a frame boundary, not a playback clock.
+ * Browser timestamp quantization can put it just below that boundary, so use
+ * the nearest frame rather than flooring to the preceding one.
+ */
+export function presentedTimeToVideoFrame(
+  mediaTimeSeconds: number,
+  fps: number,
+  frameCount: number,
+): VideoFrame {
+  requirePositiveFps(fps);
+  requireFrameCount(frameCount);
+  const finiteSeconds = Number.isFinite(mediaTimeSeconds) ? mediaTimeSeconds : 0;
+  return clampFrame(Math.round(finiteSeconds * fps), frameCount);
 }
 
 /** Maps a timestamp returned by the sidecar to the nearest source frame. */

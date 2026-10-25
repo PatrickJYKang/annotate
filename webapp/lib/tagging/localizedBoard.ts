@@ -30,9 +30,11 @@ function fingerprint(board: TaggingBoard): string {
 }
 
 const currentDefault = parseTaggingBoard(defaultDocument);
+const previousDefault = structuredClone(currentDefault);
+delete previousDefault.exclusiveGroups;
 // Earlier projects copied the same built-in vocabulary before explicit layout
 // coordinates and range-only capture became the default.
-const legacyDefault = structuredClone(currentDefault);
+const legacyDefault = structuredClone(previousDefault);
 delete legacyDefault.layout;
 legacyDefault.defaults = { leadSeconds: 3, lagSeconds: 3, mode: 'instant' };
 legacyDefault.groups.forEach((group) => {
@@ -40,7 +42,8 @@ legacyDefault.groups.forEach((group) => {
   group.buttons.forEach((button) => { delete button.rect; });
 });
 
-const variants = [currentDefault, legacyDefault].map((board) => {
+const upgradedLegacyDefault = { ...legacyDefault, exclusiveGroups: currentDefault.exclusiveGroups };
+const variants = [currentDefault, previousDefault, legacyDefault, upgradedLegacyDefault].map((board) => {
   const translations = {
     en: board,
     fr: translateBoard(board, 'fr'),
@@ -49,6 +52,15 @@ const variants = [currentDefault, legacyDefault].map((board) => {
   };
   return { translations, fingerprints: new Set(Object.values(translations).map(fingerprint)) };
 });
+
+export function upgradeDefaultBoardExclusions(board: TaggingBoard): TaggingBoard {
+  // Missing rules on an exact historical default are upgraded in memory only.
+  // Explicit [] or any customization belongs to the project author.
+  if (board.exclusiveGroups !== undefined) return board;
+  const key = fingerprint(board);
+  if (!variants.some((variant) => variant.fingerprints.has(key))) return board;
+  return { ...board, exclusiveGroups: structuredClone(currentDefault.exclusiveGroups) };
+}
 
 export function localizeDefaultTaggingBoard(board: TaggingBoard, locale: Locale): TaggingBoard;
 export function localizeDefaultTaggingBoard(board: TaggingBoard | null, locale: Locale): TaggingBoard | null;

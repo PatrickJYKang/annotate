@@ -370,7 +370,7 @@ export default function HomePage() {
                 </div>
               </div>
 
-              <div className="grid">
+              <div className="grid grid-cols-1">
                 {manifest.videos.map((video) => {
                   const videoClips = clips.filter((clip) => clip.videoId === video.id);
                   const videoClipCount = videoClips.length;
@@ -378,7 +378,7 @@ export default function HomePage() {
                     <article key={video.id} className="border-t border-border p-3 first:border-t-0" data-testid={`video-card-${video.id}`}>
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <strong className="block truncate">{video.label}</strong>
+                          <strong className="block truncate" title={video.label}>{video.label}</strong>
                           <p className="mb-0 mt-1 font-mono text-[10px] text-muted">
                             {t('project.videoStats', {
                               frames: formatNumber(video.frameCount),

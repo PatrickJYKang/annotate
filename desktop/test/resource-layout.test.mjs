@@ -27,10 +27,12 @@ test('validates architecture and resource checksums and keeps mutable data outsi
   const before = await readdir(bundle);
   const layout = await resolveResourceLayout(bundle, path.join(root, 'user-data'));
   assert.deepEqual(await readdir(bundle), before);
-  const env = sidecarEnvironment(layout, { token: 'b'.repeat(64), origins: ['http://127.0.0.1:3000'], inherited: { PYTHONHOME: '/different-python', ANNOTATE_PNLCALIB_CONFIG: '/different-config' } });
+  const env = sidecarEnvironment(layout, { token: 'b'.repeat(64), origins: ['http://127.0.0.1:3000'], inherited: { PYTHONHOME: '/different-python', ANNOTATE_PNLCALIB_CONFIG: '/different-config', YOLO_CONFIG_DIR: '/unrelated-yolo', ANNOTATE_ULTRALYTICS_CONFIG_DIR: '/other-annotate' } });
   assert.equal(env.PYTHONPATH, await realpath(path.join(bundle, 'sidecar')));
   assert.equal(env.PYTHONDONTWRITEBYTECODE, '1');
   assert.equal(env.ANNOTATE_TRACKING_MODEL, await realpath(path.join(bundle, 'yolo')));
+  assert.equal(env.ANNOTATE_ULTRALYTICS_CONFIG_DIR, path.join(layout.writable.settings, 'ultralytics'));
+  assert.equal(env.YOLO_CONFIG_DIR, env.ANNOTATE_ULTRALYTICS_CONFIG_DIR);
   assert.equal(env.ANNOTATE_AUTH_TOKEN, 'b'.repeat(64));
   assert.equal(env.PYTHONHOME, undefined);
   assert.equal(env.ANNOTATE_PNLCALIB_CONFIG, path.join(layout.resources.sidecar, 'annotate_sidecar', 'config', 'pnlcalib.default.toml'));

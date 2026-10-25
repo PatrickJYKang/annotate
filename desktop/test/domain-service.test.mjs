@@ -43,6 +43,48 @@ test('native pin saves, clip trash and restore use the shared domain invariants'
   await assert.rejects(command('project.create', { name: 'Overwrite' }), /empty folder/);
 });
 
+test('native re-tagging saves names and tags together and preserves subsequent custom names', async (t) => {
+  const { command, root } = await setup(t);
+  const base = JSON.parse(await readFile(path.join(root, 'analysis/clips/clip-sequence/clip.json'), 'utf8'));
+  await command('clip.create', { ...base, id: 'generated', label: 'Possession', generatedLabel: 'Possession',
+    tags: { primary: 'offensive.open_play.possession', facets: {} } });
+  const tags = { primary: 'offensive.open_play.pass', facets: {} };
+  const updated = await command('clip.retag', 'generated', tags);
+  assert.equal(updated.label, 'Pass');
+  assert.equal(updated.generatedLabel, 'Pass');
+  assert.deepEqual(updated.tags, tags);
+  assert.equal(JSON.parse(await readFile(path.join(root, 'analysis/clips/generated/clip.json'), 'utf8')).label, 'Pass');
+
+  await command('clip.patch', updated.id, updated, { ...updated, label: 'Custom name' });
+  await command('pin.rename', updated.id, 'pin-shape', 'Renamed pin');
+  const retagged = await command('clip.retag', updated.id, { primary: 'offensive.open_play.possession', facets: {} });
+  assert.equal(retagged.label, 'Custom name');
+  assert.equal(retagged.generatedLabel, null);
+  assert.equal(retagged.pins[0].label, 'Renamed pin');
+});
+
+test('native re-tagging persists displayed labels and preserves custom names across languages', async (t) => {
+  const { command, root } = await setup(t);
+  const base = JSON.parse(await readFile(path.join(root, 'analysis/clips/clip-sequence/clip.json'), 'utf8'));
+  const boardBefore = await readFile(path.join(root, 'tagging-board.json'), 'utf8');
+  await command('clip.create', { ...base, id: 'localized', label: 'Posesi\u00f3n', generatedLabel: 'Posesi\u00f3n',
+    tags: { primary: 'offensive.open_play.possession', facets: {} } });
+  const tags = { primary: 'offensive.open_play.pass', facets: {} };
+  const updated = await command('clip.retag', 'localized', tags, 'Passe');
+  assert.equal(updated.label, 'Passe');
+  assert.equal(updated.generatedLabel, 'Passe');
+  assert.equal(JSON.parse(await readFile(path.join(root, 'analysis/clips/localized/clip.json'), 'utf8')).label, 'Passe');
+  const sameTag = await command('clip.retag', 'localized', tags, 'Pase');
+  assert.equal(sameTag.label, 'Passe');
+  const cleared = await command('clip.retag', 'localized', { primary: null, facets: {} }, 'Clip sin etiquetas');
+  assert.equal(cleared.label, 'Clip sin etiquetas');
+  await command('clip.patch', cleared.id, cleared, { ...cleared, label: 'My analysis' });
+  const custom = await command('clip.retag', 'localized', tags, 'Pase');
+  assert.equal(custom.label, 'My analysis');
+  assert.equal(custom.generatedLabel, null);
+  assert.equal(await readFile(path.join(root, 'tagging-board.json'), 'utf8'), boardBefore);
+});
+
 test('native blob cancellation leaves the previous file intact and removes staging files', async (t) => {
   const { store, project } = await setup(t);
   const before = await store.readDocument(project.id, 'project.json');

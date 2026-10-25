@@ -7,7 +7,7 @@ test('links the header user guide button to the online guide in the current lang
 
   const guideLink = page.getByRole('link', { name: 'User guide', exact: true });
   await expect(guideLink).toBeVisible();
-  await expect(guideLink).toHaveAttribute('href', ONLINE_GUIDE);
+  await expect(guideLink).toHaveAttribute('href', `${ONLINE_GUIDE}?lang=en`);
   await expect(guideLink).toHaveAttribute('target', '_blank');
 
   for (const [locale, label] of [['fr', 'Guide d’utilisation'], ['es', 'Guía de usuario'], ['zh-CN', '用户指南']] as const) {
@@ -20,7 +20,7 @@ test('links the header user guide button to the online guide in the current lang
   await page.context().route(`${ONLINE_GUIDE}**`, (route) => route.fulfill({ contentType: 'text/html', body: '<title>Annotate User Guide</title>' }));
   const popup = page.waitForEvent('popup');
   await guideLink.click();
-  expect((await popup).url()).toBe(ONLINE_GUIDE);
+  expect((await popup).url()).toBe(`${ONLINE_GUIDE}?lang=en`);
   await expect(page).toHaveURL(/\/$/);
 });
 

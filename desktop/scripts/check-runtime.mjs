@@ -19,7 +19,10 @@ import os, subprocess, json, time
 import cv2, torch, torchvision, numpy, scipy, fastapi, supervision
 from annotate_sidecar.routes.health import _check_capabilities
 from annotate_sidecar.services.calibration.providers.pnlcalib import PnLCalibCalibrationProvider
-from ultralytics import YOLO
+from annotate_sidecar.ultralytics_runtime import load_ultralytics
+ultralytics = load_ultralytics()
+assert ultralytics.settings['sync'] is False and ultralytics.settings['hub'] is False
+YOLO = ultralytics.YOLO
 started = time.monotonic()
 caps = _check_capabilities()
 assert caps['models']['pnlcalib'], caps

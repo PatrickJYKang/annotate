@@ -307,6 +307,7 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   await annotator.getByLabel('Name', { exact: true }).fill('Left back');
   await annotator.getByLabel('Display name', { exact: true }).check();
   await annotator.getByLabel('Text size', { exact: true }).fill('32');
+  await annotator.getByLabel('Text size', { exact: true }).press('Enter');
   await annotator.getByTestId('annotation-animation-add').click();
   await annotator.getByTestId('annotation-animation-effect').selectOption('grow');
   await annotator.getByTestId('annotation-animation-trigger').selectOption('on_click');

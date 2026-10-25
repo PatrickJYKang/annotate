@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from ..config import get_tracking_defaults
 from ..services.calibration.service import CalibrationService
 from ..services.encoder import check_ffmpeg
+from ..ultralytics_runtime import load_ultralytics
 
 router = APIRouter()
 logger = logging.getLogger("annotate_sidecar.health")
@@ -18,9 +19,14 @@ _calibration_service = CalibrationService()
 def _check_model_importable(module_name: str) -> bool:
     """Try importing a module; return True if it succeeds."""
     try:
-        __import__(module_name)
+        if module_name == "ultralytics":
+            load_ultralytics()
+        else:
+            __import__(module_name)
         return True
     except Exception:
+        if module_name == "ultralytics":
+            logger.warning("YOLO initialization failed", exc_info=True)
         return False
 
 

@@ -11,6 +11,7 @@ import {
   frameToSeconds,
   lastFrameOfRange,
   mediaTimeToVideoFrame,
+  presentedTimeToVideoFrame,
   sidecarSampleEndMs,
   timestampMsToNearestFrame,
   videoFrame,
@@ -26,7 +27,7 @@ describe('frameMath', () => {
     }
   });
 
-  it('uses presented-frame floor semantics on either side of a frame boundary', () => {
+  it('uses floor semantics for the playback clock on either side of a frame boundary', () => {
     const fps = 30;
     const boundary = 12 / fps;
 
@@ -35,11 +36,39 @@ describe('frameMath', () => {
     expect(mediaTimeToVideoFrame(boundary + 0.00001, fps, 100)).toBe(12);
   });
 
-  it.each([25, 29.97, 30, 59.94])(
+  it.each([25, 30000 / 1001, 30, 60000 / 1001, 421059 / 16843])(
+    'resolves microsecond-quantized decoded frame timestamps at %f fps',
+    (fps) => {
+      for (const index of [0, 1, 137, 9437, 9438, 9439, 12538, 12539, 157898]) {
+        const time = frameToSeconds(videoFrame(index), fps);
+        for (const quantize of [Math.floor, Math.round]) {
+          const timestamp = quantize(time * 1e6) / 1e6;
+          expect(presentedTimeToVideoFrame(timestamp, fps, 157899)).toBe(index);
+        }
+      }
+    },
+  );
+
+  it('distinguishes decoded-frame timestamps from arbitrary playhead times', () => {
+    const fps = 421059 / 16843;
+    const timestamp = 377.494344; // Decoded frame 9437 in the recorded match.
+    expect(mediaTimeToVideoFrame(timestamp, fps, 157899)).toBe(9436);
+    expect(presentedTimeToVideoFrame(timestamp, fps, 157899)).toBe(9437);
+    expect(presentedTimeToVideoFrame(-1, fps, 157899)).toBe(0);
+    expect(presentedTimeToVideoFrame(Number.NaN, fps, 157899)).toBe(0);
+    expect(presentedTimeToVideoFrame(1e6, fps, 157899)).toBe(157898);
+  });
+
+  it.each([25, 29.97, 30, 59.94, 421059 / 16843])(
     'seeks to a stable point inside the requested frame at %i fps',
     (fps) => {
-      const frame = videoFrame(137);
-      expect(mediaTimeToVideoFrame(frameToCenterSeconds(frame, fps), fps, 500)).toBe(frame);
+      for (const index of [0, 137, 9438, 12539, 157898]) {
+        const frame = videoFrame(index);
+        const seekTime = Math.floor(frameToCenterSeconds(frame, fps) * 1e6) / 1e6;
+        expect(mediaTimeToVideoFrame(seekTime, fps, 157899)).toBe(frame);
+        expect(seekTime).toBeGreaterThan(frameToSeconds(frame, fps));
+        expect(seekTime).toBeLessThan(frameToSeconds(videoFrame(index + 1), fps));
+      }
     },
   );
 

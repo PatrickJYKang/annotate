@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import defaultDocument from '../../public/tagging/board.json';
 import legacyDocument from '../../e2e/fixtures/clip-editor-project/tagging-board.json';
 import type { Locale } from '../i18n';
-import { parseTaggingBoard, validateTaggingBoard, type TaggingBoard } from './board';
+import { findBoardButton, parseTaggingBoard, validateTaggingBoard, type TaggingBoard } from './board';
 import { createCaptureEngine } from './capture';
 import labels from './defaultBoardLabels.json';
-import { localizeDefaultTaggingBoard } from './localizedBoard';
+import { localizeDefaultTaggingBoard, upgradeDefaultBoardExclusions } from './localizedBoard';
 
 const locales: Locale[] = ['en', ...Object.keys(labels) as Exclude<Locale, 'en'>[]];
 
@@ -14,6 +14,32 @@ function withoutLabels(board: TaggingBoard): unknown {
 }
 
 describe('built-in tagging board languages', () => {
+  it('adds exclusions to exact older defaults in every language without modifying project data', () => {
+    const previous = parseTaggingBoard(defaultDocument);
+    delete previous.exclusiveGroups;
+    for (const document of [previous, parseTaggingBoard(legacyDocument)]) {
+      for (const locale of locales) {
+        const localized = localizeDefaultTaggingBoard(document, locale);
+        const original = structuredClone(localized);
+        const upgraded = upgradeDefaultBoardExclusions(localized);
+        expect(upgraded.exclusiveGroups).toEqual(defaultDocument.exclusiveGroups);
+        expect(upgraded.groups).toEqual(original.groups);
+        expect(localized).toEqual(original);
+        expect(upgradeDefaultBoardExclusions(upgraded)).toBe(upgraded);
+        expect(localizeDefaultTaggingBoard(upgraded, 'en').groups[0].label).toBe('Offensive - open play');
+      }
+    }
+  });
+
+  it('does not add rules to customized boards or override an explicit opt-out', () => {
+    const custom = parseTaggingBoard(defaultDocument);
+    delete custom.exclusiveGroups;
+    custom.groups[0].buttons[0].label = 'Our possession';
+    expect(upgradeDefaultBoardExclusions(custom)).toBe(custom);
+    const optedOut = { ...parseTaggingBoard(defaultDocument), exclusiveGroups: [] };
+    expect(upgradeDefaultBoardExclusions(optedOut)).toBe(optedOut);
+  });
+
   it('covers every group, tile, facet and option in every translated language', () => {
     const board = parseTaggingBoard(defaultDocument);
     const vocabulary = new Set([
@@ -74,20 +100,81 @@ describe('built-in tagging board languages', () => {
 
   it('keeps captures and chosen modifiers intact during a language switch', () => {
     const board = parseTaggingBoard(defaultDocument);
-    const engine = createCaptureEngine({ board, videoFrameCount: 1000, videoFps: 30, videoId: 'video' });
+    let displayed = localizeDefaultTaggingBoard(board, 'es');
+    const engine = createCaptureEngine({
+      board, videoFrameCount: 1000, videoFps: 30, videoId: 'video',
+      getButtonLabel: (id) => findBoardButton(displayed, id)?.label,
+    });
     const id = 'offensive.open_play.possession';
     engine.pressButton(id, 10);
     engine.setRangeFacets(id, { 'zone.vertical_third': 'final_third' });
     const before = engine.getActiveRanges();
-    localizeDefaultTaggingBoard(board, 'fr');
-    localizeDefaultTaggingBoard(board, 'zh-CN');
+    displayed = localizeDefaultTaggingBoard(board, 'fr');
+    displayed = localizeDefaultTaggingBoard(board, 'zh-CN');
     expect(engine.getActiveRanges()).toEqual(before);
     const result = engine.pressButton(id, 30);
     expect(result.kind).toBe('created');
     if (result.kind === 'created') {
+      expect(result.clip.label).toBe(labels.es.Possession);
+      expect(result.clip.generatedLabel).toBe(labels.es.Possession);
       expect(result.clip.tags).toEqual({ primary: id, facets: { 'zone.vertical_third': 'final_third' } });
       expect([result.clip.startFrame, result.clip.endFrame]).toEqual([10, 31]);
     }
+    engine.pressButton(id, 40);
+    expect(engine.pressButton(id, 50)).toMatchObject({
+      kind: 'created', clip: { label: labels['zh-CN'].Possession, generatedLabel: labels['zh-CN'].Possession },
+    });
+  });
+
+  it.each(locales)('captures the displayed %s name while keeping stable tag IDs', (locale) => {
+    const board = parseTaggingBoard(defaultDocument);
+    const displayed = localizeDefaultTaggingBoard(board, locale);
+    const engine = createCaptureEngine({
+      board, videoFrameCount: 1000, videoFps: 30, videoId: 'video',
+      getButtonLabel: (id) => findBoardButton(displayed, id)?.label,
+    });
+    for (const id of ['offensive.open_play.possession', 'offensive.open_play.transition']) {
+      const label = findBoardButton(displayed, id)!.label;
+      expect(engine.pressButton(id, 10)).toMatchObject({ kind: 'armed', range: { buttonLabel: label } });
+      expect(engine.pressButton(id, 20)).toMatchObject({
+        kind: 'created', clip: { label, generatedLabel: label, tags: { primary: id } },
+      });
+    }
+  });
+
+  it('keeps the original name on an exclusive switch and uses the new language for its successor', async () => {
+    const board = parseTaggingBoard(defaultDocument);
+    let displayed = localizeDefaultTaggingBoard(board, 'es');
+    const engine = createCaptureEngine({
+      board, videoFrameCount: 1000, videoFps: 30, videoId: 'video',
+      getButtonLabel: (id) => findBoardButton(displayed, id)?.label,
+    });
+    engine.pressButton('offensive.open_play.possession', 10);
+    displayed = localizeDefaultTaggingBoard(board, 'zh-CN');
+    const failed = engine.pressButtonAndPersist('defensive.open_play.possession', 20, async () => {
+      throw new Error('disk full');
+    });
+    await expect(failed).rejects.toThrow('disk full');
+    expect(engine.getActiveRanges()).toMatchObject([{ buttonLabel: labels.es.Possession }]);
+    expect(engine.pressButton('defensive.open_play.possession', 20)).toMatchObject({
+      kind: 'armed', range: { buttonLabel: labels['zh-CN'].Possession },
+      closedClip: { label: labels.es.Possession, generatedLabel: labels.es.Possession },
+    });
+  });
+
+  it('uses custom-board labels verbatim rather than translating matching default words', () => {
+    const board = parseTaggingBoard(defaultDocument);
+    board.groups[0].label = 'Our own board';
+    const displayed = localizeDefaultTaggingBoard(board, 'es');
+    const engine = createCaptureEngine({
+      board, videoFrameCount: 1000, videoFps: 30, videoId: 'video',
+      getButtonLabel: (id) => findBoardButton(displayed, id)?.label,
+    });
+    const id = 'offensive.open_play.possession';
+    engine.pressButton(id, 0);
+    expect(engine.pressButton(id, 0)).toMatchObject({
+      kind: 'created', clip: { label: 'Possession', generatedLabel: 'Possession' },
+    });
   });
 
   it('does not replace a customized translated default or mutate cached translations', () => {

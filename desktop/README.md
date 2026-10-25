@@ -88,6 +88,8 @@ Media files are renderer metadata capabilities, not whole-video Blobs. Playback,
 
 The sidecar's private bearer token stays in the host. Renderers receive separate proxy tokens scoped to their window's video references. Private /native/register and /native/import routes are unavailable in ordinary browser mode and cannot be reached through the proxy. Existing broad path-based sidecar endpoints remain available to the browser/developer workflow but are not forwarded to native pages.
 
+The current source disables Ultralytics usage analytics and unused HUB integration before loading prediction callbacks. The packaged environment explicitly identifies its existing app-private settings directory, and the sidecar updates only `sync` and `hub`, including for older profiles. It does not change unrelated Ultralytics settings or disable model downloads. The runtime verification script uses the same initialization path. This fix is not yet included in the published desktop.2 installers; see [sidecar privacy settings](../sidecar/README.md#yolo-privacy-settings).
+
 Closing an editor runs save guards before destroying the window. Pin autosave and pending clip/presentation writes are flushed. Unfinished trim/retrack/tracking sessions or save errors keep the window open unless the user explicitly discards. Quit waits for window closure and owned-service shutdown. This is graceful-close protection, not crash recovery.
 
 ## Checks
@@ -99,7 +101,7 @@ npm test
 npm run test:e2e
 ```
 
-Build the desktop renderer first. Native tests use real temporary directories and child processes. Electron tests use the production UI, native filesystem adapter and managed Python service; only OS chooser selection uses a fixture-path seam. Coverage includes project opening/import, separate clip/pin windows, video seeking, drawing, disk persistence/reload, close-time autosave, annotated PNG reports, presentation save/playback, window deduplication and rejected IPC operations. Model transport checks are not tracking-accuracy or homography-quality benchmarks.
+Build the desktop renderer first. Native tests use real temporary directories and child processes. Electron tests use the production UI, native filesystem adapter and managed Python service; only OS chooser selection uses a fixture-path seam. Coverage includes project opening/import, separate clip/pin windows, video seeking, language changes without resetting the loaded video or rewriting clip data, drawing, disk persistence/reload, close-time autosave, annotated PNG reports, presentation save/playback, window deduplication and rejected IPC operations. The language regression checks decoded video pixels and media state, not the operating system's compositor; native-surface faults still require native screenshots or recordings. Model transport checks are not tracking-accuracy or homography-quality benchmarks.
 
 The original standalone checks remain available:
 

@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { installOpfsDirectoryPickerFixture } from './support/fsAccessFixture';
+import defaultBoardDocument from '../public/tagging/board.json';
 
 type StoredClip = {
   id: string;
@@ -35,12 +36,19 @@ async function clipDocuments(page: Page): Promise<StoredClip[]> {
   });
 }
 
-async function openCapturePlayer(page: Page): Promise<void> {
+async function openCapturePlayer(page: Page, board?: unknown): Promise<void> {
   await installOpfsDirectoryPickerFixture(
     page,
     path.resolve(process.cwd(), 'e2e/fixtures/retrieval-project'),
   );
   await page.goto('/');
+  if (board) await page.evaluate(async (document) => {
+    const project = await (window as Window & { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker();
+    const file = await project.getFileHandle('tagging-board.json');
+    const writable = await file.createWritable();
+    await writable.write(JSON.stringify(document));
+    await writable.close();
+  }, board);
   await page.getByRole('button', { name: 'Open Existing Project' }).click();
   await page.getByRole('button', { name: 'Open capture player' }).click();
   await expect(page.getByTestId('capture-player')).toBeVisible();
@@ -76,8 +84,101 @@ test('manual timeline scrolling suspends playhead following', async ({ page }) =
   await page.getByRole('button', { name: 'Pause', exact: true }).click();
 });
 
+test('exclusive possession switches save adjacent clips while an overlapping pass stays active', async ({ page }) => {
+  const board = structuredClone(defaultBoardDocument);
+  Object.assign(board.groups[0].buttons[0], { hotkey: 'p' });
+  await openCapturePlayer(page, board);
+  const offense = page.getByTestId('tag-board-button-offensive.open_play.possession');
+  const defense = page.getByTestId('tag-board-button-defensive.open_play.possession');
+  const pass = page.getByTestId('tag-board-button-offensive.open_play.pass');
+  const activeOffense = page.getByTestId('video-range-active-offensive.open_play.possession');
+  const activeDefense = page.getByTestId('video-range-active-defensive.open_play.possession');
+  const activePass = page.getByTestId('video-range-active-offensive.open_play.pass');
+
+  await page.keyboard.press('p');
+  await expect(offense).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('tag-board-facet-zone.vertical_third').getByRole('button', { name: /Final third/ }).click();
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime)).toBeGreaterThan(0.2);
+  await page.getByRole('button', { name: 'Pause', exact: true }).click();
+  await pass.click();
+  await page.getByRole('button', { name: 'Step forward' }).click();
+  await defense.click();
+  await expect(offense).toHaveAttribute('aria-pressed', 'false');
+  await expect(defense).toHaveAttribute('aria-pressed', 'true');
+  await expect(activeOffense).toHaveCount(0);
+  await expect(activeDefense).toBeVisible();
+  await expect(activePass).toBeVisible();
+  await expect.poll(async () => (await clipDocuments(page)).length).toBe(3);
+  const first = (await clipDocuments(page)).find((clip) => clip.tags.primary === 'offensive.open_play.possession')!;
+  expect(first.tags.facets).toEqual({ 'zone.vertical_third': 'final_third' });
+  expect(first.startFrame).toBe(0);
+  expect(first.endFrame).toBeGreaterThan(0);
+
+  await page.getByRole('button', { name: 'Step forward' }).click();
+  await page.keyboard.press('p');
+  await expect(defense).toHaveAttribute('aria-pressed', 'false');
+  await expect(offense).toHaveAttribute('aria-pressed', 'true');
+  await expect(activePass).toBeVisible();
+  await expect.poll(async () => (await clipDocuments(page)).length).toBe(4);
+  const second = (await clipDocuments(page)).find((clip) => clip.tags.primary === 'defensive.open_play.possession')!;
+  expect(second.startFrame).toBe(first.endFrame);
+  expect(second.endFrame).toBe(second.startFrame + 1);
+  expect(second.tags.facets).toEqual({});
+  await page.getByRole('button', { name: 'Step forward' }).click();
+  await offense.click();
+  await pass.click();
+  await expect.poll(async () => (await clipDocuments(page)).length).toBe(6);
+  const overlappingPass = (await clipDocuments(page)).find((clip) => clip.tags.primary === 'offensive.open_play.pass')!;
+  expect(overlappingPass.startFrame).toBeLessThan(first.endFrame);
+  expect(overlappingPass.endFrame).toBeGreaterThan(second.endFrame);
+  await page.reload();
+  await expect(page.getByTestId(`clip-tree-row-${first.id}`)).toContainText('Possession');
+  expect((await clipDocuments(page)).filter((clip) => clip.tags.primary === 'offensive.open_play.possession')).toHaveLength(2);
+});
+
+test('older default boards gain exclusions and a failed switch retains the original capture', async ({ page }) => {
+  const { exclusiveGroups: _groups, ...olderBoard } = defaultBoardDocument;
+  await openCapturePlayer(page, olderBoard);
+  const offense = page.getByTestId('tag-board-button-offensive.open_play.possession');
+  const defense = page.getByTestId('tag-board-button-defensive.open_play.possession');
+  await offense.click();
+  await page.getByRole('button', { name: 'Step forward' }).click();
+  await page.evaluate(() => {
+    const prototype = FileSystemDirectoryHandle.prototype;
+    const getDirectory = prototype.getDirectoryHandle;
+    prototype.getDirectoryHandle = async function (name, options) {
+      if (this.name === 'clips' && options?.create) {
+        prototype.getDirectoryHandle = getDirectory;
+        throw new DOMException('Simulated disk full', 'QuotaExceededError');
+      }
+      return getDirectory.call(this, name, options);
+    };
+  });
+  await defense.click();
+  await expect(page.getByRole('status')).toContainText('Simulated disk full');
+  await expect(offense).toHaveAttribute('aria-pressed', 'true');
+  await expect(defense).toHaveAttribute('aria-pressed', 'false');
+  expect((await clipDocuments(page)).length).toBe(2);
+  await defense.click();
+  await expect(offense).toHaveAttribute('aria-pressed', 'false');
+  await expect(defense).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(async () => (await clipDocuments(page)).length).toBe(3);
+  expect((await clipDocuments(page)).find((clip) => clip.tags.primary === 'offensive.open_play.possession'))
+    .toMatchObject({ startFrame: 0, endFrame: 1 });
+});
+
 test('clicking a clip row seeks to its start and reveals it in the timeline', async ({ page }) => {
   await openCapturePlayer(page);
+  const decodedFrame = await page.locator('video').evaluateHandle((video: HTMLVideoElement) => {
+    const state: { mediaTime: number | null } = { mediaTime: null };
+    const callback: VideoFrameRequestCallback = (_now, metadata) => {
+      state.mediaTime = metadata.mediaTime;
+      video.requestVideoFrameCallback(callback);
+    };
+    video.requestVideoFrameCallback(callback);
+    return state;
+  });
 
   const scroller = page.getByTestId('video-timeline-scroller');
   const scrollerBox = await scroller.boundingBox();
@@ -106,13 +207,25 @@ test('clicking a clip row seeks to its start and reveals it in the timeline', as
   ).toBe(true);
 
   await page.getByTestId('clip-tree-row-clip-first').click();
+  await expect.poll(() => decodedFrame.evaluate((state) => state.mediaTime)).toBeCloseTo(5 / 25, 6);
   await expect(page.getByText(/frame 5 \/ 49/)).toBeVisible();
+  const seekTime = await page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime);
+  expect(seekTime).toBeGreaterThan(5 / 25);
+  expect(seekTime).toBeLessThan(6 / 25);
 
   const visibleScroller = await scroller.boundingBox();
   const playhead = await page.getByTestId('video-timeline-playhead').boundingBox();
   if (!visibleScroller || !playhead) throw new Error('Timeline or playhead did not have a layout box.');
   expect(playhead.x).toBeGreaterThanOrEqual(visibleScroller.x - 1);
   expect(playhead.x).toBeLessThanOrEqual(visibleScroller.x + visibleScroller.width + 1);
+
+  await page.getByRole('button', { name: 'Step forward', exact: true }).click();
+  await expect.poll(() => decodedFrame.evaluate((state) => state.mediaTime)).toBeCloseTo(6 / 25, 6);
+  await expect(page.getByText(/frame 6 \/ 49/)).toBeVisible();
+  await page.getByRole('button', { name: 'Step back', exact: true }).click();
+  await expect.poll(() => decodedFrame.evaluate((state) => state.mediaTime)).toBeCloseTo(5 / 25, 6);
+  await expect(page.getByText(/frame 5 \/ 49/)).toBeVisible();
+  await decodedFrame.dispose();
 });
 
 test('timeline selection reveals the clip row without disturbing an already visible row', async ({ page }) => {
@@ -279,11 +392,42 @@ test('captures and re-tags clips exclusively through the tagging board', async (
   await expect(page.getByTestId('tag-board-mode')).toHaveText('capture');
 
   const row = page.getByTestId(`clip-tree-row-${hotkeyCapture.id}`);
+  const range = page.getByTestId(`video-range-${hotkeyCapture.id}`);
+  await expect(row).toContainText('Pass');
+  await expect(range).toContainText('Pass');
+  await expect.poll(async () => (
+    (await clipDocuments(page)).find((clip) => clip.id === hotkeyCapture.id)?.label
+  )).toBe('Pass');
   const takeOnTarget = page.getByTestId('clip-tag-target-offensive.open_play.take_on');
   await row.dragTo(takeOnTarget);
   await expect.poll(async () => (
     (await clipDocuments(page)).find((clip) => clip.id === hotkeyCapture.id)?.tags.primary
   )).toBe('offensive.open_play.take_on');
+  await expect(row).toContainText('Take-on');
+  await expect(range).toContainText('Take-on');
+
+  // Existing projects may contain user-authored clip names. Seed one on disk,
+  // reload it, then re-tag through the UI without losing that custom name.
+  await page.evaluate(async (clipId) => {
+    const project = await (window as Window & {
+      showDirectoryPicker: () => Promise<FileSystemDirectoryHandle>;
+    }).showDirectoryPicker();
+    const clips = await (await project.getDirectoryHandle('analysis')).getDirectoryHandle('clips');
+    const handle = await (await clips.getDirectoryHandle(clipId)).getFileHandle('clip.json');
+    const clip = JSON.parse(await (await handle.getFile()).text());
+    const writable = await handle.createWritable();
+    await writable.write(JSON.stringify({ ...clip, label: 'Build-up on the left' }));
+    await writable.close();
+  }, hotkeyCapture.id);
+  await page.reload();
+  await row.click();
+  await page.getByRole('button', { name: 'Re-tag selected' }).click();
+  await page.getByTestId('tag-board-button-offensive.set_piece.throw_in').click();
+  await expect.poll(async () => (
+    (await clipDocuments(page)).find((clip) => clip.id === hotkeyCapture.id)?.tags.primary
+  )).toBe('offensive.set_piece.throw_in');
+  await expect(row).toContainText('Build-up on the left');
+  await expect(range).toContainText('Build-up on the left');
 
   await page.getByRole('button', { name: 'Untagged clip' }).click();
   await expect(page.getByRole('button', { name: 'Untagged clip' })).toHaveAttribute('aria-pressed', 'true');
@@ -304,6 +448,8 @@ test('captures and re-tags clips exclusively through the tagging board', async (
   await expect(page.getByTestId('capture-player')).toBeVisible();
   await expect.poll(async () => (
     (await clipDocuments(page)).find((clip) => clip.id === hotkeyCapture.id)?.tags.primary
-  )).toBe('offensive.open_play.take_on');
+  )).toBe('offensive.set_piece.throw_in');
+  await expect(row).toContainText('Build-up on the left');
+  await expect(range).toContainText('Build-up on the left');
   await expect(page.getByText('Untagged', { exact: true })).toBeVisible();
 });

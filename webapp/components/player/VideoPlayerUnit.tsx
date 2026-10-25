@@ -2,8 +2,11 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import {
   clampFrame,
+  frameToCenterSeconds,
   frameToSeconds,
   mediaTimeToVideoFrame,
+  presentedTimeToVideoFrame,
+  type VideoFrame,
 } from "../../lib/clip/frameMath";
 import { useT } from "../../lib/i18n";
 import { packTimelineIntervals } from "../../lib/media/timelineLanes";
@@ -168,14 +171,12 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
     ? frameCount
     : null;
 
-  const publishPresentedFrame = useCallback((mediaTime: number) => {
-    if (!effectiveFrameCount) return;
-    const frame = mediaTimeToVideoFrame(mediaTime, fps, effectiveFrameCount);
+  const publishPresentedFrame = useCallback((frame: VideoFrame) => {
     if (presentedFrameRef.current === frame) return;
     presentedFrameRef.current = frame;
     setPresentedFrame(frame);
     onPresentedFrameChange?.(frame);
-  }, [effectiveFrameCount, fps, onPresentedFrameChange]);
+  }, [onPresentedFrameChange]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -183,23 +184,23 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
     const requestFrame = video.requestVideoFrameCallback?.bind(video);
     const cancelFrame = video.cancelVideoFrameCallback?.bind(video);
     if (!requestFrame || !cancelFrame) {
-      publishPresentedFrame(video.currentTime);
+      publishPresentedFrame(mediaTimeToVideoFrame(video.currentTime, fps, effectiveFrameCount));
       return;
     }
     let callbackId = 0;
     const callback: VideoFrameRequestCallback = (_now, metadata) => {
-      publishPresentedFrame(metadata.mediaTime);
+      publishPresentedFrame(presentedTimeToVideoFrame(metadata.mediaTime, fps, effectiveFrameCount));
       callbackId = requestFrame(callback);
     };
     callbackId = requestFrame(callback);
     return () => cancelFrame(callbackId);
-  }, [effectiveFrameCount, publishPresentedFrame, src]);
+  }, [effectiveFrameCount, fps, publishPresentedFrame, src]);
 
   useEffect(() => {
     if (!effectiveFrameCount) return;
     const video = videoRef.current;
-    if (!video?.requestVideoFrameCallback) publishPresentedFrame(current);
-  }, [current, effectiveFrameCount, publishPresentedFrame]);
+    if (!video?.requestVideoFrameCallback) publishPresentedFrame(mediaTimeToVideoFrame(current, fps, effectiveFrameCount));
+  }, [current, effectiveFrameCount, fps, publishPresentedFrame]);
 
   const getCurrentFrame = useCallback((): number => {
     if (!effectiveFrameCount) return 0;
@@ -212,7 +213,7 @@ function VideoPlayerUnitInner({ src, fps = 30, preload = "auto", onTimeUpdate, o
     const video = videoRef.current;
     if (!video) return;
     const next = clampFrame(frame, effectiveFrameCount);
-    const seconds = frameToSeconds(next, fps);
+    const seconds = frameToCenterSeconds(next, fps);
     video.currentTime = seconds;
     setCurrent(seconds);
     presentedFrameRef.current = next;
