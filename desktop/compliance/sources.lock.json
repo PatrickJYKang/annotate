@@ -1,0 +1,558 @@
+{
+  "schema": 1,
+  "archives": [
+    {
+      "name": "ultralytics",
+      "version": "8.4.19",
+      "kind": "python-sdist",
+      "filename": "ultralytics-8.4.19.tar.gz",
+      "url": "https://files.pythonhosted.org/packages/12/93/c1136865ed59be3e87d333c095e7ab91e0c428f42429a3f8560b1661c3db/ultralytics-8.4.19.tar.gz",
+      "sha256": "e4bb5abf58e54fcb2c36fe37a6b12ab96b73de766692f24e53b69f1fa8987eb3",
+      "coverage": "Published source distribution for the pinned AGPL Python package; model weights and integrated application source are separate."
+    },
+    {
+      "name": "ultralytics-thop",
+      "version": "2.0.18",
+      "kind": "python-sdist",
+      "filename": "ultralytics_thop-2.0.18.tar.gz",
+      "url": "https://files.pythonhosted.org/packages/1f/63/21a32e1facfeee245dbdfb7b4669faf7a36ff7c00b50987932bdab126f4b/ultralytics_thop-2.0.18.tar.gz",
+      "sha256": "21103bcd39cc9928477dc3d9374561749b66a1781b35f46256c8d8c4ac01d9cf",
+      "coverage": "Published source distribution for the pinned AGPL profiling package."
+    },
+    {
+      "name": "ffmpeg-windows-core",
+      "version": "239f2c733de417201d7ad3b3b8b0d9b63285b2b1",
+      "kind": "upstream-core-only",
+      "filename": "ffmpeg-239f2c733de417201d7ad3b3b8b0d9b63285b2b1-source.tar.gz",
+      "url": "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/239f2c733de417201d7ad3b3b8b0d9b63285b2b1",
+      "sha256": "ec0aa20fb9f6fd3692ffc04dc12ffa43cfffc4a479e388ccd7910ec6cfe188a2",
+      "targets": [
+        "win32-x64"
+      ],
+      "coverage": "Core revision identified in Gyan's 8.1.1 README. NOT complete corresponding source: exact linked-library versions, patches and build inputs remain unresolved."
+    },
+    {
+      "name": "sharp-libvips-build-recipe",
+      "version": "1.3.4",
+      "kind": "build-recipe-only",
+      "filename": "sharp-libvips-ebb95f8add54eee8bed840e3fb587e4cbec857d7-source.tar.gz",
+      "url": "https://codeload.github.com/lovell/sharp-libvips/tar.gz/ebb95f8add54eee8bed840e3fb587e4cbec857d7",
+      "sha256": "65fdb633c2d97626352a3771b7a0ce30b6a89af03d2a1238491c8b068e6b8dad",
+      "coverage": "Pinned upstream build scripts and patches. NOT the source of every compiled library; these must be assembled and checked against each target's versions.json."
+    },
+    {
+      "name": "sharp-native-aom",
+      "library": "aom",
+      "version": "3.15.1",
+      "kind": "sharp-native-source",
+      "filename": "sharp-aom-3.15.1.tar.gz",
+      "url": "https://storage.googleapis.com/aom-releases/libaom-3.15.1.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "8ca0c52746174603500f0adb6f2a215d69c9ca2aab2acb3caa06fb791d8d01bf",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-archive",
+      "library": "archive",
+      "version": "3.8.9",
+      "kind": "sharp-native-source",
+      "filename": "sharp-archive-3.8.9.tar.xz",
+      "url": "https://github.com/libarchive/libarchive/releases/download/v3.8.9/libarchive-3.8.9.tar.xz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "888c934f9d95648ecb9163dc8e23ab80a476ecb81a8f1154704a227b5b676dde",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-cairo",
+      "library": "cairo",
+      "version": "1.18.6",
+      "kind": "sharp-native-source",
+      "filename": "sharp-cairo-1.18.6.tar.xz",
+      "url": "https://cairographics.org/releases/cairo-1.18.6.tar.xz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "1c767308174337a74694da0f3ec069c271452163a1ef4540964c50c301f157d4",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-cgif",
+      "library": "cgif",
+      "version": "0.5.4",
+      "kind": "sharp-native-source",
+      "filename": "sharp-cgif-0.5.4.tar.gz",
+      "url": "https://github.com/dloebl/cgif/archive/v0.5.4.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "83a70a15bc2da41f081a44ebc58ee48e2e1d524a6d3fdb4a24064afa08d5ad4d",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-exif",
+      "library": "exif",
+      "version": "0.6.26",
+      "kind": "sharp-native-source",
+      "filename": "sharp-exif-0.6.26.tar.xz",
+      "url": "https://github.com/libexif/libexif/releases/download/v0.6.26/libexif-0.6.26.tar.xz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "4a055ed6575e61ca46c3172be3c753cc16c9becd0f99ec71d58dd0e471476c0c",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-expat",
+      "library": "expat",
+      "version": "2.8.5",
+      "kind": "sharp-native-source",
+      "filename": "sharp-expat-2.8.5.tar.xz",
+      "url": "https://github.com/libexpat/libexpat/releases/download/R_2_8_5/expat-2.8.5.tar.xz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "1e727b8933ec51a77a9a9d9afcf8e688bce45d907c13e36ab7393fe36e703182",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-ffi",
+      "library": "ffi",
+      "version": "3.8.0",
+      "kind": "sharp-native-source",
+      "filename": "sharp-ffi-3.8.0.tar.gz",
+      "url": "https://github.com/libffi/libffi/releases/download/v3.8.0/libffi-3.8.0.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "7da3e2d9a171eb0a038f592ecad3ff2bb2550f3496d87b3b29ad0cf4430c0db4",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-fontconfig",
+      "library": "fontconfig",
+      "version": "2.18.3",
+      "kind": "sharp-native-source",
+      "filename": "sharp-fontconfig-2.18.3.tar.gz",
+      "url": "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/archive/2.18.3/fontconfig-2.18.3.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "9ae01e1d53acdef56010c5451cd34aa41d325b2faccd8606448d8fa01b2496b3",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-freetype",
+      "library": "freetype",
+      "version": "2.14.3",
+      "kind": "sharp-native-source",
+      "filename": "sharp-freetype-2.14.3.tar.gz",
+      "url": "https://github.com/freetype/freetype/archive/VER-2-14-3.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "dc49de6b01a266eef4876a4dd34d9842c475d3e28ff2eff63bd2fb760ab56261",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-fribidi",
+      "library": "fribidi",
+      "version": "1.0.17",
+      "kind": "sharp-native-source",
+      "filename": "sharp-fribidi-1.0.17.tar.xz",
+      "url": "https://github.com/fribidi/fribidi/releases/download/v1.0.17/fribidi-1.0.17.tar.xz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "6949dcde27d41cebad1fd741fcafc36d55a1020d2d872d4a6eb3914caabbada2",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-glib",
+      "library": "glib",
+      "version": "2.90.0",
+      "kind": "sharp-native-source",
+      "filename": "sharp-glib-2.90.0.tar.xz",
+      "url": "https://download.gnome.org/sources/glib/2.90/glib-2.90.0.tar.xz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "17d15cac2af80a33271127408e0abc2748eb297c595c2a26409e81e14e7d1b8f",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-harfbuzz",
+      "library": "harfbuzz",
+      "version": "14.5.0",
+      "kind": "sharp-native-source",
+      "filename": "sharp-harfbuzz-14.5.0.tar.gz",
+      "url": "https://github.com/harfbuzz/harfbuzz/archive/14.5.0.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "97ec7488a46b974e18e08ee774af93173e7e1dbf738424796eb315ebcb735ec5",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-heif",
+      "library": "heif",
+      "version": "1.23.5",
+      "kind": "sharp-native-source",
+      "filename": "sharp-heif-1.23.5.tar.gz",
+      "url": "https://github.com/strukturag/libheif/releases/download/v1.23.5/libheif-1.23.5.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "fd9036064c4432f0550d15072ddf34956a248279ee9aeaff0fba3fa0f77d8f1a",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-highway",
+      "library": "highway",
+      "version": "1.4.0",
+      "kind": "sharp-native-source",
+      "filename": "sharp-highway-1.4.0.tar.gz",
+      "url": "https://github.com/google/highway/archive/1.4.0.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "e72241ac9524bb653ae52ced768b508045d4438726a303f10181a38f764a453c",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-imagequant",
+      "library": "imagequant",
+      "version": "2.4.1",
+      "kind": "sharp-native-source",
+      "filename": "sharp-imagequant-2.4.1.tar.gz",
+      "url": "https://github.com/lovell/libimagequant/archive/v2.4.1.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "47d2a84b7b1052975c9d50a3d4e3cacbf57b43d84a4c3131210848ead9964dfb",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-lcms",
+      "library": "lcms",
+      "version": "2.19.1",
+      "kind": "sharp-native-source",
+      "filename": "sharp-lcms-2.19.1.tar.gz",
+      "url": "https://github.com/mm2/Little-CMS/releases/download/lcms2.19.1/lcms2-2.19.1.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "bfc54f7bab59fbc921012014a8032e4cba4abd46db47d46b76416a8c0b2815c8",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-mozjpeg",
+      "library": "mozjpeg",
+      "version": "0826579",
+      "kind": "sharp-native-source",
+      "filename": "sharp-mozjpeg-0826579.tar.gz",
+      "url": "https://github.com/mozilla/mozjpeg/archive/0826579.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "b680167bd5d9afebdd576a12f8c49d2c9066a3b92ef96a2b2c5f7829b8600fe5",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-pango",
+      "library": "pango",
+      "version": "1.58.2",
+      "kind": "sharp-native-source",
+      "filename": "sharp-pango-1.58.2.tar.xz",
+      "url": "https://download.gnome.org/sources/pango/1.58/pango-1.58.2.tar.xz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "342385b6ca3b7c73455d7c80a13b7dbe4489e00bc3bd4c5bd6ed4dce421e374a",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-pixman",
+      "library": "pixman",
+      "version": "0.46.4",
+      "kind": "sharp-native-source",
+      "filename": "sharp-pixman-0.46.4.tar.gz",
+      "url": "https://cairographics.org/releases/pixman-0.46.4.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "d09c44ebc3bd5bee7021c79f922fe8fb2fb57f7320f55e97ff9914d2346a591c",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-png",
+      "library": "png",
+      "version": "1.6.58",
+      "kind": "sharp-native-source",
+      "filename": "sharp-png-1.6.58.tar.gz",
+      "url": "https://github.com/pnggroup/libpng/archive/v1.6.58.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "a9d4df463d36a6e5f9c29bd6f4967312d17e996c1854f3511f833924eb1993cf",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-proxy-libintl",
+      "library": "proxy-libintl",
+      "version": "0.5",
+      "kind": "sharp-native-source",
+      "filename": "sharp-proxy-libintl-0.5.tar.gz",
+      "url": "https://github.com/frida/proxy-libintl/archive/0.5.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "f7a1cbd7579baaf575c66f9d99fb6295e9b0684a28b095967cfda17857595303",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-rsvg",
+      "library": "rsvg",
+      "version": "2.63.2",
+      "kind": "sharp-native-source",
+      "filename": "sharp-rsvg-2.63.2.tar.xz",
+      "url": "https://download.gnome.org/sources/librsvg/2.63/librsvg-2.63.2.tar.xz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "852b18e1a00b8605528825a27dc7748bff2a5dd254028f59dc22a34ea57e81b6",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-tiff",
+      "library": "tiff",
+      "version": "4.7.2",
+      "kind": "sharp-native-source",
+      "filename": "sharp-tiff-4.7.2.tar.gz",
+      "url": "https://gitlab.com/libtiff/libtiff/-/archive/v4.7.2/libtiff-v4.7.2.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "62b15f44c10106065211efa22a2dc77937bd97ee1f6e3afd2c9659010de112eb",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-uhdr",
+      "library": "uhdr",
+      "version": "2.0.2",
+      "kind": "sharp-native-source",
+      "filename": "sharp-uhdr-2.0.2.tar.gz",
+      "url": "https://github.com/google/libultrahdr/archive/v2.0.2.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "aa8d193bb887c348c419780511dd03b374f4e07af8812b6d3f80c8537cf1ef2c",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-vips",
+      "library": "vips",
+      "version": "8.18.7",
+      "kind": "sharp-native-source",
+      "filename": "sharp-vips-8.18.7.tar.xz",
+      "url": "https://github.com/libvips/libvips/releases/download/v8.18.7/vips-8.18.7.tar.xz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-webp",
+      "library": "webp",
+      "version": "1.6.0",
+      "kind": "sharp-native-source",
+      "filename": "sharp-webp-1.6.0.tar.gz",
+      "url": "https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.6.0.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-xml2",
+      "library": "xml2",
+      "version": "2.15.4",
+      "kind": "sharp-native-source",
+      "filename": "sharp-xml2-2.15.4.tar.xz",
+      "url": "https://download.gnome.org/sources/libxml2/2.15/libxml2-2.15.4.tar.xz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "98087fd181d9070724f3fbc65c7377db03038eb92bd882374daff44940138821",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-native-zlib-ng",
+      "library": "zlib-ng",
+      "version": "2.3.3",
+      "kind": "sharp-native-source",
+      "filename": "sharp-zlib-ng-2.3.3.tar.gz",
+      "url": "https://github.com/zlib-ng/zlib-ng/archive/2.3.3.tar.gz",
+      "coverage": "Upstream source input matching sharp versions.json. Build patches, generated dependency locks and replacement/relinking verification are separate.",
+      "sha256": "f9c65aa9c852eb8255b636fd9f07ce1c406f061ec19a2e7d508b318ca0c907d1",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-glib-patch",
+      "version": "bdad5489a61c217850631571caf57f5db6ea8b2c",
+      "kind": "build-patch",
+      "filename": "sharp-glib-patch-bdad5489a61c217850631571caf57f5db6ea8b2c.patch",
+      "url": "https://gist.github.com/kleisauke/284d685efa00908da99ea6afbaaf39ae/raw/bdad5489a61c217850631571caf57f5db6ea8b2c/glib-without-gregex.patch",
+      "coverage": "Patch referenced by the pinned sharp-libvips build recipe; collected without executing or applying it.",
+      "sha256": "b1f2930a11292e529de137c7eb723850e0cc0969b1a2b0358196389312acd272",
+      "evidenceOnly": true,
+      "collectNotices": false
+    },
+    {
+      "name": "sharp-mozjpeg-patch",
+      "version": "f90668e0e4fb79c81e1f24a0ccc0e2090af761bf",
+      "kind": "build-patch",
+      "filename": "sharp-mozjpeg-patch-f90668e0e4fb79c81e1f24a0ccc0e2090af761bf.patch",
+      "url": "https://github.com/mozilla/mozjpeg/commit/f90668e0e4fb79c81e1f24a0ccc0e2090af761bf.patch",
+      "coverage": "Patch referenced by the pinned sharp-libvips build recipe; collected without executing or applying it.",
+      "sha256": "a65f87cadf3a6052e44d6314c906f6e2891352f82646b8a6f0b8fcf2c1891e7c",
+      "evidenceOnly": true,
+      "collectNotices": false
+    },
+    {
+      "name": "sharp-rsvg-patch",
+      "version": "9106011db93d701728ac2c9da50c9ab2c1bb5dc6",
+      "kind": "build-patch",
+      "filename": "sharp-rsvg-patch-9106011db93d701728ac2c9da50c9ab2c1bb5dc6.patch",
+      "url": "https://github.com/GNOME/librsvg/commit/9106011db93d701728ac2c9da50c9ab2c1bb5dc6.patch",
+      "coverage": "Patch referenced by the pinned sharp-libvips build recipe; collected without executing or applying it.",
+      "sha256": "8b841d2ec8feb964fa76859075e0e0c41b69136ba143cf0d26469d9bebc19231",
+      "evidenceOnly": true,
+      "collectNotices": false
+    },
+    {
+      "name": "sharp-uhdr-patch",
+      "version": "pr383",
+      "kind": "build-patch",
+      "filename": "sharp-uhdr-patch-pr383.patch",
+      "url": "https://patch-diff.githubusercontent.com/raw/google/libultrahdr/pull/383.patch",
+      "coverage": "Patch referenced by the pinned sharp-libvips build recipe; collected without executing or applying it.",
+      "sha256": "57658db2a11ae964755e513b01db21bcfa408c350b11b3a6ef9bc8576fb749ba",
+      "evidenceOnly": true,
+      "collectNotices": false
+    },
+    {
+      "name": "sharp-vips-patch",
+      "version": "3988223c7dfa4d22745d9392034b0117abef1446",
+      "kind": "build-patch",
+      "filename": "sharp-vips-patch-3988223c7dfa4d22745d9392034b0117abef1446.patch",
+      "url": "https://gist.githubusercontent.com/lovell/313a6901e9db1bf285f2a1f1180499e4/raw/3988223c7dfa4d22745d9392034b0117abef1446/libvips-cpp-soversion.patch",
+      "coverage": "Patch referenced by the pinned sharp-libvips build recipe; collected without executing or applying it.",
+      "sha256": "256b7d6f8c973bb53b20cff5171c7117d6b35d3aa4e72d22cb906f4fe1e2c890",
+      "evidenceOnly": true,
+      "collectNotices": false
+    },
+    {
+      "name": "opencv-python",
+      "version": "4.11.0.86",
+      "kind": "python-sdist",
+      "filename": "opencv-python-4.11.0.86.tar.gz",
+      "url": "https://files.pythonhosted.org/packages/17/06/68c27a523103dad5837dc5b87e71285280c4f098c60e4fe8a8db6486ab09/opencv-python-4.11.0.86.tar.gz",
+      "sha256": "03d60ccae62304860d232272e4a4fda93c39d595780cb40b161b310244b736a4",
+      "coverage": "Published wrapper and OpenCV source distribution. Embedded wheel FFmpeg and separately fetched third-party build inputs require separate verification.",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "sharp-windows-build-recipe",
+      "version": "ef19ca09af2453d127453d677c849ccb37cf5694",
+      "url": "https://codeload.github.com/libvips/build-win64-mxe/tar.gz/ef19ca09af2453d127453d677c849ccb37cf5694",
+      "filename": "sharp-windows-build-recipe-ef19ca09af2453d127453d677c849ccb37cf5694.tar.gz",
+      "sha256": "f52864572e6df6e549016369fdb2705aa195a837bd7bc8c52e45f42b59ef97a7",
+      "targets": [
+        "win32-x64"
+      ],
+      "kind": "native-source-input",
+      "coverage": "Windows libvips recipe and patches for v8.18.7. Its build-tool and Rust dependency closure still needs verification.",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "opencv-windows-ffmpeg-recipe",
+      "version": "d63d7c154c57242bf2283be61166be2bd30ec47e",
+      "url": "https://codeload.github.com/opencv/opencv_3rdparty/tar.gz/d63d7c154c57242bf2283be61166be2bd30ec47e",
+      "filename": "opencv-windows-ffmpeg-recipe-d63d7c154c57242bf2283be61166be2bd30ec47e.tar.gz",
+      "sha256": "5e25ad9a087ca88e97482bbd81c85d202f010e004b5ff9b1c58eb8b2fa426f8b",
+      "targets": [
+        "win32-x64"
+      ],
+      "kind": "native-source-input",
+      "coverage": "Upstream repository with FFmpeg plugin build scripts, headers, licence and reference binaries; OpenCV submodule source is a separate archive.",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "opencv-windows-plugin-source",
+      "version": "09892c9d1706f40342bda0bc404580f63492d9f8",
+      "url": "https://codeload.github.com/opencv/opencv/tar.gz/09892c9d1706f40342bda0bc404580f63492d9f8",
+      "filename": "opencv-windows-plugin-source-09892c9d1706f40342bda0bc404580f63492d9f8.tar.gz",
+      "sha256": "2d6b99bf756a03b81caed7223fdf1bbe1c60bf34c6babee6e734cf6b7afd33e2",
+      "targets": [
+        "win32-x64"
+      ],
+      "kind": "native-source-input",
+      "coverage": "OpenCV source revision identified by the FFmpeg plugin used in OpenCV 4.11.0.86.",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "opencv-windows-ffmpeg-core",
+      "version": "4.4.5",
+      "url": "https://ffmpeg.org/releases/ffmpeg-4.4.5.tar.xz",
+      "filename": "opencv-windows-ffmpeg-core-4.4.5.tar.xz",
+      "sha256": "f9514e0d3515aee5a271283df71636e1d1ff7274b15853bcd84e144be416ab07",
+      "targets": [
+        "win32-x64"
+      ],
+      "kind": "native-source-input",
+      "coverage": "FFmpeg version pinned by the OpenCV plugin download_src.sh, distinct from the Gyan executable.",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "opencv-windows-openh264",
+      "version": "1.8.0",
+      "url": "https://codeload.github.com/cisco/openh264/tar.gz/refs/tags/v1.8.0",
+      "filename": "opencv-windows-openh264-1.8.0.tar.gz",
+      "sha256": "08670017fd0bb36594f14197f60bebea27b895511251c7c64df6cd33fc667d34",
+      "targets": [
+        "win32-x64"
+      ],
+      "kind": "native-source-input",
+      "coverage": "API headers used by the dynamically loaded OpenH264 wrapper; no new OpenH264 binary is installed.",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "opencv-windows-libvpx",
+      "version": "1.15.0",
+      "url": "https://codeload.github.com/webmproject/libvpx/tar.gz/refs/tags/v1.15.0",
+      "filename": "opencv-windows-libvpx-1.15.0.tar.gz",
+      "sha256": "e935eded7d81631a538bfae703fd1e293aad1c7fd3407ba00440c95105d2011e",
+      "targets": [
+        "win32-x64"
+      ],
+      "kind": "native-source-input",
+      "coverage": "libvpx version pinned by the OpenCV plugin recipe.",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "opencv-windows-aom",
+      "version": "3.11.0",
+      "url": "https://storage.googleapis.com/aom-releases/libaom-3.11.0.tar.gz",
+      "filename": "opencv-windows-aom-3.11.0.tar.gz",
+      "sha256": "cf7d103d2798e512aca9c6e7353d7ebf8967ee96fffe9946e015bb9947903e3e",
+      "targets": [
+        "win32-x64"
+      ],
+      "kind": "native-source-input",
+      "coverage": "libaom version pinned by the OpenCV plugin recipe.",
+      "evidenceOnly": true,
+      "collectNotices": true
+    },
+    {
+      "name": "opencv-macos-ffmpeg-core",
+      "version": "7.1",
+      "url": "https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz",
+      "filename": "opencv-macos-ffmpeg-core-7.1.tar.xz",
+      "sha256": "40973d44970dbc83ef302b0609f2e74982be2d85916dd2ee7472d30678a7abe6",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "kind": "native-source-input",
+      "coverage": "Core source version embedded in the wheel FFmpeg dylib. NOT complete source: Homebrew 7.1_3 recipe, patches and linked libraries remain to be assembled.",
+      "evidenceOnly": true,
+      "collectNotices": true
+    }
+  ]
+}

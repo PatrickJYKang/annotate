@@ -13,6 +13,8 @@
   "app.title": "Annotate",
   "header.fullscreen": "Plein écran",
   "header.userGuide": "Guide d’utilisation",
+  "header.source": "Code source",
+  "header.sourceTitle": "Code source et licences",
   "header.locale": "Langue",
   "locale.en": "English",
   "locale.fr": "Français",

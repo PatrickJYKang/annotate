@@ -24,6 +24,15 @@ export default function HeaderControls() {
     <>
       <h1><Link href="/">{t('app.title')}</Link></h1>
       <div className="flex items-stretch">
+        <a
+          href={`https://github.com/PatrickJYKang/annotate${/^[a-f0-9]{40}$/i.test(process.env.NEXT_PUBLIC_SOURCE_COMMIT ?? '') ? `/tree/${process.env.NEXT_PUBLIC_SOURCE_COMMIT}` : ''}`}
+          target="_blank"
+          rel="noreferrer"
+          title={t('header.sourceTitle')}
+          className="flex min-h-[37px] items-center border-l border-border px-4 text-xs text-secondary no-underline hover:bg-hover hover:text-primary"
+        >
+          {t('header.source')}
+        </a>
         {/* The guide is the online site; the desktop app opens it in the system browser. */}
         <a
           href={onlineGuideUrl(locale)}

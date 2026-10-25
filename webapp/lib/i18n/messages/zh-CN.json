@@ -13,6 +13,8 @@
   "app.title": "Annotate",
   "header.fullscreen": "全屏",
   "header.userGuide": "用户指南",
+  "header.source": "源代码",
+  "header.sourceTitle": "源代码与许可证",
   "header.locale": "语言",
   "locale.en": "English",
   "locale.fr": "Français",

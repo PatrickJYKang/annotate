@@ -20,6 +20,7 @@
     "test:electron": "node desktop/scripts/smoke-electron.mjs",
     "test:electron-recovery": "node desktop/scripts/smoke-recovery.mjs",
     "stage:desktop": "node desktop/scripts/stage-runtime.mjs",
+    "prepare:compliance": "node desktop/scripts/prepare-compliance.mjs",
     "package:desktop": "node desktop/scripts/package-desktop.mjs",
     "test:e2e": "npm --prefix webapp run test:e2e",
     "test:e2e:headed": "npm --prefix webapp run test:e2e:headed",

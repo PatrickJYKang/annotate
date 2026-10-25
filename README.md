@@ -68,6 +68,7 @@ The Python sidecar owns smart media preparation, authoritative probing, tracking
 - [Support and recovery](docs/support.md)
 - [Versioning and release identity](docs/versioning.md)
 - [Distribution licence review](docs/licence-review.md)
+- [Distribution compliance and source preparation](docs/distribution-compliance.md)
 - **[As-built technical reference](technical_document.md)**
 - [Annotate 0.2 scope](plans/v0.2/v0.2-scope.md)
 - [Annotate 0.2 implementation ledger](plans/v0.2/implementation-plan.md)

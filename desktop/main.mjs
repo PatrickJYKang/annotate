@@ -16,6 +16,7 @@ import { startMediaServer } from './core/media-server.mjs';
 import { startSidecarProxy } from './core/sidecar-proxy.mjs';
 import { resolveResourceLayout, sidecarEnvironment } from './core/resource-layout.mjs';
 import { UserState } from './core/user-state.mjs';
+import { sourceUrl, isSourceLink } from './core/legal.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const appIcon = fileURLToPath(new URL('./icons/annotate.png', import.meta.url));
@@ -59,6 +60,23 @@ async function diagnostics() {
 async function copyDiagnostics() {
   clipboard.writeText(JSON.stringify(await diagnostics(), null, 2));
   await dialog.showMessageBox({ type: 'info', message: 'Diagnostic information copied.', detail: 'Includes build, operating system and service status. No project paths, videos, credentials or logs are included.' });
+}
+
+async function showLicences() {
+  let build = null;
+  try { build = JSON.parse(await readFile(path.join(import.meta.dirname, 'build-info.json'), 'utf8')); } catch { /* Development checkout. */ }
+  const result = await dialog.showMessageBox({ type: 'info', title: 'Licences and source',
+    message: `Annotate ${productVersion}`,
+    detail: 'Annotate-owned code is GPL-3.0-only. You may modify and redistribute it under that licence; there is no warranty. Third-party components retain their own terms, including AGPL-3.0 for Ultralytics. The combined distribution must honour those terms. Licence texts, dependency notices and source information are available below.'
+      + (!build || build.dirty ? '\n\nThis development build may contain unpublished changes. The source link is a reference, not a complete source snapshot of this build.' : ''),
+    buttons: ['Close', 'Open licence files', 'View source'], defaultId: 0, cancelId: 0 });
+  if (result.response === 1) {
+    const error = await shell.openPath(app.isPackaged ? path.join(process.resourcesPath, 'runtime/licenses') : path.join(root, 'docs/distribution-compliance.md'));
+    if (error) dialog.showErrorBox('Could not open licences', error);
+  }
+  if (result.response === 2) {
+    await shell.openExternal(sourceUrl(build?.commit));
+  }
 }
 
 async function recoverWindow(state, reason) {
@@ -363,10 +381,9 @@ async function createWindow(project = null, route = '/') {
   window.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
     if (isMainFrame && !isInPlace) { state.revisions.clear(); state.baselines.clear(); }
   });
-  // New windows are never created; the header's User guide button opens the online guide in the
-  // system browser instead.
+  // Only the guide and source links may open in the system browser.
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (isOnlineGuideLink(url)) void shell.openExternal(url);
+    if (isOnlineGuideLink(url) || isSourceLink(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
   window.webContents.on('will-navigate', (event, url) => { if (new URL(url).origin !== rendererOrigin) event.preventDefault(); });
@@ -443,6 +460,7 @@ Menu.setApplicationMenu(Menu.buildFromTemplate([
   { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' }, { role: 'windowMenu' },
   { role: 'help', submenu: [
     { label: 'User guide', click: () => void shell.openExternal(`https://patrickjykang.github.io/annotate-docs/?lang=${userState.snapshot()['annotate:locale'] ?? 'en'}`) },
+    { label: 'Licences and source', click: () => void showLicences() },
     { label: 'Open logs', click: async () => {
       const logs = path.join(app.getPath('userData'), 'logs');
       await mkdir(logs, { recursive: true });

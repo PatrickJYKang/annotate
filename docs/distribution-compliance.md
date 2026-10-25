@@ -1,0 +1,62 @@
+# Distribution compliance
+
+This is the implementation record for release preparation, not a legal opinion or blanket clearance. Annotate-owned code remains GPL-3.0-only. Third-party components retain their licences. Nothing in this work authorizes changing a dependency's licence, removes required notices, or treats a process boundary as a copyleft exemption.
+
+## Open-source distribution approach
+
+Use the source-accompanying-download approach in GPLv3/AGPLv3 section 6(d), rather than promising a three-year written source offer. Every published installer must have matching Annotate source, relevant third-party corresponding source, licence texts, dependency versions, modifications and build/install instructions available at no additional charge from the release page. Preserve those files for as long as the binary is offered. A link to a changing main branch is not a substitute for matching source.
+
+AGPLv3 section 13 permits combining AGPLv3 and GPLv3 parts while retaining their respective terms. We therefore do not require a commercial Ultralytics licence merely because this is a desktop product, and we are not relicensing third-party code or automatically changing Annotate's own licence. The combined work's applicable source and network-interaction obligations still apply. The desktop Help menu exposes licence files and matching source; the browser header links to its build's source commit. A source archive without Git metadata links to the repository rather than inventing a commit. A local dirty build is not represented as the exact public source of a distributable release.
+
+The source release needs the actual integrated application and build scripts, not just Ultralytics by itself. `desktop/compliance/sources.lock.json` pins the upstream source distributions for `ultralytics` and `ultralytics-thop`; staging checks them against the Python dependency lock, downloads without executing them, verifies SHA-256, and includes them under `runtime/licenses/sources/`. The YOLO weight file remains in the runtime with its existing pinned checksum and AGPL attribution. This addresses source collection for those Python packages, not all native dependencies or PnLCalib's permission questions.
+
+## Notices and evidence
+
+The notice collector includes the actual server runtime and installed non-development browser build inputs, including libraries compiled into client bundles. It also copies nested notices in Next's vendored code, Python wheel notices outside `.dist-info` such as OpenCV's, the font licence, and the project's full GPL text. Python metadata uses explicit licence fields or licence classifiers; absence of evidence is not treated as a permissive licence. Exact-version supplements restore the upstream Next 15.5.28 MIT notice to `@next/env` and `@next/swc-*`; the env supplement also preserves the BSD notices of its bundled dotenv 16.3.1 and dotenv-expand 10.0.0. The texts and provenance checksums are in `desktop/compliance/notices/`. Unknown future versions do not inherit these supplements silently. `client-only` still lacks an authoritative copyright/licence text; its MIT metadata is retained without fabricating a copyright holder.
+
+`npm run prepare:compliance -- darwin-arm64` (or `win32-x64`) reads an already staged runtime and creates a separate, uniquely named evidence directory and archive under `desktop/artifacts/compliance/`. It contains the current review, notice inventory, checksum-verified upstream archives, staged media-tool sources/recipes, and committed application source. Dirty-tree runs are explicitly marked and include a patch of tracked edits; untracked files are listed but not automatically copied, to avoid exposing unrelated local files. The staged runtime can predate the working tree. These are review artifacts, not publishable corresponding-source bundles. The archive deliberately states that compliance is incomplete while the following gates remain open. It does not modify existing installers, staged runtimes or published source archives.
+
+## Native source evidence
+
+The 2026-10-25 collection pins source archives for all 28 libraries listed by the native sharp/libvips packages' `versions.json`, the five external patches referenced by the pinned POSIX recipe, and the Windows MXE recipe at `ef19ca09af2453d127453d677c849ccb37cf5694`. Each archive and patch has a SHA-256 digest. Source versions must match the staged native package before collection proceeds. Next's traced macOS package omits `versions.json`; the collector uses the installed build input only after comparing both package versions and the actual dylib checksum. It never assumes that the current checkout's package describes an older binary.
+
+Licence and copyright files are read from those archives without unpacking or executing the source. They accompany the runtime, including the restored native-library notices for the Mac libvips package. The larger native source archives are marked `evidenceOnly`: they accompany the separate compliance bundle, not the installer. The source index distinguishes included archives from external companion inputs. The Mac evidence contains 38 source inputs and 117 extracted notice files; Windows contains 45 inputs and 159 notice files. These counts do not establish that every transitive dependency is covered.
+
+OpenCV's 4.11.0.86 source distribution is pinned separately from its wheel's embedded libraries. The Windows wheel's `opencv_videoio_ffmpeg4110_64.dll` matches the upstream download checksum `a8c3560c8f20e1ae465bef81580fa92c` recorded in OpenCV's FFmpeg CMake recipe. That upstream MD5 is corroborating identity evidence, not our integrity algorithm; the binary inventory uses SHA-256. The collection includes the corresponding plugin recipe, its OpenCV source revision, FFmpeg 4.4.5, libvpx 1.15.0, libaom 3.11.0 and OpenH264 1.8.0 API source. No OpenH264 codec binary was added. This is distinct from the Gyan FFmpeg executable used for import/export.
+
+The actual Mac OpenCV wheel contains another FFmpeg: its libavutil build string identifies Homebrew `7.1_3`, enables GPL and version 3, and reports `GPL version 3 or later`. It also bundles x264, x265 and other dylibs. The wheel's generic statement that FFmpeg is LGPL must not be used as the complete licence determination for this binary. FFmpeg 7.1 core source is now archived, but that does not include all Homebrew patches and linked-library source. The separately controlled macOS FFmpeg 8.1.1/x264 build does not cover this second FFmpeg distribution.
+
+`native-binaries.json` records the media/image executables and native libraries, SHA-256 digests and embedded FFmpeg configuration/licence evidence. Collection compares them again before declaring `runtimeBinariesUnchanged`; both staged targets passed, covering 70 Mac and 7 Windows binary files. This inventory covers FFmpeg, OpenCV and renderer image modules, not every native file in Python or Electron. It does not execute Windows code or establish Windows runtime compatibility.
+
+The existing app binaries, model weights, codecs and dependency versions have not been replaced. A Mac isolated-runtime check exercised OpenCV video decoding, YOLO detection, PnLCalib inference and H.264 export successfully. The 468 web unit tests and desktop compliance tests also pass. Native Windows installation and relinking tests remain separate work.
+
+## Remaining gates
+
+| Item | Status and required evidence |
+| --- | --- |
+| PnLCalib code | Enquiry sent by Patrick on 2026-10-25; awaiting clarification of GPL-2.0-or-later or suitable additional permission for the pinned imported code. A sample notice at the end of GPLv2 is not evidence of an author grant. |
+| PnLCalib weights | Still unresolved: confirm which licence covers redistribution of `SV_kp` and `SV_lines`. No separate licence is necessary if the rights holder clearly states the existing licence covers the weights. |
+| Windows FFmpeg | Exact core source revision is now archived, but Gyan's release does not identify all linked-library revisions/build inputs. The core tarball is explicitly labelled incomplete. Obtain the missing inputs or build and test a controlled equivalent before clearance. |
+| macOS FFmpeg/x264 | The existing source archives and build recipe are retained in the evidence bundle. Confirm them against the final built binaries rather than substituting current upstream source. |
+| Native image/video wheels | Base libvips sources/notices and Windows OpenCV FFmpeg inputs are collected. Remaining: libvips's generated Rust dependency locks/crate sources, GLib's fetched GVDB subproject, the bundled WASM fallback's resvg/toolchain dependency closure, exact Mac OpenCV/Homebrew linked-library inputs, and replacement/relinking verification. A wheel's top-level permissive licence does not clear embedded libraries. |
+| Missing package notice texts | Next subpackage notices and base libvips notices are restored. `client-only@0.0.1` remains unresolved: its published package declares MIT without identifying the copyright holder or shipping the licence text. Preserve that uncertainty, not an invented Meta/Vercel attribution. |
+| Microsoft runtime | User reported no confirmed Visual Studio licence on 2026-10-24. No redistribution entitlement has been assumed or obtained. Microsoft permits app-local deployment of eligible unmodified files under the applicable Visual Studio terms; the end-user runtime EULA alone is insufficient. Verify eligibility/acceptance and the REDIST list, or redesign prerequisite provisioning and test it on Windows. Do not silently install tools or accept agreements for the maintainer. |
+
+The runtime continues to work unchanged while these matters are resolved. No CV feature has been removed or model changed to evade a licence question. New public distribution remains blocked on these findings. Historical public installers need the same review and any necessary remediation; this document does not retroactively clear them. Calling an installer a preview or obtaining Apple notarization does not change licence obligations.
+
+## Replacement and next steps
+
+Do not replace Gyan FFmpeg or rebuild OpenCV with fewer codecs merely to simplify this review. Either obtain the matching build inputs or test a controlled replacement against the app's real import, playback, tracking and export workflows on the target operating system. Gyan's official build page provides `builds@gyan.dev` for queries; request the full corresponding source, linked-library revisions, patches and build instructions for `8.1.1-essentials_build`, not only the already archived FFmpeg core commit. No request has been sent on Patrick's behalf.
+
+For the LGPL components, preserve the ability to rebuild and use modified libraries. Native resources reside outside `app.asar`, but that alone is not a verified replacement mechanism: ABI compatibility, the runtime checks and macOS signing must be tested with a modified library. Provide the required source/build inputs and an actually tested replacement or relinking procedure with the release. Do not describe LGPL compliance as complete just because a DLL/dylib is present. The unresolved transitive build inputs above must be finished first. No user agreement restricting licence-permitted modification or reverse engineering has been introduced.
+
+## References
+
+- [AGPLv3 terms, including sections 6 and 13](https://www.ultralytics.com/legal/agpl-3-0-software-license).
+- [GNU compatibility guidance](https://www.gnu.org/licenses/gpl-faq.en.html#AllCompatibility).
+- [Windows FFmpeg 8.1.1 source declaration](https://github.com/GyanD/codexffmpeg/releases/tag/8.1.1) and the bundled `ffmpeg/README.txt`.
+- [sharp-libvips build inputs](https://github.com/lovell/sharp-libvips/tree/ebb95f8add54eee8bed840e3fb587e4cbec857d7).
+- [Windows libvips build recipe](https://github.com/libvips/build-win64-mxe/tree/ef19ca09af2453d127453d677c849ccb37cf5694) and [OpenCV Windows FFmpeg plugin recipe](https://github.com/opencv/opencv_3rdparty/tree/d63d7c154c57242bf2283be61166be2bd30ec47e).
+- [Next 15.5.28 upstream MIT notice](https://github.com/vercel/next.js/blob/v15.5.28/license.md).
+- [Microsoft redistribution conditions](https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files) and [Visual Studio 2022 REDIST list](https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution).
+- [PnLCalib enquiry status and retained draft](pnlcalib-licence-enquiry.md).

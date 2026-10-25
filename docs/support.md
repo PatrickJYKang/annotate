@@ -4,6 +4,8 @@ In desktop builds starting with 0.2.3-rc.1, the Help menu contains **User guide*
 
 Service logs are in `~/Library/Application Support/Annotate/logs/` on macOS and `%APPDATA%\Annotate\logs\` on Windows. Review them before attaching: they can contain local paths and filenames. Do not attach private footage, project folders or credentials. See [security reporting](../SECURITY.md) for sensitive reports.
 
+Current development source also adds **Help > Licences and source**, which opens the packaged licence folder or the source repository for the build commit. The browser header has a **Source** link. This addition is not in the already shared 0.2.3-rc.1 installers. Local builds with unpublished changes are not represented as complete matching public source. See [distribution compliance](distribution-compliance.md) for outstanding release requirements.
+
 ## Saved state
 
 Project JSON and media remain in the chosen project folder. Locale and panel layouts are stored separately in the desktop user-data folder, independent of the changing localhost port. The previous preview's origin-local settings are not automatically migrated. Browser preferences still use the browser origin.

@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "files": [
+    { "filename": "next-15.5.28-MIT.txt", "url": "https://raw.githubusercontent.com/vercel/next.js/v15.5.28/license.md", "sha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224" },
+    { "filename": "dotenv-16.3.1-BSD.txt", "url": "https://raw.githubusercontent.com/motdotla/dotenv/v16.3.1/LICENSE", "sha256": "74b629b24865e1e83c5277ee84590b7937644d6fd959d0c7bdce758676cd2ced" },
+    { "filename": "dotenv-expand-10.0.0-BSD.txt", "url": "https://raw.githubusercontent.com/motdotla/dotenv-expand/v10.0.0/LICENSE", "sha256": "43b0d13a8c15c1b0c2a1ffd7aaf6ee6444e16769ed221449ee02e47340601701" }
+  ]
+}

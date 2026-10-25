@@ -7,6 +7,7 @@ import { bundleMacTools } from './bundle-macos-tools.mjs';
 import { bundleWindowsRuntime } from './bundle-windows-runtime.mjs';
 import { desktopPreviewVersion } from '../preview-version.mjs';
 import { collectNotices } from './collect-notices.mjs';
+import { stageLicenseSources } from './prepare-license-sources.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const target = process.argv[2];
@@ -116,7 +117,8 @@ for (const [key, [kind, relative]] of Object.entries(entries)) resources[key] = 
   kind, path: relative, ...(kind === 'file' ? { sha256: await sha256File(path.join(output, relative)) } : {}),
 };
 await cp(path.join(root, 'LICENSE'), path.join(output, 'LICENSE'));
-await collectNotices(root, output, sitePackages);
+await stageLicenseSources(root, path.join(output, 'licenses/sources'), target);
+await collectNotices(root, output, sitePackages, path.join(output, 'licenses'), path.join(output, 'licenses/sources'));
 await writeFile(path.join(output, 'THIRD-PARTY-NOTICES.txt'), [
   `Annotate ${desktopPreviewVersion}. Annotate-owned source: GPL-3.0-only. Third-party components retain their own terms. https://github.com/PatrickJYKang/annotate`,
   'Python 3.12.14 standalone build 20260901: https://github.com/astral-sh/python-build-standalone/releases/tag/20260901',
