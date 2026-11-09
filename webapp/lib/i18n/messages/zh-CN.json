@@ -1,4 +1,16 @@
 {
+  "fixture.paste": "粘贴两队阵容",
+  "fixture.reportFormat": "每队一行：球队名称、英文冒号，然后用英文逗号分隔十一名球员。",
+  "fixture.includeSheets": "导入已确认的阵容",
+  "fixture.previewSheets": "查看首发和替补",
+  "fixture.loadingSheets": "正在查找比赛阵容…",
+  "fixture.failedSheets": "阵容查询失败，仍可导入比赛信息。",
+  "fixture.noSheets": "StatsBomb Open Data 没有此场比赛的已确认阵容。",
+  "fixture.only": "仅导入比赛信息",
+  "fixture.all": "欧洲五大联赛",
+  "fixture.unavailable": "部分赛程加载失败，请重试。",
+  "fixture.conflict": "覆盖后将替换比赛信息，并移除未参加这场比赛的球队数据。",
+  "fixture.overwrite": "覆盖比赛信息",
   "clip.homography.preparing": "正在准备采样帧",
   "clip.homography.queued": "等待开始",
   "clip.homography.loading": "正在加载标定模型",
@@ -239,6 +251,7 @@
   ,"annotation.strokeColor": "标注描边颜色"
   ,"annotation.style": "样式"
   ,"annotation.textHighlight": "文字高亮"
+  ,"annotation.textEditingHint": "Enter 换行，Ctrl/⌘+Enter 完成，Esc 取消。"
   ,"annotation.unlinkColors": "取消链接描边和填充颜色"
   ,"annotation.unlinkedColorsTitle": "描边与填充分别变化"
   ,"annotation.width": "宽度"

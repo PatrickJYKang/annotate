@@ -20,7 +20,7 @@ import {
   sampleAnnotationAnimations,
 } from '../../lib/annotate/animation';
 import { annotationPayloadFromDocument } from '../../lib/annotate/documentPayload';
-import { bboxToHighlight, convertTrackingKeyframes } from '../../lib/clip/bboxConvert';
+import { bboxToHighlight, convertTrackingKeyframes, manualTrackingBox } from '../../lib/clip/bboxConvert';
 import { boxOrCircleGeometryFromDrag } from '../../lib/clip/drawingGeometry';
 import {
   cloneClipAnnotations,
@@ -421,7 +421,10 @@ function drawableBounds(drawable: ClipDrawable): { x: number; y: number; w: numb
       const ys = [drawable.start.y, drawable.control.y, drawable.end.y];
       return { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
     }
-    case 'text': return { x: drawable.x, y: drawable.y, w: Math.max(80, drawable.text.length * drawable.style.fontSize * 0.55), h: drawable.style.fontSize };
+    case 'text': {
+      const lines = drawable.text.split('\n');
+      return { x: drawable.x, y: drawable.y, w: lines.reduce((w, line) => Math.max(w, line.length * drawable.style.fontSize * 0.55), 80), h: lines.length * drawable.style.fontSize };
+    }
   }
 }
 
@@ -1889,7 +1892,7 @@ export default function ClipEditor({
       context.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h);
       context.restore();
     }
-    if (!playbackPausedPin && trackingSession?.phase === 'choosing' && provisionalPlayers) {
+    if (!playbackPausedPin && trackingSession?.phase === 'choosing' && provisionalPlayers && (isPlaying || provisionalPlayers.frame === currentFrame)) {
       context.save();
       provisionalPlayers.detections.forEach((detection, index) => {
         const preview = bboxToHighlight(detection, trackingSession.radius);
@@ -1906,7 +1909,7 @@ export default function ClipEditor({
       });
       context.restore();
     }
-  }, [annotations, arrowPreviewAnnotation, color, currentClip.endFrame, currentFrame, currentHomography, defaultFontSize, pinAnimationClickTimesMs, pinAnimationElapsedMs, playbackPausedPin, playbackPausedPinDocuments, pointerDraft, polyPreviewAnnotation, previewAnnotation, provisionalPlayers, selectedAnnotation, selectedAnnotationIds, selectedShadowTransformOverlay, selectedTransformOverlay, showHomography, strokeWidth, trackingSession, transformHandleRadius, videoSize]);
+  }, [annotations, arrowPreviewAnnotation, color, currentClip.endFrame, currentFrame, currentHomography, defaultFontSize, isPlaying, pinAnimationClickTimesMs, pinAnimationElapsedMs, playbackPausedPin, playbackPausedPinDocuments, pointerDraft, polyPreviewAnnotation, previewAnnotation, provisionalPlayers, selectedAnnotation, selectedAnnotationIds, selectedShadowTransformOverlay, selectedTransformOverlay, showHomography, strokeWidth, trackingSession, transformHandleRadius, videoSize]);
 
   const pointFromClient = useCallback((clientX: number, clientY: number): Point | null => {
     const canvas = canvasRef.current;
@@ -2253,6 +2256,7 @@ export default function ClipEditor({
     setDetectingPlayers(true);
     try {
       const result = await requestPlayerDetections({
+        clipFrames: [currentClip.startFrame, currentClip.endFrame], fps: video.fps,
         videoRef,
         videoPath,
         frameMs: Number(frameToMs(videoFrame(frame), video.fps)),
@@ -2272,7 +2276,7 @@ export default function ClipEditor({
       setDetectingPlayers(false);
       if (desiredDetectionFrameRef.current !== frame) void requestDesired();
     }
-  }, [sidecar.baseUrl, video.fps, videoPath, videoRef]);
+  }, [sidecar.baseUrl, video.fps, videoPath, videoRef, currentClip.startFrame, currentClip.endFrame]);
 
   useEffect(() => {
     desiredDetectionFrameRef.current = desiredDetectionFrame;
@@ -2470,9 +2474,11 @@ export default function ClipEditor({
             ? activeTrackingFrameRef.current ?? currentFrameRef.current
             : currentFrameRef.current,
         );
-        const stopped = stopTrackingHighlightSegment(
+        const keepManualPoint = session.phase === 'choosing' && session.selectedCandidateIndex == null && session.selectedFrame === stopFrame;
+        const boundary = stopFrame + Number(keepManualPoint);
+        const stopped = boundary >= currentClip.endFrame ? target : stopTrackingHighlightSegment(
           target,
-          stopFrame,
+          videoFrame(boundary),
           videoFrame(currentClip.startFrame),
           frameBoundary(currentClip.endFrame),
         );
@@ -2509,10 +2515,11 @@ export default function ClipEditor({
     });
   }, []);
 
-  const chooseTrackingCandidate = useCallback((candidateIndex: number) => {
+  const chooseTrackingCandidate = useCallback((candidateIndex: number | null, point?: {x: number; y: number}) => {
     const session = trackingSession;
-    const candidateFrame = provisionalPlayers?.frame;
-    const detection = provisionalPlayers?.detections[candidateIndex];
+    const candidateFrame = point ? currentFrameRef.current : provisionalPlayers?.frame;
+    const detection = point && session ? { ...manualTrackingBox(point.x, point.y, session.radius), confidence: 0 }
+      : candidateIndex != null ? provisionalPlayers?.detections[candidateIndex] : null;
     if (!session || session.phase !== 'choosing' || candidateFrame == null || !detection) return;
 
     const frame = videoFrame(candidateFrame);
@@ -2530,7 +2537,7 @@ export default function ClipEditor({
         'image',
         defaultFontSize,
       );
-      created.source = 'auto';
+      created.source = point ? 'corrected' : 'auto';
       annotationId = created.id;
       next = [...annotations, created];
     } else {
@@ -2539,12 +2546,13 @@ export default function ClipEditor({
       const previous = [...existing.keyframes]
         .reverse()
         .find((keyframe) => keyframe.frame < frame && keyframe.visible !== false && keyframe.provenance !== 'lost') as HighlightKeyframe | undefined;
-      const updated = session.hasStarted
+      const bridge = session.hasStarted || (session.selectedFrame != null && frame > session.selectedFrame);
+      const updated = bridge
         ? bridgeTrackingHighlight(existing, frame, geometry)
         : seedTrackingHighlightSegment(existing, frame, geometry);
       next = annotations.map((annotation) => annotation.id === annotationId ? updated : annotation);
 
-      if (previous && session.hasStarted) {
+      if (previous && bridge) {
         const primaryBridge = (updated.keyframes as HighlightKeyframe[]).filter(
           (keyframe) => keyframe.frame > previous.frame && keyframe.frame <= frame,
         );
@@ -2680,6 +2688,8 @@ export default function ClipEditor({
 
         const liveKeyframes: TrackingKeyframe[] = [];
         const result = await requestTrackingStream({
+          clipFrames: [currentClip.startFrame, currentClip.endFrame],
+          manualSeed: session.selectedCandidateIndex === null,
           videoRef,
           videoPath,
           startMs: Number(frameToMs(seedFrame, video.fps)),
@@ -2757,7 +2767,7 @@ export default function ClipEditor({
       controller.abort();
       cancelTrackingPreview();
     };
-  }, [applyTrackingAnnotations, cancelTrackingPreview, currentClip.endFrame, formatNumber, scheduleTrackingPreview, seekFrame, sidecar.baseUrl, t, trackingSession, updateCurrentFrame, video.fps, video.frameCount, videoPath, videoRef]);
+  }, [applyTrackingAnnotations, cancelTrackingPreview, currentClip.endFrame, currentClip.startFrame, formatNumber, scheduleTrackingPreview, seekFrame, sidecar.baseUrl, t, trackingSession, updateCurrentFrame, video.fps, video.frameCount, videoPath, videoRef]);
 
   const computeHomography = useCallback(async () => {
     if (homographyAbortRef.current) return;
@@ -3055,9 +3065,20 @@ export default function ClipEditor({
                     void resumePlaybackFromPin();
                     return;
                   }
-                  if (trackingSession || editorMutationLocked || event.button !== 0) return;
+                  if (event.button !== 0) return;
                   const point = pointFromClient(event.clientX, event.clientY);
                   if (!point) return;
+                  if (trackingSession?.phase === 'choosing') {
+                    // A hit anywhere on the player's body selects the real candidate.
+                    const hits = provisionalPlayers?.frame === currentFrame ? provisionalPlayers.detections
+                      .map((box, index) => ({ box, index }))
+                      .filter(({box}) => point.x >= box.x && point.x <= box.x + box.w && point.y >= box.y && point.y <= box.y + box.h)
+                      .sort((a,b) => Math.hypot(a.box.x+a.box.w/2-point.x,a.box.y+a.box.h-point.y) - Math.hypot(b.box.x+b.box.w/2-point.x,b.box.y+b.box.h-point.y)) : [];
+                    if (hits.length) chooseTrackingCandidate(hits[0].index);
+                    else chooseTrackingCandidate(null, point);
+                    return;
+                  }
+                  if (trackingSession || editorMutationLocked) return;
                   const selectionMode = selectionModeFromModifiers(
                     event.shiftKey,
                     event.metaKey || event.ctrlKey,
@@ -3438,7 +3459,7 @@ export default function ClipEditor({
                 }}
                 onPointerCancel={() => setPointerDraft(null)}
                 />
-                {trackingSession?.phase === 'choosing' && provisionalPlayers?.detections.map((detection, index) => {
+                {trackingSession?.phase === 'choosing' && provisionalPlayers && (isPlaying || provisionalPlayers.frame === currentFrame) && provisionalPlayers.detections.map((detection, index) => {
                   const preview = bboxToHighlight(detection, trackingSession.radius);
                   return (
                     <button
@@ -3450,6 +3471,9 @@ export default function ClipEditor({
                       style={{
                         left: `${(preview.cx / videoSize.width) * 100}%`,
                         top: `${(preview.cy / videoSize.height) * 100}%`,
+                        width: `${preview.radius * 200 / videoSize.width}%`,
+                        height: `${preview.radius * 70 / videoSize.height}%`,
+                        clipPath: 'ellipse(50% 50%)',
                       }}
                       onClick={() => chooseTrackingCandidate(index)}
                     />

@@ -9,6 +9,7 @@ import MatchDetailsForm from "../metadata/MatchDetailsForm";
 import TeamPanel from "../metadata/TeamPanel";
 import FootballDataImporter from "../metadata/FootballDataImporter";
 import { useT } from "../../lib/i18n";
+import { inferMatchInfo } from "../../lib/metadata/matchName";
 
 export type ProjectSetupValues = {
   name: string;
@@ -102,6 +103,8 @@ export default function ProjectSetupScreen({ fsSupported, busy = false, onCreate
 
       {apiImporterOpen && (
         <FootballDataImporter
+          info={matchInfo}
+          hints={inferMatchInfo(matchInfo, name)}
           onImport={(partial) => {
             setMatchInfo({ ...matchInfo, ...partial });
             setApiImporterOpen(false);

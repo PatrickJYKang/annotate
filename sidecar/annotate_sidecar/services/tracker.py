@@ -8,6 +8,7 @@ This layer keeps annotate-owned behavior in one place:
 """
 
 import logging
+from math import hypot
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -15,10 +16,13 @@ import numpy as np
 
 from ..config import TrackingDefaults, get_tracking_defaults
 from .tracking_debug import create_tracking_debug_path
+from .clip_tracks import ClipTrackCache
 from ..vendor.trackers import BBox, UltralyticsOCSORTCore
 from ..vendor.trackers.core.matching import find_best_iou_match
+from ..vendor.trackers.core.types import FrameTrackResult
 
 logger = logging.getLogger("annotate_sidecar.tracker")
+_MAX_ISOLATED_MISSES = 10
 
 
 def _bbox_bottom_center(bbox: BBox) -> tuple[float, float]:
@@ -62,6 +66,18 @@ def _continuity_jump_threshold(bbox: BBox, frames_since_seen: int = 1) -> float:
     return min(base * 2.5, base * (1.0 + max(0, frames_since_seen - 1) * 0.2))
 
 
+def _interpolated_bbox(left: BBox, right: BBox, alpha: float) -> BBox:
+    return BBox(
+        x=left.x + (right.x - left.x) * alpha,
+        y=left.y + (right.y - left.y) * alpha,
+        w=left.w + (right.w - left.w) * alpha,
+        h=left.h + (right.h - left.h) * alpha,
+        confidence=min(left.confidence, right.confidence),
+        class_id=left.class_id,
+        track_id=right.track_id if alpha >= 0.5 else left.track_id,
+    )
+
+
 def _interpolate_detection_gaps(
     selected_detections: list[Optional[BBox]],
 ) -> list[Optional[BBox]]:
@@ -81,17 +97,107 @@ def _interpolate_detection_gaps(
         if left is None or right is None:
             continue
         for index in range(left_index + 1, right_index):
-            alpha = (index - left_index) / gap
-            filled[index] = BBox(
-                x=left.x + (right.x - left.x) * alpha,
-                y=left.y + (right.y - left.y) * alpha,
-                w=left.w + (right.w - left.w) * alpha,
-                h=left.h + (right.h - left.h) * alpha,
-                confidence=min(left.confidence, right.confidence),
-                class_id=left.class_id,
-                track_id=right.track_id if alpha >= 0.5 else left.track_id,
-            )
+            filled[index] = _interpolated_bbox(left, right, (index - left_index) / gap)
     return filled
+
+
+def _clear_neighborhood(detections, foot, radius, except_index=None) -> bool:
+    for i, box in enumerate(detections):
+        if i != except_index:
+            x, y = _bbox_bottom_center(box)
+            if hypot(x - foot[0], y - foot[1]) <= radius:
+                return False
+    return True
+
+
+class _GuidedTrack:
+    """Only publish missing samples once a reliable observation closes the gap."""
+
+    def __init__(self, tracker, seed_bbox, iou_threshold, progress_callback):
+        self.tracker = tracker
+        self.seed_bbox = seed_bbox
+        self.iou_threshold = iou_threshold
+        self.publish = progress_callback
+        self.indices: list[Optional[int]] = []
+        self.observations: list[Optional[BBox]] = []
+        self.pending_times: list[float] = []
+        self.last_frame: Optional[FrameTrackResult] = None
+        self.last_index = 0
+        self.preferred_id = None
+        self.appearance = None
+        self.velocity = np.zeros(2, dtype=float)
+
+    def stop_after(self, frame: FrameTrackResult) -> bool:
+        detections = frame.detections
+        if self.last_frame is None:
+            index = self.tracker.match_seed_bbox(detections, self.seed_bbox, self.iou_threshold)
+            self.indices.append(index)
+            self.observations.append(None if index is None else detections[index])
+            if index is None:
+                return True
+        else:
+            last = self.last_frame.detections[self.last_index]
+            last_foot = _bbox_bottom_center(last)
+            elapsed = len(self.pending_times) + 1
+            predicted = np.asarray(last_foot) + self.velocity * elapsed
+            index = self.tracker._choose_detection_by_continuity(
+                detections=detections, last_bbox=last, preferred_track_id=self.preferred_id,
+                predicted_foot=(predicted[0], predicted[1]), frames_since_seen=elapsed,
+                target_appearance=self.appearance,
+            )
+            if index is None or self.pending_times:
+                # Use a wider exclusion zone than the match gate: a second player
+                # just outside matching distance can still make the identity unclear.
+                radius = max(2 * _continuity_jump_threshold(last, elapsed), 1.5 * last.w)
+                clear = _clear_neighborhood(detections, predicted, radius, index)
+                if not self.pending_times:
+                    clear = clear and _clear_neighborhood(
+                        self.last_frame.detections, last_foot, radius, self.last_index,
+                    )
+                if index is not None:
+                    candidate = detections[index]
+                    similarity = _appearance_similarity(self.appearance, candidate.appearance)
+                    clear = (
+                        clear and candidate.class_id == last.class_id
+                        and (similarity is None or similarity >= 0.38)
+                        and _clear_neighborhood(detections, _bbox_bottom_center(candidate), radius, index)
+                        and not (candidate.track_id is not None and candidate.track_id >= 0 and any(
+                            i != self.last_index and box.track_id == candidate.track_id
+                            for i, box in enumerate(self.last_frame.detections)
+                        ))
+                    )
+                if not clear or index is None:
+                    self.indices.append(None)
+                    self.observations.append(None)
+                    self.pending_times.append(frame.timestamp_ms)
+                    return not clear or len(self.pending_times) > _MAX_ISOLATED_MISSES
+
+            box = detections[index]
+            if self.pending_times and self.publish:
+                for offset, time in enumerate(self.pending_times, start=1):
+                    self.publish(_tracking_keyframe(time, _interpolated_bbox(last, box, offset / elapsed)))
+            self.pending_times.clear()
+            observed_velocity = (np.asarray(_bbox_bottom_center(box)) - last_foot) / elapsed
+            self.velocity = self.velocity * 0.65 + observed_velocity * 0.35
+            speed = float(np.linalg.norm(self.velocity))
+            if speed > 10.0:
+                self.velocity *= 10.0 / speed
+            self.indices.append(index)
+            self.observations.append(box)
+
+        chosen = detections[index]
+        self.last_frame, self.last_index = frame, index
+        if chosen.track_id is not None and chosen.track_id >= 0:
+            self.preferred_id = chosen.track_id
+        if self.appearance is None:
+            self.appearance = chosen.appearance
+        elif chosen.appearance is not None:
+            similarity = _appearance_similarity(self.appearance, chosen.appearance)
+            if similarity is None or similarity >= 0.5:
+                self.appearance = _blend_appearance(self.appearance, chosen.appearance)
+        if self.publish:
+            self.publish(_tracking_keyframe(frame.timestamp_ms, chosen))
+        return False
 
 
 class Tracker:
@@ -103,6 +209,7 @@ class Tracker:
         core: Optional[UltralyticsOCSORTCore] = None,
     ):
         self._config = config or get_tracking_defaults()
+        self._clip_cache = ClipTrackCache()
         self._core = core or UltralyticsOCSORTCore(
             model_name=self._config.detector_model_name,
             lost_track_buffer=self._config.track_buffer_frames,
@@ -112,6 +219,60 @@ class Tracker:
             high_conf_det_threshold=self._config.high_conf_det_threshold,
             delta_t=self._config.delta_t,
         )
+
+    def _clip_key(self, path, bounds, fps, classes, confidence):
+        stat = Path(path).stat()
+        return (str(Path(path).resolve()), stat.st_mtime_ns, stat.st_size, tuple(bounds), fps, tuple(classes), confidence)
+
+    def cached_frame(self, path, bounds, fps, classes, confidence, frame):
+        key = self._clip_key(path, bounds, fps, classes, confidence)
+        return self._clip_cache.peek(key, frame - bounds[0])
+
+    def track_clip_player(self, path, bounds, fps, classes, confidence, seed_frame, seed, manual,
+                          iou, publish, is_cancelled=lambda: False, end_frame=None):
+        start, end = bounds  # absolute, end-exclusive source frames
+        key = self._clip_key(path, bounds, fps, classes, confidence)
+
+        def produce(append):
+            self._core.track_video_range(video_path=path, start_ms=start * 1000 / fps,
+                end_ms=(end - 1) * 1000 / fps, fps=fps, classes=classes,
+                conf_threshold=confidence, stop_callback=append, retain_frames=False)
+
+        frames = []
+        with self._clip_cache.open(key, produce) as spool:
+            cached = spool.get(seed_frame - start, wait=False) is not None
+            def emit(frame):
+                frames.append(frame)
+                publish({**frame, "cached": cached})
+            guided = _GuidedTrack(self, seed, iou, emit)
+            count = 0
+            for index in range(seed_frame, min(end, end_frame or end)):
+                if is_cancelled():
+                    break
+                frame = spool.get(index - start)
+                if frame is None:
+                    raise RuntimeError("Player pass ended before the clip's final frame.")
+                count += len(frame.detections)
+                if manual and index == seed_frame:
+                    # The user's point is authoritative. Never feed a fabricated box back into OC-SORT.
+                    guided.stop_after(FrameTrackResult(frame.timestamp_ms, [seed]))
+                    guided.last_frame = FrameTrackResult(frame.timestamp_ms, [seed, *frame.detections])
+                else:
+                    if manual and guided.last_frame and guided.last_frame.detections[guided.last_index] is seed:
+                        # There is no kit descriptor or real track ID yet. Do not break a tie.
+                        nearby = [b for b in frame.detections if hypot(
+                            *np.subtract(_bbox_bottom_center(b), _bbox_bottom_center(seed))
+                        ) <= _continuity_jump_threshold(seed, len(guided.pending_times) + 1)]
+                        if len(nearby) > 1:
+                            guided.pending_times.append(frame.timestamp_ms)
+                            break
+                    if guided.stop_after(frame):
+                        break
+            if not frames and not is_cancelled():
+                raise ValueError("The seed no longer matches a detection. Select the player again.")
+            loss = guided.pending_times[0] if guided.pending_times else None
+            return {"keyframes": frames, "completed": loss is None, "stoppedAtMs": loss,
+                    "trackId": guided.preferred_id if guided.preferred_id is not None else -1, "detectionCount": count}
 
     def detect_frame(
         self,
@@ -318,94 +479,7 @@ class Tracker:
         if track_buffer is None:
             track_buffer = self._config.track_buffer_frames
 
-        incremental_selected_indices: list[Optional[int]] = []
-        incremental_selected_detections: list[Optional[BBox]] = []
-        incremental_match_idx: Optional[int] = None
-        incremental_called = False
-        incremental_last_bbox: Optional[BBox] = None
-        incremental_preferred_track_id: Optional[int] = None
-        incremental_target_appearance: Optional[tuple[float, ...]] = None
-        incremental_last_foot = np.zeros(2, dtype=float)
-        incremental_velocity = np.zeros(2, dtype=float)
-
-        def stop_after_first_continuity_loss(frame_result) -> bool:
-            nonlocal incremental_called
-            nonlocal incremental_last_bbox
-            nonlocal incremental_match_idx
-            nonlocal incremental_preferred_track_id
-            nonlocal incremental_target_appearance
-            nonlocal incremental_last_foot
-            nonlocal incremental_velocity
-
-            incremental_called = True
-            detections = frame_result.detections
-            if not incremental_selected_detections:
-                incremental_match_idx = self.match_seed_bbox(detections, seed_bbox, iou_threshold)
-                incremental_selected_indices.append(incremental_match_idx)
-                if incremental_match_idx is None:
-                    incremental_selected_detections.append(None)
-                    return True
-                seed_detection = detections[incremental_match_idx]
-                incremental_selected_detections.append(seed_detection)
-                incremental_last_bbox = seed_detection
-                incremental_preferred_track_id = (
-                    seed_detection.track_id
-                    if seed_detection.track_id is not None and seed_detection.track_id >= 0
-                    else None
-                )
-                incremental_target_appearance = seed_detection.appearance
-                incremental_last_foot = np.asarray(_bbox_bottom_center(seed_detection), dtype=float)
-                if progress_callback is not None:
-                    progress_callback(_tracking_keyframe(frame_result.timestamp_ms, seed_detection))
-                return False
-
-            if incremental_last_bbox is None:
-                incremental_selected_indices.append(None)
-                incremental_selected_detections.append(None)
-                return True
-
-            predicted_foot = incremental_last_foot + incremental_velocity
-            chosen_idx = self._choose_detection_by_continuity(
-                detections=detections,
-                last_bbox=incremental_last_bbox,
-                preferred_track_id=incremental_preferred_track_id,
-                predicted_foot=(float(predicted_foot[0]), float(predicted_foot[1])),
-                frames_since_seen=1,
-                target_appearance=incremental_target_appearance,
-            )
-            incremental_selected_indices.append(chosen_idx)
-            if chosen_idx is None:
-                incremental_selected_detections.append(None)
-                return True
-
-            chosen_detection = detections[chosen_idx]
-            incremental_selected_detections.append(chosen_detection)
-            chosen_foot = np.asarray(_bbox_bottom_center(chosen_detection), dtype=float)
-            observed_velocity = chosen_foot - incremental_last_foot
-            incremental_velocity = incremental_velocity * 0.65 + observed_velocity * 0.35
-            speed = float(np.linalg.norm(incremental_velocity))
-            if speed > 10.0:
-                incremental_velocity *= 10.0 / speed
-            incremental_last_foot = chosen_foot
-            incremental_last_bbox = chosen_detection
-            if chosen_detection.track_id is not None and chosen_detection.track_id >= 0:
-                incremental_preferred_track_id = chosen_detection.track_id
-            similarity = _appearance_similarity(incremental_target_appearance, chosen_detection.appearance)
-            if (
-                incremental_target_appearance is not None
-                and chosen_detection.appearance is not None
-                and (similarity is None or similarity >= 0.5)
-            ):
-                incremental_target_appearance = _blend_appearance(
-                    incremental_target_appearance,
-                    chosen_detection.appearance,
-                )
-            elif incremental_target_appearance is None:
-                incremental_target_appearance = chosen_detection.appearance
-            if progress_callback is not None:
-                progress_callback(_tracking_keyframe(frame_result.timestamp_ms, chosen_detection))
-            return False
-
+        guided = _GuidedTrack(self, seed_bbox, iou_threshold, progress_callback) if stop_on_loss else None
         use_incremental_stop = (
             stop_on_loss
             and not debug_video
@@ -421,29 +495,30 @@ class Tracker:
             "conf_threshold": conf_threshold,
         }
         if use_incremental_stop:
-            track_kwargs["stop_callback"] = stop_after_first_continuity_loss
+            track_kwargs["stop_callback"] = guided.stop_after
         tracked_frames = self._core.track_video_range(**track_kwargs)
 
-        seed_idx = 0 if incremental_called else min(
+        seed_idx = 0 if use_incremental_stop else min(
             range(len(tracked_frames)),
             key=lambda index: abs(tracked_frames[index].timestamp_ms - seed_frame_ms),
         )
         seed_detections = tracked_frames[seed_idx].detections
 
-        # Match seed bbox
-        match_idx = incremental_match_idx if incremental_called else self.match_seed_bbox(
-            seed_detections,
-            seed_bbox,
-            iou_threshold,
-        )
+        selected_detection_indices: list[Optional[int]] = [None] * len(tracked_frames)
+        selected_detections: list[Optional[BBox]] = [None] * len(tracked_frames)
+        if guided is not None:
+            if not guided.indices:
+                for frame in tracked_frames[seed_idx:]:
+                    if guided.stop_after(frame):
+                        break
+            match_idx = guided.indices[0]
+            end = seed_idx + len(guided.indices)
+            selected_detection_indices[seed_idx:end] = guided.indices
+            selected_detections[seed_idx:end] = guided.observations
+        else:
+            match_idx = self.match_seed_bbox(seed_detections, seed_bbox, iou_threshold)
         target_track_id = None if match_idx is None else seed_detections[match_idx].track_id
-        selected_detection_indices: list[Optional[int]] = (
-            incremental_selected_indices if incremental_called else [None] * len(tracked_frames)
-        )
-        selected_detections: list[Optional[BBox]] = (
-            incremental_selected_detections if incremental_called else [None] * len(tracked_frames)
-        )
-        if match_idx is not None and not incremental_called:
+        if match_idx is not None and guided is None:
             seed_detection = seed_detections[match_idx]
             selected_detection_indices[seed_idx] = match_idx
             selected_detections[seed_idx] = seed_detection
@@ -455,14 +530,11 @@ class Tracker:
                 seed_detection=seed_detection,
                 max_gap_frames=track_buffer,
             )
-            if target_track_id is None or target_track_id < 0:
-                resolved_track_id = next((
-                    detection.track_id
-                    for detection in selected_detections
-                    if detection is not None and detection.track_id is not None and detection.track_id >= 0
-                ), None)
-                if resolved_track_id is not None:
-                    target_track_id = resolved_track_id
+        if match_idx is not None and not use_incremental_stop and (target_track_id is None or target_track_id < 0):
+            target_track_id = next((
+                detection.track_id for detection in selected_detections
+                if detection is not None and detection.track_id is not None and detection.track_id >= 0
+            ), target_track_id)
         debug_video_path: Optional[Path] = None
         if debug_video:
             debug_video_path = create_tracking_debug_path()
@@ -531,7 +603,7 @@ class Tracker:
                     "visible": False,
                 }
             keyframes.append(keyframe)
-            if progress_callback is not None and not incremental_called:
+            if progress_callback is not None and guided is None:
                 progress_callback(keyframe)
 
         logger.info(

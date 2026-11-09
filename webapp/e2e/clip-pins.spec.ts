@@ -302,6 +302,35 @@ test('pins support annotation parity, import, preview locking, and trash undo', 
   await pinPage.mouse.move(stageBox.x + 260, stageBox.y + 240, { steps: 5 });
   await expect(annotator.getByTestId('annotation-marquee')).toHaveCount(0);
   await pinPage.mouse.up({ button: 'middle' });
+
+  await annotator.getByRole('button', { name: 'Text', exact: true }).click();
+  const field = annotator.getByRole('textbox', { name: 'Text', exact: true });
+  const labelPosition = { x: 120, y: 160 };
+  await stage.click({ position: labelPosition });
+  await expect(field).toBeFocused();
+  await expect(field).toHaveValue('');
+  await field.pressSequentially('back line');
+  await field.press('Home');
+  await field.pressSequentially('High ', { delay: 25 });
+  await field.press('End');
+  await field.press('Enter');
+  await field.pressSequentially('Press');
+  await expect(field).toHaveValue('High back line\nPress');
+  await field.press('Control+Enter');
+  await expect(field).toHaveCount(0);
+  const savedTexts = async () => (await readPinDocumentAtFrame(page, 16))?.document.shapes
+    .filter((s: { type: string }) => s.type === 'text').map((s: { text: string }) => s.text);
+  await expect.poll(savedTexts).toEqual(['High back line\nPress']);
+  await annotator.getByRole('button', { name: 'Select', exact: true }).click();
+  await stage.dblclick({ position: { x: labelPosition.x + 16, y: labelPosition.y + 15 } });
+  await expect(field).toHaveValue('High back line\nPress');
+  await field.fill('Discard this');
+  await field.press('Escape');
+  await expect(field).toHaveCount(0);
+  await expect.poll(savedTexts).toEqual(['High back line\nPress']);
+  await pinPage.keyboard.press('Meta+z');
+  await expect.poll(savedTexts).toEqual([]);
+
   await annotator.getByRole('button', { name: 'Highlight', exact: true }).click();
   await stage.click({ position: { x: 300, y: 220 } });
   await annotator.getByLabel('Name', { exact: true }).fill('Left back');

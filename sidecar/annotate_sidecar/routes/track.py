@@ -9,7 +9,8 @@ import json
 import logging
 from pathlib import Path
 from queue import Queue
-from threading import Thread
+from threading import Event, Thread
+from math import isfinite
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -29,14 +30,27 @@ logger = logging.getLogger("annotate_sidecar.routes.track")
 _tracker = Tracker()
 
 
-class TrackRequest(BaseModel):
+class ClipTrackingScope(BaseModel):
+    clipFrames: Optional[tuple[int, int]] = None
+    fps: Optional[float] = None
+
+    @model_validator(mode="after")
+    def validate_scope(self):
+        if self.clipFrames is not None:
+            start, end = self.clipFrames
+            if not self.fps or not isfinite(self.fps) or not 0 < self.fps <= 480 or not 0 <= start < end or end - start > 250_000:
+                raise ValueError("Invalid clip frame range or frame rate")
+        return self
+
+
+class TrackRequest(ClipTrackingScope):
     videoPath: Optional[str] = None
     videoRef: Optional[str] = None
     startMs: float
     endMs: float
     seedBbox: dict  # { x, y, w, h }
     seedFrameMs: float
-    fps: Optional[float] = None
+    manualSeed: bool = False
     classes: Optional[list[int]] = None
     confThreshold: Optional[float] = None
     iouThreshold: Optional[float] = None
@@ -68,7 +82,7 @@ class TrackRequest(BaseModel):
         return self
 
 
-class DetectPlayersRequest(BaseModel):
+class DetectPlayersRequest(ClipTrackingScope):
     videoPath: Optional[str] = None
     videoRef: Optional[str] = None
     frameMs: float
@@ -132,12 +146,12 @@ async def detect_players(req: DetectPlayersRequest):
     defaults = get_tracking_defaults()
     video_path = _resolve_video_path(req.videoRef, req.videoPath)
     try:
-        frame = extract_frame(video_path, req.frameMs)
-        detections = _tracker.detect_frame(
-            frame,
-            classes=req.classes if req.classes is not None else list(defaults.classes),
-            conf_threshold=req.confThreshold if req.confThreshold is not None else defaults.conf_threshold,
-        )
+        classes = req.classes if req.classes is not None else list(defaults.classes)
+        confidence = req.confThreshold if req.confThreshold is not None else defaults.conf_threshold
+        cached = _tracker.cached_frame(video_path, req.clipFrames, req.fps, classes, confidence,
+            round(req.frameMs * req.fps / 1000)) if req.clipFrames else None
+        detections = cached.detections if cached is not None else _tracker.detect_frame(
+            extract_frame(video_path, req.frameMs), classes=classes, conf_threshold=confidence)
         return {
             "frameMs": req.frameMs,
             "detections": [
@@ -231,6 +245,10 @@ async def track_stream(req: TrackRequest):
     if not (req.startMs <= req.seedFrameMs <= req.endMs):
         raise HTTPException(status_code=422, detail="seedFrameMs must be within [startMs, endMs]")
 
+    if req.clipFrames and not req.clipFrames[0] <= round(req.seedFrameMs * req.fps / 1000) < req.clipFrames[1]:
+        raise HTTPException(status_code=422, detail="Seed frame is outside the clip")
+    cancelled = Event()
+
     def events():
         queue: Queue[Optional[dict]] = Queue()
 
@@ -239,6 +257,15 @@ async def track_stream(req: TrackRequest):
 
         def run_tracking() -> None:
             try:
+                if req.clipFrames and req.stopOnLoss and not req.debugVideo:
+                    result = _tracker.track_clip_player(video_path, req.clipFrames, req.fps,
+                        req.classes if req.classes is not None else list(defaults.classes),
+                        req.confThreshold if req.confThreshold is not None else defaults.conf_threshold,
+                        round(req.seedFrameMs * req.fps / 1000), seed, req.manualSeed,
+                        req.iouThreshold if req.iouThreshold is not None else defaults.iou_threshold,
+                        emit_keyframe, cancelled.is_set, round(req.endMs * req.fps / 1000) + 1)
+                    queue.put({"type": "result", "result": result})
+                    return
                 result = _tracker.track_range(
                     video_path=video_path,
                     start_ms=req.startMs,
@@ -272,11 +299,14 @@ async def track_stream(req: TrackRequest):
                 queue.put(None)
 
         Thread(target=run_tracking, daemon=True, name="annotate-tracking-stream").start()
-        while True:
-            event = queue.get()
-            if event is None:
-                break
-            yield json.dumps(event, separators=(",", ":")) + "\n"
+        try:
+            while True:
+                event = queue.get()
+                if event is None:
+                    break
+                yield json.dumps(event, separators=(",", ":")) + "\n"
+        finally:
+            cancelled.set()
 
     return StreamingResponse(events(), media_type="application/x-ndjson")
 

@@ -54,6 +54,7 @@ import type {
 } from "../../lib/types/annotations";
 import ColorLinkToggle from "./ColorLinkToggle";
 import CommittedNumberInput from "./CommittedNumberInput";
+import CanvasTextInput from "./CanvasTextInput";
 import { useT } from "../../lib/i18n";
 
 export type Tool = 'select' | 'box' | 'circle' | 'shadow' | 'arrow' | 'lob' | 'text' | 'poly' | 'highlight' | 'calibrate';
@@ -528,8 +529,7 @@ export default function Editor({
   } | null>(null);
   const [animationPreviewElapsedMs, setAnimationPreviewElapsedMs] = useState(0);
 
-  const [textEdit, setTextEdit] = useState<null | { id: string; value: string; orig: string; isNew: boolean }>(null);
-  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [textEdit, setTextEdit] = useState<null | { shape: Shape; isNew: boolean }>(null);
 
   const bgImage = useImage(imgUrl);
   const backgroundMedia = backgroundVideoElement || bgImage;
@@ -605,7 +605,7 @@ export default function Editor({
       }
       tr.getLayer()?.batchDraw();
     }
-  }, [selectedId, selectedIds, shapes]);
+  }, [selectedId, selectedIds, shapes, textEdit]);
 
   useEffect(() => {
     if (!backgroundVideoElement) return;
@@ -892,48 +892,24 @@ export default function Editor({
     return dt >= 0 && dt <= 350 && d <= 4;
   }, []);
 
-  const beginTextEdit = useCallback((id: string, opts?: { isNew?: boolean }) => {
-    const s = shapes.find(x => x.id === id);
-    if (!s || s.type !== 'text') return;
-    const cur = s.text || '';
-    setSelectedId(id);
-    setSelectedIds([id]);
-    setTextEdit({ id, value: cur, orig: cur, isNew: !!opts?.isNew });
-  }, [shapes]);
-
   const selectOnlyShape = useCallback((id: string) => {
     setSelectedId(id);
     setSelectedIds([]);
   }, []);
 
-  const commitTextEdit = useCallback(() => {
-    setTextEdit(prev => {
-      if (!prev) return prev;
-      const v = prev.value;
-      if (prev.isNew && v.trim().length === 0) {
-        setShapes(s => s.filter(x => x.id !== prev.id));
-        setSelectedId(null);
-        setSelectedIds([]);
-      } else {
-        setShapes(s => s.map(x => x.id === prev.id ? { ...x, text: v } : x));
-      }
-      return null;
-    });
-  }, []);
-
-  const cancelTextEdit = useCallback(() => {
-    setTextEdit(prev => {
-      if (!prev) return prev;
-      if (prev.isNew) {
-        setShapes(s => s.filter(x => x.id !== prev.id));
-        setSelectedId(null);
-        setSelectedIds([]);
-      } else {
-        setShapes(s => s.map(x => x.id === prev.id ? { ...x, text: prev.orig } : x));
-      }
-      return null;
-    });
-  }, []);
+  function finishTextEdit(value: string | null) {
+    if (!textEdit) return;
+    const { shape, isNew } = textEdit;
+    setTextEdit(null);
+    if (value === null || value === shape.text) return;
+    if (isNew) {
+      if (!value.trim()) return;
+      setShapes(prev => [...prev, { ...shape, text: value }]);
+      selectOnlyShape(shape.id);
+    } else {
+      setShapes(prev => prev.map(s => s.id === shape.id ? { ...s, text: value } : s));
+    }
+  }
 
   const updateAnimations = useCallback((
     update: (current: AnnotationAnimationStep[]) => AnnotationAnimationStep[],
@@ -944,11 +920,10 @@ export default function Editor({
   }, []);
 
   const startAnimationPreview = useCallback(() => {
-    commitTextEdit();
     const startedAt = performance.now();
     setAnimationPreview({ startedAt, clickTimesMs: [] });
     setAnimationPreviewElapsedMs(0);
-  }, [commitTextEdit]);
+  }, []);
 
   const resetAnimationPreview = useCallback(() => {
     const startedAt = performance.now();
@@ -1076,18 +1051,6 @@ export default function Editor({
     setSelectedIds(animation.shapeIds);
     setSelectedId(animation.shapeIds.at(-1) ?? null);
   }, []);
-
-  useEffect(() => {
-    if (!textEdit) return;
-    const t = window.setTimeout(() => {
-      const el = textAreaRef.current;
-      if (el) {
-        el.focus();
-        el.setSelectionRange(el.value.length, el.value.length);
-      }
-    }, 0);
-    return () => window.clearTimeout(t);
-  }, [textEdit, shapes]);
 
   // Core save routine with permission checks
   const performSave = useCallback(async () => {
@@ -1495,11 +1458,9 @@ export default function Editor({
     if (tool === 'text') {
       if (!clickedOnEmpty) return;
       const id = makeId();
-      const initial = 'Text';
-      setShapes(prev => [...prev, { id, type: 'text', x: p.x, y: p.y, text: initial, style: { stroke: defaultAnnColor, fill: 'transparent', strokeWidth: 1, strokePattern: (defaultStrokePattern || 'solid'), fontSize: defFontSz, fontFamily: 'Inter, system-ui, sans-serif', textHighlight: defTextHl } }]);
-      setSelectedId(id);
-      setSelectedIds([id]);
-      setTextEdit({ id, value: initial, orig: initial, isNew: true });
+      setSelectedId(null);
+      setSelectedIds([]);
+      setTextEdit({ isNew: true, shape: { id, type: 'text', x: p.x, y: p.y, text: '', style: { stroke: defaultAnnColor, fill: 'transparent', strokeWidth: 1, strokePattern: (defaultStrokePattern || 'solid'), fontSize: defFontSz, fontFamily: 'Inter, system-ui, sans-serif', textHighlight: defTextHl } } });
       return;
     }
     if (tool === 'arrow') {
@@ -2094,7 +2055,7 @@ export default function Editor({
 
   // Clear temp shapes when tool changes
   useEffect(() => {
-    setShapes(prev => prev.filter(s => !(s as any)._temp));
+    setShapes(prev => prev.some(s => (s as any)._temp) ? prev.filter(s => !(s as any)._temp) : prev);
     if (tool !== 'shadow') shadowAnchorRef.current = null;
     if (tool !== 'arrow' && arrowTempRef.current) arrowTempRef.current.start = null;
     if (tool !== 'lob' && lobTempRef.current) lobTempRef.current.start = null;
@@ -2675,9 +2636,10 @@ export default function Editor({
         rotation={s.rotation || 0}
         listening={!annotationsLocked && !isTemp && !disableNonHighlightHit}
         text={s.text || ''}
+        visible={textEdit?.shape.id !== s.id}
         fontSize={fontSize}
         fontFamily={s.style?.fontFamily || 'Inter, system-ui, sans-serif'}
-        draggable={!annotationsLocked && tool !== 'calibrate' && !isSelecting && !(textEdit && textEdit.id === s.id)}
+        draggable={!annotationsLocked && tool !== 'calibrate' && !isSelecting}
         onMouseDown={(e: any) => onShapeMouseDown(s.id, e)}
         onDragMove={(e: any) => onDragMove(s.id, e)}
         fill={textColor}
@@ -2693,7 +2655,8 @@ export default function Editor({
         hitStrokeWidth={24}
         onDblClick={() => {
           if (!isTightDblClick()) return;
-          beginTextEdit(s.id, { isNew: false });
+          selectOnlyShape(s.id);
+          setTextEdit({ shape: s, isNew: false });
         }}
         onTransformEnd={(e: any) => onTransformEnd(s, e)}
         padding={6}
@@ -2923,51 +2886,28 @@ export default function Editor({
   return (
     <div ref={hostRef} className="absolute inset-0">
       {textEdit && (() => {
-        const s = shapes.find(x => x.id === textEdit.id);
-        if (!s || s.type !== 'text') return null;
-        const left = (s.x || 0) * stageScale + stageOffset.x;
-        const top = (s.y || 0) * stageScale + stageOffset.y;
+        const s = textEdit.shape;
         const fontSize = (s.style?.fontSize || 48) * stageScale;
-        const fontFamily = s.style?.fontFamily || 'Inter, system-ui, sans-serif';
+        const padding = 6 * stageScale;
+        const minWidth = Math.min(size.w, Math.max(64, fontSize * 3 + padding * 2));
+        const left = Math.max(0, Math.min(s.x * stageScale + stageOffset.x, size.w - minWidth));
+        const top = Math.max(0, Math.min(s.y * stageScale + stageOffset.y, size.h - fontSize - padding * 2 - 2));
         const color = s.style?.stroke || defaultAnnColor;
-        return (
-          <textarea
-            ref={textAreaRef}
-            value={textEdit.value}
-            onChange={(e) => setTextEdit(prev => prev ? { ...prev, value: e.target.value } : prev)}
-            onBlur={() => commitTextEdit()}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.preventDefault();
-                cancelTextEdit();
-                return;
-              }
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                commitTextEdit();
-              }
-            }}
-            style={{
-              position: 'absolute',
-              left,
-              top,
-              minWidth: 120 * stageScale,
-              maxWidth: Math.max(50, size.w - left - 12),
-              minHeight: 40 * stageScale,
-              padding: 6 * stageScale,
-              border: '1px solid rgba(59,130,246,0.85)',
-              borderRadius: 6,
-              outline: 'none',
-              background: 'rgba(255,255,255,0.92)',
-              color,
-              fontSize,
-              fontFamily,
-              lineHeight: 1.25,
-              zIndex: 50,
-              resize: 'both',
-            }}
-          />
-        );
+        return <CanvasTextInput
+          key={s.id}
+          label={t('tool.text')}
+          hint={t('annotation.textEditingHint')}
+          initial={s.text ?? ''}
+          onFinish={finishTextEdit}
+          style={{
+            position: 'absolute', left, top, zIndex: 50,
+            fieldSizing: 'content', resize: 'none', boxSizing: 'border-box',
+            minWidth, maxWidth: size.w - left, minHeight: 0, maxHeight: size.h - top,
+            padding, fontSize, fontFamily: s.style?.fontFamily || 'Inter, system-ui, sans-serif',
+            lineHeight: 1, color, background: contrastStrokeForHex(color),
+            transformOrigin: 'top left', transform: s.rotation ? `rotate(${s.rotation}deg)` : undefined,
+          }}
+        />;
       })()}
       <Stage
         ref={stageRef}
@@ -3192,7 +3132,7 @@ export default function Editor({
                 </>
               );
             })()}
-            {selectedId && (selectedIds.length <= 1) && !annotationsLocked && (
+            {selectedId && (selectedIds.length <= 1) && !annotationsLocked && !textEdit && (
               <Transformer
                 ref={transformerRef}
                 rotateEnabled={false}

@@ -145,11 +145,11 @@ Current ownership stance:
 - `annotate` sidecar owns the practical app defaults and override policy
 - vendored trackers core owns lower-level implementation details
 - `/track` request fields (`fps`, `classes`, `confThreshold`, `iouThreshold`, `debugVideo`) act as request-level overrides
-- `stopOnLoss` enables the interactive editor contract: inference stops at the first frame where continuity cannot identify the chosen player and returns `stoppedAtMs`
+- `stopOnLoss` enables the interactive editor contract: an isolated player can bridge up to ten consecutive missing samples if a single plausible target reappears in clear space. Missing positions are interpolated and streamed only after recovery. If the gap is ambiguous, too long, or still open at clip end, `stoppedAtMs` points to the first missed sample, not the last one inspected.
 
 Current app-facing tracking semantics:
 
-- `/track/detect` supplies provisional foot-anchored highlights for every detected player at the current frame
+- `/track/detect` supplies provisional foot-anchored highlights for every detected player at the current frame. With `clipFrames: [start, endExclusive]` and source `fps`, it can reuse a previously analysed frame. The clip editor supplies the same scope to `/track/stream`: one all-player pass continues even if a selected target is lost. The process-local cache keeps the two most recently used ranges. A `manualSeed` belongs only to its individual tracking path.
 - the clip editor creates a `highlight` from the player the analyst selects
 - tracked highlight geometry is treated as foot-anchored
 - the sidecar seed matcher prefers the selected player's foot point and tolerates loose seeds

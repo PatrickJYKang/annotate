@@ -14,6 +14,7 @@ export interface MatchInfo {
 }
 
 export interface TeamInfo {
+  statsBombLineupId?: number;
   name: string | null;
   coach: string | null;
   formation: string | null;

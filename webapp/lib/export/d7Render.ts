@@ -556,7 +556,9 @@ function drawOther(ctx: CanvasRenderingContext2D, s: ExportShape, homography: nu
     ctx.fillStyle = color;
     ctx.font = `${fontSize}px ${fontFamily}`;
     ctx.textBaseline = 'top';
-    ctx.fillText(s.text || '', (s.x || 0) + 6, (s.y || 0) + 6);
+    (s.text || '').split('\n').forEach((line, index) => {
+      ctx.fillText(line, (s.x || 0) + 6, (s.y || 0) + 6 + index * fontSize);
+    });
     ctx.restore();
   }
 }

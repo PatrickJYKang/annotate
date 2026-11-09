@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from threading import Lock
 from typing import Callable, Optional
 
 import numpy as np
@@ -80,6 +81,7 @@ class UltralyticsOCSORTCore:
         delta_t: int = 3,
     ) -> None:
         self._model = None
+        self._inference_lock = Lock()
         self._model_name = model_name
         self._lost_track_buffer = lost_track_buffer
         self._minimum_consecutive_frames = minimum_consecutive_frames
@@ -100,6 +102,11 @@ class UltralyticsOCSORTCore:
         logger.info("Loading YOLO model: %s", self._model_name)
         self._model = YOLO(self._model_name)
         logger.info("YOLO model loaded")
+
+    def _infer(self, frame, threshold):
+        with self._inference_lock:
+            self._load_model()
+            return self._model(frame, verbose=False, conf=threshold)
 
     @staticmethod
     def _result_to_detections(result, classes: list[int], conf_threshold: float):
@@ -188,11 +195,10 @@ class UltralyticsOCSORTCore:
         classes: Optional[list[int]] = None,
         conf_threshold: float = 0.25,
     ) -> list[BBox]:
-        self._load_model()
         if classes is None:
             classes = [0]
 
-        results = self._model(frame, verbose=False, conf=conf_threshold)
+        results = self._infer(frame, conf_threshold)
         detections: list[BBox] = []
         for result in results:
             for bbox in self._tracked_detections_to_bboxes(
@@ -211,8 +217,8 @@ class UltralyticsOCSORTCore:
         classes: Optional[list[int]] = None,
         conf_threshold: float = 0.25,
         stop_callback: Optional[Callable[[FrameTrackResult], bool]] = None,
+        retain_frames: bool = True,
     ) -> list[FrameTrackResult]:
-        self._load_model()
         if classes is None:
             classes = [0]
 
@@ -227,11 +233,8 @@ class UltralyticsOCSORTCore:
             raise FileNotFoundError(f"Cannot open video: {video_path}")
 
         interval_ms = 1000.0 / fps
-        timestamps: list[float] = []
-        current = start_ms
-        while current <= end_ms + 1e-6:
-            timestamps.append(current)
-            current += interval_ms
+        count = int(np.floor((end_ms - start_ms + 1e-6) / interval_ms)) + 1
+        timestamps = [start_ms + index * interval_ms for index in range(count)]
 
         if not timestamps:
             cap.release()
@@ -256,15 +259,17 @@ class UltralyticsOCSORTCore:
             for timestamp_ms, frame in _iter_video_samples(cap, timestamps, source_fps):
                 if frame is None:
                     frame_result = FrameTrackResult(timestamp_ms=timestamp_ms, detections=[])
-                    tracked_frames.append(frame_result)
+                    if retain_frames:
+                        tracked_frames.append(frame_result)
                     if stop_callback and stop_callback(frame_result):
                         break
                     continue
 
-                results = self._model(frame, verbose=False, conf=conf_threshold)
+                results = self._infer(frame, conf_threshold)
                 if not results:
                     frame_result = FrameTrackResult(timestamp_ms=timestamp_ms, detections=[])
-                    tracked_frames.append(frame_result)
+                    if retain_frames:
+                        tracked_frames.append(frame_result)
                     if stop_callback and stop_callback(frame_result):
                         break
                     continue
@@ -275,7 +280,8 @@ class UltralyticsOCSORTCore:
                     timestamp_ms=timestamp_ms,
                     detections=self._tracked_detections_to_bboxes(tracked, frame),
                 )
-                tracked_frames.append(frame_result)
+                if retain_frames:
+                    tracked_frames.append(frame_result)
                 if stop_callback and stop_callback(frame_result):
                     break
         finally:

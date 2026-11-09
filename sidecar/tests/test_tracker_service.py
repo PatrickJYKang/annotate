@@ -1,3 +1,5 @@
+import pytest
+
 from annotate_sidecar.config import TrackingDefaults
 from annotate_sidecar.services.tracker import Tracker, BBox
 from annotate_sidecar.vendor.trackers.core.types import FrameTrackResult
@@ -93,6 +95,39 @@ def test_track_range_keeps_response_shape_and_selects_seed_track():
     }
 
 
+def test_clip_pass_reuses_every_player_even_after_loss(tmp_path):
+    path = tmp_path / "match.mp4"
+    path.touch()
+    a, b = BBox(10, 10, 8, 20, track_id=1), BBox(80, 10, 8, 20, track_id=2)
+    core = IncrementalFakeTrackingCore([FrameTrackResult(i * 100, [a, b] if i == 5 else [b]) for i in range(5, 12)])
+    tracker = Tracker(config=TEST_DEFAULTS, core=core)
+    def run(seed, frame, events):
+        return tracker.track_clip_player(str(path), (5,12), 10, [0], .25, frame, seed, False, .3, events.append)
+    assert run(a, 5, [])["stoppedAtMs"] == 600
+    events = []
+    assert run(b, 6, events)["completed"]
+    assert [e["tMs"] for e in events] == list(range(600,1200,100))
+    assert events[0]["cached"]
+    assert all(e["x"] == b.x for e in events)
+    assert core.processed_frames == 7 and len(core.calls) == 1
+    assert tracker.cached_frame(str(path), (5,12), 10, [0], .25, 10).detections == [b]
+    assert tracker.cached_frame(str(path), (5,11), 10, [0], .25, 10) is None
+
+
+@pytest.mark.parametrize("nearby,expected", [([], 100), ([BBox(7,10,8,20),BBox(13,10,8,20)], 100), ([BBox(11,10,8,20,track_id=7)], None)])
+def test_manual_tracking_point_is_authoritative_and_not_shared(tmp_path, nearby, expected):
+    path = tmp_path / "match.mp4"
+    path.touch()
+    seed = BBox(10,10,8,20)
+    other = BBox(100,10,8,20,track_id=9)
+    core = IncrementalFakeTrackingCore([FrameTrackResult(0,[other]),FrameTrackResult(100,nearby+[other])])
+    tracker = Tracker(config=TEST_DEFAULTS,core=core)
+    result = tracker.track_clip_player(str(path),(0,2),10,[0],.25,0,seed,True,.3,lambda _: None)
+    assert result["keyframes"][0]["x"] == seed.x
+    assert result["stoppedAtMs"] == expected
+    assert tracker.cached_frame(str(path),(0,2),10,[0],.25,0).detections == [other]
+
+
 def test_track_range_linearly_fills_bounded_detector_misses():
     tracked_frames = [
         FrameTrackResult(timestamp_ms=1000.0, detections=[
@@ -184,7 +219,7 @@ def test_track_range_stop_on_loss_returns_only_trusted_prefix_and_loss_time():
     assert result["stoppedAtMs"] == 1200.0
 
 
-def test_track_range_stop_on_loss_stops_inference_at_first_untrusted_frame():
+def test_guided_tracking_streams_an_isolated_gap_only_after_reacquisition():
     tracked_frames = [
         FrameTrackResult(timestamp_ms=1000.0, detections=[
             BBox(x=10, y=20, w=30, h=40, confidence=0.9, class_id=0, track_id=7),
@@ -200,6 +235,7 @@ def test_track_range_stop_on_loss_stops_inference_at_first_untrusted_frame():
     core = IncrementalFakeTrackingCore(tracked_frames)
     tracker = Tracker(config=TEST_DEFAULTS, core=core)
 
+    progress = []
     result = tracker.track_range(
         video_path="/tmp/demo.mp4",
         start_ms=1000.0,
@@ -208,11 +244,67 @@ def test_track_range_stop_on_loss_stops_inference_at_first_untrusted_frame():
         seed_frame_ms=1000.0,
         fps=10.0,
         stop_on_loss=True,
+        progress_callback=lambda keyframe: progress.append((core.processed_frames, keyframe)),
     )
 
-    assert core.processed_frames == 3
-    assert [keyframe["tMs"] for keyframe in result["keyframes"]] == [1000.0, 1100.0]
-    assert result["stoppedAtMs"] == 1200.0
+    assert [count for count, _ in progress] == [1, 2, 4, 4]
+    assert [kf for _, kf in progress] == result["keyframes"]
+    assert result["keyframes"][2] == {
+        "tMs": 1200.0, "x": 16, "y": 23, "w": 30, "h": 40, "visible": True,
+    }
+    assert result["stoppedAtMs"] is None
+
+
+def _player(x, track_id=7, appearance=(1., 0.)):
+    return BBox(x=x, y=20, w=20, h=40, confidence=0.9, class_id=0, track_id=track_id, appearance=appearance)
+
+
+def test_clip_pass_bridges_ten_missing_frames_on_first_run_and_replay(tmp_path):
+    path = tmp_path / "match.mp4"
+    path.touch()
+    seed = _player(10)
+    samples = [[seed], *([[]] * 10), [_player(21, 11)]]
+    core = IncrementalFakeTrackingCore([FrameTrackResult(i * 40, boxes) for i, boxes in enumerate(samples)])
+    tracker = Tracker(config=TEST_DEFAULTS, core=core)
+    for _ in range(2):
+        events = []
+        result = tracker.track_clip_player(str(path), (0, 12), 25, [0], .25, 0, seed, False, .3, events.append)
+        assert result["completed"] and result["stoppedAtMs"] is None
+        assert [event["x"] for event in events] == pytest.approx(range(10, 22))
+        assert [event["tMs"] for event in events] == list(range(0, 480, 40))
+    assert len(core.calls) == 1
+
+
+@pytest.mark.parametrize("core_type", [FakeTrackingCore, IncrementalFakeTrackingCore])
+@pytest.mark.parametrize(("samples", "count", "inspected"), [
+    ([[_player(10)], [], [], [], [_player(18, 11)], [_player(20, 11)]], 6, 6),
+    ([[_player(10)], *([[]] * 5), [_player(16)]], 7, 7),
+    ([[_player(10)], *([[]] * 10), [_player(21, 11)]], 12, 12),
+    ([[_player(10)], *([[]] * 11), [_player(22)]], 1, 12),
+    ([[_player(10)], *([[]] * 9), [_player(20), _player(28, 8)]], 1, 11),
+    ([[_player(10)], [], []], 1, 3),
+    ([[_player(10), _player(34, 8)], [], [_player(12)]], 1, 2),
+    ([[_player(10)], [], [_player(12), _player(36, 8)], [_player(13)]], 1, 3),
+    ([[_player(10)], [], [_player(12, appearance=(0., 1.))], [_player(13)]], 1, 3),
+    ([[_player(10), _player(80, 8)], [], [_player(12, 8)]], 1, 3),
+    ([[_player(10)], [], [_player(95)], []], 1, 4),
+], ids=["three-misses-new-id", "five-misses", "ten-misses-new-id", "eleven-misses-expired",
+        "crowded-late-return", "clip-ended", "crowded-before",
+        "crowded-after", "wrong-kit", "other-known-track", "distant-player"])
+def test_guided_lookahead_limits(core_type, samples, count, inspected):
+    frames = [FrameTrackResult(i * 40., boxes) for i, boxes in enumerate(samples)]
+    core = core_type(frames)
+    progress = []
+    result = Tracker(config=TEST_DEFAULTS, core=core).track_range(
+        "/tmp/demo.mp4", 0, frames[-1].timestamp_ms, samples[0][0], 0, fps=25,
+        stop_on_loss=True, progress_callback=progress.append,
+    )
+    assert progress == result["keyframes"]
+    assert [kf["tMs"] for kf in progress] == [frame.timestamp_ms for frame in frames[:count]]
+    assert result["completed"] == (count == len(frames))
+    assert result["stoppedAtMs"] == (None if count == len(frames) else frames[count].timestamp_ms)
+    if isinstance(core, IncrementalFakeTrackingCore):
+        assert core.processed_frames == inspected
 
 
 def test_track_range_streams_each_trusted_frame_during_incremental_tracking():

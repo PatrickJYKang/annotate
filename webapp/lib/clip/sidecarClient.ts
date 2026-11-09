@@ -43,6 +43,8 @@ export interface HealthResponse {
 }
 
 export interface TrackingParams {
+  clipFrames?: [number, number];
+  manualSeed?: boolean;
   videoPath?: string;
   videoRef?: string;
   startMs: number;
@@ -66,6 +68,8 @@ export interface PlayerDetection {
 }
 
 export interface PlayerDetectionParams {
+  clipFrames?: [number, number];
+  fps?: number;
   videoPath?: string;
   videoRef?: string;
   frameMs: number;
@@ -79,6 +83,7 @@ export interface PlayerDetectionResult {
 }
 
 export interface TrackingKeyframe {
+  cached?: boolean;
   tMs: number;
   x: number;
   y: number;
@@ -695,7 +700,7 @@ export async function requestTrackingStream(
     signal,
   });
 
-  if (res.status === 404) return requestTracking(params, baseUrl, signal);
+  if (res.status === 404 && !params.manualSeed) return requestTracking(params, baseUrl, signal);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw trackingErrorFromPayload(body, `Tracking failed (${res.status})`);
@@ -707,10 +712,18 @@ export async function requestTrackingStream(
   let buffer = '';
   let finalResult: TrackingResult | null = null;
 
-  const consumeLine = (line: string) => {
+  let replayEpoch: number | undefined;
+  const consumeLine = async (line: string) => {
     if (!line.trim()) return;
     const event = JSON.parse(line) as TrackingStreamEvent;
     if (event.type === 'keyframe') {
+      if (event.keyframe.cached) {
+        const elapsed = (event.keyframe.tMs - params.seedFrameMs) / 3;
+        replayEpoch ??= performance.now() - elapsed;
+        const delay = replayEpoch + elapsed - performance.now();
+        if (delay > 1) await new Promise(resolve => setTimeout(resolve, delay));
+      }
+      signal?.throwIfAborted();
       onKeyframe(event.keyframe);
     } else if (event.type === 'result') {
       finalResult = event.result;
@@ -725,10 +738,10 @@ export async function requestTrackingStream(
       buffer += decoder.decode(value, { stream: !done });
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
-      lines.forEach(consumeLine);
+      for (const line of lines) await consumeLine(line);
       if (done) break;
     }
-    consumeLine(buffer);
+    await consumeLine(buffer);
   } finally {
     reader.releaseLock();
   }

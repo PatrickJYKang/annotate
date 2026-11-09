@@ -26,7 +26,9 @@ Annotate remembers the last opened project. Your browser may ask for folder perm
 
 ## 3. Dashboard and video import
 
-The dashboard contains project controls, imported videos, presentations, export controls, and the project integrity report. **Match info** opens the metadata editor for teams, players, match details, teamsheet import, and football-data.org lookup.
+In **Match info → Import match metadata**, search OpenFootball by season and team, then select a fixture. No account is needed for the Premier League, La Liga, Bundesliga, Serie A or Ligue 1. If the teams or date differ from the current match, choose **Overwrite fixture** to confirm. Existing rosters stay with their clubs, even if the home and away sides switch; clubs no longer in the fixture are removed.
+
+Annotate checks StatsBomb Open Data for that match's starters and bench. Preview the players before confirming, or import the fixture alone. Where no confirmed lineup is available, **Paste both lineups** accepts two lines from a report: each starts with the team name and a colon, followed by eleven comma-separated starters. A parenthesized substitution such as `Rose (Davies 76)` also adds the replacement to the bench list. For CSV or TSV use **Import teamsheet** in the team panel.
 
 Choose **Import video** and select an MP4, MOV, WebM, MKV, or AVI file. Every imported video keeps its own FPS and resolution. Annotate preserves a compatible constant-frame-rate H.264 MP4, remuxes a compatible stream when possible, and transcodes only when browser compatibility or variable frame rate requires it.
 
@@ -86,18 +88,22 @@ Cmd/Ctrl+Z undoes an editor change. Cmd/Ctrl+Shift+Z, or Ctrl+Y, redoes it.
 
 For polygons, press Enter to finish a closed shape. Shift+Enter finishes an open line. Escape cancels an unfinished drawing or clears the current drawing gesture.
 
+For text, click the frame and type. Enter adds a line. Click outside the field or press Cmd+Enter (Ctrl+Enter on Windows) to finish; Escape discards the edit. Double-click a label to edit it again.
+
 ## 7. Track a player
 
 Tracking creates or extends highlight objects. It does not require homography and operates in image coordinates.
 
 1. Seek to a frame where the target player is clearly visible and choose **Track**.
-2. Annotate shows a provisional highlight on every detected player. Click the correct player.
+2. Click a highlighted player. If the player was missed, left-click their feet instead. You can step to another frame and click again to bridge the gap manually.
 3. Choose **Start** to track forward, or **Stop** to keep only the selected frame as a manual highlight.
-4. Trusted tracked frames appear live in the viewer and keyframe timeline.
+4. Trusted tracked frames appear live in the viewer and keyframe timeline. If an isolated player disappears for up to ten frames and reappears alone near the expected position, Annotate fills the gap in a straight line and keeps tracking. If the return is ambiguous or the gap is longer, tracking stops at the first missed frame.
 5. If continuity is lost, Annotate hides the highlight at the loss boundary and shows provisional targets again. Play or step to a frame where the player is identifiable, select the correct target, then choose **Continue**.
 6. Annotate linearly fills the gap to the human correction and resumes tracking. Repeat until the clip ends or choose **Stop** to keep the work completed so far.
 
 To add another tracked span to an existing highlight, select that highlight on a frame where it has no position keyframe before choosing **Track**. Stopping the new span preserves the hidden gap between it and the earlier span.
+
+The first run analyses everyone in the clip together. Select additional players one at a time; cached footage previews at about 3× while keeping every keyframe. This temporary cache survives switching players, not restarting the app.
 
 To replace an incorrect tracked tail, select the highlight at the last frame you trust and choose **Re-track from here**. Choose the correct provisional player and **Continue** through the normal tracking and reacquisition workflow. Nothing in the replacement is saved until **Done**; **Cancel** restores the original tail.
 

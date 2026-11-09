@@ -399,7 +399,7 @@ Highlight-name Text size uses the shared `CommittedNumberInput` in both clip and
 
 `Track` detects every player at the current frame and draws provisional, foot-anchored highlights. Selecting one creates the highlight; `Start` runs OC-SORT plus the Annotate continuity adapter forward from that exact frame. Raw tracker IDs are preference signals rather than absolute identity because early-frame IDs can be immature or reassigned.
 
-The interactive tracking request stops inference at the first frame where no reasonable continuity match exists. That frame receives an explicit hidden boundary and becomes the next reacquisition point. While provisional players are visible, the analyst can play or step to a usable frame and select the target again. Annotate linearly fills every intervening absolute frame, marks the human endpoint as a correction, then waits. `Continue` resumes tracking from that correction; `Stop` keeps the current work. Using `Stop` before `Start` retains only the selected seed keyframe. Tracking also ends automatically at clip end.
+The clip-scoped stream shares one YOLO/OC-SORT pass across all seeds. The sidecar spools boxes, IDs and appearance descriptors (not video) to private temporary files indexed by source frame. Two recent clip ranges can be retained; a changed file, range or detector configuration causes a miss. A lost target stops the individual path, not the shared pass. A left-click off a detection records the analyst's exact image point; it is not inserted into the shared detections. Reacquisition bridges trusted endpoints and the cached stream is paced at 3× in the renderer. The unscoped API retains the previous incremental-stop behaviour.
 
 While tracking runs, `/track/stream` emits each trusted keyframe as NDJSON. The clip editor applies those frames to its in-memory annotation state immediately, so the canvas and keyframe timeline grow live, then performs one persisted commit from the final result. The original `/track` JSON endpoint remains available.
 
@@ -473,7 +473,7 @@ Resizable panels use visible, focusable separators, minimum sizes, keyboard oper
 
 ## 15. Match metadata
 
-`matchInfo` remains optional manifest data and includes home/away teams, players, coach, formation, score, date, kickoff, competition, season, round, venue, referee, substitutions, and notes. The metadata route supports manual entry, teamsheet paste/CSV/TSV import, and football-data.org lookup through the Next.js API proxy.
+`matchInfo` remains optional manifest data. Project setup and Match info fetch [OpenFootball season files](https://github.com/openfootball/football.json) on explicit search. Selecting a compatible fixture checks [StatsBomb Open Data](https://github.com/hudl/open-data) by competition, season, exact date and both team names; roster sides are joined by team ID. Both XIs must contain eleven explicit starters. Confirmed import fills empty rosters only and stores the StatsBomb match ID for attribution. Public requests contain dataset identifiers, not local filenames or project contents. Coverage varies by season. Pasted reports, CSV/TSV and the separate football-data.org importer remain available.
 
 There is no period-boundary feature or period-aware timestamp model.
 

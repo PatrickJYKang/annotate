@@ -44,7 +44,7 @@ export default function TeamPanel({ label, team, onChange }: Props) {
   };
 
   const handleImport = (players: PlayerEntry[]) => {
-    setField({ players });
+    setField({ players, statsBombLineupId: undefined });
     setImporterOpen(false);
   };
 
@@ -63,6 +63,7 @@ export default function TeamPanel({ label, team, onChange }: Props) {
   return (
     <section className="form-section min-w-0">
       <h3 className="form-heading">{t('metadata.teamTitle', { team: label })}</h3>
+      {Number.isSafeInteger(team.statsBombLineupId) && <a className="text-xs underline" href={`https://github.com/hudl/open-data/blob/master/data/lineups/${team.statsBombLineupId}.json`} target="_blank" rel="noreferrer">StatsBomb Open Data</a>}
       <div className="flex flex-col gap-2">
         <label className="field">
           {t('metadata.name')}

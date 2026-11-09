@@ -407,6 +407,26 @@ test('previews, cancels, applies, and undoes an inward clip trim', async ({ page
   expect(await readClip(page)).toEqual(original);
 });
 
+test('places a manual point away from detections, bridges clicks, and keeps the last clicked frame on Stop', async ({ page }) => {
+  await installOpfsDirectoryPickerFixture(page, path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project'), {rootName:'manual-track-click'});
+  const sidecar = await installMockSidecar(page);
+  page = await openFixtureClipEditor(page);
+  await page.getByRole('button', {name:'Track',exact:true}).click();
+  await expect(page.getByRole('button', {name:'Player 1'})).toBeVisible();
+  const stage = page.getByTestId('clip-stage');
+  const bounds = (await stage.boundingBox())!;
+  await stage.click({position:{x:bounds.width * .1, y:bounds.height * .2}});
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await stage.click({position:{x:bounds.width * .2, y:bounds.height * .2}});
+  await page.getByRole('button',{name:'Stop',exact:true}).click();
+  await expect.poll(async () => {
+    const ann = (await readClip(page)).annotations.at(-1);
+    return ann?.keyframes.map((f: {frame:number; cx:number; visible?:boolean}) => [f.frame, Math.round(f.cx/4)*4, f.visible !== false]);
+  }).toEqual([[5,64,true],[6,96,true],[7,128,true],[8,128,false]]);
+  expect(sidecar.trackRequests).toHaveLength(0);
+});
+
 test('keeps re-tracking provisional until Done and restores the original tail on Cancel', async ({ page }) => {
   await installOpfsDirectoryPickerFixture(
     page,

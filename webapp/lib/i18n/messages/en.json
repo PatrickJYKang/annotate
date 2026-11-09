@@ -1,4 +1,16 @@
 {
+  "fixture.paste": "Paste both lineups",
+  "fixture.reportFormat": "Use one line per team: team name, a colon, then 11 player names separated by commas.",
+  "fixture.includeSheets": "Include confirmed teamsheets",
+  "fixture.previewSheets": "Preview starters and bench",
+  "fixture.loadingSheets": "Looking up teamsheets…",
+  "fixture.failedSheets": "Teamsheet lookup failed. Fixture details are still available.",
+  "fixture.noSheets": "No confirmed teamsheet in StatsBomb Open Data.",
+  "fixture.only": "Import fixture only",
+  "fixture.all": "Top five European leagues",
+  "fixture.unavailable": "Some fixture lists could not be loaded. Try again.",
+  "fixture.conflict": "Overwriting replaces the fixture details and removes team data for clubs not in this fixture.",
+  "fixture.overwrite": "Overwrite fixture",
   "clip.homography.preparing": "Preparing samples",
   "clip.homography.queued": "Waiting to start",
   "clip.homography.loading": "Loading calibration models",
@@ -239,6 +251,7 @@
   ,"annotation.strokeColor": "Annotation stroke color"
   ,"annotation.style": "Style"
   ,"annotation.textHighlight": "Highlight"
+  ,"annotation.textEditingHint": "Enter: new line. Ctrl/⌘+Enter: finish. Esc: cancel."
   ,"annotation.unlinkColors": "Unlink stroke and fill colors"
   ,"annotation.unlinkedColorsTitle": "Stroke and fill change separately"
   ,"annotation.width": "Width"

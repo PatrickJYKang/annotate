@@ -15,6 +15,12 @@ import { timestampMsToNearestFrame } from './frameMath';
 
 export type Bbox = { x: number; y: number; w: number; h: number };
 
+/** Inverse of the fixed-radius foot placement; size is only a continuity search hint. */
+export function manualTrackingBox(x: number, y: number, radius: number): Bbox {
+  const w = Math.max(2, radius), h = w * 2.5;
+  return { x: x - w / 2, y: y + radius * 0.1 - h, w, h };
+}
+
 // ---------------------------------------------------------------------------
 // Per-type converters
 // ---------------------------------------------------------------------------

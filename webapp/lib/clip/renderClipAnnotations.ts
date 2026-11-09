@@ -573,10 +573,13 @@ function paintDrawableGeometry(
       if (drawable.style.textHighlight) {
         context.strokeStyle = contrastStrokeForHex(drawable.style.stroke);
         context.lineWidth = Math.max(2, Math.round(drawable.style.fontSize * 0.18));
-        context.strokeText(drawable.text, drawable.x, drawable.y + drawable.style.fontSize);
       }
       context.fillStyle = drawable.style.stroke;
-      context.fillText(drawable.text, drawable.x, drawable.y + drawable.style.fontSize);
+      drawable.text.split('\n').forEach((line, index) => {
+        const baseline = drawable.y + drawable.style.fontSize * (index + 1);
+        if (drawable.style.textHighlight) context.strokeText(line, drawable.x, baseline);
+        context.fillText(line, drawable.x, baseline);
+      });
       break;
   }
 }

@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import type { MatchInfo } from "../../lib/types/metadata";
+import { rankFixtures } from "../../lib/metadata/matchName";
+import OpenFixtureSearch from "./OpenFixtureSearch";
 import {
   type ApiMatchSummary,
   type ApiMatchDetail,
@@ -45,12 +47,15 @@ type SectionToggles = {
 };
 
 type Props = {
+  info: MatchInfo;
+  hints: MatchInfo;
   onImport: (partial: Partial<MatchInfo>) => void;
   onCancel: () => void;
 };
 
-export default function FootballDataImporter({ onImport, onCancel }: Props) {
+export default function FootballDataImporter({ info, hints, onImport, onCancel }: Props) {
   const { t, formatDate, formatNumber } = useLocale();
+  const [source, setSource] = useState<'open' | 'api'>('open');
   // API key
   const [apiKey, setApiKeyState] = useState(getApiKey() ?? "");
   const hasKey = apiKey.trim().length > 0;
@@ -58,10 +63,11 @@ export default function FootballDataImporter({ onImport, onCancel }: Props) {
   // Search state
   const [mode, setMode] = useState<SearchMode>("competition");
   const [competition, setCompetition] = useState("PL");
-  const [season, setSeason] = useState(new Date().getFullYear().toString());
+  const initialSeason = hints.season?.match(/^\d{4}/)?.[0] ?? new Date().getFullYear().toString();
+  const [season, setSeason] = useState(initialSeason);
   const [matchday, setMatchday] = useState("");
   const [stageCompetition, setStageCompetition] = useState("CL");
-  const [stageSeason, setStageSeason] = useState(new Date().getFullYear().toString());
+  const [stageSeason, setStageSeason] = useState(initialSeason);
   const [stage, setStage] = useState("GROUP_STAGE");
   const [matchIdInput, setMatchIdInput] = useState("");
 
@@ -137,14 +143,14 @@ export default function FootballDataImporter({ onImport, onCancel }: Props) {
         setError(t('metadata.noMatches'));
         return;
       }
-      setResults(matches);
+      setResults(rankFixtures(matches, hints));
       setStep("results");
     } catch (e: any) {
       setError(e?.message || t('metadata.searchFailed'));
     } finally {
       setLoading(false);
     }
-  }, [hasKey, apiKey, mode, competition, season, matchday, stageCompetition, stageSeason, stage, matchIdInput, handleSelectMatch, t]);
+  }, [hasKey, apiKey, mode, competition, season, matchday, stageCompetition, stageSeason, stage, matchIdInput, handleSelectMatch, t, hints]);
 
   // --- Confirm ---
   const handleConfirm = useCallback(() => {
@@ -173,6 +179,11 @@ export default function FootballDataImporter({ onImport, onCancel }: Props) {
     >
       <div className="modal-card max-h-[85vh] w-[min(680px,calc(100vw-2rem))] overflow-y-auto p-5">
         <h3 className="mt-0 text-base font-bold">{t('metadata.importMatch')}</h3>
+        <div className="mb-3 flex gap-2">
+          <button aria-pressed={source === 'open'} onClick={() => setSource('open')}>OpenFootball</button>
+          <button aria-pressed={source === 'api'} onClick={() => setSource('api')}>football-data.org</button>
+        </div>
+        {source === 'open' ? <OpenFixtureSearch info={info} hints={hints} onImport={onImport} onCancel={onCancel} /> : <>
 
         {/* API key */}
         <div className="mb-3">
@@ -486,6 +497,7 @@ export default function FootballDataImporter({ onImport, onCancel }: Props) {
             </div>
           </>
         )}
+        </>}
       </div>
     </div>
   );

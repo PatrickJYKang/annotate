@@ -10,6 +10,7 @@ import MatchDetailsForm from "../../components/metadata/MatchDetailsForm";
 import TeamPanel from "../../components/metadata/TeamPanel";
 import FootballDataImporter from "../../components/metadata/FootballDataImporter";
 import { useT } from "../../lib/i18n";
+import { inferMatchInfo } from "../../lib/metadata/matchName";
 
 const DEBOUNCE_MS = 800;
 
@@ -142,6 +143,8 @@ export default function MetadataPage() {
       </div>
       {apiImporterOpen && (
         <FootballDataImporter
+          info={info}
+          hints={inferMatchInfo(inferMatchInfo(info, manifest.name), manifest.videos[0]?.label ?? '')}
           onImport={(partial) => {
             const merged = { ...info, ...partial };
             persist(merged);
