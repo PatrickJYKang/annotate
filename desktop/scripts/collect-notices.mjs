@@ -1,7 +1,10 @@
 import { cp, mkdir, readFile, readdir, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { inspectRendererPackaging, imageOptimizerPackage } from './renderer-packaging.mjs';
 import { fileURLToPath } from 'node:url';
 import { sha256File } from '../core/resource-layout.mjs';
+import { collectPnLNotices } from './bundle-pnlcalib.mjs';
+import { inspectControlledOpenCV } from './controlled-opencv.mjs';
 
 const isNotice = (name) => /^(licen[cs]e|copying|notice|copyright|third[-_]?party[-_]?notices?)([.\-_]|$)/i.test(name);
 const relativePath = (root, file) => path.relative(root, file).split(path.sep).join('/');
@@ -42,12 +45,15 @@ async function copyNotices(source, destination, relative = '') {
 
 // Next's output tracing does not promise to retain non-executed license files.
 export async function collectNotices(root, runtime, sitePackages, notices = path.join(runtime, 'licenses'), sourceDirectory) {
+  const rendererPackaging = await inspectRendererPackaging(path.join(runtime, 'renderer'));
+  const controlledOpenCV = await inspectControlledOpenCV(runtime);
   await mkdir(notices, { recursive: true });
   for (const directory of ['javascript', 'python']) await rm(path.join(notices, directory), { recursive: true, force: true });
   await cp(path.join(root, 'LICENSE'), path.join(notices, 'Annotate-GPL-3.0.txt'));
   await cp(path.join(root, 'THIRD_PARTY_NOTICES.md'), path.join(notices, 'THIRD_PARTY_NOTICES.md'));
   await cp(path.join(root, 'docs/licence-review.md'), path.join(notices, 'licence-review.md'));
   await cp(path.join(root, 'docs/distribution-compliance.md'), path.join(notices, 'distribution-compliance.md'));
+  await collectPnLNotices(path.join(runtime, 'pnlcalib'), path.join(notices, 'pnlcalib'));
   await cp(path.join(root, 'webapp/node_modules/@fontsource-variable/ibm-plex-sans/LICENSE'), path.join(notices, 'IBM-Plex-Sans-OFL.txt'));
   const packages = [];
   const javascript = new Map();
@@ -71,9 +77,9 @@ export async function collectNotices(root, runtime, sitePackages, notices = path
     const supplementalNotices = await supplementNotices(metadata, destination);
     files.push(...supplementalNotices);
     const nativeLibraries = [];
-    if (sourceDirectory && metadata.name === '@img/sharp-libvips-darwin-arm64' && metadata.version === '1.3.4') {
+    if (sourceDirectory && ['@img/sharp-libvips-darwin-arm64', '@img/sharp-win32-x64'].includes(metadata.name)) {
       const index = JSON.parse(await readFile(path.join(sourceDirectory, 'index.json'), 'utf8'));
-      for (const archive of index.archives.filter((item) => item.kind === 'sharp-native-source')) {
+      for (const archive of index.archives.filter((item) => ['sharp-native-source', 'sharp-subproject-source'].includes(item.kind))) {
         const prefix = path.join('native', archive.name);
         const copied = await copyNotices(path.join(sourceDirectory, 'notices', archive.name), path.join(destination, prefix));
         files.push(...copied.map((file) => `${prefix}/${file}`));
@@ -95,7 +101,7 @@ export async function collectNotices(root, runtime, sitePackages, notices = path
     const record = { ecosystem: 'npm', name: metadata.name, version: metadata.version, license: metadata.license ?? 'REVIEW REQUIRED', scopes: [scope], notices: files,
       supplementalNotices, noticeReviewRequired: files.length === 0 };
     if (nativeLibraries.length) record.nativeDependencyReviewRequired = true;
-    if (metadata.name === 'client-only') record.noticeReviewReason = 'Published package declares MIT but supplies no copyright/licence text. Do not infer the original copyright holder from Next bundling it.';
+    if (metadata.name === 'client-only' && metadata.version === '0.0.1') record.noticeReviewReason = 'Published package declares MIT but supplies no copyright/licence text. Do not infer the original copyright holder from Next bundling it.';
     javascript.set(id, record);
     packages.push(record);
   }
@@ -114,6 +120,7 @@ export async function collectNotices(root, runtime, sitePackages, notices = path
   const lock = JSON.parse(await readFile(path.join(root, 'webapp/package-lock.json'), 'utf8'));
   for (const [relative, metadata] of Object.entries(lock.packages)) {
     if (!relative.startsWith('node_modules/') || metadata.dev) continue;
+    if (rendererPackaging && imageOptimizerPackage(relative.slice('node_modules/'.length))) continue;
     const directory = path.join(root, 'webapp', relative);
     try { await readFile(path.join(directory, 'package.json')); }
     catch (error) { if (error.code === 'ENOENT' && metadata.optional) continue; throw error; }
@@ -129,10 +136,30 @@ export async function collectNotices(root, runtime, sitePackages, notices = path
     await writeFile(path.join(destination, 'METADATA'), metadata);
     const classifiers = [...metadata.matchAll(/^Classifier: (License :: .+)$/gm)].map((match) => match[1]);
     packages.push({ ecosystem: 'pypi', name: field('Name'), version: field('Version'), license: field('License-Expression') ?? field('License') ?? (classifiers.join('; ') || 'REVIEW REQUIRED'),
+      ...(controlledOpenCV && field('Name') === 'opencv-python' ? { runtimeModification: 'The wheel native module is replaced by Annotate-controlled OpenCV 4.11.0 + FFmpeg 7.1/x264, combined GPLv3. Original metadata is not the combined binary licence. See opencv-controlled/.' } : {}),
       metadata: relativePath(runtime, path.join(sitePackages, name, 'METADATA')), notices: files });
   }
   // Binary wheels can keep third-party notices outside .dist-info (OpenCV does).
   await copyNotices(sitePackages, path.join(notices, 'python/bundled-notices'));
+  if (controlledOpenCV && path.resolve(notices) !== path.resolve(runtime, 'licenses')) {
+    await cp(path.join(runtime, 'licenses/opencv-controlled'), path.join(notices, 'opencv-controlled'), { recursive: true });
+  }
+  if (sourceDirectory) {
+    const index = JSON.parse(await readFile(path.join(sourceDirectory, 'index.json'), 'utf8'));
+    const native = index.archives.filter(item => item.name.startsWith('opencv-') && item.collectNotices);
+    const destination = path.join(notices, 'python/bundled-notices/opencv-sources');
+    for (const archive of native) await copyNotices(path.join(sourceDirectory, 'notices', archive.name), path.join(destination, archive.name));
+    if (index.opencvMacEvidence) {
+      await mkdir(destination, { recursive: true });
+      await cp(path.join(sourceDirectory, 'opencv-macos/Homebrew-LICENSE.txt'), path.join(destination, 'Homebrew-LICENSE.txt'));
+    }
+    if (native.length) await writeFile(path.join(destination, 'source-provenance.json'), JSON.stringify({
+      completeCorrespondingSource: false,
+      libraries: native.map(({ name, version, url, sha256, coverage, noticeReviewRequired }) => ({ name, version, url, sha256, coverage, noticeReviewRequired })),
+      opencvMacEvidence: index.opencvMacEvidence,
+      controlledOpenCV: index.controlledOpenCV,
+    }, null, 2) + '\n');
+  }
   const agpl = packages.find((item) => item.ecosystem === 'pypi' && item.name === 'ultralytics');
   if (agpl) {
     const dist = (await readdir(sitePackages)).find((name) => name.startsWith(`ultralytics-${agpl.version}.dist-info`));
@@ -145,5 +172,5 @@ export async function collectNotices(root, runtime, sitePackages, notices = path
     if (!copied) throw new Error('Ultralytics AGPL licence text is missing.');
   }
   packages.sort((a, b) => `${a.ecosystem}/${a.name}`.localeCompare(`${b.ecosystem}/${b.name}`));
-  await writeFile(path.join(notices, 'dependency-inventory.json'), JSON.stringify({ note: 'Metadata inventory, not a legal compatibility determination. Electron/Chromium, Python, FFmpeg, fonts and model weights have additional notices.', packages }, null, 2) + '\n');
+  await writeFile(path.join(notices, 'dependency-inventory.json'), JSON.stringify({ note: 'Metadata inventory, not a legal compatibility determination. Electron/Chromium, Python, FFmpeg, fonts and model weights have additional notices.', rendererPackaging, packages }, null, 2) + '\n');
 }

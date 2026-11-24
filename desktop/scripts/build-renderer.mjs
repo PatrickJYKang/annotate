@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { access, cp } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { pruneUnusedImageOptimizer } from './renderer-packaging.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const webapp = path.join(root, 'webapp');
@@ -20,4 +21,5 @@ const output = path.join(dist, 'standalone');
 await access(path.join(output, 'server.js'));
 await cp(path.join(webapp, 'public'), path.join(output, 'public'), { recursive: true });
 await cp(path.join(dist, 'static'), path.join(output, '.next-desktop/static'), { recursive: true });
+await pruneUnusedImageOptimizer(output);
 console.log(`Standalone renderer ready: ${output}`);

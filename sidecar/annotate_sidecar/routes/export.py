@@ -117,8 +117,7 @@ async def export_frame(req: ExportFrameRequest):
 async def export_encode(req: ExportEncodeRequest):
     """Encode collected frames into an MP4 video.
 
-    If `outputPath` is not specified, the MP4 is written next to the
-    frames directory.
+    Without an explicit output path the session owns the MP4 until cleanup.
 
     Returns:
         { outputPath }
@@ -130,7 +129,7 @@ async def export_encode(req: ExportEncodeRequest):
     # Default output path: next to temp dir
     output_path = req.outputPath
     if not output_path:
-        output_path = str(Path(tmp_dir).parent / f"export_{req.sessionId}.mp4")
+        output_path = str(Path(tmp_dir) / "recording.mp4")
 
     try:
         result_path = encode_frames(

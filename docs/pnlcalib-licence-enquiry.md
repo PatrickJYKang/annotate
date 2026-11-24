@@ -1,6 +1,14 @@
 # PnLCalib licence enquiry
 
-Patrick confirmed sending the enquiry on 2026-10-25. Awaiting a response; no clarification or additional permission has been received. The retained draft below records the questions raised, not a verified copy of the sent message.
+Patrick confirmed sending the enquiry on 2026-10-25 and shared Marc's reply on 2026-10-26. The code-version and weight-redistribution questions are resolved by the published clarification below. The retained draft records the original questions, not a verified copy of the sent message; its old source pin is historical.
+
+## Published clarification
+
+Marc published [commit 42088864170f75ea02e76d20e9a9a1db59edb3e3](https://github.com/mguti97/PnLCalib/commit/42088864170f75ea02e76d20e9a9a1db59edb3e3), whose parent is our previous pin. It adds a GPL-2.0-or-later grant for the code he controls, an explicit CC BY 4.0 licence for all release weights, and restored Microsoft MIT headers on model/cls_hrnet.py and model/cls_hrnet_l.py. The only four changed files are LICENSE, README.md and those two files' comments; no inference implementation changes. The pinned [README License section](https://github.com/mguti97/PnLCalib/blob/42088864170f75ea02e76d20e9a9a1db59edb3e3/README.md#license) is the public evidence for the weight grant. The v1.0.0 release body was still empty when checked, so this record does not rely on an updated release description.
+
+The weights may be redistributed, including commercially, with attribution and the CC BY 4.0 terms retained. The README states that the training agreement has expired and that the weights contain no footage or further restrictions. This is the maintainer's statement about the weights, not permission to redistribute SoccerNet data or third-party match footage.
+
+Annotate keeps the required HRNet inference files with their MIT notice, excludes the unused sn_calibration evaluation folder from desktop bundles, preserves the exact SV_kp/SV_lines checksums and includes the preferred citation. The upstream grant remains GPL-2.0-or-later; Annotate's own GPL-3.0-only licence does not need changing. Other runtime redistribution and corresponding-source work remains tracked in [distribution compliance](distribution-compliance.md). No further PnLCalib permission request is currently needed.
 
 ## Contact and evidence
 

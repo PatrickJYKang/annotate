@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PNLCALIB_ROOT="${ANNOTATE_PNLCALIB_ROOT:-$ROOT_DIR/sidecar/third_party/pnlcalib}"
 PNLCALIB_REPOSITORY="https://github.com/mguti97/PnLCalib.git"
-PNLCALIB_COMMIT="8c87391d6f4ea40c5e4d65e61529916c7a49ce62"
+PNLCALIB_COMMIT="42088864170f75ea02e76d20e9a9a1db59edb3e3"
 WEIGHTS_DIRECTORY="$PNLCALIB_ROOT/weights"
 KEYPOINTS_URL="https://github.com/mguti97/PnLCalib/releases/download/v1.0.0/SV_kp"
 LINES_URL="https://github.com/mguti97/PnLCalib/releases/download/v1.0.0/SV_lines"
@@ -82,7 +82,7 @@ if ((CHECK_ONLY)); then
     printf "PnLCalib source and weights are ready.\n"
     exit 0
   fi
-  printf "PnLCalib is missing or does not match the Annotate 0.2 release lock.\n" >&2
+  printf "PnLCalib is missing or does not match the pinned Annotate source and weights.\n" >&2
   exit 1
 fi
 

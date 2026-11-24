@@ -461,7 +461,7 @@ The dashboard's report export scans validated clips and writes:
 
 Rows include frame bounds, duration, primary/facet tags, pin counts, animated annotation counts, document/shape totals, and annotated output paths. Pin PNGs are rendered at the owning video's native resolution through the same payload renderer used by the editor.
 
-Exports are deterministic and replace the previous report folder. A bad pin document is recorded as a partial failure while other clips/documents continue. No source video is copied. The sidecar still exposes generic frame-to-MP4 encoding endpoints, but the current 0.2 UI does not expose clip MP4 export.
+Report exports replace the previous report folder. A bad pin document is recorded as a partial failure while other clips/documents continue. Clip and presentation recordings are separate optional arrays on their owning documents. Clip takes store an absolute half-open frame range and per-pin hold/click times in milliseconds. Deck takes snapshot slides and transitions; importing a clip take copies its range and pause cues. Replay samples the current annotations. MP4 export renders the recorded sequence using the existing annotation painters, then uses the sidecar frame encoder to produce a silent video in `exports/recordings/`. Old projects without recordings require no migration.
 
 ## 14. Internationalization and layout
 

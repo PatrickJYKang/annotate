@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { sha256File } from '../core/resource-layout.mjs';
+import { machoEvidence } from './macho-evidence.mjs';
 
 // Read-only fingerprints of the media/image binaries actually shipped, including
 // libraries hidden inside wheels. Package metadata can understate their licences.
@@ -15,11 +16,18 @@ export async function nativeInventory(runtime, target) {
       else if (/\.(dll|dylib|exe|node|so|wasm)$/.test(entry.name) || ['ffmpeg', 'ffprobe'].includes(entry.name)) {
         const absolute = path.join(runtime, filename);
         const metadata = await stat(absolute);
-        files.push({ path: filename, size: metadata.size, sha256: await sha256File(absolute) });
+        const record = { path: filename, size: metadata.size, sha256: await sha256File(absolute) };
+        if (target === 'darwin-arm64') {
+          const bytes = await readFile(absolute);
+          if (bytes.length >= 4 && bytes.readUInt32LE(0) === 0xfeedfacf) record.macho = machoEvidence(bytes);
+        }
+        files.push(record);
       }
     }
   }
-  for (const directory of ['ffmpeg', cv2, 'renderer/node_modules/@img']) await scan(directory);
+  for (const directory of ['ffmpeg', cv2]) await scan(directory);
+  try { await scan('renderer/node_modules/@img'); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
   const ffmpegEvidence = [];
   // Read strings from the library without loading executable code or a model.
   for (const file of files.filter((item) => /libavutil.*\.dylib$/.test(item.path))) {

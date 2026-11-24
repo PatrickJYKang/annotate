@@ -7,6 +7,7 @@ export interface PinAnnotationCue {
 }
 export interface ClipPauseCue {
   pinId: string;
+  clickTimesMs?: number[];
   holdMs?: number;
   annotationIds?: string[] | null;
   annotationCues?: PinAnnotationCue[];
@@ -18,6 +19,7 @@ export interface ClipSlide {
   clipId: string;
   pausePins: string[] | null;
   pauseCues?: ClipPauseCue[];
+  range?: { startFrame: number; endFrame: number };
   notes?: string;
   holdMs?: number;
 }
@@ -32,6 +34,7 @@ export interface PinSlide {
   annotationCues?: PinAnnotationCue[];
   notes?: string;
   holdMs?: number;
+  clickTimesMs?: number[];
 }
 
 export interface TitleSlide {
@@ -62,6 +65,13 @@ export interface PresentationTheme {
   textColor?: string;
 }
 
+export interface DeckTake {
+  id: string;
+  name: string;
+  slides: PresentationSlide[];
+  transitions: PresentationTransition[];
+}
+
 export interface Presentation {
   schema: 2;
   id: string;
@@ -71,6 +81,7 @@ export interface Presentation {
   slides: PresentationSlide[];
   transitions: PresentationTransition[];
   theme?: PresentationTheme;
+  recordings?: DeckTake[];
 }
 
 export function createDefaultPresentation(

@@ -10,7 +10,7 @@ This sidecar actively backs the frame-native project and clip workflows:
 - `/track/detect` supplies provisional player targets and `/track/stream` supplies live trusted keyframes for the highlight-driven tracking workflow; `/track` remains the equivalent non-streaming response path
 - `/homography/stream` supplies frame-based clip calibration progress and results; `/homography` remains the timestamp-based pin/compatibility path. Both use vendored `PnLCalib`; clip calibration solves every 15 source frames with interpolation and web-layer sanity filtering
 
-`/derived-media/exact-motion` and the generic `/export/*` session API remain implemented and tested service boundaries, but the canonical v2 UI does not currently expose clip MP4 export. Presentations play absolute frame ranges directly from original project videos; exact-motion encoding is retained only as a possible future export primitive.
+Clip and presentation recordings use the `/export/*` session API for silent MP4 encoding. Presentations play absolute frame ranges directly from original project videos; `/derived-media/exact-motion` is not required for recording or playback.
 
 ## Requirements
 

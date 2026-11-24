@@ -56,6 +56,13 @@ describe('v2 presentation playback contracts', () => {
     expect(sourceFrameToMediaSeconds(secondAsset, videoFrame(100), secondVideo)).toBeCloseTo(10 / 3);
   });
 
+  it('identifies a decoded frame from its rounded timestamp without rounding the playback clock forward', () => {
+    const fractional = { ...video, fps: 30000 / 1001 };
+    const truncatedPts = Math.floor(50 / fractional.fps * 1000) / 1000;
+    expect(toSourceFrame(original, truncatedPts, fractional, 'presented')).toBe(50);
+    expect(toSourceFrame(original, truncatedPts, fractional, 'clock')).toBe(49);
+  });
+
   it('triggers the start pin and forward crossings once without resume retrigger', () => {
     const started = startPinPauseMachine(videoFrame(40), pins);
     expect(started.triggeredPinId).toBe('at-start');

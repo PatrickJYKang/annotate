@@ -11,7 +11,7 @@ import {
   frameTemporalAdapter,
   renderClipAnnotationsToCanvas,
 } from '../../lib/clip/renderClipAnnotations';
-import { frameToMs, videoFrame } from '../../lib/clip/frameMath';
+import { frameToCenterSeconds, frameToMs, videoFrame } from '../../lib/clip/frameMath';
 import { resolveUsableHomographyAtTime } from '../../lib/clip/homographyInterpolation';
 import { paintAnnotationPayloadToCanvas } from '../../lib/export/d7Render';
 import { findOverlappingCache, type HomographyFrame } from '../../lib/fs/homographyCache';
@@ -34,6 +34,7 @@ import {
 } from '../../lib/presentation/playback';
 import type { ClipPin, Clip } from '../../lib/types/clip';
 import type { Annotations } from '../../lib/types/annotations';
+import type { ClickTiming } from '../../lib/types/recording';
 import type {
   ClipPauseCue,
   PresentationSlide,
@@ -64,6 +65,15 @@ interface PresentationCanvasProps {
   videoResources: ReadonlyMap<string, PresentationVideoResource>;
   isPresenting: boolean;
   onComplete: () => void;
+  studio?: boolean;
+  recordingRange?: {
+    first: number | null;
+    last: number | null;
+    setFirst: (frame: number) => void;
+    setLast: (frame: number) => void;
+    useFullClip: () => void;
+  };
+  onHold?: (pinId: string | null, timing: ClickTiming) => void;
 }
 
 export interface PresentationCanvasHandle {
@@ -145,16 +155,17 @@ function resolveScene(
       error: pin ? null : t('presentation.sceneMissingPin', { id: slide.pinId }),
     };
   }
+  const range = slide.range ?? clip;
   return {
-    sceneKey: `slide-${slide.id}-${clip.id}-${clip.startFrame}-${clip.endFrame}-${video.id}`,
+    sceneKey: `slide-${slide.id}-${clip.id}-${range.startFrame}-${range.endFrame}-${video.id}`,
     slide,
     clip,
     pin: null,
     transition: null,
     video,
-    range: { startFrame: clip.startFrame, endFrame: clip.endFrame },
+    range: { startFrame: range.startFrame, endFrame: range.endFrame },
     hideAnimatedAnnotations: false,
-    error: null,
+    error: range.endFrame > video.frameCount ? t('presentation.validation.outsideVideo') : null,
   };
 }
 
@@ -167,6 +178,9 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
   videoResources,
   isPresenting,
   onComplete,
+  studio = false,
+  recordingRange,
+  onHold,
 }: PresentationCanvasProps, ref) {
   const { t, formatNumber } = useLocale();
   const resolved = useMemo(
@@ -194,6 +208,8 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
   const [homographyFrames, setHomographyFrames] = useState<HomographyFrame[]>([]);
   const staticStartedAtRef = useRef(0);
   const staticAnimationClickTimesRef = useRef<number[]>([]);
+  const holdReadyRef = useRef(false);
+  const autoResumeRef = useRef(false);
 
   const requestPlayback = useCallback((video: HTMLVideoElement) => {
     const attempt = (retries: number) => {
@@ -230,11 +246,13 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
     };
   }, [resolved.range, resolved.sceneKey, resolved.video, resource]);
 
+  const choosingRange = !!recordingRange;
+  const previewLast = recordingRange?.last ?? (playbackAsset?.sourceEndFrame ?? 1) - 1;
   const effectivePausePins = useMemo(() => (
-    resolved.slide?.kind === 'clip' && resolved.clip
+    !choosingRange && resolved.slide?.kind === 'clip' && resolved.clip
       ? resolveEffectivePausePins(resolved.clip, resolved.slide)
       : []
-  ), [resolved.clip, resolved.slide]);
+  ), [choosingRange, resolved.clip, resolved.slide]);
 
   useEffect(() => {
     if (!resolved.clip || !resolved.video || resolved.slide?.kind !== 'clip') {
@@ -295,9 +313,12 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
   }, [isPresenting, onComplete, resolved.sceneKey, resolved.slide]);
 
   const pauseAtPin = useCallback((pin: ClipPin) => {
+    autoResumeRef.current = playIntentRef.current;
     videoRef.current?.pause();
     playIntentRef.current = false;
     setPlaying(false);
+    requestedSourceFrameRef.current = pin.frame;
+    setSourceFrame(pin.frame);
     setPausedPin(pin);
     staticStartedAtRef.current = performance.now();
     staticAnimationClickTimesRef.current = [];
@@ -305,11 +326,21 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
     setStaticElapsedMs(0);
   }, []);
 
-  const sampleVideoFrame = useCallback((mediaTime: number) => {
-    if (!playbackAsset || !resolved.video) return;
-    const frame = toSourceFrame(playbackAsset, mediaTime, resolved.video);
-    if (pendingSeekFrameRef.current !== null && frame !== pendingSeekFrameRef.current) return;
-    if (pendingSeekFrameRef.current === frame) pendingSeekFrameRef.current = null;
+  const sampleVideoFrame = useCallback((mediaTime: number, timestamp: 'clock' | 'presented') => {
+    if (!playbackAsset || !resolved.video || videoRef.current?.seeking ||
+        pendingSeekFrameRef.current !== null || pauseMachineRef.current?.pausedPinId) return;
+    const frame = toSourceFrame(playbackAsset, mediaTime, resolved.video, timestamp);
+    if (choosingRange && playIntentRef.current && frame >= previewLast) {
+      const video = videoRef.current;
+      playIntentRef.current = false;
+      video?.pause();
+      setPlaying(false);
+      requestedSourceFrameRef.current = previewLast;
+      pendingSeekFrameRef.current = previewLast;
+      setSourceFrame(previewLast);
+      if (video) video.currentTime = frameToCenterSeconds(videoFrame(previewLast), resolved.video.fps);
+      return;
+    }
     requestedSourceFrameRef.current = frame;
     setSourceFrame(frame);
     if (resolved.slide?.kind === 'clip' && pauseMachineRef.current) {
@@ -326,7 +357,7 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
     if (frame >= playbackAsset.sourceEndFrame - 1 && !pausedPin) {
       completeVideo();
     }
-  }, [completeVideo, effectivePausePins, pauseAtPin, pausedPin, playbackAsset, resolved.slide?.kind, resolved.video]);
+  }, [choosingRange, completeVideo, effectivePausePins, pauseAtPin, pausedPin, playbackAsset, previewLast, resolved.slide?.kind, resolved.video]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -335,10 +366,19 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
     let frameRequest = 0;
     const onFrame = (_now: number, metadata: VideoFrameCallbackMetadata) => {
       if (cancelled) return;
-      sampleVideoFrame(metadata.mediaTime);
+      sampleVideoFrame(metadata.mediaTime, 'presented');
       frameRequest = video.requestVideoFrameCallback(onFrame);
     };
-    const onTimeUpdate = () => sampleVideoFrame(video.currentTime);
+    const onTimeUpdate = () => sampleVideoFrame(video.currentTime, 'clock');
+    // A compositor may never present the exact requested frame. The media
+    // element's seek completion, not an equality check on its next sample,
+    // separates frames from before and after a seek.
+    const onSeeked = () => {
+      if (video.seeking) return;
+      pendingSeekFrameRef.current = null;
+      onTimeUpdate();
+    };
+    video.addEventListener('seeked', onSeeked);
     const frameVideo = video as HTMLVideoElement & {
       requestVideoFrameCallback?: (callback: VideoFrameRequestCallback) => number;
       cancelVideoFrameCallback?: (handle: number) => void;
@@ -354,6 +394,7 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
         frameVideo.cancelVideoFrameCallback(frameRequest);
       }
       video.removeEventListener('timeupdate', onTimeUpdate);
+      video.removeEventListener('seeked', onSeeked);
     };
   }, [playbackAsset, resolved.slide?.kind, resolved.video, sampleVideoFrame]);
 
@@ -436,6 +477,7 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
     (staticCues ?? []).map((cue) => [cue.annotationId, cue]),
   ), [staticCues]);
   const activeStaticAnnotationKey = activeStaticPin?.annotations.map((reference) => reference.id).join('|') ?? '';
+  const recordedClicks = resolved.slide?.kind === 'pin' ? resolved.slide.clickTimesMs : activePauseCue?.clickTimesMs;
 
   useEffect(() => {
     if (!activeStaticPin || !resolved.clip) {
@@ -445,6 +487,7 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
     let active = true;
     void Promise.all(activeStaticPin.annotations.map(async (reference) => {
       const result = await readPinAnnotationDocument(projectDir, resolved.clip!.id, reference.id);
+      if (!result.document && studio) throw new Error(result.error ?? t('presentation.missingSlide'));
       return result.document ? [reference.id, result.document] as const : null;
     })).then((entries) => {
       if (!active) return;
@@ -455,7 +498,7 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
       if (active) setMessage(error instanceof Error ? error.message : String(error));
     });
     return () => { active = false; };
-  }, [activeStaticAnnotationKey, activeStaticPin, projectDir, resolved.clip]);
+  }, [activeStaticAnnotationKey, activeStaticPin, projectDir, resolved.clip, studio, t]);
 
   useEffect(() => {
     if (!activeStaticPin || !resolved.clip || !resolved.video || !resource) {
@@ -486,8 +529,11 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
     };
   }, [activeStaticPin, resolved.clip, resolved.sceneKey, resolved.video, resource]);
 
+  const staticReady = !!activeStaticPin && !!staticFrameUrl &&
+    (!studio || activeStaticPin.annotations.every(reference => staticDocuments.has(reference.id)));
   useEffect(() => {
-    if (!activeStaticPin?.id) {
+    holdReadyRef.current = staticReady;
+    if (!activeStaticPin?.id || !staticReady) {
       staticAnimationClickTimesRef.current = [];
       setStaticAnimationClickTimesMs([]);
       setStaticElapsedMs(0);
@@ -505,7 +551,7 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
     };
     frameRequest = requestAnimationFrame(update);
     return () => cancelAnimationFrame(frameRequest);
-  }, [activeStaticPin?.id, resolved.sceneKey]);
+  }, [activeStaticPin?.id, resolved.sceneKey, staticReady]);
 
   const relativeStaticClickTimes = useCallback((annotationId: string, clickTimes: readonly number[]) => {
     const enterAtMs = staticCueById.get(annotationId)?.enterAtMs ?? 0;
@@ -524,6 +570,8 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
 
   const advanceStaticAnimation = useCallback(() => {
     if (!activeStaticPin) return false;
+    if (!holdReadyRef.current) return true;
+    if (recordedClicks) return false;
     const clickTimes = staticAnimationClickTimesRef.current;
     const hasPending = Array.from(staticDocuments).some(([annotationId, document]) => (
       visibleStaticIdSet.has(annotationId)
@@ -539,7 +587,7 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
     setStaticAnimationClickTimesMs(nextClickTimes);
     setStaticElapsedMs(elapsedMs);
     return true;
-  }, [activeStaticPin, relativeStaticClickTimes, staticDocuments, visibleStaticIdSet]);
+  }, [activeStaticPin, recordedClicks, relativeStaticClickTimes, staticDocuments, visibleStaticIdSet]);
 
   useEffect(() => {
     const canvas = staticOverlayRef.current;
@@ -557,14 +605,25 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
         visuals: sampleAnnotationAnimations(
           document.animations,
           Math.max(0, staticElapsedMs - enterAtMs),
-          relativeStaticClickTimes(annotationId, staticAnimationClickTimesMs),
+          relativeStaticClickTimes(annotationId, recordedClicks ?? staticAnimationClickTimesMs),
         ),
       });
     }
-  }, [activeStaticPin, relativeStaticClickTimes, staticAnimationClickTimesMs, staticCueById, staticDocuments, staticElapsedMs, visibleStaticIdSet]);
+  }, [activeStaticPin, recordedClicks, relativeStaticClickTimes, staticAnimationClickTimesMs, staticCueById, staticDocuments, staticElapsedMs, visibleStaticIdSet]);
+
+  const captureHold = useCallback((pinId: string | null) => {
+    if (!onHold) return;
+    const clickTimesMs = recordedClicks ?? staticAnimationClickTimesRef.current;
+    onHold(pinId, {
+      holdMs: recordedClicks && activePauseCue?.holdMs !== undefined ? activePauseCue.holdMs
+        : Math.max(clickTimesMs.at(-1) ?? 0, Math.round(performance.now() - staticStartedAtRef.current)),
+      clickTimesMs: clickTimesMs.map(Math.round),
+    });
+  }, [activePauseCue?.holdMs, onHold, recordedClicks]);
 
   const resumeFromPin = useCallback(() => {
     if (!pausedPin || !pauseMachineRef.current) return;
+    captureHold(pausedPin.id);
     const wasFinalFrame = playbackAsset && pausedPin.frame >= playbackAsset.sourceEndFrame - 1;
     pauseMachineRef.current = resumePinPauseMachine(pauseMachineRef.current);
     setPausedPin(null);
@@ -573,35 +632,29 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
       return;
     }
     playIntentRef.current = true;
-    if (videoRef.current) requestPlayback(videoRef.current);
-  }, [completeVideo, pausedPin, playbackAsset, requestPlayback]);
+    if (videoRef.current && playbackAsset && resolved.video) {
+      const video=videoRef.current;
+      requestedSourceFrameRef.current=pausedPin.frame;
+      pendingSeekFrameRef.current=pausedPin.frame;
+      video.currentTime=sourceFrameToMediaSeconds(playbackAsset,pausedPin.frame,resolved.video);
+      requestPlayback(video);
+    }
+  }, [captureHold, completeVideo, pausedPin, playbackAsset, requestPlayback, resolved.video]);
 
   useEffect(() => {
-    if (!pausedPin || activePauseCue?.holdMs === undefined || staticAnimationHasNextClick) return;
+    if (!autoResumeRef.current || !staticReady || !pausedPin || activePauseCue?.holdMs === undefined || (!recordedClicks && staticAnimationHasNextClick)) return;
     const timer = window.setTimeout(resumeFromPin, activePauseCue.holdMs);
     return () => window.clearTimeout(timer);
-  }, [activePauseCue?.holdMs, pausedPin, resumeFromPin, staticAnimationHasNextClick]);
+  }, [activePauseCue?.holdMs, pausedPin, recordedClicks, resumeFromPin, staticAnimationHasNextClick, staticReady]);
 
   useEffect(() => {
     if (!isPresenting || scene.kind !== 'slide' || !resolved.slide) return;
     if (resolved.slide.kind === 'clip') return;
-    if (resolved.slide.holdMs === undefined || staticAnimationHasNextClick) return;
+    if (resolved.slide.kind === 'pin' && !staticReady) return;
+    if (resolved.slide.holdMs === undefined || (!recordedClicks && staticAnimationHasNextClick)) return;
     const timer = window.setTimeout(onComplete, resolved.slide.holdMs);
     return () => window.clearTimeout(timer);
-  }, [isPresenting, onComplete, resolved.slide, scene.kind, staticAnimationHasNextClick]);
-
-  const togglePlayback = useCallback(() => {
-    const video = videoRef.current;
-    if (!video || pausedPin) return;
-    if (!playIntentRef.current) {
-      playIntentRef.current = true;
-      requestPlayback(video);
-    } else {
-      playIntentRef.current = false;
-      video.pause();
-      setPlaying(false);
-    }
-  }, [pausedPin, requestPlayback]);
+  }, [isPresenting, onComplete, recordedClicks, resolved.slide, scene.kind, staticAnimationHasNextClick, staticReady]);
 
   const seekSourceFrame = useCallback((frame: number) => {
     if (!playbackAsset || !resolved.video) return;
@@ -611,17 +664,51 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
     setSourceFrame(target);
     if (pauseMachineRef.current) pauseMachineRef.current = seekPinPauseMachine(pauseMachineRef.current, target, effectivePausePins);
     setPausedPin(null);
-    if (videoRef.current) videoRef.current.currentTime = sourceFrameToMediaSeconds(playbackAsset, target, resolved.video);
-  }, [effectivePausePins, playbackAsset, resolved.video]);
+    const video = videoRef.current;
+    if (!video) return;
+    if (choosingRange) {
+      playIntentRef.current = false;
+      video.pause();
+      setPlaying(false);
+      video.currentTime = frameToCenterSeconds(target, resolved.video.fps);
+    } else video.currentTime = sourceFrameToMediaSeconds(playbackAsset, target, resolved.video);
+  }, [choosingRange, effectivePausePins, playbackAsset, resolved.video]);
+
+  const togglePlayback = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || pausedPin) return;
+    if (!playIntentRef.current) {
+      if (recordingRange && playbackAsset) {
+        const first = recordingRange.first ?? playbackAsset.sourceStartFrame;
+        const frame = requestedSourceFrameRef.current;
+        if (frame < first || frame >= previewLast) seekSourceFrame(first);
+        if (first === previewLast) return;
+      }
+      playIntentRef.current = true;
+      requestPlayback(video);
+    } else {
+      playIntentRef.current = false;
+      video.pause();
+      setPlaying(false);
+    }
+  }, [pausedPin, playbackAsset, previewLast, recordingRange, requestPlayback, seekSourceFrame]);
 
   const advancePresentationMedia = useCallback(() => {
+    if (studio && pausedPin && recordedClicks) return true;
     if (advanceStaticAnimation()) return true;
     if (pausedPin) {
       resumeFromPin();
       return true;
     }
+    if (studio) {
+      if (resolved.slide?.kind === 'pin' || resolved.slide?.kind === 'title') {
+        captureHold(null);
+        onComplete();
+      }
+      return true;
+    }
     return false;
-  }, [advanceStaticAnimation, pausedPin, resumeFromPin]);
+  }, [advanceStaticAnimation, captureHold, onComplete, pausedPin, recordedClicks, resolved.slide?.kind, resumeFromPin, studio]);
 
   const toggleOrResumePlayback = useCallback(() => {
     if (advancePresentationMedia()) return;
@@ -640,7 +727,7 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
   useImperativeHandle(ref, () => ({ advance: advancePresentationMedia }), [advancePresentationMedia]);
 
   useEffect(() => {
-    if (!isPresenting || (resolved.slide?.kind !== 'clip' && resolved.slide?.kind !== 'pin')) return;
+    if (!isPresenting || (resolved.slide?.kind !== 'clip' && resolved.slide?.kind !== 'pin' && !(studio && resolved.slide?.kind === 'title'))) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.code !== 'Space' || event.repeat) return;
       event.preventDefault();
@@ -648,16 +735,17 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleCanvasAdvance, isPresenting, resolved.slide?.kind]);
+  }, [handleCanvasAdvance, isPresenting, resolved.slide?.kind, studio]);
 
   if (resolved.error || !resolved.slide && scene.kind === 'slide') {
     return <div className="flex h-full items-center justify-center bg-black text-sm text-danger" data-testid="presentation-missing-reference">{resolved.error || t('presentation.missingSlide')}</div>;
   }
   if (resolved.slide?.kind === 'title') {
-    return <PresentationTitleSlide slide={resolved.slide} />;
+    return studio ? <div className="h-full" onClick={handleCanvasAdvance}><PresentationTitleSlide slide={resolved.slide} /></div> : <PresentationTitleSlide slide={resolved.slide} />;
   }
 
   const videoVisible = scene.kind === 'transition' || resolved.slide?.kind === 'clip';
+  const aspect = resolved.video ? resolved.video.width / resolved.video.height : 16 / 9;
   const timelinePinId = resolved.clip?.pins.find((pin) => pin.frame === sourceFrame)?.id ?? null;
   return (
     <div
@@ -671,9 +759,10 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
     >
       <div
         className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden"
+        style={{ containerType: 'size' }}
         onClick={resolved.slide?.kind === 'clip' || resolved.slide?.kind === 'pin' ? handleCanvasAdvance : undefined}
       >
-        <div className="relative max-h-full max-w-full" style={{ width: resolved.video?.width ?? 640, aspectRatio: `${resolved.video?.width ?? 16}/${resolved.video?.height ?? 9}` }}>
+        <div className="relative flex-none" style={{ width: `min(100%, ${aspect * 100}cqh)`, aspectRatio: aspect }}>
           {videoVisible && playbackAsset && (
             <video
               crossOrigin="anonymous"
@@ -717,7 +806,7 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
           )}
         </div>
 
-        {isPresenting && pausedPin && (
+        {isPresenting && pausedPin && !(studio && recordedClicks) && (
           <button
             className="absolute bottom-4 left-1/2 -translate-x-1/2 border-white/20 bg-black/80 text-white"
             onClick={(event) => {
@@ -732,11 +821,26 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
         )}
       </div>
 
+      {recordingRange && playbackAsset && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-border bg-surface px-2 py-1 text-xs">
+          <button type="button" disabled={sourceFrame > previewLast} onClick={() => { seekSourceFrame(sourceFrame); recordingRange.setFirst(sourceFrame); }}>
+            {t('record.setFirst')}
+          </button>
+          <span className="min-w-10 font-mono">{recordingRange.first ?? '—'}</span>
+          <button type="button" disabled={sourceFrame < (recordingRange.first ?? playbackAsset.sourceStartFrame)} onClick={() => { seekSourceFrame(sourceFrame); recordingRange.setLast(sourceFrame); }}>
+            {t('record.setLast')}
+          </button>
+          <span className="min-w-10 font-mono">{recordingRange.last ?? '—'}</span>
+          <button type="button" className="ml-auto" onClick={() => { recordingRange.useFullClip(); seekSourceFrame(playbackAsset.sourceStartFrame); }}>
+            {t('record.fullClip')}
+          </button>
+        </div>
+      )}
       {!isPresenting && playbackAsset && resolved.slide?.kind === 'clip' && resolved.clip && resolved.video && (
         <div className="h-[104px] shrink-0 border-t border-border">
           <TimelineStrip
             key={resolved.sceneKey}
-            clip={resolved.clip}
+            clip={resolved.slide.range ? { ...resolved.clip, startFrame: playbackAsset.sourceStartFrame, endFrame: playbackAsset.sourceEndFrame } : resolved.clip}
             currentFrame={sourceFrame}
             selectedAnnotationIds={[]}
             selectedPinId={timelinePinId}
@@ -753,7 +857,21 @@ const PresentationCanvas = forwardRef<PresentationCanvasHandle, PresentationCanv
             onSelectKeyframe={() => undefined}
             onMoveKeyframe={() => undefined}
             variant="pins"
-            testIdPrefix="presentation-timeline"
+            testIdPrefix={recordingRange ? 'recording-timeline' : 'presentation-timeline'}
+            recordingEdges={recordingRange && {
+              startFrame: recordingRange.first ?? playbackAsset.sourceStartFrame,
+              endFrame: previewLast + 1,
+              onStartFrameChange: frame => {
+                const first = Math.max(playbackAsset.sourceStartFrame, Math.min(previewLast, frame));
+                recordingRange.setFirst(first);
+                seekSourceFrame(first);
+              },
+              onEndFrameChange: exclusive => {
+                const last = Math.min(playbackAsset.sourceEndFrame - 1, Math.max(recordingRange.first ?? playbackAsset.sourceStartFrame, exclusive - 1));
+                recordingRange.setLast(last);
+                seekSourceFrame(last);
+              },
+            }}
           />
         </div>
       )}

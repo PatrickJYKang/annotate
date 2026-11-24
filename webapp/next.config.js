@@ -5,6 +5,8 @@ try { sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: __dirname
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Media and annotation rasters are served directly; no app route uses next/image.
+  images: { unoptimized: true },
   env: { NEXT_PUBLIC_SOURCE_COMMIT: sourceCommit },
   distDir: process.env.NEXT_DIST_DIR || '.next',
   outputFileTracingRoot: __dirname,

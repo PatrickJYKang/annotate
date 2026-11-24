@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm, access } from 'node:fs/promise
 import os from 'node:os';
 import path from 'node:path';
 import { collectNotices, supplementNotices } from '../scripts/collect-notices.mjs';
+import { pruneUnusedImageOptimizer } from '../scripts/renderer-packaging.mjs';
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'annotate-notices-'));
@@ -88,4 +89,36 @@ test('libvips receives real native notices while retaining the separate source-r
   assert.equal(record.noticeReviewRequired, false);
   assert.equal(record.nativeDependencyReviewRequired, true);
   assert.match(record.notices[0], /native\/sharp-native-vips\/vips\/COPYING/);
+});
+
+test('OpenCV source notices and original build attribution accompany the separate evidence', async t => {
+  const f = await fixture(t);
+  await f.put('sources/index.json', { archives: [{ name: 'opencv-macos-fixture', collectNotices: true }, { name: 'opencv-macos-crate-without-notices', collectNotices: true, notices: [], noticeReviewRequired: true }], opencvMacEvidence: { matchedLibraries: 1, completeCorrespondingSource: false } });
+  await f.put('sources/notices/opencv-macos-fixture/COPYING', 'original native notice');
+  await mkdir(path.join(f.root, 'sources/notices/opencv-macos-crate-without-notices'));
+  await f.put('sources/opencv-macos/Homebrew-LICENSE.txt', 'original Homebrew notice');
+  await collectNotices(f.root, f.runtime, f.site, f.output, path.join(f.root, 'sources'));
+  const base = path.join(f.output, 'python/bundled-notices/opencv-sources');
+  assert.equal(await readFile(path.join(base, 'opencv-macos-fixture/COPYING'), 'utf8'), 'original native notice');
+  assert.equal(await readFile(path.join(base, 'Homebrew-LICENSE.txt'), 'utf8'), 'original Homebrew notice');
+  assert.equal(JSON.parse(await readFile(path.join(base, 'source-provenance.json'))).completeCorrespondingSource, false);
+  assert.equal(JSON.parse(await readFile(path.join(base, 'source-provenance.json'))).libraries[1].noticeReviewRequired, true);
+});
+
+test('optimizer-free builds omit unused image inputs but retain the owned marker notice', async t => {
+  const f = await fixture(t);
+  await f.put('runtime/renderer/.next-desktop/required-server-files.json', { config: { images: { unoptimized: true } } });
+  await pruneUnusedImageOptimizer(path.join(f.runtime, 'renderer'));
+  for (const name of ['sharp', '@img/sharp-wasm32', 'client-only']) {
+    const version = name === 'client-only' ? '0.0.1-annotate.1' : '1.0.0';
+    f.lock.packages[`node_modules/${name}`] = { version };
+    await f.put(`webapp/node_modules/${name}/package.json`, { name, version, license: 'GPL-3.0-only' });
+    await f.put(`webapp/node_modules/${name}/LICENSE`, 'test licence');
+  }
+  await f.put('webapp/package-lock.json', f.lock);
+  await collectNotices(f.root, f.runtime, f.site, f.output);
+  const inventory = JSON.parse(await readFile(path.join(f.output, 'dependency-inventory.json')));
+  assert.equal(inventory.rendererPackaging.imageOptimization, false);
+  assert.equal(inventory.packages.some(item => item.name === 'sharp' || item.name.startsWith('@img/')), false);
+  assert.equal(inventory.packages.find(item => item.name === 'client-only').noticeReviewRequired, false);
 });

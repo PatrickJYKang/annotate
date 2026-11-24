@@ -204,7 +204,7 @@ Status: recorded in four languages, about 47 seconds; Finder remains in the syst
 4. Return to the capture player, delete clip f9438-9940, then immediately **Undo delete**. Show the clip returning.
 5. End on the project folder with the reminder to back up the whole folder. Video deletion and an integrity-report demonstration were not recorded.
 
-Proof: actual files created on disk, a readable annotation export, and the correct limits of deletion recovery. Do not imply MP4 clip export exists in the current UI.
+Proof: actual files created on disk, a readable annotation export, and the correct limits of deletion recovery. MP4 takes use **Clip recordings**, not **Export report**.
 
 ## 11. Install and launch
 

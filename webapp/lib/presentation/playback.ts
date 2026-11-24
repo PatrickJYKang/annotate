@@ -1,6 +1,7 @@
 import {
   frameToSeconds,
   mediaTimeToVideoFrame,
+  presentedTimeToVideoFrame,
   videoFrame,
   type FrameBoundary,
   type VideoFrame,
@@ -37,15 +38,17 @@ export function toSourceFrame(
   asset: PresentationPlaybackAsset,
   mediaTimeSeconds: number,
   video: VideoEntry,
+  timestamp: 'clock' | 'presented' = 'clock',
 ): VideoFrame {
   if (asset.videoId !== video.id) throw new Error('Playback asset does not belong to the supplied video.');
+  const frameAt = timestamp === 'presented' ? presentedTimeToVideoFrame : mediaTimeToVideoFrame;
   if (asset.kind === 'original') {
     return clampToAsset(
-      mediaTimeToVideoFrame(mediaTimeSeconds, video.fps, video.frameCount),
+      frameAt(mediaTimeSeconds, video.fps, video.frameCount),
       asset,
     );
   }
-  const localFrame = mediaTimeToVideoFrame(
+  const localFrame = frameAt(
     mediaTimeSeconds,
     video.fps,
     Math.max(1, asset.sourceEndFrame - asset.sourceStartFrame),

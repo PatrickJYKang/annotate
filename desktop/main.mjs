@@ -14,6 +14,7 @@ import { ServiceSupervisor } from './core/service-supervisor.mjs';
 import { nodeServiceExecutable } from './core/node-service-executable.mjs';
 import { startMediaServer } from './core/media-server.mjs';
 import { startSidecarProxy } from './core/sidecar-proxy.mjs';
+import { recordingExports } from './core/recording-export.mjs';
 import { resolveResourceLayout, sidecarEnvironment } from './core/resource-layout.mjs';
 import { UserState } from './core/user-state.mjs';
 import { sourceUrl, isSourceLink } from './core/legal.mjs';
@@ -238,6 +239,9 @@ async function importVideo(state, input, fileId, requestId) {
 
 async function projectCommand(state, input) {
   const directory = authorizedDirectory(state, input);
+  if (input.command?.startsWith('recording.') && input.path === '') {
+    return state.recordings.command(input.id, input.command, input.args ?? []);
+  }
   if (input.command === 'recovery.read' || input.command === 'recovery.write') {
     const root = await store.resolvePath(input.id, input.path);
     const [resource, entry] = input.args ?? [];
@@ -376,6 +380,7 @@ async function createWindow(project = null, route = '/') {
     webPreferences: { preload: fileURLToPath(new URL('./preload.cjs', import.meta.url)), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
   const state = { window, project, explicitProject: !!project, grants: new Set(project ? [project.id] : []), connection, files: new Map(), mediaByPath: new Map(), revisions: new Map(), baselines: new Map(), imports: new Map(), mayClose: false, closing: false };
   windows.set(window.webContents.id, state);
+  state.recordings = recordingExports(upstream, store);
   const webContentsId = window.webContents.id;
   window.webContents.on('did-finish-load', () => { state.reloading = false; });
   window.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
@@ -403,6 +408,7 @@ async function createWindow(project = null, route = '/') {
     clearTimeout(state.closeTimer);
     windows.delete(webContentsId);
     for (const controller of state.imports.values()) controller.abort();
+    void state.recordings.close();
     for (const file of state.files.values()) media.release(file.id);
     void connection.close();
     if (!windows.size && quitting) app.quit();

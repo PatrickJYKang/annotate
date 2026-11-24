@@ -159,6 +159,7 @@ export type ClipEditorSaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 const CLIP_HOMOGRAPHY_FRAME_INTERVAL = 15;
 
 interface ClipEditorProps {
+  suspended?: boolean;
   clip: Clip;
   video: VideoEntry;
   videoUrl: string;
@@ -595,6 +596,7 @@ function createAnnotation(
 }
 
 export default function ClipEditor({
+  suspended = false,
   clip,
   video,
   videoUrl,
@@ -659,6 +661,7 @@ export default function ClipEditor({
   const [videoSize, setVideoSize] = useState({ width: video.width, height: video.height });
   const [mediaRect, setMediaRect] = useState(() => fitContainedMediaRect(0, 0, video.width, video.height));
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => { if (suspended) videoElementRef.current?.pause(); }, [suspended]);
   const viewerSurfaceRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawablesRef = useRef<ClipDrawable[]>([]);
@@ -2828,7 +2831,7 @@ export default function ClipEditor({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (editingPinId) return;
+      if (editingPinId || suspended) return;
       if (isTextInput(event.target)) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
         if (editorMutationLocked) return;
@@ -2891,7 +2894,7 @@ export default function ClipEditor({
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [arrowStart, cancelRetracking, cancelTrim, currentFrame, deleteSelectedKeyframe, deleteSelectedObject, editingPinId, editorMutationLocked, finishPoly, pointerDraft, polyPoints.length, redo, retrackSession, seekFrame, selectAnnotationFromUi, selectedAnnotationId, togglePlayback, tool, trimSession, undo, upsertKeyframe]);
+  }, [arrowStart, cancelRetracking, cancelTrim, currentFrame, deleteSelectedKeyframe, deleteSelectedObject, editingPinId, editorMutationLocked, finishPoly, pointerDraft, polyPoints.length, redo, retrackSession, seekFrame, selectAnnotationFromUi, selectedAnnotationId, suspended, togglePlayback, tool, trimSession, undo, upsertKeyframe]);
 
   const selectedCurrentKeyframe = selectedAnnotation
     ? getCurrentKeyframe(selectedAnnotation, videoFrame(currentFrame))

@@ -1,5 +1,6 @@
 import type { ProjectDirectory } from "../host/contracts";
 import { isSafeClipIdSegment } from '../types/clip';
+import { validClicks, validRange } from '../types/recording';
 import type {
   ClipPauseCue,
   PinAnnotationCue,
@@ -74,10 +75,17 @@ function parsePauseCue(raw: unknown, path: string): ClipPauseCue {
   }
   return {
     pinId: raw.pinId,
+    ...readClickTimes(raw, path),
     holdMs: optionalDuration(raw.holdMs, `${path}.holdMs`),
     annotationIds: optionalStringArray(raw.annotationIds, `${path}.annotationIds`),
     annotationCues: parseAnnotationCues(raw.annotationCues, `${path}.annotationCues`),
   };
+}
+
+function readClickTimes(raw: Record<string, unknown>, path: string) {
+  if (raw.clickTimesMs === undefined) return {};
+  if (!validClicks(raw.clickTimesMs, raw.holdMs)) throw new Error(`${path} contains invalid click timings.`);
+  return { clickTimesMs: raw.clickTimesMs };
 }
 
 function parseSlide(raw: unknown, path: string): PresentationSlide {
@@ -95,9 +103,13 @@ function parseSlide(raw: unknown, path: string): PresentationSlide {
     if (raw.pauseCues !== undefined && !Array.isArray(raw.pauseCues)) {
       throw new Error(`${path}.pauseCues must be an array.`);
     }
+    if (raw.range !== undefined && (!isRecord(raw.range) || !validRange(raw.range.startFrame, raw.range.endFrame))) {
+      throw new Error(`${path}.range is invalid.`);
+    }
     return {
       id: raw.id,
       kind: 'clip',
+      ...(raw.range ? { range: raw.range as { startFrame: number; endFrame: number } } : {}),
       clipId: raw.clipId,
       pausePins,
       pauseCues: Array.isArray(raw.pauseCues)
@@ -118,6 +130,7 @@ function parseSlide(raw: unknown, path: string): PresentationSlide {
     return {
       id: raw.id,
       kind: 'pin',
+      ...readClickTimes(raw, path),
       clipId: raw.clipId,
       pinId: raw.pinId,
       showAnnotations: raw.showAnnotations,
@@ -201,8 +214,20 @@ export function parsePresentation(raw: unknown): Presentation {
   if (transitions.length !== Math.max(slides.length - 1, 0)) {
     throw new Error('Presentation transitions must have exactly slides.length - 1 entries.');
   }
+  const recordings = raw.recordings === undefined ? undefined : (() => {
+    if (!Array.isArray(raw.recordings)) throw new Error('Invalid presentation recordings.');
+    return raw.recordings.map(take => {
+      if (!isRecord(take)) throw new Error('Invalid presentation recording.');
+      const { id, name, slides, transitions } = parsePresentation({
+        schema: 2, id: take.id, name: take.name, createdAt: raw.createdAt, updatedAt: raw.updatedAt,
+        slides: take.slides, transitions: take.transitions,
+      });
+      return { id, name, slides, transitions };
+    });
+  })();
   return {
     schema: 2,
+    ...(recordings ? { recordings } : {}),
     id: raw.id,
     name: raw.name,
     createdAt: raw.createdAt,

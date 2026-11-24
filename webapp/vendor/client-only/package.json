@@ -1,0 +1,14 @@
+{
+  "name": "client-only",
+  "version": "0.0.1-annotate.1",
+  "description": "Annotate-owned client module marker with an explicit server-component guard.",
+  "license": "GPL-3.0-only",
+  "private": true,
+  "main": "index.js",
+  "exports": {
+    ".": {
+      "react-server": "./server.js",
+      "default": "./index.js"
+    }
+  }
+}

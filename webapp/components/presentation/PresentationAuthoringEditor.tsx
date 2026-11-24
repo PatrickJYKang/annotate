@@ -40,6 +40,9 @@ import PresentationDeck from './PresentationDeck';
 import PresentationInspector, { type PresentationSourcePreview } from './PresentationInspector';
 import { useLocale } from '../../lib/i18n';
 import { useLocalizedBoard } from '../../lib/tagging/useLocalizedBoard';
+import RecordingStudio from './RecordingStudio';
+import { importClipTake } from '../../lib/export/recording';
+import type { DeckTake } from '../../lib/types/presentation';
 
 interface PresentationAuthoringEditorProps {
   projectDir: ProjectDirectory;
@@ -66,6 +69,7 @@ export default function PresentationAuthoringEditor({
   const [saveState, setSaveState] = useState<'idle' | 'dirty' | 'saving' | 'saved' | 'error'>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const [isPresenting, setIsPresenting] = useState(false);
+  const [studio, setStudio] = useState(false);
   const [presentScene, setPresentScene] = useState<PresentationScene>({ kind: 'slide', index: 0 });
   const [videoResources, setVideoResources] = useState<Map<string, PresentationVideoResource>>(new Map());
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -288,6 +292,16 @@ export default function PresentationAuthoringEditor({
     getAppHost().editors.open(projectDir, { clipId });
   }, [projectDir]);
 
+  const saveTake = useCallback(async (take:DeckTake) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    await writeTailRef.current;
+    const current=draftRef.current;
+    const next={...current,updatedAt:new Date().toISOString(),
+      recordings:[...(current.recordings ?? []).filter(r=>r.id!==take.id),take]};
+    await writePresentation(projectDir,next);
+    draftRef.current=next; setDraft(next); setSaveState('saved');
+  },[projectDir]);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="presentation-editor">
       <header className="workspace-bar text-sm">
@@ -306,6 +320,7 @@ export default function PresentationAuthoringEditor({
           setSelectedIndex(index);
         }}>{t('presentation.addTitle')}</button>
         <span className="flex-1" />
+        <button disabled={!draft.slides.length} onClick={()=>setStudio(true)}>{t('record.deck')}</button>
         <span className="flex items-center px-3 text-xs text-muted">{saveState === 'dirty' ? t('presentation.unsaved') : saveState === 'saving' ? t('presentation.saving') : saveState === 'saved' ? t('presentation.saved') : saveState === 'error' ? t('presentation.saveFailed') : ''}</span>
         <button className="button-primary border-y-0 border-r-0" disabled={draft.slides.length === 0} onClick={beginPresenting}>{t('presentation.present')}</button>
       </header>
@@ -360,6 +375,13 @@ export default function PresentationAuthoringEditor({
         </Panel>
         <PanelResizeHandle direction="horizontal" data-testid="presentation-inspector-resize-handle" />
         <Panel id="presentation-inspector-panel" defaultSize={20} minSize={15} maxSize={38}>
+          {!previewSource && selectedSlide?.kind==='clip' && !!selectedClip?.recordings?.length &&
+            <label className="flex flex-col gap-1 p-2 text-xs">{t('record.import')}
+              <select value="" onChange={event=>{
+                const take=selectedClip.recordings?.find(r=>r.id===event.target.value);
+                if(take) updateSlide(importClipTake(selectedSlide,take));
+              }}><option value="">...</option>{selectedClip.recordings.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>
+            </label>}
           <PresentationInspector
             slide={selectedSlide}
             clip={selectedClip}
@@ -374,6 +396,8 @@ export default function PresentationAuthoringEditor({
         </Panel>
       </Panels>
       {message && <div className="toast max-w-md" role="status">{message}</div>}
+      {studio && <RecordingStudio dir={projectDir} manifest={manifest} clips={clips} resources={videoResources} source={draft}
+        takes={draft.recordings ?? []} onSave={saveTake} onClose={()=>setStudio(false)}/>}
 
       {isPresenting && (
         <div className="fixed inset-0 z-50 flex flex-col bg-black" data-testid="presentation-present">

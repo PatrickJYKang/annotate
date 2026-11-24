@@ -5,16 +5,22 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { sha256File } from '../core/resource-layout.mjs';
 import { desktopPreviewVersion } from '../preview-version.mjs';
+import { prepareWindowsRuntimeLicense } from './microsoft-runtime.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const target = process.argv[2];
 if (!['darwin-arm64', 'win32-x64'].includes(target)) throw new Error('Choose darwin-arm64 or win32-x64.');
+const runtimeOverride = process.argv.find(arg => arg.startsWith('--runtime='))?.slice('--runtime='.length);
+const outputOverride = process.argv.find(arg => arg.startsWith('--output='))?.slice('--output='.length);
+const runtimeDirectory = runtimeOverride ? path.resolve(runtimeOverride) : path.join(root, 'desktop/build', target, 'runtime');
+const outputDirectory = outputOverride ? path.resolve(outputOverride) : path.join(root, 'desktop/artifacts/installers');
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
 const dirty = !!execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim();
 if (dirty && !process.argv.includes('--allow-dirty')) throw new Error('Commit the release inputs before packaging, or use --allow-dirty for a local development build.');
-execFileSync(process.execPath, [path.join(root, 'desktop/scripts/verify-runtime-files.mjs'), path.join(root, 'desktop/build', target, 'runtime')], { stdio: 'inherit' });
+execFileSync(process.execPath, [path.join(root, 'desktop/scripts/verify-runtime-files.mjs'), runtimeDirectory], { stdio: 'inherit' });
 const app = path.join(root, 'desktop/build', target, 'app');
 await mkdir(app, { recursive: true });
+const windowsLicense = target === 'win32-x64' ? await prepareWindowsRuntimeLicense(root, runtimeDirectory, path.join(app, 'microsoft-runtime-terms.rtf')) : undefined;
 for (const name of ['main.mjs', 'preload.cjs', 'startup.html', 'core', 'dist', 'icons']) {
   await cp(path.join(root, 'desktop', name), path.join(app, name), { recursive: true });
 }
@@ -25,9 +31,9 @@ await writeFile(path.join(app, 'build-info.json'), JSON.stringify({ version: des
 await build({ projectDir: app, targets: target === 'darwin-arm64' ? Platform.MAC.createTarget(process.argv.includes('--dir') ? 'dir' : 'dmg', Arch.arm64) : Platform.WINDOWS.createTarget('nsis', Arch.x64),
   publish: 'never', config: {
     appId: 'com.patrickjykang.annotate', productName: 'Annotate', electronVersion,
-    directories: { output: path.join(root, 'desktop/artifacts/installers') },
+    directories: { output: outputDirectory },
     files: ['**/*', '!**/*.test.mjs', '!core/domain-service.ts'], asar: true, npmRebuild: false,
-    extraResources: [{ from: path.join(root, 'desktop/build', target, 'runtime'), to: 'runtime', filter: ['**/*'] }],
+    extraResources: [{ from: runtimeDirectory, to: 'runtime', filter: ['**/*'] }],
     artifactName: 'Annotate-${version}-${os}-${arch}.${ext}',
     mac: { icon: path.join(root, 'desktop/icons/annotate.icns'), category: 'public.app-category.sports', identity: '-', hardenedRuntime: false, notarize: false, minimumSystemVersion: '14.0' },
     afterSign: async ({ appOutDir, electronPlatformName }) => {
@@ -44,5 +50,5 @@ await build({ projectDir: app, targets: target === 'darwin-arm64' ? Platform.MAC
     },
     dmg: { sign: false, contents: [{ x: 140, y: 160 }, { x: 400, y: 160, type: 'link', path: '/Applications' }] },
     win: { icon: path.join(root, 'desktop/icons/annotate.ico'), signExecutable: false },
-    nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true, createDesktopShortcut: true, runAfterFinish: true, deleteAppDataOnUninstall: false },
+    nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true, createDesktopShortcut: true, runAfterFinish: true, deleteAppDataOnUninstall: false, license: windowsLicense },
   } });

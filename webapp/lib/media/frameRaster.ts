@@ -54,7 +54,7 @@ export function createSerializedFrameRasterQueue(renderer: FrameRasterRenderer):
   };
 }
 
-function waitForMetadata(video: HTMLVideoElement): Promise<void> {
+export function waitForMetadata(video: HTMLVideoElement): Promise<void> {
   if (video.readyState >= 1 && video.videoWidth > 0 && video.videoHeight > 0) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const onLoaded = () => {
@@ -75,7 +75,7 @@ function waitForMetadata(video: HTMLVideoElement): Promise<void> {
   });
 }
 
-function seekVideo(video: HTMLVideoElement, seconds: number): Promise<void> {
+export function seekVideo(video: HTMLVideoElement, seconds: number): Promise<void> {
   if (Math.abs(video.currentTime - seconds) < 1e-7 && video.readyState >= 2) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const onSeeked = () => {

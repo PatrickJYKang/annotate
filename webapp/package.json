@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@fontsource-variable/ibm-plex-sans": "5.3.0",
+    "client-only": "file:vendor/client-only",
     "konva": "9.3.22",
     "next": "15.5.28",
     "react": "19.2.0",
@@ -40,6 +41,7 @@
   "overrides": {
     "ajv": "6.15.0",
     "brace-expansion": "1.1.21",
+    "client-only": "$client-only",
     "flatted": "3.4.4",
     "js-yaml": "4.3.2",
     "minimatch": "3.1.4",

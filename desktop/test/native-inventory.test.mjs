@@ -22,4 +22,8 @@ test('fingerprints native code and records actual FFmpeg licence strings without
   assert.equal(await readFile(path.join(root, cv2, 'libavutil.59.dylib'), 'utf8'), bytes);
   await writeFile(path.join(root, 'ffmpeg/ffmpeg'), 'changed');
   assert.notDeepEqual((await nativeInventory(root, 'darwin-arm64')).files, result.files);
+  await rm(path.join(root, 'renderer/node_modules/@img'), { recursive: true });
+  assert.equal((await nativeInventory(root, 'darwin-arm64')).files.length, 2);
+  await rm(path.join(root, 'ffmpeg'), { recursive: true });
+  await assert.rejects(nativeInventory(root, 'darwin-arm64'), { code: 'ENOENT' });
 });

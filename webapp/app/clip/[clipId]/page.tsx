@@ -18,6 +18,11 @@ import { SidecarProvider } from '../../../lib/state/SidecarContext';
 import { useProject } from '../../../lib/state/ProjectContext';
 import type { ClipAnnotation, Clip } from '../../../lib/types/clip';
 import { useLocale } from '../../../lib/i18n';
+import { createDefaultPresentation, type DeckTake } from '../../../lib/types/presentation';
+import { createClipSlide } from '../../../lib/presentation/authoring';
+import { importClipTake } from '../../../lib/export/recording';
+import type { ClipTake } from '../../../lib/types/recording';
+const RecordingStudio = dynamic(() => import('../../../components/presentation/RecordingStudio'), { ssr: false });
 
 const ClipEditor = dynamic(() => import('../../../components/clip/ClipEditor'), { ssr: false });
 
@@ -38,6 +43,8 @@ export default function ClipPage() {
   } = useProject();
   const [clip, setClip] = useState<Clip | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
+  const [studio, setStudio] = useState(false);
   const [videoRef, setVideoRef] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<ClipEditorSaveStatus>('idle');
@@ -84,6 +91,7 @@ export default function ClipPage() {
         const file = await handle.getFile();
         if (!active) return;
         objectUrl = createMediaUrl(file);
+        setMediaFile(file);
         setVideoUrl(objectUrl);
       } catch (cause) {
         if (active) setError(cause instanceof Error ? cause.message : String(cause));
@@ -168,6 +176,20 @@ export default function ClipPage() {
     }
   }, [clipId, projectDir, refreshIntegrity, t]);
 
+  const recordingClips = useMemo(() => clip ? [clip] : [], [clip]);
+  const recordingDeck = useMemo(() => ({...createDefaultPresentation(clip?.label || clipId, clipId),
+    slides:[createClipSlide(clipId,'take-slide')]}), [clip?.label,clipId]);
+  const resources = useMemo(() => new Map(video && mediaFile && videoUrl ? [[video.id,{video,file:mediaFile,url:videoUrl}]] : []), [video,mediaFile,videoUrl]);
+  const saveRecording = useCallback(async (take:DeckTake) => {
+    const slide=take.slides[0];
+    if (!projectDir || slide?.kind!=='clip' || !slide.range) throw new Error(t('clip.projectSaveUnavailable'));
+    const recording:ClipTake={id:take.id,name:take.name,...slide.range,pauses:(slide.pauseCues ?? []).map(c=>({
+      pinId:c.pinId,holdMs:c.holdMs ?? 0,clickTimesMs:c.clickTimesMs ?? [],
+    }))};
+    const saved=await mutateClipExclusive(projectDir,clipId,latest=>({...latest,
+      recordings:[...(latest.recordings ?? []).filter(r=>r.id!==take.id),recording]}));
+    setClip(saved);
+  },[clipId,projectDir,t]);
   if (isRestoring) {
     return <div className="flex flex-1 items-center justify-center text-sm text-muted">{t('project.restore')}</div>;
   }
@@ -211,9 +233,11 @@ export default function ClipPage() {
             })}</span>
           </div>
           <span className="flex-1" />
+          <button className="button-quiet" onClick={()=>setStudio(true)}>{t('record.clips')}</button>
           <span className="px-3 text-xs text-muted">{saveStatus === 'saving' ? t('clip.saving') : saveStatus === 'error' ? t('clip.saveFailed') : ''}</span>
         </header>
         <ClipEditor
+          suspended={studio}
           key={clip.id}
           clip={clip}
           video={video}
@@ -225,6 +249,9 @@ export default function ClipPage() {
           onClipUpdate={setClip}
           initialPinId={searchParams?.get('pinId') ?? null}
         />
+        {studio && <RecordingStudio dir={projectDir} manifest={manifest} clips={recordingClips} clip={clip} source={recordingDeck}
+          resources={resources} takes={(clip.recordings ?? []).map(take=>({...take,
+            slides:[importClipTake(recordingDeck.slides[0],take)],transitions:[]}))} onSave={saveRecording} onClose={()=>setStudio(false)}/>}
       </div>
     </SidecarProvider>
   );

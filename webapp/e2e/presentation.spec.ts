@@ -20,7 +20,7 @@ async function openPresentation(page: Page, name: string) {
   await page.getByRole('button', { name: 'Open Existing Project' }).click();
   const card = page.locator('[data-testid^="presentation-card-"]').filter({ hasText: name });
   await card.getByRole('button', { name: 'Open' }).click();
-  await expect(page.getByTestId('presentation-editor')).toBeVisible();
+  await expect(page.getByTestId('presentation-editor')).toBeVisible({ timeout: 20_000 });
 }
 
 async function readProjectJson(page: Page, segments: string[]) {
@@ -60,6 +60,209 @@ async function writeProjectJson(page: Page, segments: string[], value: unknown) 
     await writable.close();
   }, { pathSegments: segments, document: value });
 }
+
+async function openFixtureStudio(page: Page, prepare?: () => Promise<void>) {
+  await installOpfsDirectoryPickerFixture(page, path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project'));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open Existing Project' }).click();
+  await page.getByRole('button', { name: 'Open capture player' }).waitFor();
+  await prepare?.();
+  await page.goto('/clip/clip-sequence');
+  const editor = page;
+  await editor.getByRole('button', { name: 'Clip recordings' }).click();
+  return { editor, studio: editor.getByRole('dialog', { name: 'Clip recordings' }) };
+}
+
+test('recording overlays fit the visible footage in short and narrow windows', async ({ page }) => {
+  const { editor, studio } = await openFixtureStudio(page);
+  const highlightAtFrame20 = async (laneId: string, canvasId: string) => {
+    const lane = editor.getByTestId(laneId);
+    const box = (await lane.boundingBox())!;
+    await lane.click({ position: { x: box.width * (20 - 5) / (44 - 5), y: 12 } });
+    const pixels = () => editor.getByTestId(canvasId).evaluate(el => {
+      const ctx = (el as HTMLCanvasElement).getContext('2d')!;
+      return Array.from(ctx.getImageData(230, 242, 60, 1).data);
+    });
+    await expect.poll(async () => (await pixels()).some((v, i) => i % 4 === 3 && v > 120)).toBe(true);
+    return pixels();
+  };
+  await studio.getByRole('button', { name: 'Close', exact: true }).click();
+  const editorPixels = await highlightAtFrame20('clip-timeline-lane', 'clip-stage');
+  await editor.getByRole('button', { name: 'Clip recordings' }).click();
+  expect(await highlightAtFrame20('recording-timeline-lane', 'presentation-animated-overlay')).toEqual(editorPixels);
+  const checkFit = async (layer: string) => {
+    await expect.poll(() => studio.getByTestId(layer).evaluate(el => {
+      const viewport = el.parentElement!.parentElement!.getBoundingClientRect();
+      const video = el.parentElement!.querySelector('video')!;
+      if (!video.videoWidth || !video.videoHeight) return Infinity;
+      const scale = Math.min(viewport.width / video.videoWidth, viewport.height / video.videoHeight);
+      const w = video.videoWidth * scale, h = video.videoHeight * scale;
+      const r = el.getBoundingClientRect();
+      return Math.max(Math.abs(r.width - w), Math.abs(r.height - h),
+        Math.abs(r.x - (viewport.x + (viewport.width - w) / 2)), Math.abs(r.y - (viewport.y + (viewport.height - h) / 2)));
+    })).toBeLessThan(1);
+  };
+  await editor.setViewportSize({ width: 1280, height: 620 });
+  await checkFit('presentation-animated-overlay');
+  await editor.setViewportSize({ width: 600, height: 950 });
+  await checkFit('presentation-animated-overlay');
+  await studio.getByRole('button', { name: 'Use full clip' }).click();
+  await studio.getByRole('button', { name: 'Record', exact: true }).click();
+  await expect(studio.getByTestId('presentation-pin-frame')).toBeVisible();
+  await editor.setViewportSize({ width: 1280, height: 560 });
+  await checkFit('presentation-pin-frame');
+  await checkFit('presentation-pin-annotation-overlay');
+});
+
+test('tracked highlights move during a take even if the compositor skips the seek frame', async ({ page }) => {
+  const { editor, studio } = await openFixtureStudio(page, async () => {
+    const file = ['analysis', 'clips', 'clip-sequence', 'clip.json'];
+    const clip = await readProjectJson(page, file);
+    // Exercise a continuous tracked run rather than the fixture's deliberately hidden correction gaps.
+    for (const key of clip.annotations[0].keyframes) key.provenance = 'tracked';
+    await writeProjectJson(page, file, clip);
+  });
+  await studio.getByRole('button', { name: 'Use full clip' }).click();
+  await editor.evaluate(() => {
+    // Observe the actual ellipse draws, including fast frames between test commands.
+    const ellipse = CanvasRenderingContext2D.prototype.ellipse;
+    CanvasRenderingContext2D.prototype.ellipse = function (...args) {
+      if (this.canvas.dataset.testid === 'presentation-animated-overlay') {
+        const xs = this.canvas.dataset.highlightXs ?? '';
+        this.canvas.dataset.highlightXs = xs + ' ' + args[0];
+      }
+      ellipse.apply(this, args);
+    };
+    // Deliver real decoded frames, but only every fourth one (never frame 5 or 15).
+    const schedule = HTMLVideoElement.prototype.requestVideoFrameCallback;
+    HTMLVideoElement.prototype.requestVideoFrameCallback = function (cb) {
+      const sample: VideoFrameRequestCallback = (now, metadata) => {
+        if (Math.round(metadata.mediaTime * 25) % 4 === 0 && metadata.mediaTime > 0.2) cb(now, metadata);
+        else schedule.call(this, sample);
+      };
+      return schedule.call(this, sample);
+    };
+  });
+  const record = studio.getByRole('button', { name: 'Record', exact: true });
+  await record.click();
+  await expect(studio.getByTestId('presentation-pin-frame')).toBeVisible();
+  await expect(studio.getByTestId('presentation-canvas')).toHaveAttribute('data-source-frame', '15');
+  const layer = studio.getByTestId('presentation-animated-overlay');
+  await layer.evaluate(el => el.removeAttribute('data-highlight-xs'));
+  await editor.keyboard.press('Space');
+  await expect(studio.getByTestId('presentation-canvas')).toHaveAttribute('data-source-frame', '32');
+  await expect(studio.getByTestId('presentation-pin-frame')).toBeVisible();
+  const positions = (await layer.getAttribute('data-highlight-xs') ?? '').trim().split(/\s+/).map(Number);
+  expect(Math.max(...positions) - Math.min(...positions), 'painted highlight X positions: ' + positions).toBeGreaterThan(25);
+  await editor.keyboard.press('Space');
+  await expect(studio.getByText('Recording saved.')).toBeVisible();
+});
+
+test('records independent clip takes and imports their timings into a recorded presentation', async ({page}) => {
+  test.setTimeout(90_000);
+  await installOpfsDirectoryPickerFixture(page,path.resolve(process.cwd(),'e2e/fixtures/clip-editor-project'));
+  await page.goto('/');
+  const annPath=['analysis','clips','clip-sequence','annotations','ann-shape.json'];
+  const annotation=await readProjectJson(page,annPath);
+  annotation.animations=[{id:'entrance',shapeIds:['shape-poly'],effect:'fade',trigger:'on_click',delayMs:0,durationMs:100}];
+  await writeProjectJson(page,annPath,annotation);
+  await openPresentation(page,'Breaking the press');
+  await page.getByTestId('presentation-slide-slide-clip').click();
+  const popup=page.waitForEvent('popup');
+  await page.getByRole('button',{name:'Edit clip',exact:true}).click();
+  const editor=await popup;
+  await editor.getByRole('button',{name:'Clip recordings'}).click();
+  const studio=editor.getByRole('dialog',{name:'Clip recordings'});
+  const record = studio.getByRole('button', { name: 'Record', exact: true });
+  const lane = studio.getByTestId('recording-timeline-lane');
+  const last = studio.getByRole('slider', { name: 'Last frame' });
+  const canvas = studio.getByTestId('presentation-canvas');
+  const seek = async (frame: number) => {
+    const box = (await lane.boundingBox())!;
+    await editor.mouse.click(box.x + box.width * (frame - 5) / 39, box.y + 12);
+    await expect(canvas).toHaveAttribute('data-source-frame', String(frame));
+  };
+  await studio.getByLabel('Take name').fill('Pressing');
+  await expect(record).toBeDisabled();
+  await studio.getByRole('button', { name: 'Pin at frame 15' }).click();
+  await studio.getByRole('button', { name: 'Set start' }).click();
+  await expect(record).toBeDisabled();
+  const track = (await lane.boundingBox())!;
+  const handle = (await last.boundingBox())!;
+  const x = handle.x + handle.width / 2, y = handle.y + handle.height / 2;
+  await editor.mouse.move(x, y);
+  await editor.mouse.down();
+  await editor.mouse.move(x - track.width * (44 - 18) / 39, y, { steps: 8 });
+  await editor.mouse.up();
+  await expect(last).toHaveAttribute('aria-valuenow', '18');
+  await last.press('ArrowRight');
+  await expect(canvas).toHaveAttribute('data-source-frame', '19');
+  await expect.poll(() => studio.locator('video').evaluate(v => Math.floor((v as HTMLVideoElement).currentTime * 25))).toBe(19);
+  await studio.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(studio.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
+  await expect(canvas).toHaveAttribute('data-source-frame', '19');
+  await record.click();
+  await expect(studio.getByTestId('presentation-canvas')).toHaveAttribute('data-static-animation-pending-click','true');
+  await expect(studio.getByTestId('presentation-pin-frame')).toBeVisible();
+  await editor.keyboard.press('Space');
+  await expect(studio.getByTestId('presentation-canvas')).toHaveAttribute('data-static-animation-clicks','1');
+  await editor.keyboard.press('Space');
+  await expect(studio.getByText('Recording saved.')).toBeVisible();
+  await studio.getByLabel('Take name').fill('Run only');
+  await expect(record).toBeDisabled();
+  await studio.getByRole('button', { name: 'Use full clip' }).click();
+  await expect(record).toBeEnabled();
+  await seek(20);
+  await studio.getByRole('button', { name: 'Set start' }).click();
+  await seek(24);
+  await studio.getByRole('button', { name: 'Set end' }).click();
+  await record.click();
+  const second=studio.getByRole('listitem').filter({hasText:'Run only'});
+  await expect(second).toBeVisible();
+  const clip=await readProjectJson(editor,['analysis','clips','clip-sequence','clip.json']);
+  expect(clip.recordings).toHaveLength(2);
+  expect(clip.startFrame).toBe(5);
+  expect(clip.endFrame).toBe(45);
+  expect(clip.recordings[1]).toMatchObject({startFrame:20,endFrame:25});
+  expect(clip.recordings[0]).toMatchObject({startFrame:15,endFrame:20,pauses:[{pinId:'pin-shape'}]});
+  expect(clip.recordings[0].pauses[0].clickTimesMs).toHaveLength(1);
+  const first=studio.getByRole('listitem').filter({hasText:'Pressing'});
+  await first.getByRole('button',{name:'Export MP4'}).click();
+  await expect(studio.getByRole('status')).toContainText('exports/recordings/',{timeout:30_000});
+  const mp4=await studio.getByRole('status').innerText();
+  const duration=await editor.evaluate(async path=>{
+    let dir=await window.showDirectoryPicker();
+    const parts=path.split('/');
+    for (const p of parts.slice(0,-1)) dir=await dir.getDirectoryHandle(p);
+    const file=await (await dir.getFileHandle(parts.at(-1)!)).getFile();
+    const v=document.createElement('video');v.src=URL.createObjectURL(file);
+    try {await new Promise<void>((res,rej)=>{v.onloadedmetadata=()=>res();v.onerror=rej;});return v.duration;}
+    finally {URL.revokeObjectURL(v.src);}
+  },mp4);
+  expect(Math.abs(duration-(.2+clip.recordings[0].pauses[0].holdMs/1000))).toBeLessThan(.05);
+  await editor.close();
+  await page.reload();
+  await page.getByTestId('presentation-slide-slide-clip').click();
+  await page.getByLabel('Import clip timings').selectOption({label:'Pressing'});
+  await expect.poll(async()=>(await readProjectJson(page,['presentations','presentation-sequence.json'])).slides[1].range).toEqual({startFrame:15,endFrame:20});
+  await page.getByRole('button',{name:'Presentation recordings'}).click();
+  const deck=page.getByRole('dialog');
+  await deck.getByRole('button',{name:'Record',exact:true}).click();
+  await expect(deck.getByTestId('presentation-title-slide')).toBeVisible();
+  await deck.getByTestId('presentation-title-slide').click();
+  await expect(deck.getByTestId('presentation-canvas')).toHaveAttribute('data-source-frame','32',{timeout:10000});
+  await expect(deck.getByTestId('presentation-pin-frame')).toBeVisible();
+  await page.keyboard.press('Space');
+  await expect(deck.getByText('Recording saved.')).toBeVisible();
+  const saved=await readProjectJson(page,['presentations','presentation-sequence.json']);
+  expect(saved.recordings[0].slides[0].holdMs).toBeGreaterThan(0);
+  expect(saved.recordings[0].slides[1].pauseCues[0].clickTimesMs).toEqual(clip.recordings[0].pauses[0].clickTimesMs);
+  await deck.getByRole('button',{name:'Replay',exact:true}).click();
+  await expect(deck.getByTestId('presentation-title-slide')).toBeVisible();
+  await expect(deck.getByRole('button',{name:'Export MP4'})).toBeVisible({timeout:10000});
+  await deck.getByRole('button',{name:'Export MP4'}).click();
+  await expect(deck.getByRole('status')).toContainText('exports/recordings/',{timeout:30000});
+});
 
 test('v2 presentations author clips and pins and play source video frame ranges', async ({ page }) => {
   const fixture = path.resolve(process.cwd(), 'e2e/fixtures/clip-editor-project');

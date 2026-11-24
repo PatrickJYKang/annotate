@@ -155,7 +155,13 @@ Choose **Present** for a panel-free, full-viewport presentation. Right advances,
 
 Choose **Export report** on the dashboard to write `clips.json`, `clips.csv`, and one native-resolution PNG for every pin annotation set into `<project>/exports/report/`. PNG exports render the completed static annotation state rather than one moment of the entrance sequence. A failed annotation render is listed without discarding successful outputs.
 
-Annotate does not currently expose clip MP4 export in the 0.2 interface. Presentation playback uses original project video directly and does not create prepared presentation media.
+In the clip editor, open **Clip recordings** and name the take. Drag the two timeline handles to choose the first and last frames, or scrub to a frame and click **Set start** or **Set end**. Both frames are included. With a handle focused, press Left or Right to adjust it by one frame. **Use full clip** selects both ends at once. Press Play to check the range before choosing **Record**.
+
+During recording, the video plays to each pin; click or press Space for each on-click animation, then once more to resume. Reaching the last frame saves the take. **Cancel** discards the current pass. Recording another take does not trim the clip or change earlier takes.
+
+In a presentation, select a clip slide and choose **Import clip timings** to copy a saved take's range and pin timings onto that slide. **Presentation recordings** records a separate pass through the whole deck: advance title slides, pin animations and pin slides when ready. Imported clip timings play automatically. The recording stores timings and references to project media and annotations, not a video of the screen.
+
+Choose **Replay** to review a saved take or **Export MP4** to render it into `<project>/exports/recordings/`. Each take has its own filename; exporting it again replaces that take's MP4. These exports are silent: they do not include the pointer, editor controls, microphone or match audio.
 
 Clip, pin, and annotation-set deletion first copies data into `<project>/.trash/`. Use the immediate Undo action when available. **Empty trash** permanently removes retained recovery operations; automatic cleanup also applies age and size limits.
 

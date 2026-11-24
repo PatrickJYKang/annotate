@@ -2,6 +2,781 @@
   "schema": 1,
   "archives": [
     {
+      "name": "shapely-geos", "version": "3.13.1", "kind": "geos-source",
+      "filename": "geos-3.13.1.tar.bz2", "url": "https://download.osgeo.org/geos/geos-3.13.1.tar.bz2",
+      "sha256": "df2c50503295f325e7c8d7b783aca8ba4773919cde984193850cf9e361dfd28c",
+      "evidenceOnly": true, "collectNotices": true,
+      "coverage": "GEOS 3.13.1 (LGPL-2.1-or-later), dynamically bundled by the pinned Shapely 2.1.2 wheels on both targets. The matching Shapely source archive retains the wheel recipes. Keep the libraries replaceable."
+    },
+    {
+      "name": "shapely", "version": "2.1.2", "kind": "python-sdist",
+      "filename": "shapely-2.1.2-build-source.tar.gz", "url": "https://codeload.github.com/shapely/shapely/tar.gz/refs/tags/2.1.2",
+      "sha256": "adbd4060635098d5109e04668edcc015117a133c39da2899cc3ce9b665b76439",
+      "evidenceOnly": true, "collectNotices": true,
+      "coverage": "Full Shapely 2.1.2 release tree including ci/install_geos.sh, ci/install_geos.cmd and wheel workflows, rather than a wheel-only notice."
+    },
+    {
+      "name": "opencv-macos-sjpeg",
+      "formula": "jpeg-xl",
+      "version": "e5ab13008bb214deb66d5f3e17ca2f8dbff150bf",
+      "kind": "opencv-macos-source",
+      "targets": ["darwin-arm64"],
+      "filename": "opencv-macos-sjpeg-e5ab13008bb214deb66d5f3e17ca2f8dbff150bf.tar.gz",
+      "url": "https://codeload.github.com/webmproject/sjpeg/tar.gz/e5ab13008bb214deb66d5f3e17ca2f8dbff150bf",
+      "sha256": "35c5ad32fd422d279f394dced490208674284ae2f58221c1dfb981dbbdf695b5",
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Exact sjpeg resource revision fetched by the matched Homebrew JPEG XL 0.11.1 build recipe."
+    },
+    {
+      "name": "opencv-macos-librist",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "librist",
+      "version": "0.2.11",
+      "url": "https://code.videolan.org/rist/librist/-/archive/v0.2.11/librist-v0.2.11.tar.gz",
+      "filename": "opencv-macos-librist-0.2.11.tar.gz",
+      "sha256": "84e413fa9a1bc4e2607ecc0e51add363e1bc5ad42f7cc5baec7b253e8f685ad3"
+    },
+    {
+      "name": "opencv-macos-webp",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "webp",
+      "version": "1.4.0",
+      "url": "https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.4.0.tar.gz",
+      "filename": "opencv-macos-webp-1.4.0.tar.gz",
+      "sha256": "61f873ec69e3be1b99535634340d5bde750b2e4447caa1db9f61be3fd49ab1e5"
+    },
+    {
+      "name": "opencv-macos-svt-av1",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "svt-av1",
+      "version": "2.2.1",
+      "url": "https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/v2.2.1/SVT-AV1-v2.2.1.tar.bz2",
+      "filename": "opencv-macos-svt-av1-2.2.1.tar.bz2",
+      "sha256": "3fd002b88816506f84b6d624659be5cbadb4cdf5a11258a5cbc6bfc488c82d01"
+    },
+    {
+      "name": "opencv-macos-aribb24",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "aribb24",
+      "version": "1.0.4",
+      "url": "https://code.videolan.org/jeeb/aribb24/-/archive/v1.0.4/aribb24-v1.0.4.tar.bz2",
+      "filename": "opencv-macos-aribb24-1.0.4.tar.bz2",
+      "sha256": "88b58dd760609372701087e25557ada9f7c6d973306c017067c5dcaf9e2c9710"
+    },
+    {
+      "name": "opencv-macos-dav1d",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "dav1d",
+      "version": "1.5.0",
+      "url": "https://code.videolan.org/videolan/dav1d/-/archive/1.5.0/dav1d-1.5.0.tar.bz2",
+      "filename": "opencv-macos-dav1d-1.5.0.tar.bz2",
+      "sha256": "a6ca64e34cec56ae1c2d359e1da5c5386ecd7a3a62f931d026ac4f2ff72ade64"
+    },
+    {
+      "name": "opencv-macos-libx11",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "libx11",
+      "version": "1.8.10",
+      "url": "https://www.x.org/archive/individual/lib/libX11-1.8.10.tar.gz",
+      "filename": "opencv-macos-libx11-1.8.10.tar.gz",
+      "sha256": "b7a1a90d881bb7b94df5cf31509e6b03f15c0972d3ac25ab0441f5fbc789650f"
+    },
+    {
+      "name": "opencv-macos-libxau",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "libxau",
+      "version": "1.0.11",
+      "url": "https://www.x.org/archive/individual/lib/libXau-1.0.11.tar.xz",
+      "filename": "opencv-macos-libxau-1.0.11.tar.xz",
+      "sha256": "f3fa3282f5570c3f6bd620244438dbfbdd580fc80f02f549587a0f8ab329bbeb"
+    },
+    {
+      "name": "opencv-macos-libxdmcp",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "libxdmcp",
+      "version": "1.1.5",
+      "url": "https://www.x.org/archive/individual/lib/libXdmcp-1.1.5.tar.xz",
+      "filename": "opencv-macos-libxdmcp-1.1.5.tar.xz",
+      "sha256": "d8a5222828c3adab70adf69a5583f1d32eb5ece04304f7f8392b6a353aa2228c"
+    },
+    {
+      "name": "opencv-macos-libbluray",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "libbluray",
+      "version": "1.3.4",
+      "url": "https://download.videolan.org/videolan/libbluray/1.3.4/libbluray-1.3.4.tar.bz2",
+      "filename": "opencv-macos-libbluray-1.3.4.tar.bz2",
+      "sha256": "478ffd68a0f5dde8ef6ca989b7f035b5a0a22c599142e5cd3ff7b03bbebe5f2b"
+    },
+    {
+      "name": "opencv-macos-brotli",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "brotli",
+      "version": "1.1.0",
+      "url": "https://github.com/google/brotli/archive/v1.1.0.tar.gz",
+      "filename": "opencv-macos-brotli-1.1.0.tar.gz",
+      "sha256": "e720a6ca29428b803f4ad165371771f5398faba397edf6778837a18599ea13ff"
+    },
+    {
+      "name": "opencv-macos-cjson",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "cjson",
+      "version": "1.7.18",
+      "url": "https://github.com/DaveGamble/cJSON/archive/refs/tags/v1.7.18.tar.gz",
+      "filename": "opencv-macos-cjson-1.7.18.tar.gz",
+      "sha256": "3aa806844a03442c00769b83e99970be70fbef03735ff898f4811dd03b9f5ee5"
+    },
+    {
+      "name": "opencv-macos-openssl-3",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "openssl@3",
+      "version": "3.4.0",
+      "url": "https://github.com/openssl/openssl/releases/download/openssl-3.4.0/openssl-3.4.0.tar.gz",
+      "filename": "opencv-macos-openssl-3-3.4.0.tar.gz",
+      "sha256": "e15dda82fe2fe8139dc2ac21a36d4ca01d5313c75f99f46c4e8a27709b7294bf"
+    },
+    {
+      "name": "opencv-macos-fontconfig",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "fontconfig",
+      "version": "2.15.0",
+      "url": "https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.15.0.tar.xz",
+      "filename": "opencv-macos-fontconfig-2.15.0.tar.xz",
+      "sha256": "63a0658d0e06e0fa886106452b58ef04f21f58202ea02a94c39de0d3335d7c0e"
+    },
+    {
+      "name": "opencv-macos-freetype",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "freetype",
+      "version": "2.13.3",
+      "url": "https://downloads.sourceforge.net/project/freetype/freetype2/2.13.3/freetype-2.13.3.tar.xz",
+      "filename": "opencv-macos-freetype-2.13.3.tar.xz",
+      "sha256": "0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289"
+    },
+    {
+      "name": "opencv-macos-gnutls",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "gnutls",
+      "version": "3.8.4",
+      "url": "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.4.tar.xz",
+      "filename": "opencv-macos-gnutls-3.8.4.tar.xz",
+      "sha256": "2bea4e154794f3f00180fa2a5c51fe8b005ac7a31cd58bd44cdfa7f36ebc3a9b"
+    },
+    {
+      "name": "opencv-macos-nettle",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "nettle",
+      "version": "3.10",
+      "url": "https://ftp.gnu.org/gnu/nettle/nettle-3.10.tar.gz",
+      "filename": "opencv-macos-nettle-3.10.tar.gz",
+      "sha256": "b4c518adb174e484cb4acea54118f02380c7133771e7e9beb98a0787194ee47c"
+    },
+    {
+      "name": "opencv-macos-highway",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "highway",
+      "version": "1.2.0",
+      "url": "https://github.com/google/highway/archive/refs/tags/1.2.0.tar.gz",
+      "filename": "opencv-macos-highway-1.2.0.tar.gz",
+      "sha256": "7e0be78b8318e8bdbf6fa545d2ecb4c90f947df03f7aadc42c1967f019e63343"
+    },
+    {
+      "name": "opencv-macos-libidn2",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "libidn2",
+      "version": "2.3.7",
+      "url": "https://ftp.gnu.org/gnu/libidn/libidn2-2.3.7.tar.gz",
+      "filename": "opencv-macos-libidn2-2.3.7.tar.gz",
+      "sha256": "4c21a791b610b9519b9d0e12b8097bf2f359b12f8dd92647611a929e6bfd7d64"
+    },
+    {
+      "name": "opencv-macos-gettext",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "gettext",
+      "version": "0.22.5",
+      "url": "https://ftp.gnu.org/gnu/gettext/gettext-0.22.5.tar.gz",
+      "filename": "opencv-macos-gettext-0.22.5.tar.gz",
+      "sha256": "ec1705b1e969b83a9f073144ec806151db88127f5e40fe5a94cb6c8fa48996a0"
+    },
+    {
+      "name": "opencv-macos-jpeg-xl",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "jpeg-xl",
+      "version": "0.11.1",
+      "url": "https://github.com/libjxl/libjxl/archive/refs/tags/v0.11.1.tar.gz",
+      "filename": "opencv-macos-jpeg-xl-0.11.1.tar.gz",
+      "sha256": "1492dfef8dd6c3036446ac3b340005d92ab92f7d48ee3271b5dac1d36945d3d9"
+    },
+    {
+      "name": "opencv-macos-little-cms2",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "little-cms2",
+      "version": "2.16",
+      "url": "https://downloads.sourceforge.net/project/lcms/lcms/2.16/lcms2-2.16.tar.gz",
+      "filename": "opencv-macos-little-cms2-2.16.tar.gz",
+      "sha256": "d873d34ad8b9b4cea010631f1a6228d2087475e4dc5e763eb81acc23d9d45a51"
+    },
+    {
+      "name": "opencv-macos-xz",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "xz",
+      "version": "5.6.3",
+      "url": "https://github.com/tukaani-project/xz/releases/download/v5.6.3/xz-5.6.3.tar.gz",
+      "filename": "opencv-macos-xz-5.6.3.tar.gz",
+      "sha256": "b1d45295d3f71f25a4c9101bd7c8d16cb56348bbef3bbc738da0351e17c73317"
+    },
+    {
+      "name": "opencv-macos-mbedtls",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "mbedtls",
+      "version": "3.6.2",
+      "url": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.2/mbedtls-3.6.2.tar.bz2",
+      "filename": "opencv-macos-mbedtls-3.6.2.tar.bz2",
+      "sha256": "8b54fb9bcf4d5a7078028e0520acddefb7900b3e66fec7f7175bb5b7d85ccdca"
+    },
+    {
+      "name": "opencv-macos-lame",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "lame",
+      "version": "3.100",
+      "url": "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz",
+      "filename": "opencv-macos-lame-3.100.tar.gz",
+      "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e"
+    },
+    {
+      "name": "opencv-macos-libogg",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "libogg",
+      "version": "1.3.5",
+      "url": "https://ftp.osuosl.org/pub/xiph/releases/ogg/libogg-1.3.5.tar.gz",
+      "filename": "opencv-macos-libogg-1.3.5.tar.gz",
+      "sha256": "0eb4b4b9420a0f51db142ba3f9c64b333f826532dc0f48c6410ae51f4799b664"
+    },
+    {
+      "name": "opencv-macos-opencore-amr",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "opencore-amr",
+      "version": "0.1.6",
+      "url": "https://downloads.sourceforge.net/project/opencore-amr/opencore-amr/opencore-amr-0.1.6.tar.gz",
+      "filename": "opencv-macos-opencore-amr-0.1.6.tar.gz",
+      "sha256": "483eb4061088e2b34b358e47540b5d495a96cd468e361050fae615b1809dc4a1"
+    },
+    {
+      "name": "opencv-macos-openjpeg",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "openjpeg",
+      "version": "2.5.2",
+      "url": "https://github.com/uclouvain/openjpeg/archive/refs/tags/v2.5.2.tar.gz",
+      "filename": "opencv-macos-openjpeg-2.5.2.tar.gz",
+      "sha256": "90e3896fed910c376aaf79cdd98bdfdaf98c6472efd8e1debf0a854938cbda6a"
+    },
+    {
+      "name": "opencv-macos-opus",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "opus",
+      "version": "1.5.2",
+      "url": "https://ftp.osuosl.org/pub/xiph/releases/opus/opus-1.5.2.tar.gz",
+      "filename": "opencv-macos-opus-1.5.2.tar.gz",
+      "sha256": "65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1"
+    },
+    {
+      "name": "opencv-macos-p11-kit",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "p11-kit",
+      "version": "0.25.5",
+      "url": "https://github.com/p11-glue/p11-kit/releases/download/0.25.5/p11-kit-0.25.5.tar.xz",
+      "filename": "opencv-macos-p11-kit-0.25.5.tar.xz",
+      "sha256": "04d0a86450cdb1be018f26af6699857171a188ac6d5b8c90786a60854e1198e5"
+    },
+    {
+      "name": "opencv-macos-libpng",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "libpng",
+      "version": "1.6.44",
+      "url": "https://downloads.sourceforge.net/project/libpng/libpng16/1.6.44/libpng-1.6.44.tar.xz",
+      "filename": "opencv-macos-libpng-1.6.44.tar.xz",
+      "sha256": "60c4da1d5b7f0aa8d158da48e8f8afa9773c1c8baa5d21974df61f1886b8ce8e"
+    },
+    {
+      "name": "opencv-macos-rav1e",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "rav1e",
+      "version": "0.7.1",
+      "url": "https://github.com/xiph/rav1e/archive/refs/tags/v0.7.1.tar.gz",
+      "filename": "opencv-macos-rav1e-0.7.1.tar.gz",
+      "sha256": "da7ae0df2b608e539de5d443c096e109442cdfa6c5e9b4014361211cf61d030c"
+    },
+    {
+      "name": "opencv-macos-snappy",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "snappy",
+      "version": "1.2.1",
+      "url": "https://github.com/google/snappy/archive/refs/tags/1.2.1.tar.gz",
+      "filename": "opencv-macos-snappy-1.2.1.tar.gz",
+      "sha256": "736aeb64d86566d2236ddffa2865ee5d7a82d26c9016b36218fcc27ea4f09f86"
+    },
+    {
+      "name": "opencv-macos-libsodium",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "libsodium",
+      "version": "1.0.20",
+      "url": "https://download.libsodium.org/libsodium/releases/libsodium-1.0.20.tar.gz",
+      "filename": "opencv-macos-libsodium-1.0.20.tar.gz",
+      "sha256": "ebb65ef6ca439333c2bb41a0c1990587288da07f6c7fd07cb3a18cc18d30ce19"
+    },
+    {
+      "name": "opencv-macos-libsoxr",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "libsoxr",
+      "version": "0.1.3",
+      "url": "https://downloads.sourceforge.net/project/soxr/soxr-0.1.3-Source.tar.xz",
+      "filename": "opencv-macos-libsoxr-0.1.3.tar.xz",
+      "sha256": "b111c15fdc8c029989330ff559184198c161100a59312f5dc19ddeb9b5a15889"
+    },
+    {
+      "name": "opencv-macos-speex",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "speex",
+      "version": "1.2.1",
+      "url": "https://downloads.xiph.org/releases/speex/speex-1.2.1.tar.gz",
+      "filename": "opencv-macos-speex-1.2.1.tar.gz",
+      "sha256": "4b44d4f2b38a370a2d98a78329fefc56a0cf93d1c1be70029217baae6628feea"
+    },
+    {
+      "name": "opencv-macos-srt",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "srt",
+      "version": "1.5.4",
+      "url": "https://github.com/Haivision/srt/archive/refs/tags/v1.5.4.tar.gz",
+      "filename": "opencv-macos-srt-1.5.4.tar.gz",
+      "sha256": "d0a8b600fe1b4eaaf6277530e3cfc8f15b8ce4035f16af4a5eb5d4b123640cdd"
+    },
+    {
+      "name": "opencv-macos-libssh",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "libssh",
+      "version": "0.11.1",
+      "url": "https://www.libssh.org/files/0.11/libssh-0.11.1.tar.xz",
+      "filename": "opencv-macos-libssh-0.11.1.tar.xz",
+      "sha256": "14b7dcc72e91e08151c58b981a7b570ab2663f630e7d2837645d5a9c612c1b79"
+    },
+    {
+      "name": "opencv-macos-libtasn1",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "libtasn1",
+      "version": "4.19.0",
+      "url": "https://ftp.gnu.org/gnu/libtasn1/libtasn1-4.19.0.tar.gz",
+      "filename": "opencv-macos-libtasn1-4.19.0.tar.gz",
+      "sha256": "1613f0ac1cf484d6ec0ce3b8c06d56263cc7242f1c23b30d82d23de345a63f7a"
+    },
+    {
+      "name": "opencv-macos-theora",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "theora",
+      "version": "1.1.1",
+      "url": "https://downloads.xiph.org/releases/theora/libtheora-1.1.1.tar.bz2",
+      "filename": "opencv-macos-theora-1.1.1.tar.bz2",
+      "sha256": "b6ae1ee2fa3d42ac489287d3ec34c5885730b1296f0801ae577a35193d3affbc"
+    },
+    {
+      "name": "opencv-macos-libunistring",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "libunistring",
+      "version": "1.3",
+      "url": "https://ftp.gnu.org/gnu/libunistring/libunistring-1.3.tar.gz",
+      "filename": "opencv-macos-libunistring-1.3.tar.gz",
+      "sha256": "8ea8ccf86c09dd801c8cac19878e804e54f707cf69884371130d20bde68386b7"
+    },
+    {
+      "name": "opencv-macos-libvmaf",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "libvmaf",
+      "version": "3.0.0",
+      "url": "https://github.com/Netflix/vmaf/archive/refs/tags/v3.0.0.tar.gz",
+      "filename": "opencv-macos-libvmaf-3.0.0.tar.gz",
+      "sha256": "7178c4833639e6b989ecae73131d02f70735fdb3fc2c7d84bc36c9c3461d93b1"
+    },
+    {
+      "name": "opencv-macos-libvorbis",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "libvorbis",
+      "version": "1.3.7",
+      "url": "https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.xz",
+      "filename": "opencv-macos-libvorbis-1.3.7.tar.xz",
+      "sha256": "b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b"
+    },
+    {
+      "name": "opencv-macos-libvpx",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "libvpx",
+      "version": "1.15.0",
+      "url": "https://github.com/webmproject/libvpx/archive/refs/tags/v1.15.0.tar.gz",
+      "filename": "opencv-macos-libvpx-1.15.0.tar.gz",
+      "sha256": "e935eded7d81631a538bfae703fd1e293aad1c7fd3407ba00440c95105d2011e"
+    },
+    {
+      "name": "opencv-macos-x265",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "x265",
+      "version": "4.0_1",
+      "url": "https://bitbucket.org/multicoreware/x265_git/downloads/x265_4.0.tar.gz",
+      "filename": "opencv-macos-x265-4.0_1.tar.gz",
+      "sha256": "75b4d05629e365913de3100b38a459b04e2a217a8f30efaa91b572d8e6d71282"
+    },
+    {
+      "name": "opencv-macos-libxcb",
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "formula": "libxcb",
+      "version": "1.17.0",
+      "url": "https://xorg.freedesktop.org/archive/individual/lib/libxcb-1.17.0.tar.xz",
+      "filename": "opencv-macos-libxcb-1.17.0.tar.xz",
+      "sha256": "599ebf9996710fea71622e6e184f3a8ad5b43d0e5fa8c4e407123c88a59a6d55"
+    },
+    {
+      "kind": "native-source-input",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": false,
+      "coverage": "Exact resource named by a matched Homebrew recipe; the full recipe is preserved separately. Collected without applying or executing it.",
+      "name": "opencv-macos-ffmpeg-chromium-patch",
+      "version": "5670ccd86d3b816f49ebc18cab878125eca2f81f",
+      "filename": "opencv-macos-ffmpeg-chromium.patch",
+      "url": "https://gitlab.archlinux.org/archlinux/packaging/packages/ffmpeg/-/raw/5670ccd86d3b816f49ebc18cab878125eca2f81f/add-av_stream_get_first_dts-for-chromium.patch",
+      "sha256": "57e26caced5a1382cb639235f9555fc50e45e7bf8333f7c9ae3d49b3241d3f77"
+    },
+    {
+      "kind": "native-source-input",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": false,
+      "coverage": "Exact resource named by a matched Homebrew recipe; the full recipe is preserved separately. Collected without applying or executing it.",
+      "name": "opencv-macos-libsoxr-arm64-patch",
+      "version": "76868b36263be42440501d3692fd3a258f507d82",
+      "filename": "opencv-macos-libsoxr-arm64.patch",
+      "url": "https://raw.githubusercontent.com/Homebrew/formula-patches/76868b36263be42440501d3692fd3a258f507d82/libsoxr/arm64_defines.patch",
+      "sha256": "9df5737a21b9ce70cc136c302e195fad9f9f6c14418566ad021f14bb34bb022c"
+    },
+    {
+      "kind": "native-source-input",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": false,
+      "coverage": "Exact resource named by a matched Homebrew recipe; the full recipe is preserved separately. Collected without applying or executing it.",
+      "name": "opencv-macos-rav1e-cargo-lock",
+      "expandCargoLock": true,
+      "version": "0.7.1",
+      "filename": "opencv-macos-rav1e-Cargo.lock",
+      "url": "https://github.com/xiph/rav1e/releases/download/v0.7.1/Cargo.lock",
+      "sha256": "4482976bfb7647d707f9a01fa1a3848366988f439924b5c8ac7ab085fba24240"
+    },
+    {
+      "kind": "opencv-macos-source",
+      "targets": [
+        "darwin-arm64"
+      ],
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Source input from the original Homebrew recipe matched to the wheel by Mach-O UUID and instruction digests. Archived recipe and binary fingerprints are in opencv-macos/provenance.json. Transitive resources and replacement testing are not complete.",
+      "name": "opencv-macos-aom-source",
+      "formula": "aom",
+      "version": "d6f30ae474dd6c358f26de0a0fc26a0d7340a84c",
+      "filename": "opencv-macos-aom-d6f30ae474dd6c358f26de0a0fc26a0d7340a84c.tar.gz",
+      "url": "https://aomedia.googlesource.com/aom/+archive/d6f30ae474dd6c358f26de0a0fc26a0d7340a84c.tar.gz",
+      "sha256": "643f9b19570fff619c9db43ebb6ac110cf4c74f8c5d01a292a58a78acffe0824"
+    },
+    {
+      "name": "sharp-glib-gvdb",
+      "version": "2b42fc75f09dbe1cd1057580b5782b08f2dcb400",
+      "kind": "sharp-subproject-source",
+      "parent": {
+        "library": "glib",
+        "version": "2.90.0"
+      },
+      "filename": "sharp-gvdb-2b42fc75f09dbe1cd1057580b5782b08f2dcb400.tar.gz",
+      "url": "https://gitlab.gnome.org/GNOME/gvdb/-/archive/2b42fc75f09dbe1cd1057580b5782b08f2dcb400/gvdb-2b42fc75f09dbe1cd1057580b5782b08f2dcb400.tar.gz",
+      "sha256": "069a00aa1fc893f18423602f4e095583be5a220429f6e8a58d70511490b4b019",
+      "evidenceOnly": true,
+      "collectNotices": true,
+      "coverage": "Exact GVDB commit in GLib 2.90.0 subprojects/gvdb.wrap; the pinned POSIX libvips recipe forces this fallback. Other Rust and build-tool dependencies remain separate."
+    },
+    {
       "name": "ultralytics",
       "version": "8.4.19",
       "kind": "python-sdist",
@@ -550,7 +1325,7 @@
         "darwin-arm64"
       ],
       "kind": "native-source-input",
-      "coverage": "Core source version embedded in the wheel FFmpeg dylib. NOT complete source: Homebrew 7.1_3 recipe, patches and linked libraries remain to be assembled.",
+      "coverage": "Core source matched to the wheel's Homebrew FFmpeg 7.1_3 build. The original recipe and Chromium patch are now pinned separately, with many linked-library sources. NOT complete corresponding source: unresolved libraries and transitive inputs remain.",
       "evidenceOnly": true,
       "collectNotices": true
     }

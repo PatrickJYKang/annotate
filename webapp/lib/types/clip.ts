@@ -91,6 +91,8 @@ export interface ClipPin {
   annotations: PinAnnotationRef[];
 }
 
+import { validClicks, validRange, type ClipTake } from './recording';
+
 export interface Clip {
   schema: 'clip.v2';
   id: string;
@@ -103,6 +105,7 @@ export interface Clip {
   tags: TaggingSelection;
   pins: ClipPin[];
   annotations: ClipAnnotation[];
+  recordings?: ClipTake[];
 }
 
 export type ClipIssueCode =
@@ -614,6 +617,12 @@ export function parseClip(raw: unknown, options: ValidateClipOptions = {}): Clip
     }
   });
 
+  if (raw.recordings !== undefined && (!Array.isArray(raw.recordings) || raw.recordings.some(take =>
+    !isRecord(take) || typeof take.id !== 'string' || !isSafeClipIdSegment(take.id) ||
+    typeof take.name !== 'string' || !take.name.trim() || !validRange(take.startFrame, take.endFrame) ||
+    !Array.isArray(take.pauses) || take.pauses.some(p => !isRecord(p) || typeof p.pinId !== 'string'
+      || !isSafeClipIdSegment(p.pinId) || !validClicks(p.clickTimesMs, p.holdMs))
+  ))) throw new Error('Invalid clip recording.');
   const clip = raw as unknown as Clip;
   const issues = validateClip(clip, options);
   if (issues.length > 0) throw new ClipValidationError(issues);

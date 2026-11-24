@@ -1,0 +1,16 @@
+{
+  "verifiedAt": "2026-10-26",
+  "sourceCommit": "42088864170f75ea02e76d20e9a9a1db59edb3e3",
+  "files": [
+    {
+      "filename": "HRNet-MIT.txt",
+      "url": "https://raw.githubusercontent.com/HRNet/HRNet-Image-Classification/f760c988482cdb8a1f69b10b219d669721144582/LICENSE",
+      "sha256": "285c174bc9a991f013d2f205c63f1d7ec90bb91e7acb428151f119a76cfd6d00"
+    },
+    {
+      "filename": "CC-BY-4.0.txt",
+      "url": "https://creativecommons.org/licenses/by/4.0/legalcode.txt",
+      "sha256": "9e5f1b3c610b9c2da5c313bf81d577a7d1acec686bdb0384edefa6df0f90cd94"
+    }
+  ]
+}

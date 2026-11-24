@@ -35,15 +35,19 @@ type KeyframeDragState = {
 type TrimHandleDragState = {
   pointerId: number;
   edge: 'start' | 'end';
+  offsetX: number;
 };
 
-export interface TimelineTrimState {
+export interface TimelineRangeEdges {
   startFrame: number;
   endFrame: number;
-  impact: ClipTrimImpact;
-  applying: boolean;
   onStartFrameChange: (frame: number) => void;
   onEndFrameChange: (endFrame: number) => void;
+}
+
+export interface TimelineTrimState extends TimelineRangeEdges {
+  impact: ClipTrimImpact;
+  applying: boolean;
   onApply: () => void | Promise<void>;
   onCancel: () => void;
 }
@@ -71,6 +75,7 @@ interface TimelineStripProps {
   onSelectKeyframe: (keyframe: TimelineKeyframeRef) => void;
   onMoveKeyframe: (keyframe: TimelineKeyframeRef, frame: number) => void;
   trim?: TimelineTrimState | null;
+  recordingEdges?: TimelineRangeEdges;
   canBeginTrim?: boolean;
   canUndoTrim?: boolean;
   interactionDisabled?: boolean;
@@ -241,6 +246,7 @@ export default function TimelineStrip({
   onSelectKeyframe,
   onMoveKeyframe,
   trim = null,
+  recordingEdges,
   canBeginTrim = false,
   canUndoTrim = false,
   interactionDisabled = false,
@@ -272,7 +278,12 @@ export default function TimelineStrip({
   onMoveKeyframeRef.current = onMoveKeyframe;
   if (!manualOverrideRef.current) manualOverrideRef.current = createTimelineManualOverride();
   const frameCount = clip.endFrame - clip.startFrame;
-  const laneWidth = Math.max(640, viewportWidth, frameCount * MIN_FRAME_WIDTH * zoom);
+  const fitClip = !!recordingEdges;
+  const edges = recordingEdges ?? trim;
+  const widthAtZoom = useCallback((scale: number) => fitClip
+    ? Math.max(1, viewportWidth) * scale
+    : Math.max(640, viewportWidth, frameCount * MIN_FRAME_WIDTH * scale), [fitClip, frameCount, viewportWidth]);
+  const laneWidth = widthAtZoom(zoom);
   const frameSpacing = frameCount > 1 ? laneWidth / (frameCount - 1) : laneWidth;
   const gridStep = frameGridStep(frameSpacing);
   const gridSpacing = frameSpacing * gridStep;
@@ -332,23 +343,29 @@ export default function TimelineStrip({
   }, [clip.endFrame, clip.startFrame, laneWidth]);
 
   const updateTrimEdgeFromPointer = useCallback((edge: 'start' | 'end', clientX: number) => {
-    if (!trim) return;
-    const frame = pointerToFrame(clientX);
-    if (edge === 'start') trim.onStartFrameChange(frame);
-    else trim.onEndFrameChange(frame + 1);
-  }, [pointerToFrame, trim]);
+    if (!edges) return;
+    const frame = pointerToFrame(clientX + (trimHandleDragRef.current?.offsetX ?? 0));
+    if (edge === 'start') edges.onStartFrameChange(frame);
+    else edges.onEndFrameChange(frame + 1);
+  }, [edges, pointerToFrame]);
 
   const handleTrimPointerDown = useCallback((
     event: React.PointerEvent<HTMLButtonElement>,
     edge: 'start' | 'end',
   ) => {
-    if (!trim || event.button !== 0) return;
+    if (!edges || event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
-    trimHandleDragRef.current = { pointerId: event.pointerId, edge };
+    const scroller = scrollerRef.current;
+    const offsetX = recordingEdges && scroller
+      ? scroller.getBoundingClientRect().left - scroller.scrollLeft
+        + frameToX(edge === 'start' ? edges.startFrame : edges.endFrame - 1) - event.clientX
+      : 0;
+    trimHandleDragRef.current = { pointerId: event.pointerId, edge, offsetX };
+    event.currentTarget.focus({ preventScroll: true });
     event.currentTarget.setPointerCapture(event.pointerId);
     updateTrimEdgeFromPointer(edge, event.clientX);
-  }, [trim, updateTrimEdgeFromPointer]);
+  }, [edges, frameToX, recordingEdges, updateTrimEdgeFromPointer]);
 
   const handleTrimPointerMove = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
     const drag = trimHandleDragRef.current;
@@ -432,12 +449,12 @@ export default function TimelineStrip({
     const rect = scroller.getBoundingClientRect();
     const anchorX = anchorClientX == null ? viewportWidth / 2 : anchorClientX - rect.left;
     const anchorRatio = (scroller.scrollLeft + anchorX) / laneWidth;
-    const nextLaneWidth = Math.max(640, viewportWidth, frameCount * MIN_FRAME_WIDTH * clampedZoom);
+    const nextLaneWidth = widthAtZoom(clampedZoom);
     setZoom(clampedZoom);
     requestAnimationFrame(() => {
       setScrollLeftProgrammatically(scroller, anchorRatio * nextLaneWidth - anchorX);
     });
-  }, [frameCount, laneWidth, setScrollLeftProgrammatically, viewportWidth]);
+  }, [frameCount, laneWidth, setScrollLeftProgrammatically, viewportWidth, widthAtZoom]);
 
   const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
     const scroller = scrollerRef.current;
@@ -716,28 +733,36 @@ export default function TimelineStrip({
                 disabled={interactionDisabled}
               />
             )}
-            {trim && (
+            {edges && (
               <>
                 <div
                   aria-hidden="true"
                   className="pointer-events-none absolute inset-y-0 left-0 z-20 bg-black/55"
-                  style={{ width: frameToX(trim.startFrame) }}
+                  style={{ width: frameToX(edges.startFrame) }}
                 />
                 <div
                   aria-hidden="true"
                   className="pointer-events-none absolute inset-y-0 right-0 z-20 bg-black/55"
-                  style={{ left: frameToX(trim.endFrame - 1) }}
+                  style={{ left: frameToX(edges.endFrame - 1) }}
                 />
                 {(['start', 'end'] as const).map((edge) => {
-                  const frame = edge === 'start' ? trim.startFrame : trim.endFrame - 1;
+                  const isStart = edge === 'start';
+                  const frame = isStart ? edges.startFrame : edges.endFrame - 1;
+                  const x = frameToX(frame);
                   return (
                     <button
                       key={edge}
                       type="button"
-                      data-testid={`clip-trim-${edge}-handle`}
-                      aria-label={t(edge === 'start' ? 'clip.trimStart' : 'clip.trimEnd')}
-                      className="absolute inset-y-0 z-30 w-3 -translate-x-1/2 cursor-ew-resize border-0 border-x-2 border-solid border-amber-300 bg-amber-300/20 p-0"
-                      style={{ left: frameToX(frame) }}
+                      data-testid={`${recordingEdges ? testIdPrefix : 'clip-trim'}-${edge}-handle`}
+                      aria-label={recordingEdges ? t(isStart ? 'record.first' : 'record.last') : t(isStart ? 'clip.trimStart' : 'clip.trimEnd')}
+                      role={recordingEdges ? 'slider' : undefined}
+                      aria-valuemin={recordingEdges ? (isStart ? clip.startFrame : edges.startFrame) : undefined}
+                      aria-valuemax={recordingEdges ? (isStart ? edges.endFrame - 1 : clip.endFrame - 1) : undefined}
+                      aria-valuenow={recordingEdges ? frame : undefined}
+                      className={recordingEdges
+                        ? `absolute z-30 h-6 w-5 cursor-ew-resize touch-none border-0 bg-amber-300 p-0 font-mono font-bold text-black ${isStart ? 'top-0' : 'bottom-0'}`
+                        : 'absolute inset-y-0 z-30 w-3 -translate-x-1/2 cursor-ew-resize border-0 border-x-2 border-solid border-amber-300 bg-amber-300/20 p-0'}
+                      style={{ left: recordingEdges ? Math.max(0, Math.min(laneWidth - 20, x - (isStart ? 0 : 20))) : x }}
                       onPointerDown={(event) => handleTrimPointerDown(event, edge)}
                       onPointerMove={handleTrimPointerMove}
                       onPointerUp={handleTrimPointerEnd}
@@ -746,10 +771,10 @@ export default function TimelineStrip({
                         if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
                         event.preventDefault();
                         const delta = event.key === 'ArrowLeft' ? -1 : 1;
-                        if (edge === 'start') trim.onStartFrameChange(trim.startFrame + delta);
-                        else trim.onEndFrameChange(trim.endFrame + delta);
+                        if (isStart) edges.onStartFrameChange(edges.startFrame + delta);
+                        else edges.onEndFrameChange(edges.endFrame + delta);
                       }}
-                    />
+                    >{recordingEdges ? (isStart ? '[' : ']') : null}</button>
                   );
                 })}
               </>

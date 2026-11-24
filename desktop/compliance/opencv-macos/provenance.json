@@ -1,0 +1,2845 @@
+{
+  "schema": 1,
+  "package": "opencv-python",
+  "version": "4.11.0.86",
+  "target": "darwin-arm64",
+  "completeCorrespondingSource": false,
+  "method": "Full SHA-256 pins our relocated wheel copies. Matched originals have the same Mach-O UUID, CPU type and instruction-section digests. Bottle SHA-256 and embedded recipe are independently checked. This identifies builds, not a complete dependency/source closure. Discovery URLs are retained as metadata; the bottle recipe is the authoritative archived text.",
+  "builds": [
+    {
+      "formula": "svt-av1",
+      "version": "2.2.1",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/svt-av1/blobs/sha256:60999334966012dfcd9697d0c9d5ba1659aa4260e061149d9e94272c37721810",
+      "bottleSha256": "60999334966012dfcd9697d0c9d5ba1659aa4260e061149d9e94272c37721810",
+      "recipeMember": "svt-av1/2.2.1/.brew/svt-av1.rb",
+      "recipeSha256": "c6d4dfdaf1b1b531d86b4b4df7e84ac40f1a7a983d30afcaf875bfe69d08eb14",
+      "discoverySource": "https://raw.githubusercontent.com/Homebrew/homebrew-core/c1fc61315283f9f0f87ef538aa21329eef57f37e/Formula/s/svt-av1.rb",
+      "buildTab": {}
+    },
+    {
+      "formula": "libx11",
+      "version": "1.8.10",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/libx11/blobs/sha256:144c9ca0fd07301773ec072adf505ba73a2c2561ad211cc7067b98b92034cb72",
+      "bottleSha256": "144c9ca0fd07301773ec072adf505ba73a2c2561ad211cc7067b98b92034cb72",
+      "recipeMember": "libx11/1.8.10/.brew/libx11.rb",
+      "recipeSha256": "d6075e747764c43d0e15672d1e440c56d1486a2f35aae17cb4714c62adec2c88",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/1038a5cfdb11629100506c903a6db216fbd915b0/Formula/lib/libx11.rb",
+      "buildTab": {
+        "homebrew_version": "4.3.9-471-gdf6b06c",
+        "changed_files": [
+          "lib/pkgconfig/x11-xcb.pc",
+          "lib/pkgconfig/x11.pc",
+          "share/X11/locale/am_ET.UTF-8/Compose",
+          "share/X11/locale/cs_CZ.UTF-8/Compose",
+          "share/X11/locale/fi_FI.UTF-8/Compose",
+          "share/X11/locale/ja_JP.UTF-8/Compose",
+          "share/X11/locale/km_KH.UTF-8/Compose",
+          "share/X11/locale/ko_KR.UTF-8/Compose",
+          "share/X11/locale/pt_BR.UTF-8/Compose",
+          "share/X11/locale/pt_PT.UTF-8/Compose",
+          "share/X11/locale/ru_RU.UTF-8/Compose",
+          "share/X11/locale/sr_RS.UTF-8/Compose",
+          "share/X11/locale/th_TH.UTF-8/Compose",
+          "share/X11/locale/zh_CN.UTF-8/Compose",
+          "share/X11/locale/zh_HK.UTF-8/Compose",
+          "share/X11/locale/zh_TW.UTF-8/Compose",
+          "share/man/man5/Compose.5"
+        ],
+        "source_modified_time": 1722189217,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "libxau",
+      "version": "1.0.11",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/libxau/blobs/sha256:1bd9a72f005e6d7e746a95baf003b561756076623a074d7ea9d6fd0207d15eff",
+      "bottleSha256": "1bd9a72f005e6d7e746a95baf003b561756076623a074d7ea9d6fd0207d15eff",
+      "recipeMember": "libxau/1.0.11/.brew/libxau.rb",
+      "recipeSha256": "89b30772011cb24bef21d356eb4eeb61b586423e69dc9a0fb43264fde729c5bd",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/d9fe7fb042b05e4d7e6091eaa9c5d6e607179220/Formula/libxau.rb",
+      "buildTab": {
+        "homebrew_version": "3.6.14-73-g11cdffb",
+        "changed_files": [
+          "lib/pkgconfig/xau.pc"
+        ],
+        "source_modified_time": 1670515477,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 11",
+          "cpu_family": "arm_firestorm_icestorm",
+          "xcode": "13.2.1",
+          "clt": "13.2.0.0.1.1638488800",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "libxdmcp",
+      "version": "1.1.5",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/libxdmcp/blobs/sha256:5c459f7ceb9793912b76f6a34019aa429a6963e938e685fc2e0cf2e75a88daf4",
+      "bottleSha256": "5c459f7ceb9793912b76f6a34019aa429a6963e938e685fc2e0cf2e75a88daf4",
+      "recipeMember": "libxdmcp/1.1.5/.brew/libxdmcp.rb",
+      "recipeSha256": "a2b8f9ceca5ad35f70b0f84503137b422031ce67b0431fb2d1c71d9c64881eee",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/c3ff9375fad1641a3294a64d0683f96f5e7234aa/Formula/lib/libxdmcp.rb",
+      "buildTab": {
+        "homebrew_version": "4.2.10-111-g53c1107",
+        "changed_files": [
+          "lib/pkgconfig/xdmcp.pc"
+        ],
+        "source_modified_time": 1709415448,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.1",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "aom",
+      "version": "3.11.0",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/aom/blobs/sha256:a6d544883fdf924adca547941499685e5e7340a1b7e6e485e1bbfc1bdbea563c",
+      "bottleSha256": "a6d544883fdf924adca547941499685e5e7340a1b7e6e485e1bbfc1bdbea563c",
+      "recipeMember": "aom/3.11.0/.brew/aom.rb",
+      "recipeSha256": "6307be536d5ddba9b5ae723b982d9fbee65b9abe00b0939f94b58a8de434168d",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/a652d882edbe27315043cabd3fa4d45796d5b563/Formula/a/aom.rb",
+      "buildTab": {
+        "homebrew_version": "4.4.5-27-g55a620e",
+        "changed_files": [
+          "lib/pkgconfig/aom.pc"
+        ],
+        "source_modified_time": 1731169373,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "aribb24",
+      "version": "1.0.4",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/aribb24/blobs/sha256:14ac368a22499dc0de526a744fd69ba07c64a01de95e5f9fbf16df2a90c38a6e",
+      "bottleSha256": "14ac368a22499dc0de526a744fd69ba07c64a01de95e5f9fbf16df2a90c38a6e",
+      "recipeMember": "aribb24/1.0.4/.brew/aribb24.rb",
+      "recipeSha256": "7835924cf16b9e4c9d39ed694097cd4319d010640f74d2365d44948fe7e7d246",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/cfa2969359065a5a24eb0fc1a332040546ff0e5e/Formula/aribb24.rb",
+      "buildTab": {
+        "homebrew_version": "3.6.12-20-g9c88c39",
+        "changed_files": [
+          "lib/pkgconfig/aribb24.pc"
+        ],
+        "source_modified_time": 1568649439,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 11",
+          "cpu_family": "arm_firestorm_icestorm",
+          "xcode": "13.2.1",
+          "clt": "13.2.0.0.1.1638488800",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "ffmpeg",
+      "version": "7.1_3",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/ffmpeg/blobs/sha256:5006a6b45280faaa8107faa266fe70381507d1ab17b5b9ddb723d7fe4f265df5",
+      "bottleSha256": "5006a6b45280faaa8107faa266fe70381507d1ab17b5b9ddb723d7fe4f265df5",
+      "recipeMember": "ffmpeg/7.1_3/.brew/ffmpeg.rb",
+      "recipeSha256": "3392356275c9a677685bd7c73b2ddc991c380795726ac5a2548fae102c07371b",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/3261681483a9abc308bafd5a3cfe2d103afaeff6/Formula/f/ffmpeg.rb",
+      "buildTab": {
+        "homebrew_version": "4.4.3-83-g6dffecd",
+        "changed_files": [
+          "lib/pkgconfig/libavcodec.pc",
+          "lib/pkgconfig/libavdevice.pc",
+          "lib/pkgconfig/libavfilter.pc",
+          "lib/pkgconfig/libavformat.pc",
+          "lib/pkgconfig/libavutil.pc",
+          "lib/pkgconfig/libpostproc.pc",
+          "lib/pkgconfig/libswresample.pc",
+          "lib/pkgconfig/libswscale.pc"
+        ],
+        "source_modified_time": 1727652710,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "libbluray",
+      "version": "1.3.4",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/libbluray/blobs/sha256:b321152d681e4fcd8c7fe06dfbc6f5f2f66460b19bef0faffff975fcd98b791f",
+      "bottleSha256": "b321152d681e4fcd8c7fe06dfbc6f5f2f66460b19bef0faffff975fcd98b791f",
+      "recipeMember": "libbluray/1.3.4/.brew/libbluray.rb",
+      "recipeSha256": "239f61cdd46d4c313012901d523099788d16e66ef5366763ab78d171c3d254f1",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/1837ec2e9bff08c891ee7c739e5d157f73eb8b50/Formula/libbluray.rb",
+      "buildTab": {
+        "homebrew_version": "3.6.13-2-gcb355a2",
+        "changed_files": [
+          "lib/pkgconfig/libbluray.pc"
+        ],
+        "source_modified_time": 1669470419,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 11",
+          "cpu_family": "arm_firestorm_icestorm",
+          "xcode": "13.2.1",
+          "clt": "13.2.0.0.1.1638488800",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "brotli",
+      "version": "1.1.0",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/brotli/blobs/sha256:a9356d6162ffd085ed43eee73a5176d330e21c087409ec44cd562e2225f6eda9",
+      "bottleSha256": "a9356d6162ffd085ed43eee73a5176d330e21c087409ec44cd562e2225f6eda9",
+      "recipeMember": "brotli/1.1.0/.brew/brotli.rb",
+      "recipeSha256": "7bd3818626f85adc2cd19504d6a487384209e695c1784c800f08d2ed3ca296ce",
+      "discoverySource": "https://raw.githubusercontent.com/Homebrew/homebrew-core/c1fc61315283f9f0f87ef538aa21329eef57f37e/Formula/b/brotli.rb",
+      "buildTab": {}
+    },
+    {
+      "formula": "cjson",
+      "version": "1.7.18",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/cjson/blobs/sha256:f8cd3c29957ec2a1007c52197f924e7f5262da5809bf928a451b25ea95df5203",
+      "bottleSha256": "f8cd3c29957ec2a1007c52197f924e7f5262da5809bf928a451b25ea95df5203",
+      "recipeMember": "cjson/1.7.18/.brew/cjson.rb",
+      "recipeSha256": "e7b3b81f7bc6a21c14ddc1de83589afdcae4a716dfabb32a8b858a872b2fefe2",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/44fd3ca8f6e735cccf42476033b4b206355e1d0d/Formula/c/cjson.rb",
+      "buildTab": {
+        "homebrew_version": "4.2.21-117-gd7e81be",
+        "changed_files": [
+          "lib/cmake/cJSON/cJSONConfig.cmake",
+          "lib/cmake/cJSON/cjson-release.cmake",
+          "lib/cmake/cJSON/cjson.cmake",
+          "lib/cmake/cJSON/cjson_utils-release.cmake",
+          "lib/cmake/cJSON/cjson_utils.cmake",
+          "lib/pkgconfig/libcjson.pc",
+          "lib/pkgconfig/libcjson_utils.pc"
+        ],
+        "source_modified_time": 1715595975,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "openssl@3",
+      "version": "3.4.0",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/openssl/3/blobs/sha256:4b27265cc378fad113f0ab2f8609098c3ac84f79a76ad68a03d6af96f4eb2380",
+      "bottleSha256": "4b27265cc378fad113f0ab2f8609098c3ac84f79a76ad68a03d6af96f4eb2380",
+      "recipeMember": "openssl@3/3.4.0/.brew/openssl@3.rb",
+      "recipeSha256": "021ac795865272b0fcbae6051d32c5dd691a4bb2104e723b8ecdbb1c72a9caab",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/c59ee9461dc8b9532febee8e49918f4cc32abdfe/Formula/o/openssl@3.rb",
+      "buildTab": {
+        "homebrew_version": "4.4.2-14-ga74bdb2",
+        "changed_files": [
+          "bin/c_rehash",
+          "lib/pkgconfig/libcrypto.pc",
+          "lib/pkgconfig/libssl.pc",
+          "lib/pkgconfig/openssl.pc"
+        ],
+        "source_modified_time": 1729600019,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "dav1d",
+      "version": "1.5.0",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/dav1d/blobs/sha256:9c8563cc40b59627ebe386f80a6bc571eb207e4695cc87614c2f149c0a0ceb77",
+      "bottleSha256": "9c8563cc40b59627ebe386f80a6bc571eb207e4695cc87614c2f149c0a0ceb77",
+      "recipeMember": "dav1d/1.5.0/.brew/dav1d.rb",
+      "recipeSha256": "bf48f32a286fb164879ef75d3327576c3de14aef31d461b9edbadcd1d78f0dd7",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/b042bcc572896f05830ba6e31e009bc2881499db/Formula/d/dav1d.rb",
+      "buildTab": {
+        "homebrew_version": "4.4.1-51-g215064e",
+        "changed_files": [
+          "lib/pkgconfig/dav1d.pc"
+        ],
+        "source_modified_time": 1729206177,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "fontconfig",
+      "version": "2.15.0",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/fontconfig/blobs/sha256:deeb5f60979bcc3d57a201914ceba3ad83ca36139be32620f529b5d69f0d1c38",
+      "bottleSha256": "deeb5f60979bcc3d57a201914ceba3ad83ca36139be32620f529b5d69f0d1c38",
+      "recipeMember": "fontconfig/2.15.0/.brew/fontconfig.rb",
+      "recipeSha256": "8689f24715c027ffab8f8e1168a3d4ae3923ee672d531ddadbbfcf575aa631ad",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/8a7752fe6e99c6372b472979cec9eafcaab881b9/Formula/f/fontconfig.rb",
+      "buildTab": {
+        "homebrew_version": "4.2.1-32-g04d8ae2",
+        "changed_files": [
+          ".bottle/etc/fonts/fonts.conf",
+          "lib/pkgconfig/fontconfig.pc"
+        ],
+        "source_modified_time": 1703253409,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.1",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "freetype",
+      "version": "2.13.3",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/freetype/blobs/sha256:47122c7d025f841f3816f1bc2c14ad1e6b4227ccc56eae2827fa585d3b58dbc5",
+      "bottleSha256": "47122c7d025f841f3816f1bc2c14ad1e6b4227ccc56eae2827fa585d3b58dbc5",
+      "recipeMember": "freetype/2.13.3/.brew/freetype.rb",
+      "recipeSha256": "628b8562345698bf6f076dad7b0e7f6ca1a5a1135dc6a1c27d1fc0242341b416",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/e5f3c59122a281f3c3e013273d168c8736238160/Formula/f/freetype.rb",
+      "buildTab": {
+        "homebrew_version": "4.3.16-19-g277c425",
+        "changed_files": [
+          "bin/freetype-config",
+          "lib/pkgconfig/freetype2.pc"
+        ],
+        "source_modified_time": 1723460449,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "gnutls",
+      "version": "3.8.4",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/gnutls/blobs/sha256:7b18d9403f8cc6a5e2e3fd427a07e32ccb1d7969715fbf5b72cfb4b5a01d8a3c",
+      "bottleSha256": "7b18d9403f8cc6a5e2e3fd427a07e32ccb1d7969715fbf5b72cfb4b5a01d8a3c",
+      "recipeMember": "gnutls/3.8.4/.brew/gnutls.rb",
+      "recipeSha256": "dd02f23d5eed1da9a9c179f62586e721276de2246e337299ed966f64b9e3c3b9",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/1bcb217b234da68c59720192e91f89436119580a/Formula/g/gnutls.rb",
+      "buildTab": {
+        "homebrew_version": "4.2.13-89-g857838a",
+        "changed_files": [
+          "lib/pkgconfig/gnutls-dane.pc",
+          "lib/pkgconfig/gnutls.pc"
+        ],
+        "source_modified_time": 1710852235,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "nettle",
+      "version": "3.10",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/nettle/blobs/sha256:cc13fe4481bb5c606b811561da643eace9e0da7f30de62ced74811659b8bb41d",
+      "bottleSha256": "cc13fe4481bb5c606b811561da643eace9e0da7f30de62ced74811659b8bb41d",
+      "recipeMember": "nettle/3.10/.brew/nettle.rb",
+      "recipeSha256": "d73b2ef9f0821d223a76ac64d96c9f201422e72f1eba29fd6d362aac12771804",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/8bebf798783b278cfa43f4fa3cfad2f5107040c9/Formula/n/nettle.rb",
+      "buildTab": {
+        "homebrew_version": "4.3.5-120-ge8430b2",
+        "changed_files": [
+          "lib/pkgconfig/hogweed.pc",
+          "lib/pkgconfig/nettle.pc"
+        ],
+        "source_modified_time": 1718551674,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "highway",
+      "version": "1.2.0",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/highway/blobs/sha256:26b4d20fb463b4a30a66a9bb8bf0e6bdac663b6c2ffe741652e671d20142a07b",
+      "bottleSha256": "26b4d20fb463b4a30a66a9bb8bf0e6bdac663b6c2ffe741652e671d20142a07b",
+      "recipeMember": "highway/1.2.0/.brew/highway.rb",
+      "recipeSha256": "33937f497b80ffe1cdfd33f32c79780b8443d4d1938a91a98ec20999214c9b0c",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/c6f686fd812f893fd1432ba50ab00f9ffec11c67/Formula/h/highway.rb",
+      "buildTab": {
+        "homebrew_version": "4.3.2-56-gfe16e9d",
+        "changed_files": [
+          "lib/pkgconfig/libhwy-contrib.pc",
+          "lib/pkgconfig/libhwy.pc"
+        ],
+        "source_modified_time": 1717169470,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "libidn2",
+      "version": "2.3.7",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/libidn2/blobs/sha256:df4d2b529ac1534d36e44c63aeee6e9be8ee856f3545e75511497de5c60e0e80",
+      "bottleSha256": "df4d2b529ac1534d36e44c63aeee6e9be8ee856f3545e75511497de5c60e0e80",
+      "recipeMember": "libidn2/2.3.7/.brew/libidn2.rb",
+      "recipeSha256": "f3d23f10bb293f3066be8d249420b1a71669d344dc7615c47ad1434d15109051",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/43da4545bb73a8c26a9b6d3167d832296e5bcf5a/Formula/lib/libidn2.rb",
+      "buildTab": {
+        "homebrew_version": "4.2.5-91-g8392f70",
+        "changed_files": [
+          "lib/pkgconfig/libidn2.pc"
+        ],
+        "source_modified_time": 1706355024,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.1",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "gettext",
+      "version": "0.22.5",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/gettext/blobs/sha256:06ee5992f8a7dbf85a1b0e4c6311029cefda6d70852e5abd28f2e8e30d27cfcf",
+      "bottleSha256": "06ee5992f8a7dbf85a1b0e4c6311029cefda6d70852e5abd28f2e8e30d27cfcf",
+      "recipeMember": "gettext/0.22.5/.brew/gettext.rb",
+      "recipeSha256": "1284cd31b5efb565b330c72f2e67b9f81fb409f92b337b3b0d3bdc0930620918",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/4c605a4ac27f58d7f00afa1b0e621412b970392f/Formula/g/gettext.rb",
+      "buildTab": {
+        "homebrew_version": "4.2.9-73-gb8243d0",
+        "changed_files": [
+          "bin/autopoint",
+          "bin/gettextize",
+          "lib/gettext/user-email",
+          "share/doc/gettext/examples/installpaths",
+          "share/man/man1/gettext.1",
+          "share/man/man1/ngettext.1"
+        ],
+        "source_modified_time": 1708534484,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.1",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "jpeg-xl",
+      "version": "0.11.1",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/jpeg-xl/blobs/sha256:9aa6aeaf24e83b836f4c78739b2f92f6ffdb312c4a4713e6195763267f29c6dd",
+      "bottleSha256": "9aa6aeaf24e83b836f4c78739b2f92f6ffdb312c4a4713e6195763267f29c6dd",
+      "recipeMember": "jpeg-xl/0.11.1/.brew/jpeg-xl.rb",
+      "recipeSha256": "9c08e97608d952ac019675abf46421e26099a3d99f7d7b23edafda6491d7b1c1",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/f355bf265534aa5a9cf326ccb188d39ee2bf5bcc/Formula/j/jpeg-xl.rb",
+      "buildTab": {
+        "homebrew_version": "4.4.8-18-g2039b86",
+        "changed_files": [
+          "lib/pkgconfig/libjxl.pc",
+          "lib/pkgconfig/libjxl_cms.pc",
+          "lib/pkgconfig/libjxl_threads.pc"
+        ],
+        "source_modified_time": 1732626155,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "little-cms2",
+      "version": "2.16",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/little-cms2/blobs/sha256:c7eee75a83a2be3f19aa53ad043da4a316af7bc7f57e6aaf8f311f9e6e354be8",
+      "bottleSha256": "c7eee75a83a2be3f19aa53ad043da4a316af7bc7f57e6aaf8f311f9e6e354be8",
+      "recipeMember": "little-cms2/2.16/.brew/little-cms2.rb",
+      "recipeSha256": "5302b52665a9daeb7568dedfc5704f4542905f7a34749c220b3e96ec32433346",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/849d5a82622881c8ea63235483b412bcf6b0570c/Formula/l/little-cms2.rb",
+      "buildTab": {
+        "homebrew_version": "4.2.2-4-g080e61f",
+        "changed_files": [
+          "lib/pkgconfig/lcms2.pc"
+        ],
+        "source_modified_time": 1701630190,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.1",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "xz",
+      "version": "5.6.3",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/xz/blobs/sha256:1e04553da7c89433bb37ad67e9d75ff87e367d422ef5675a39f9b4e26644751e",
+      "bottleSha256": "1e04553da7c89433bb37ad67e9d75ff87e367d422ef5675a39f9b4e26644751e",
+      "recipeMember": "xz/5.6.3/.brew/xz.rb",
+      "recipeSha256": "95f9d003a5f0dcc5f6ebcb387e9143710232f186ae3d6abcb5ebb24bd1f2792d",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/17cbf53f372b17850188ab813913d27728f31461/Formula/x/xz.rb",
+      "buildTab": {
+        "homebrew_version": "4.4.0-9-g7841c53",
+        "changed_files": [
+          "lib/pkgconfig/liblzma.pc"
+        ],
+        "source_modified_time": 1727800553,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "mbedtls",
+      "version": "3.6.2",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/mbedtls/blobs/sha256:7b09a07c271d4ea1f91d084e95118793d1ea9cc54d49124b975786ebe43ad820",
+      "bottleSha256": "7b09a07c271d4ea1f91d084e95118793d1ea9cc54d49124b975786ebe43ad820",
+      "recipeMember": "mbedtls/3.6.2/.brew/mbedtls.rb",
+      "recipeSha256": "d7ff567a73977e0732366616a6b001cf8f95fb469b59a84b020e136a52989133",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/83b6a3e845ce3f3daf213f2cc5d1e564fe1bdeaf/Formula/m/mbedtls.rb",
+      "buildTab": {
+        "homebrew_version": "4.4.1-28-g4d4f3a2",
+        "changed_files": [
+          "lib/pkgconfig/mbedcrypto.pc",
+          "lib/pkgconfig/mbedtls.pc",
+          "lib/pkgconfig/mbedx509.pc"
+        ],
+        "source_modified_time": 1728912089,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "lame",
+      "version": "3.100",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/lame/blobs/sha256:2ff2c6ad3cfd26e1ba53230631e2f04734a4638c344cce50ff0b8fc36b45c403",
+      "bottleSha256": "2ff2c6ad3cfd26e1ba53230631e2f04734a4638c344cce50ff0b8fc36b45c403",
+      "recipeMember": "lame/3.100/.brew/lame.rb",
+      "recipeSha256": "4b2eb4c67018bcd50dc8a5aeb6c446887dddb9e3f2d6d764d6a9bb6d485559fc",
+      "discoverySource": "https://github.com/Homebrew/homebrew-core/blob/HEAD/Formula/lame.rb",
+      "buildTab": {
+        "homebrew_version": "2.7.0-19-gfc305cc",
+        "changed_files": [],
+        "source_modified_time": 1507926699,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 11.1",
+          "cpu_family": "arm_vortex_tempest",
+          "xcode": "12.3",
+          "clt": "12.3.0.0.1.1607026830"
+        }
+      }
+    },
+    {
+      "formula": "libogg",
+      "version": "1.3.5",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/libogg/blobs/sha256:86f7182a3e7ad1a6cbc0520424875fcad195c97ee62db95d7b5e863be95eee95",
+      "bottleSha256": "86f7182a3e7ad1a6cbc0520424875fcad195c97ee62db95d7b5e863be95eee95",
+      "recipeMember": "libogg/1.3.5/.brew/libogg.rb",
+      "recipeSha256": "3502aaeb4734a96a318a5260910b2b25e73c4888a655b3912e0ce7e9d8a9d43d",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/dc127fb829a7c22172133134695ce8ee9917fcac/Formula/libogg.rb",
+      "buildTab": {
+        "homebrew_version": "3.1.9-121-g654c78c",
+        "changed_files": [
+          "lib/pkgconfig/ogg.pc"
+        ],
+        "source_modified_time": 1622776888,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 11",
+          "cpu_family": "arm_firestorm_icestorm",
+          "xcode": "12.5",
+          "clt": "12.5.0.22.9",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "opencore-amr",
+      "version": "0.1.6",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/opencore-amr/blobs/sha256:6dea7b138a3e3399d4295b70cd1dd9311ecec98bf6eedb24617b91d2020404f4",
+      "bottleSha256": "6dea7b138a3e3399d4295b70cd1dd9311ecec98bf6eedb24617b91d2020404f4",
+      "recipeMember": "opencore-amr/0.1.6/.brew/opencore-amr.rb",
+      "recipeSha256": "e8cb9fa3e56126b53812b590e40b5e77607443bffc0b5e61f7f0f6d9d7b2a1b0",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/54b5206d4e9353c72819f4988d7821d6ea16bbff/Formula/opencore-amr.rb",
+      "buildTab": {
+        "homebrew_version": "3.5.7-2-g4baff3e",
+        "changed_files": [
+          "lib/pkgconfig/opencore-amrnb.pc",
+          "lib/pkgconfig/opencore-amrwb.pc"
+        ],
+        "source_modified_time": 1659350796,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 11.6",
+          "cpu_family": "arm_firestorm_icestorm",
+          "xcode": "13.2.1",
+          "clt": "13.2.0.0.1.1638488800",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "openjpeg",
+      "version": "2.5.2",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/openjpeg/blobs/sha256:23d1814c74d0e84518faa642272a7b88a8b4e2e78e9fe8b3f3313483c180cbbe",
+      "bottleSha256": "23d1814c74d0e84518faa642272a7b88a8b4e2e78e9fe8b3f3313483c180cbbe",
+      "recipeMember": "openjpeg/2.5.2/.brew/openjpeg.rb",
+      "recipeSha256": "a4a1a75325d82d789615d406ff78443ceb221b1af488b53fb94a6a7103b52391",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/002817de47f9cf4126f61b591df44c8e118c4600/Formula/o/openjpeg.rb",
+      "buildTab": {
+        "homebrew_version": "4.2.10-103-g0a3549b",
+        "changed_files": [
+          "lib/pkgconfig/libopenjp2.pc"
+        ],
+        "source_modified_time": 1709127163,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.1",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "opus",
+      "version": "1.5.2",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/opus/blobs/sha256:d53715a8e666c4d91917f6746c2516aca2f160294ca5542a7db7a53d953c7447",
+      "bottleSha256": "d53715a8e666c4d91917f6746c2516aca2f160294ca5542a7db7a53d953c7447",
+      "recipeMember": "opus/1.5.2/.brew/opus.rb",
+      "recipeSha256": "3da33b144671ce5bb8e5c8d9ed05c01901b18e860fbb103579c9741c2bc73034",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/764aaffe6a31ff8d1e4174a881d6224039820477/Formula/o/opus.rb",
+      "buildTab": {
+        "homebrew_version": "4.2.17-99-g17d5ab3",
+        "changed_files": [
+          "lib/pkgconfig/opus.pc"
+        ],
+        "source_modified_time": 1712886731,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "p11-kit",
+      "version": "0.25.5",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/p11-kit/blobs/sha256:97ccac96157529edec341b35d57e6ca9579fb25f42d62bb573a1013572101eed",
+      "bottleSha256": "97ccac96157529edec341b35d57e6ca9579fb25f42d62bb573a1013572101eed",
+      "recipeMember": "p11-kit/0.25.5/.brew/p11-kit.rb",
+      "recipeSha256": "ae47add1011acb7841ff242c99f3eafacf174af1253714f45cf2b6cedda50752",
+      "discoverySource": "https://raw.githubusercontent.com/Homebrew/homebrew-core/c1fc61315283f9f0f87ef538aa21329eef57f37e/Formula/p/p11-kit.rb",
+      "buildTab": {}
+    },
+    {
+      "formula": "libpng",
+      "version": "1.6.44",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/libpng/blobs/sha256:f17614f1c903db5ce208c3f78c3181377f121801fbeec50a53920591f0de4d34",
+      "bottleSha256": "f17614f1c903db5ce208c3f78c3181377f121801fbeec50a53920591f0de4d34",
+      "recipeMember": "libpng/1.6.44/.brew/libpng.rb",
+      "recipeSha256": "1829dccff59445cad77a5449d307f74b409930c34089eae22fa641f86377c11e",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/781b10778c351d870d2b0c1f477ed42165761aea/Formula/lib/libpng.rb",
+      "buildTab": {
+        "homebrew_version": "4.3.21-4-gfd7f2bb",
+        "changed_files": [
+          "bin/libpng16-config",
+          "lib/pkgconfig/libpng.pc",
+          "lib/pkgconfig/libpng16.pc"
+        ],
+        "source_modified_time": 1726173884,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "rav1e",
+      "version": "0.7.1",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/rav1e/blobs/sha256:ebbacd899e780c0eaa27cd2adb2d3eba5f1d60d1ea38097601e1ea8991c95c30",
+      "bottleSha256": "ebbacd899e780c0eaa27cd2adb2d3eba5f1d60d1ea38097601e1ea8991c95c30",
+      "recipeMember": "rav1e/0.7.1/.brew/rav1e.rb",
+      "recipeSha256": "f843d978146eead7588cd8e909ab9f92a3558961f4392b2bafab32571664cd7a",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/ee750d7a08fe99eaac40f61fd3aba91d649c6543/Formula/r/rav1e.rb",
+      "buildTab": {
+        "homebrew_version": "4.2.3-50-g6a19bcb",
+        "changed_files": [
+          "lib/pkgconfig/rav1e.pc"
+        ],
+        "source_modified_time": 1704876138,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.1",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "snappy",
+      "version": "1.2.1",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/snappy/blobs/sha256:ca5b33ef7fd245020808bcb339f5b7799a4d4441b50c430c9bdd4eeca6a7d785",
+      "bottleSha256": "ca5b33ef7fd245020808bcb339f5b7799a4d4441b50c430c9bdd4eeca6a7d785",
+      "recipeMember": "snappy/1.2.1/.brew/snappy.rb",
+      "recipeSha256": "bc85c373114562ea147626183b477a96f0d1a44a81801ffb3673d54114d3e7bf",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/eb9694efe09fa0062b024e5bd3541ecd33f07320/Formula/s/snappy.rb",
+      "buildTab": {
+        "homebrew_version": "4.3.1-13-gb9a9b0a",
+        "changed_files": [],
+        "source_modified_time": 1716320199,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "libsodium",
+      "version": "1.0.20",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/libsodium/blobs/sha256:21b83b95eef039b914d712f4ac5d235d85e1f1143383dfa9c5359f0cc88fa08d",
+      "bottleSha256": "21b83b95eef039b914d712f4ac5d235d85e1f1143383dfa9c5359f0cc88fa08d",
+      "recipeMember": "libsodium/1.0.20/.brew/libsodium.rb",
+      "recipeSha256": "79b721a52dc8d7624f398cba4ba5ebf7d616cd06dd54ed45d7196ce18c97d534",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/68a9abcedf528ca3a4896a9ff8b545a85420518b/Formula/lib/libsodium.rb",
+      "buildTab": {
+        "homebrew_version": "4.3.3-85-gf8b1d1f",
+        "changed_files": [
+          "lib/pkgconfig/libsodium.pc"
+        ],
+        "source_modified_time": 1716639503,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "libsoxr",
+      "version": "0.1.3",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/libsoxr/blobs/sha256:cf7ef980c9553756fa4b267b52e940566dc07b9aecbfea49180dbb2ebdeb433a",
+      "bottleSha256": "cf7ef980c9553756fa4b267b52e940566dc07b9aecbfea49180dbb2ebdeb433a",
+      "recipeMember": "libsoxr/0.1.3/.brew/libsoxr.rb",
+      "recipeSha256": "d3681949a5ec9856408e7c33a3ef46f7386352f2ebf79f7a6747ca3b0f1fa05a",
+      "discoverySource": "https://raw.githubusercontent.com/Homebrew/homebrew-core/c1fc61315283f9f0f87ef538aa21329eef57f37e/Formula/lib/libsoxr.rb",
+      "buildTab": {}
+    },
+    {
+      "formula": "speex",
+      "version": "1.2.1",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/speex/blobs/sha256:3cb6ffa6920e1ea4e904bb0e2a8d6e62c329c39c6f7d80d8c66f691b5ad1f427",
+      "bottleSha256": "3cb6ffa6920e1ea4e904bb0e2a8d6e62c329c39c6f7d80d8c66f691b5ad1f427",
+      "recipeMember": "speex/1.2.1/.brew/speex.rb",
+      "recipeSha256": "92bd3d3def2c031b0311d6298ef78faab2499b079a12321cadb8ef8064d8ed02",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/48973a47f099ea4cfbf997b4ea8145932c7e647f/Formula/speex.rb",
+      "buildTab": {
+        "homebrew_version": "3.5.2-158-g38e1af8",
+        "changed_files": [
+          "lib/pkgconfig/speex.pc"
+        ],
+        "source_modified_time": 1655399341,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 11.6",
+          "cpu_family": "arm_firestorm_icestorm",
+          "xcode": "13.2.1",
+          "clt": "13.2.0.0.1.1638488800",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "srt",
+      "version": "1.5.4",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/srt/blobs/sha256:806fa132d70ecfff69e3cecb0f4c70d8e994293e748ca21b7c30290c09e7db05",
+      "bottleSha256": "806fa132d70ecfff69e3cecb0f4c70d8e994293e748ca21b7c30290c09e7db05",
+      "recipeMember": "srt/1.5.4/.brew/srt.rb",
+      "recipeSha256": "c140d97b9d96193c2f54acd9bc7e53a87958554c76032222b34af4ccc8612493",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/58a5f706fbb93162d9231e448fec3d23a20490c2/Formula/s/srt.rb",
+      "buildTab": {
+        "homebrew_version": "4.4.4-78-g284035d",
+        "changed_files": [
+          "lib/pkgconfig/haisrt.pc",
+          "lib/pkgconfig/srt.pc"
+        ],
+        "source_modified_time": 1730975212,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "libssh",
+      "version": "0.11.1",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/libssh/blobs/sha256:9de46491d931e959172d96481de25cae970c55d2b5212a8fae8224208940c42d",
+      "bottleSha256": "9de46491d931e959172d96481de25cae970c55d2b5212a8fae8224208940c42d",
+      "recipeMember": "libssh/0.11.1/.brew/libssh.rb",
+      "recipeSha256": "f382187052b2da34fee08b70581119ef3f2e190a18c1dc0069b088c83eb9039f",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/3231387ec70cdbbcc6312544bd25b5c5018ea5ea/Formula/lib/libssh.rb",
+      "buildTab": {
+        "homebrew_version": "4.3.18-94-g21443e6",
+        "changed_files": [
+          "lib/pkgconfig/libssh.pc"
+        ],
+        "source_modified_time": 1724938599,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "libtasn1",
+      "version": "4.19.0",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/libtasn1/blobs/sha256:19c6df6badb6b13631670b917595f63a49a06cadd73e2484e5546129cadcf04c",
+      "bottleSha256": "19c6df6badb6b13631670b917595f63a49a06cadd73e2484e5546129cadcf04c",
+      "recipeMember": "libtasn1/4.19.0/.brew/libtasn1.rb",
+      "recipeSha256": "42e6f3900205b5fdf6b36f5dc0655ca49d9e0defd9d37f9d36b71ffe0f28d72a",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/1a7acf823333dda2e033633adedfdcdf07a62179/Formula/libtasn1.rb",
+      "buildTab": {
+        "homebrew_version": "3.5.10-25-g2415339",
+        "changed_files": [
+          "lib/pkgconfig/libtasn1.pc"
+        ],
+        "source_modified_time": 1661276345,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 11.6",
+          "cpu_family": "arm_firestorm_icestorm",
+          "xcode": "13.2.1",
+          "clt": "13.2.0.0.1.1638488800",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "theora",
+      "version": "1.1.1",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/theora/blobs/sha256:1e5271cb88e3dad8eb5f06460e7f3f2cec0129679c7f7fb4f84db1d09664b827",
+      "bottleSha256": "1e5271cb88e3dad8eb5f06460e7f3f2cec0129679c7f7fb4f84db1d09664b827",
+      "recipeMember": "theora/1.1.1/.brew/theora.rb",
+      "recipeSha256": "4425d863e458177b01791eb1f62166f60011354059fbadde873da21565393bbb",
+      "discoverySource": "https://raw.githubusercontent.com/Homebrew/homebrew-core/c1fc61315283f9f0f87ef538aa21329eef57f37e/Formula/t/theora.rb",
+      "buildTab": {}
+    },
+    {
+      "formula": "libunistring",
+      "version": "1.3",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/libunistring/blobs/sha256:b0d7a7078508070bd67589f5060a92100bd1c4aea2a41bf19e7ee8442f483df6",
+      "bottleSha256": "b0d7a7078508070bd67589f5060a92100bd1c4aea2a41bf19e7ee8442f483df6",
+      "recipeMember": "libunistring/1.3/.brew/libunistring.rb",
+      "recipeSha256": "c77a3f97786cd2a4373cc91bda84b384c3ab13f94be558a74ed5576ca5563bff",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/89e9fc1b3ab7ad02859f1636fdda5eeef20982fc/Formula/lib/libunistring.rb",
+      "buildTab": {
+        "homebrew_version": "4.4.2",
+        "changed_files": [],
+        "source_modified_time": 1729080814,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "libvmaf",
+      "version": "3.0.0",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/libvmaf/blobs/sha256:ca7a55e4abb5861b0bdc2fbb14fe298e466f9910298e043efc2d47d17332d686",
+      "bottleSha256": "ca7a55e4abb5861b0bdc2fbb14fe298e466f9910298e043efc2d47d17332d686",
+      "recipeMember": "libvmaf/3.0.0/.brew/libvmaf.rb",
+      "recipeSha256": "b43a82b50c8c5b7a79f0a6607758309f3f0556791a06189ae15291d95299baa4",
+      "discoverySource": "https://raw.githubusercontent.com/Homebrew/homebrew-core/c1fc61315283f9f0f87ef538aa21329eef57f37e/Formula/lib/libvmaf.rb",
+      "buildTab": {}
+    },
+    {
+      "formula": "libvorbis",
+      "version": "1.3.7",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/libvorbis/blobs/sha256:07ab1118fc6d389a8b0506d0b74a3cfc12026a837c8f2609b2133318c8818c81",
+      "bottleSha256": "07ab1118fc6d389a8b0506d0b74a3cfc12026a837c8f2609b2133318c8818c81",
+      "recipeMember": "libvorbis/1.3.7/.brew/libvorbis.rb",
+      "recipeSha256": "bad815200b2bf98840865069fcb2d50d8d9c89c741f90d676a8745ad6db2d20a",
+      "discoverySource": "https://github.com/Homebrew/homebrew-core/blob/HEAD/Formula/libvorbis.rb",
+      "buildTab": {
+        "homebrew_version": "2.7.0-19-gfc305cc",
+        "changed_files": [
+          "lib/pkgconfig/vorbis.pc",
+          "lib/pkgconfig/vorbisenc.pc",
+          "lib/pkgconfig/vorbisfile.pc"
+        ],
+        "source_modified_time": 1593843685,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 11.1",
+          "cpu_family": "arm_vortex_tempest",
+          "xcode": "12.3",
+          "clt": "12.3.0.0.1.1607026830"
+        }
+      }
+    },
+    {
+      "formula": "libvpx",
+      "version": "1.15.0",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/libvpx/blobs/sha256:68b0b266de2faa807df3dcd3c85e0028c8c12c93d22874c0c2676575101a3362",
+      "bottleSha256": "68b0b266de2faa807df3dcd3c85e0028c8c12c93d22874c0c2676575101a3362",
+      "recipeMember": "libvpx/1.15.0/.brew/libvpx.rb",
+      "recipeSha256": "7bfa2ab0bf2cdb59153a0ecfa43e4a5eb25948af14157ed2b033e8156dabc806",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/3261681483a9abc308bafd5a3cfe2d103afaeff6/Formula/lib/libvpx.rb",
+      "buildTab": {
+        "homebrew_version": "4.4.3-83-g6dffecd",
+        "changed_files": [
+          "lib/pkgconfig/vpx.pc"
+        ],
+        "source_modified_time": 1729707897,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "x265",
+      "version": "4.0_1",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/x265/blobs/sha256:02dfe1f1d44105fbf40e26abc95b2528850e5d0c435fb3b89e13a1ca6c15b4b6",
+      "bottleSha256": "02dfe1f1d44105fbf40e26abc95b2528850e5d0c435fb3b89e13a1ca6c15b4b6",
+      "recipeMember": "x265/4.0_1/.brew/x265.rb",
+      "recipeSha256": "71fa2dac59b50aa3eff2f9954258e661d2c4766fd0c5190253ed5ee8fbfe6f96",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/a9e2835cbb2f65d80781f8f5f51d2adfe62d3cc4/Formula/x/x265.rb",
+      "buildTab": {
+        "homebrew_version": "4.4.3-60-g745596b",
+        "changed_files": [
+          "lib/pkgconfig/x265.pc"
+        ],
+        "source_modified_time": 1726232575,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "libxcb",
+      "version": "1.17.0",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/libxcb/blobs/sha256:28d4e84c5f80959fcccf10e66bded2fe5d506d66fb89682d40acb6e0cc0a4611",
+      "bottleSha256": "28d4e84c5f80959fcccf10e66bded2fe5d506d66fb89682d40acb6e0cc0a4611",
+      "recipeMember": "libxcb/1.17.0/.brew/libxcb.rb",
+      "recipeSha256": "aeac35daa9eccafbe01029d2359af55a5881d1cabf582628d906028512899d51",
+      "discoverySource": "https://github.com/homebrew/homebrew-core/blob/83cf9ad0418b9629faed3858600880ab760dd2aa/Formula/lib/libxcb.rb",
+      "buildTab": {
+        "homebrew_version": "4.2.18-38-g726d65c",
+        "changed_files": [
+          "lib/pkgconfig/xcb-composite.pc",
+          "lib/pkgconfig/xcb-damage.pc",
+          "lib/pkgconfig/xcb-dbe.pc",
+          "lib/pkgconfig/xcb-dpms.pc",
+          "lib/pkgconfig/xcb-dri2.pc",
+          "lib/pkgconfig/xcb-dri3.pc",
+          "lib/pkgconfig/xcb-ge.pc",
+          "lib/pkgconfig/xcb-glx.pc",
+          "lib/pkgconfig/xcb-present.pc",
+          "lib/pkgconfig/xcb-randr.pc",
+          "lib/pkgconfig/xcb-record.pc",
+          "lib/pkgconfig/xcb-render.pc",
+          "lib/pkgconfig/xcb-res.pc",
+          "lib/pkgconfig/xcb-screensaver.pc",
+          "lib/pkgconfig/xcb-shape.pc",
+          "lib/pkgconfig/xcb-shm.pc",
+          "lib/pkgconfig/xcb-sync.pc",
+          "lib/pkgconfig/xcb-xevie.pc",
+          "lib/pkgconfig/xcb-xf86dri.pc",
+          "lib/pkgconfig/xcb-xfixes.pc",
+          "lib/pkgconfig/xcb-xinerama.pc",
+          "lib/pkgconfig/xcb-xinput.pc",
+          "lib/pkgconfig/xcb-xkb.pc",
+          "lib/pkgconfig/xcb-xprint.pc",
+          "lib/pkgconfig/xcb-xselinux.pc",
+          "lib/pkgconfig/xcb-xtest.pc",
+          "lib/pkgconfig/xcb-xv.pc",
+          "lib/pkgconfig/xcb-xvmc.pc",
+          "lib/pkgconfig/xcb.pc"
+        ],
+        "source_modified_time": 1713193781,
+        "compiler": "clang",
+        "arch": "arm64",
+        "built_on": {
+          "os": "Macintosh",
+          "os_version": "macOS 13.6",
+          "cpu_family": "dunno",
+          "xcode": "15.2",
+          "clt": "15.1.0.0.1.1700200546",
+          "preferred_perl": "5.30"
+        }
+      }
+    },
+    {
+      "formula": "librist",
+      "version": "0.2.11",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/librist/blobs/sha256:891def5dc77ba1e982ab1cb27efe8f47383988e7f503b91d844ceab49a3bac5a",
+      "bottleSha256": "891def5dc77ba1e982ab1cb27efe8f47383988e7f503b91d844ceab49a3bac5a",
+      "recipeMember": "librist/0.2.11/.brew/librist.rb",
+      "recipeSha256": "3b69aa9e57a1f9db0d3f9ddc877142ef941e24de27f524c15e68a66a40c7d841",
+      "discoverySource": "https://raw.githubusercontent.com/Homebrew/homebrew-core/c9b5e0a6756cb2bb240aa650b1e39efae2ac4c98/Formula/lib/librist.rb",
+      "buildTab": {}
+    },
+    {
+      "formula": "webp",
+      "version": "1.4.0",
+      "bottleUrl": "https://ghcr.io/v2/homebrew/core/webp/blobs/sha256:5fbe5e4ca1a6460ae98a69d41da4cfd3a7af126a11187ccc13c7d55c5efe7e08",
+      "bottleSha256": "5fbe5e4ca1a6460ae98a69d41da4cfd3a7af126a11187ccc13c7d55c5efe7e08",
+      "recipeMember": "webp/1.4.0/.brew/webp.rb",
+      "recipeSha256": "83012ae7356a79e31bf21f20f09876ae0ad868419580749e4023372059891c75",
+      "discoverySource": "https://raw.githubusercontent.com/Homebrew/homebrew-core/a2853609cce522fb439de4a0b88d59d7e6f8a485/Formula/w/webp.rb",
+      "buildTab": {}
+    }
+  ],
+  "libraries": [
+    {
+      "file": "libaom.3.11.0.dylib",
+      "formula": "aom",
+      "sha256": "afb3a9238760fd695b90df1d4c7674f74c7e8c46b90206f5b705647d0067e4ff",
+      "originalMember": "aom/3.11.0/lib/libaom.3.11.0.dylib",
+      "original": {
+        "sha256": "70d3b027ffd8e5b23fbbe1bbf94a532ec65befe23aad201a08cbf15f04d08187",
+        "cpuType": 16777228,
+        "uuid": "ed26e5870c203c22afe4af0513cb4959",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 2903660,
+            "sha256": "87b5d95f30a49ec155dbc3562fe9de3d43bbd145682aea10250c0bea1466303c"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 888,
+            "sha256": "e79c5ccadd0f0baba7b9a9a8ee5f6b48f813bb002eda6cbcc3cb4926805ba4fc"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libaribb24.0.dylib",
+      "formula": "aribb24",
+      "sha256": "0cde2282af6834ee8d50b87c295c89acfb1fd007b6d1bdd7f0a99d222dfbf996",
+      "originalMember": "aribb24/1.0.4/lib/libaribb24.0.dylib",
+      "original": {
+        "sha256": "23cbce18dcda3f542fe31989e2a1c2efe11c5fdefbe94239d43dce255c59f13a",
+        "cpuType": 16777228,
+        "uuid": "c907c2fa06643caa85cfe95d3834bb68",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 17404,
+            "sha256": "a3f7634a4a53015b37d744dd12e30579064c730b3c486322d9e65bf68b1bce8f"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 480,
+            "sha256": "b381ae730aa8df732fed8c29ee3275bb01e98c77c754079d4d43ed2bcfa243f5"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stub_helper",
+            "size": 504,
+            "sha256": "88378a2a163601d8e6293ec45ec7cfeb4eaacfd714c930b34eb91e6a9902acdf"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libavcodec.61.19.100.dylib",
+      "formula": "ffmpeg",
+      "sha256": "6eaf8b4eeffade7a8b01ee3a2c7fa9772fd49148a52a0201368c6c929d7f9718",
+      "originalMember": "ffmpeg/7.1_3/lib/libavcodec.61.19.100.dylib",
+      "original": {
+        "sha256": "22816f32c4d27203bacc884d185e216dab6b6107fde4ab337d1270a3bfb2891a",
+        "cpuType": 16777228,
+        "uuid": "489aab1723fa3dcda494da03d63b2448",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 6651840,
+            "sha256": "b0bb4cccfe1860fd068d00485815616ebceacd3adbdf650c43e2c5fe6c1516bd"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 8964,
+            "sha256": "7a353a07b3e54208cbaadd457367985665b9953df642bc3b78dd0c3d27588ed1"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libavformat.61.7.100.dylib",
+      "formula": "ffmpeg",
+      "sha256": "17884446637cee3858d31cf598c8278284cd64bbb7be09314309c9e0132f1a57",
+      "originalMember": "ffmpeg/7.1_3/lib/libavformat.61.7.100.dylib",
+      "original": {
+        "sha256": "f55974680ad9ae3a0f7b3b753e00d9d1ea099f77070054cf4d35eb7201d39918",
+        "cpuType": 16777228,
+        "uuid": "8d014bf8b84a3c24b8fb99a24be4eb29",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 1457092,
+            "sha256": "3bfe57c5757afdc4804336ba5ddb53b53cbb6595db2c7135e6949cf9ba72e7f8"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 7440,
+            "sha256": "82f8cc7d75b32a47bc85465f8ca1d0016d6ae8e8e7700592a390e9896bc1352e"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libavutil.59.39.100.dylib",
+      "formula": "ffmpeg",
+      "sha256": "b19c21deae6b56f68588f5be7981b443be4de6299c8a1d767d321b5ff34d8ac4",
+      "originalMember": "ffmpeg/7.1_3/lib/libavutil.59.39.100.dylib",
+      "original": {
+        "sha256": "25909c4cb96e8608eca096d7093164f6d8cd606cf9ee174ac9c5af925de4c12c",
+        "cpuType": 16777228,
+        "uuid": "2346927c05073d80a24761c42dd68368",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 357276,
+            "sha256": "bae0732c675f01db0f39679495414ab88a725376232f9972ffc1c14add474431"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 1284,
+            "sha256": "5cacd55eb812922c6840a240ac64b29124da8d5447e7aaf9de38d71940d676cb"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libbluray.2.dylib",
+      "formula": "libbluray",
+      "sha256": "6b44402b3844f3f0ae84aac63bfd5a4fa473ed2a31e91f5890b544da6b1007c0",
+      "originalMember": "libbluray/1.3.4/lib/libbluray.2.dylib",
+      "original": {
+        "sha256": "cd396609ab266520266636596345c45204baac0c237d85bcfc27085342890065",
+        "cpuType": 16777228,
+        "uuid": "26c4f6f75d393c12831aa852dc21c318",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 172260,
+            "sha256": "7427a35b2c3fd443e5c7e627f627f856fdead335907f2a948bb1681da1142a52"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 1224,
+            "sha256": "72541d5c17811740a9ac798b80b272a408eff8eeb1ddb0ffaa753aca6faf3f18"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stub_helper",
+            "size": 1248,
+            "sha256": "ce34b9dfceebe39173f1b9d949f3e3916ed8a1e294977d68635863980633636e"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libbrotlicommon.1.1.0.dylib",
+      "formula": "brotli",
+      "sha256": "150c701c110fcefae87460c37c178bf38a1d1dc4fcb80e0f421a813820fa86da",
+      "originalMember": "brotli/1.1.0/lib/libbrotlicommon.1.1.0.dylib",
+      "original": {
+        "sha256": "8f8ab8b666408ea82dddf1682c87039cc881f732a641e17467c1899fedc792c1",
+        "cpuType": 16777228,
+        "uuid": "d138bb47c6e03973a46e0f3b6b9220f1",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 1432,
+            "sha256": "98fb2a4b4916dc50f5efed3fa26fa65d58eb4fdb310dc86c8231f7a2c8e96fed"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 36,
+            "sha256": "db55004595b5afd259233fe76036b7c2c3f18817eaf93b3465e332b29a4bce00"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stub_helper",
+            "size": 60,
+            "sha256": "b3899a2a7f84e5118c685b51d5f0edf3095b49e31ffcad33dcda2742cfa35336"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libbrotlidec.1.1.0.dylib",
+      "formula": "brotli",
+      "sha256": "ed7f45f8c5273bc5bde34c54e975ab44ed68d3af9d21c735eb3760faf7fe5d63",
+      "originalMember": "brotli/1.1.0/lib/libbrotlidec.1.1.0.dylib",
+      "original": {
+        "sha256": "72c3471fb045a2d2c7a0623585a1e042ecfeabcdd9f61b21d97c3d5c745291d2",
+        "cpuType": 16777228,
+        "uuid": "1fe2b327ad6a3914a29b67df9edcdedd",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 25256,
+            "sha256": "8a55c107be3d2c63e2f83fffef80a5a00adaac0265cffc76768965556c8078a0"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 108,
+            "sha256": "b700c22e2e1f8bd3a7518882965ad9134813daa458c01e03112cdb51011bb2fd"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stub_helper",
+            "size": 132,
+            "sha256": "d4587192ba24717211b4c835fd3a483af151eeef01b471665745a493601e5556"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libbrotlienc.1.1.0.dylib",
+      "formula": "brotli",
+      "sha256": "5d3aa1b52aaa84596cefee13f11292adaf933be41ca01b66389a7d1f91c3180e",
+      "originalMember": "brotli/1.1.0/lib/libbrotlienc.1.1.0.dylib",
+      "original": {
+        "sha256": "424e8d5ac3c32b71ed8e35c5823f44075e6bb1db3a9d70548cb304e2fa58da16",
+        "cpuType": 16777228,
+        "uuid": "44181bf1b0e4366198180083fe77def3",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 251896,
+            "sha256": "6a250076f5b294c7cfd0d1bdb58d71ef4c338b18188f69573385cb8fed695182"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 144,
+            "sha256": "d62e121806049641bf6b0e9f2ba211a84b997c78458fedd63d7b07e33e25b511"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stub_helper",
+            "size": 168,
+            "sha256": "fac60e1b28b8ec3216b957c4813732ce858bc680270ad790753aaa9a819b5f9a"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libcjson.1.7.18.dylib",
+      "formula": "cjson",
+      "sha256": "5c399a2123a13a53a299cf6ffaaa6d4f266edf8520d086606646caa8bf23b07d",
+      "originalMember": "cjson/1.7.18/lib/libcjson.1.7.18.dylib",
+      "original": {
+        "sha256": "32638f262d82c5ff2d2320b77652f827f7288b9f817ae3cf7b6718010115ac16",
+        "cpuType": 16777228,
+        "uuid": "912bd1537ecf332a990f55cc2841624c",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 12092,
+            "sha256": "46f4af843fc383c6483f27775d8c0c35eda508867f9e6a66f10ce2927a0eb68f"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 144,
+            "sha256": "7bba25e4210d97a5febedadfad3af44a8847bd84c7a1a4b65126abe40de99105"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libcrypto.3.dylib",
+      "formula": "openssl@3",
+      "sha256": "8acad225bd1f075502b81e4c46a98a78adf9db1af9be537a9650b8ca137f1003",
+      "originalMember": "openssl@3/3.4.0/lib/libcrypto.3.dylib",
+      "original": {
+        "sha256": "5cbf60509dc68df84f6a7866cc618e251bb907e6178e8ba3d2e878125d30f5f8",
+        "cpuType": 16777228,
+        "uuid": "8e2a06846ed93196be345f03eb8cbfef",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 2131028,
+            "sha256": "a4895adbc1f07fb85a2528b4e76a46719c0af60b3cfb5877bb38fcf121e81294"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 1848,
+            "sha256": "b38e1d7bb8abe740727d3adcfdccd77d9bb20b719f2765407619351aeb7efccf"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libdav1d.7.dylib",
+      "formula": "dav1d",
+      "sha256": "f99da7a5f0d0a0d7341716a899c33dd2ea5352b29ceb803f6784bcb841c32bea",
+      "originalMember": "dav1d/1.5.0/lib/libdav1d.7.dylib",
+      "original": {
+        "sha256": "09ceab2d6bde48e1657a3aefb827c0251966d6dd8526e6c9f24d305bd90bc845",
+        "cpuType": 16777228,
+        "uuid": "6eb7f89cd3773beb9e4a373c358e138a",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 501532,
+            "sha256": "2cc863a1db7ef1aacd5998d62b3d792921015e7db71a9f967c2c534653b0f56e"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 360,
+            "sha256": "0d5119a8909b84c7222c81e58249fc940cda48b9d00536938ac53e93b70d33e5"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libfontconfig.1.dylib",
+      "formula": "fontconfig",
+      "sha256": "1f98a7840ae7be56be24fed1cd838f2aafaca2b2c41e369f4bbad8bf712d476d",
+      "originalMember": "fontconfig/2.15.0/lib/libfontconfig.1.dylib",
+      "original": {
+        "sha256": "0abc067f89be4462346f6f53fbb52a96f918e7692b2ae866c3943067d512b56b",
+        "cpuType": 16777228,
+        "uuid": "edd2b9e1a77e31a7bc7f066117bb51c8",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 132556,
+            "sha256": "4c3d5849465aac60ea28fe204d058a02e9d1e46c170d75d294c67b69739d6fa8"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 1452,
+            "sha256": "b899bb5fd61b2bed43ea74b640412d2264a8a21bd4855f654512d6395d48ac57"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libfreetype.6.dylib",
+      "formula": "freetype",
+      "sha256": "9b558035a6be9f1e43fa7e0bcb552929e6c46c6f97acebf7e514b6da28d3e856",
+      "originalMember": "freetype/2.13.3/lib/libfreetype.6.dylib",
+      "original": {
+        "sha256": "900d6825debe839c4b497418f05f67e594031424feef730e8bd3c51d3016b1e5",
+        "cpuType": 16777228,
+        "uuid": "07d8b5ad21a634e492746c5bea08152d",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 394740,
+            "sha256": "f1f1bf94dc101955132353e68d924f0774b31747ad171e93e2bedf923950677b"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 768,
+            "sha256": "e75e0261e3a8886653cc4c0761215627b09263b46bfdc99828630e125ec213c6"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libgmp.10.dylib",
+      "formula": "gmp",
+      "sha256": "ac9e1a918d0cb4da98d2d25ef6d7d637ced7131cc88619ab4b548290c7713a46"
+    },
+    {
+      "file": "libgnutls.30.dylib",
+      "formula": "gnutls",
+      "sha256": "0ee1eb0cc58dfed69c39f77a2a820ea55f653b1e5e253ac8d23603026425a406",
+      "originalMember": "gnutls/3.8.4/lib/libgnutls.30.dylib",
+      "original": {
+        "sha256": "5e96ed871d676bfddb841b6449b6033acaa02bf617f14d1f55f5751d0b5629a9",
+        "cpuType": 16777228,
+        "uuid": "7e7a796f3aa43154a5b8f7ba803f3c39",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 1055876,
+            "sha256": "6211edb6f1f68c667d255fe4948ab9da85cde093a6a366b7c6b3db111ed9c96e"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 4848,
+            "sha256": "61a189ead2b18b5061eda82d670a5feddd06ac8a4fd4fd05254ab1d109a28c4e"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libhogweed.6.9.dylib",
+      "formula": "nettle",
+      "sha256": "a577a54d04546f5343443de50ad3bd97771c3201422421ae50dfd40d9f47df7a",
+      "originalMember": "nettle/3.10/lib/libhogweed.6.9.dylib",
+      "original": {
+        "sha256": "48cdea339d6e004348a93bf00546cbd3bc7ef474fe865c6f8352b3d6f033b96a",
+        "cpuType": 16777228,
+        "uuid": "fd54a1fefb17351eafbcb4ddf9ee4b66",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 74012,
+            "sha256": "7a3092b95ec10041a815012f7b76e23f44184043da16c1047441ea2ff9ab617c"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 1224,
+            "sha256": "6fbc285f190316d94148a06a2f8616c2efcafffcb57132ded747dabbe3d4ba69"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libhwy.1.2.0.dylib",
+      "formula": "highway",
+      "sha256": "d4b09b2f51336ba7ecf1e30d57c0c3f32a7a4da6562e51a1608c66f35779cb28",
+      "originalMember": "highway/1.2.0/lib/libhwy.1.2.0.dylib",
+      "original": {
+        "sha256": "19597179eb7eb7688f6dcef09843867e3765642af794a10e14655eb7a4b45f1d",
+        "cpuType": 16777228,
+        "uuid": "c14573e6666f33cfbbbe1512642dc307",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 16156,
+            "sha256": "65bdc3585fd788b71565fa0f8841c6d1cb2d111fc44eb2face83a503e3d73bac"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 276,
+            "sha256": "92b156b8680f935b802dd851cd4b708767cd1fdcb87e6ec3707e0e2bdbf5f3a5"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libidn2.0.dylib",
+      "formula": "libidn2",
+      "sha256": "63ef4771aa44af5d1511d6bdccf3a76ace411b98cf1a04102d571e9b2374b423",
+      "originalMember": "libidn2/2.3.7/lib/libidn2.0.dylib",
+      "original": {
+        "sha256": "ca24052350d418bd1bd219e5bbfc84e300bcd2fa25b56248ca09b688e9d1d165",
+        "cpuType": 16777228,
+        "uuid": "c65049d702353dbd96958c41585b624e",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 27856,
+            "sha256": "0a0b66bccbde88e5bee03a973d19e76ae0dda65c61295ff03fe6e5c0ec399bb6"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 828,
+            "sha256": "e8e032cf1c77b225ec66d214e8dd78c13c3de4c7d3d88fb1b9fcccabaca98d16"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libintl.8.dylib",
+      "formula": "gettext",
+      "sha256": "7801273b7c8845200b8518063da63af057a8b01efc82706c4bd5394b7be86930",
+      "originalMember": "gettext/0.22.5/lib/libintl.8.dylib",
+      "original": {
+        "sha256": "5915ef52262ca91a3e4e391a27397d473759543e5ba1e75dae9a4088c28a7fe2",
+        "cpuType": 16777228,
+        "uuid": "3d5114028544318aad7fbfd923e43eca",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 65820,
+            "sha256": "43b21bb2e0c07964b6ff11256d2616843f4280f5aabb7dd8345eaff7760517a6"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 1104,
+            "sha256": "7d9f72b09089e3374ece69c81bd6ceefa8ad8c4202b6e65423df35390827340d"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libjxl_cms.0.11.1.dylib",
+      "formula": "jpeg-xl",
+      "sha256": "1cb1374305b1f4dff5589c4b85eca2014ab03b2f4ecf998edf33421eebcfd13c",
+      "originalMember": "jpeg-xl/0.11.1/lib/libjxl_cms.0.11.1.dylib",
+      "original": {
+        "sha256": "3531f01b922f9390c795b9ccc66faadbd667fa9614e32ea3809aa91985aa3fe5",
+        "cpuType": 16777228,
+        "uuid": "0893b48902b53a019b8e696c0a59ea4d",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 30720,
+            "sha256": "0b4865874ad2779fa0dfe8f9e434ba18a26d2d4cf95b07882c13ccac6aa013b8"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 420,
+            "sha256": "c078308bf6fbdbe77f51e3c5ed3b60a1843a9554f0e13a9d74d6104d996d6173"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libjxl_threads.0.11.1.dylib",
+      "formula": "jpeg-xl",
+      "sha256": "3f7201856a19865d3d4e7b043dc86be5a0e4e75a601699c6040df4da978df4a6",
+      "originalMember": "jpeg-xl/0.11.1/lib/libjxl_threads.0.11.1.dylib",
+      "original": {
+        "sha256": "d032ddf943605f61b9e87099bbaaa083956f49faafbe74a23cc78adae722d9ae",
+        "cpuType": 16777228,
+        "uuid": "1fefe573e8e53c0c8d00adf719da693f",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 4832,
+            "sha256": "a7061f9d2482ebe5df8211dc95a2808db64f19b4a0579ce49e520e688dec9924"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 264,
+            "sha256": "aa8aa42c538f449a5acf9ba196737b3fc756baabeb47636127d85106f7608d07"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libjxl.0.11.1.dylib",
+      "formula": "jpeg-xl",
+      "sha256": "1bddf74605a7043712ff9b7016465019bf495d6642b81ab487ffa79a5f16d60e",
+      "originalMember": "jpeg-xl/0.11.1/lib/libjxl.0.11.1.dylib",
+      "original": {
+        "sha256": "6ed73ed9b55269ac7230b35d653a19ccc805aa1d850ada24878745b5a59d6b08",
+        "cpuType": 16777228,
+        "uuid": "5635b088d74c329cac88271d6ce3f4d8",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 1176524,
+            "sha256": "5824bea212861c36c43ce9b933e9d8fac0f79db8b7761f1c278f3f0bb9e9a1ef"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 900,
+            "sha256": "832ec754bcc77ad26f7ad17bd71e44a2e7cd40243b5a819a2ef6481093aef102"
+          }
+        ]
+      }
+    },
+    {
+      "file": "liblcms2.2.dylib",
+      "formula": "little-cms2",
+      "sha256": "fb7be7e28269651876eb65ffffbbfcc24de4d122a61552727384445134a37a76",
+      "originalMember": "little-cms2/2.16/lib/liblcms2.2.dylib",
+      "original": {
+        "sha256": "6ee2e0a55f0e71f16c7f29be0771648aa244c47e77713c8f6aa43326710a19f3",
+        "cpuType": 16777228,
+        "uuid": "4a0d19d9b37f3996abf3f37b21102d0d",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 206712,
+            "sha256": "701b383ea12299a5be44e632743020f6750c6a42de0200e39fe01acabbd21a27"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 624,
+            "sha256": "69cb5d7515961e399b5bbe49d9ac8be4567f79d0aa4138275e77f29205af3fd8"
+          }
+        ]
+      }
+    },
+    {
+      "file": "liblzma.5.dylib",
+      "formula": "xz",
+      "sha256": "02585874c642a49faec4586b8ef22e3b559e32d8e62ab86f2725632a57250f5e",
+      "originalMember": "xz/5.6.3/lib/liblzma.5.dylib",
+      "original": {
+        "sha256": "87b0721dcb6874fa75ca3ef40a293187e2010ec28a09f35fda328be47059c1c4",
+        "cpuType": 16777228,
+        "uuid": "e1a092c75c783240a0ebc866ed67e09c",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 98224,
+            "sha256": "2b798b2473189ddcab0e8c7773909b3fc419c5df8205be9cd6848c314f25ad4e"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 312,
+            "sha256": "10a53f467ed1bf427989b32ef50013aefd9c26d232a0e2a3a52d838e9875af80"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libmbedcrypto.3.6.2.dylib",
+      "formula": "mbedtls",
+      "sha256": "c7bb2c0b9ebde6486ae4904137413a1e93e65de74217a54ee912f8f19689a092",
+      "originalMember": "mbedtls/3.6.2/lib/libmbedcrypto.3.6.2.dylib",
+      "original": {
+        "sha256": "ce5777139b835c4e7ab1acd70df3dbda33c3e09611cd36d9740597a30699594e",
+        "cpuType": 16777228,
+        "uuid": "a964c0edee203c87a5334e31e11f3cf9",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 259136,
+            "sha256": "4ad282dbd08e784dff386dcf282586a35c9c7704dadbc12a59ed98f0409010f4"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 468,
+            "sha256": "c71f9b847d73cb6f1a5650c9e3ce8643b0c81271fd863f30d16b8a8e7e45177a"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libmp3lame.0.dylib",
+      "formula": "lame",
+      "sha256": "f4a0c1fefd56399e741116022899def71d188ea246703c2d1a46257c182c6200",
+      "originalMember": "lame/3.100/lib/libmp3lame.0.dylib",
+      "original": {
+        "sha256": "847ec631207818cf369dadd8da877f9f5fa9db16b9a0a468c37524331b25b930",
+        "cpuType": 16777228,
+        "uuid": "68e5cf9ad53f3676842febc85f005698",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 160768,
+            "sha256": "df00062dddb41c8292cbc7da13b97a4fcaeb4d884802848db1b078b7d42a21b5"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 492,
+            "sha256": "d7e761294b920985e3f514e13a8aa55e45d5a335c949e531aed72c71c98e5c8a"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stub_helper",
+            "size": 516,
+            "sha256": "5704c029fae9ab10118377932d4a628d1d32c614d82ecb3d8cbee526f1df2737"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libnettle.8.9.dylib",
+      "formula": "nettle",
+      "sha256": "3bacb1f2911022f6559359c5c2835394c03acf0bfe0f04f4af63a9185dcfda46",
+      "originalMember": "nettle/3.10/lib/libnettle.8.9.dylib",
+      "original": {
+        "sha256": "eb8cb9500055fba2fa7f75d6a97f85b019de004936646374be42883b02cc8c38",
+        "cpuType": 16777228,
+        "uuid": "1eb24ca9bfe834d380a484ca9cdb5c8d",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 149036,
+            "sha256": "67da954732753946d2c21257b33ba800015097c7b1b7d2faf594099aa6217c12"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 204,
+            "sha256": "c85eb9f7445484a2bb2fe745b1d08f6cb9e1c3a4630309fcfbd21761e90c80a0"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libogg.0.dylib",
+      "formula": "libogg",
+      "sha256": "eb0caf82261037cfa3c3c593e5241fdb539cd3efb4c588605e653d47a753de6d",
+      "originalMember": "libogg/1.3.5/lib/libogg.0.dylib",
+      "original": {
+        "sha256": "d124c61dcf28b091874b13d9c6399b84aa617bd23d9fe6a50e56ec661250a427",
+        "cpuType": 16777228,
+        "uuid": "7343af8bee183518ac9e86729a8083ef",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 8224,
+            "sha256": "950c5c6eea07f916906d4e78f034bc9da4ec0e2b95ab0bdff97d05fa75cf5030"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 72,
+            "sha256": "7b21d3faa50691c4293658dcec944abca3b3ab3733f2b9be5512abb6d513ada8"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stub_helper",
+            "size": 96,
+            "sha256": "4411635f25cbbb6e426717407f9d0d434e432667286d3fe3c98ff67e73dc54b0"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libopencore-amrnb.0.dylib",
+      "formula": "opencore-amr",
+      "sha256": "8d448282c0504d9b93e419eddd26453a4247a17697af28adf1d0d33875497645",
+      "originalMember": "opencore-amr/0.1.6/lib/libopencore-amrnb.0.dylib",
+      "original": {
+        "sha256": "22b5d1474fc7b749e3da275b295bc36c8ec8b73d3d04ef41522e717406d373dd",
+        "cpuType": 16777228,
+        "uuid": "4f75e4c3734d3dc98a399fadb7a09d38",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 89236,
+            "sha256": "320c5f02126937659f9bf2a3550319e468877e325cc4834d5ad9e5e688daf561"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 108,
+            "sha256": "34fe14e3a1be11742764e665b5c442cf19f36eeaa6c31b1bac9d24d2cb3af998"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stub_helper",
+            "size": 132,
+            "sha256": "b6f63ead0900d738557d477d325bac526c2e4c9ab500a3232d151ef5bc30c47f"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libopencore-amrwb.0.dylib",
+      "formula": "opencore-amr",
+      "sha256": "e597277fdd072b74c7fb02df0cfbbaa891ff7a4786b8e04bdac30cf6cb7bc2ff",
+      "originalMember": "opencore-amr/0.1.6/lib/libopencore-amrwb.0.dylib",
+      "original": {
+        "sha256": "3211b614dfec98cd31041eec2d3242b3c9a775224f848ace1e0792a26eff8f2f",
+        "cpuType": 16777228,
+        "uuid": "b385f9c02a733648976da34f41304f46",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 34700,
+            "sha256": "41789646f3022b1155a2426e046da6efecd6bb3165b11b429a2e25d3a6d4daa5"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 72,
+            "sha256": "39c2a4199bbb4de03923b71dc3695d9905b53f64dea31c7905868b94dc0d8c39"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stub_helper",
+            "size": 96,
+            "sha256": "173d3cbc12ccbb8d2d6605e54f6c1ff2467ebd373de6f0162e4b1932f6351b5b"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libopenjp2.2.5.2.dylib",
+      "formula": "openjpeg",
+      "sha256": "0474f0c16da69d56b896f0f435fa21883b01bd1c037c0cb34651c3ae83c80d10",
+      "originalMember": "openjpeg/2.5.2/lib/libopenjp2.2.5.2.dylib",
+      "original": {
+        "sha256": "e7cb4c000aa0c4c959da97888200993e2ec8ba0f79f02795ab5b6cdc33800c87",
+        "cpuType": 16777228,
+        "uuid": "733b9a52d26e3b80957117efee41c069",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 216356,
+            "sha256": "fca3e7147015969172ede2c856c4f35f68d59de3ee425e05830dedbfe386c4fe"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 516,
+            "sha256": "51d366bee2c3c4cf1e2f3aae404ef7624a82539035c976f399fcc8a967985d9e"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libopus.0.dylib",
+      "formula": "opus",
+      "sha256": "b97bfd591abdd6ae6d44e0c75b7d9726db0ec7ba3fc0ad5eafbdc5330457ecb4",
+      "originalMember": "opus/1.5.2/lib/libopus.0.dylib",
+      "original": {
+        "sha256": "f7964d12f41b6a06642428a02d05162a706ea2ad2ef9515fdae84b6e36de3289",
+        "cpuType": 16777228,
+        "uuid": "5528389954cc3b44833ddb5dcde8e66b",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 225836,
+            "sha256": "b8cf94e9df442ac80350ddc3b78a27fb82617971f9ce238ea0086cad0c4cb74a"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 204,
+            "sha256": "ee89e306374302d24dd5d14de39b144de49da0a21efe5dddc18e6c9b0a084a1c"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libp11-kit.0.dylib",
+      "formula": "p11-kit",
+      "sha256": "370ceded5a95a46c740efedefbeaa1809306a13094dab75fdfe6de1c96006121",
+      "originalMember": "p11-kit/0.25.5/lib/libp11-kit.0.dylib",
+      "original": {
+        "sha256": "3205b138fca3c4c17005ca8d429818a89c110a4b82cf5f04b64f57fc82ca21c4",
+        "cpuType": 16777228,
+        "uuid": "fcdd5c8be7f5335eb18bb7d997622f0a",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 818412,
+            "sha256": "dc9b3147e9f7da2aeeac89211a578915250a6e3353f39993835340a711f45809"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 1140,
+            "sha256": "9b0a61e3614d99a7f7aeb174163313ed8bfec0a297b6dcef5efb67cd18073b86"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libpng16.16.dylib",
+      "formula": "libpng",
+      "sha256": "5311f8cdeafa8654c56dd0a2ba36c47bf76d24534f2db677c34a2b6e98d43e07",
+      "originalMember": "libpng/1.6.44/lib/libpng16.16.dylib",
+      "original": {
+        "sha256": "918c6c17f49406b1b77d9365233bb5184ee7439628f5c0df3d186e94b41ac462",
+        "cpuType": 16777228,
+        "uuid": "0bf51eebed76341dbf404cd5411a5556",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 120492,
+            "sha256": "5ea951a86bd3c1789520d46baabcf87c0e4ff6b6dac2638572051ca50b07fe4a"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 468,
+            "sha256": "833da35ef205272c30890f2c31805dbd3fe4c09931fcd2518491e10b7405a525"
+          }
+        ]
+      }
+    },
+    {
+      "file": "librav1e.0.7.1.dylib",
+      "formula": "rav1e",
+      "sha256": "b197639ef781f8c47f5116e6ad00e096e455490b8571952df50f67cf104734a9",
+      "originalMember": "rav1e/0.7.1/lib/librav1e.0.7.1.dylib",
+      "original": {
+        "sha256": "629d5231dde587dde333644f2b1f34f697f1a0cd8234ed292b1229f7ca8f89d6",
+        "cpuType": 16777228,
+        "uuid": "dd00448f3e5d37ada1488dd9883f7465",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 1561728,
+            "sha256": "ffb751769b60d57438ae08fedc5065c20c61aa5fab38de7f45c325e75f847037"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 960,
+            "sha256": "284a87b39a241bd28a8c76abc4323b40d27aa26e0b67583c7b57608f1e0e590e"
+          }
+        ]
+      }
+    },
+    {
+      "file": "librist.4.dylib",
+      "formula": "librist",
+      "sha256": "fe385ea9be23047d720affad1310eadc3a0d3774dd92758918f0750ee3223697",
+      "originalMember": "librist/0.2.11/lib/librist.4.dylib",
+      "original": {
+        "sha256": "647b93dea19d8accd9c2220ab1884f7c503bd2cfd0b3593065751fa36f6d51ea",
+        "cpuType": 16777228,
+        "uuid": "e050361f90803686a2fcdea6d35a9059",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 79328,
+            "sha256": "637e1b052d1debe4fa8fc1dbcb9c124a3a8401f0b8e31911ecc6ca62db0f73d1"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 1452,
+            "sha256": "631d7d3944d3f53f45cc33c72142193686edb692f0fb5352426b002b6c60d26f"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libsharpyuv.0.1.0.dylib",
+      "formula": "webp",
+      "sha256": "56bf0c2a03761765a49460f948be9456f6c4ce020f53b1a0bfe8dda47d1421e6",
+      "originalMember": "webp/1.4.0/lib/libsharpyuv.0.1.0.dylib",
+      "original": {
+        "sha256": "424ac94d22c7b800f96224aedf5595fb68a6f3abf4a109e88914ff3a1503984f",
+        "cpuType": 16777228,
+        "uuid": "e2f5d9054ea4361b93fc619fac81c3d8",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 8304,
+            "sha256": "ab245cac6b0078cda157ff5eab3493e0a0f4b30e997e4c2adb09467b82b0ef47"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 120,
+            "sha256": "62ecd5235658c286f8b13daa918e40f11e9b956536600fcc6b184abc3fcb6902"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libsnappy.1.2.1.dylib",
+      "formula": "snappy",
+      "sha256": "f605a2773e978f9a23d39df3113bdba9f7a760a595c22056741188359c338ea4",
+      "originalMember": "snappy/1.2.1/lib/libsnappy.1.2.1.dylib",
+      "original": {
+        "sha256": "82be284d33f7d953eb8aaa07e0a7ff4b65561a0b95a045e799acb7c9446665cd",
+        "cpuType": 16777228,
+        "uuid": "fc3327d9ef88372b9b6f61759cbd8d49",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 16048,
+            "sha256": "d13a27e250e0fec22e30b849028ca68cda2487d8a61747cf2569f96701ab96b7"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 144,
+            "sha256": "288804984a89adcdc52c9b0a84e12e0c8d855ab7a4e69e2f7c48f166efbb56c6"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libsodium.26.dylib",
+      "formula": "libsodium",
+      "sha256": "6431194b4aa58576de1ea2695eee8efa7b6502ca96b1369621d239285f117bd0",
+      "originalMember": "libsodium/1.0.20/lib/libsodium.26.dylib",
+      "original": {
+        "sha256": "c7904c57f9142b12803ec17aabaf247dc73fd8b1708ac45f36133aef30147304",
+        "cpuType": 16777228,
+        "uuid": "f8972e9c02c837a096abd0cf4662e7ca",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 132800,
+            "sha256": "365939b3c27bb4eb6f2d9ba3cd87290e9f567d26d56e9e686cf33dd61180600f"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 420,
+            "sha256": "84e7cc43291cb75771175ba128b6cc690ccd41dd7a9157ce5e291bb9510e6cda"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libsoxr.0.1.2.dylib",
+      "formula": "libsoxr",
+      "sha256": "d3b7b45d5e248fb60f37bdac454c5736fc3db717be6243f6c75006a830502cce",
+      "originalMember": "libsoxr/0.1.3/lib/libsoxr.0.1.2.dylib",
+      "original": {
+        "sha256": "7f44c2eded19e3afc004152251c72b7fcf583b49951da82024f06735879bb052",
+        "cpuType": 16777228,
+        "uuid": "f0c93f6f447e3469a15547bf9611e4b7",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 113920,
+            "sha256": "179feab07cc0ddfaa10a649f816c00b913a0dbf62691e04a6e13db62922ee53f"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 324,
+            "sha256": "fbc21a9f7ce6d19c25b5732d7ce7bd8ad4a0306d41f9ec29552e4da121a3083e"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stub_helper",
+            "size": 348,
+            "sha256": "627f50051c474662b6f9a93ea7f9fecdbbc70afd08a16e6146a8edddba340803"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libspeex.1.dylib",
+      "formula": "speex",
+      "sha256": "a1115df1bc259a0a0a42bd8851c3683dc83515c0a24a6390d299432be1b95cac",
+      "originalMember": "speex/1.2.1/lib/libspeex.1.dylib",
+      "original": {
+        "sha256": "f2bdb57996c56aa2d3a38b7a261b45f05e01467e197532bce7f0de32544dad60",
+        "cpuType": 16777228,
+        "uuid": "546d9e85d9f23a01a64a77307884d24a",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 50540,
+            "sha256": "27e9628a1e24ffbc88dcc26bef5a8adfd9830ece70714a94f4c5fa7302f44551"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 180,
+            "sha256": "3e7d69ce3445de17ae064a1fd566ae9bc12b44b4ab81fe084220e649e76ee2b6"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stub_helper",
+            "size": 204,
+            "sha256": "ec9fd9fac4f1114617dd44baaa7df102d855e75dd2a6e5d3694ad8dbe84d47af"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libsrt.1.5.4.dylib",
+      "formula": "srt",
+      "sha256": "9dc1d890af487f6cd1fc98e937ae4e09fc28eea60c88298f488276eafc8badb2",
+      "originalMember": "srt/1.5.4/lib/libsrt.1.5.4.dylib",
+      "original": {
+        "sha256": "3cfaf7a2a0f2c0d59788e3bae54670a0c203f2e0962b57f458ce0a7818fe2934",
+        "cpuType": 16777228,
+        "uuid": "6e61588648bf369c96a82119812173f4",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 377732,
+            "sha256": "90620b3aa644092b2bbf35bd4320cd057adb4dc226f904dee2accdb014bf2029"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 1752,
+            "sha256": "0b696b58786b63a6ba21bf9de8f166b4d84da0602566f4a653e63181967685a7"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libssh.4.10.1.dylib",
+      "formula": "libssh",
+      "sha256": "8959d3b758366dbf8d2282280f827fc96cd09be554fefb9c463f5010de643df8",
+      "originalMember": "libssh/0.11.1/lib/libssh.4.10.1.dylib",
+      "original": {
+        "sha256": "e300de6b393238d4d44621f5b5fc1d3ec5468276144d37154b75445d26b6c956",
+        "cpuType": 16777228,
+        "uuid": "d44432ff57d13e14b80dcb3dd4402540",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 254004,
+            "sha256": "4e6f2acd1388e1eef61fef7686c20aff448975e3de6b1a7e8974db36b89b3f04"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 3756,
+            "sha256": "0d272aabaabb48c7bb2386611369df9854e775ae8306962c8f3986d40f55b6e0"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libssl.3.dylib",
+      "formula": "openssl@3",
+      "sha256": "aefa165bb3b2ef6bc162b6e4afc90817265d5447c37a60c72ce4bd49eba3e9a7",
+      "originalMember": "openssl@3/3.4.0/lib/libssl.3.dylib",
+      "original": {
+        "sha256": "9ceb96e9bfe0240d35281936923102e911270e82208cfd726906277673c45c01",
+        "cpuType": 16777228,
+        "uuid": "fd52ab54a4ae39fe8b535dce58b427e3",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 475048,
+            "sha256": "dc36b3e123bd97c008946e9e36be3904f5bbff439af0f30a57e1a875dbc72742"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 6768,
+            "sha256": "1ed639358bec4aa482a2ba1a7c111b95be63aaf10c8ed84ef00a55893f427ad5"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libSvtAv1Enc.2.2.0.dylib",
+      "formula": "svt-av1",
+      "sha256": "fc07e99c7d8791b255f73bea5e783dac8af258be37f27f3f10c544d275977062",
+      "originalMember": "svt-av1/2.2.1/lib/libSvtAv1Enc.2.2.0.dylib",
+      "original": {
+        "sha256": "49b0fe78e4bf05a7d12bdfe1bff28551d19cf9aa96614bc0dbe93898ffda844a",
+        "cpuType": 16777228,
+        "uuid": "c3c225cf22d23fe690dbae4ff311825a",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 1695876,
+            "sha256": "60ce52fc0affe6f9327619f4feccb457584b0cdd35399448c0e19983f6f9adae"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 780,
+            "sha256": "a0fc7f6cc917b77815b5ee4c3e160bde11e6914d0b072820a8d28adf2e037a1e"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libswresample.5.3.100.dylib",
+      "formula": "ffmpeg",
+      "sha256": "4da85fdbc1cbfa83b29964e970b5842e58ed37a1719e7d50b98516d17b8f7da3",
+      "originalMember": "ffmpeg/7.1_3/lib/libswresample.5.3.100.dylib",
+      "original": {
+        "sha256": "6cf58d6aaf099a5d65749ec80b0e29d48e320af909984a9cdfabaf6df247ff7d",
+        "cpuType": 16777228,
+        "uuid": "f75802a321f330e9a3d6cecc4f5640a5",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 41968,
+            "sha256": "105b2b8d8b4fd64556937a68d342f2ff0bf0308cd5510a15f792267d3dd034fc"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 564,
+            "sha256": "b5ef7d819d071d1979f2c5e7595b9ad89d68e765017fe9be32a58abd5e2c17eb"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libswscale.8.3.100.dylib",
+      "formula": "ffmpeg",
+      "sha256": "03a1e2baaa0e5fbb565e89be7c66059c32e0a6ef58deb36a50b6abf805ce59c2",
+      "originalMember": "ffmpeg/7.1_3/lib/libswscale.8.3.100.dylib",
+      "original": {
+        "sha256": "23950586641ef07b9a8b1b948c52254a6d01894b14b27acd5ec5d82d1e871528",
+        "cpuType": 16777228,
+        "uuid": "cb45552f19ba39df9eec837828847902",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 341800,
+            "sha256": "e71f76718c25301cf6d71ce152246a47adac2648202949e038eee23f1d4db736"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 492,
+            "sha256": "cd6c6b608078581d84114d725e37dc3114b42571a3521930abf52c0530018bd9"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libtasn1.6.dylib",
+      "formula": "libtasn1",
+      "sha256": "c3805e00355031e67699b7cb34e1b22ef63268ccf2bb7842158c0419188ab2da",
+      "originalMember": "libtasn1/4.19.0/lib/libtasn1.6.dylib",
+      "original": {
+        "sha256": "036dda9621b1a28377e5b1c8d4ca93ee504edfc9ba3a682384c8d63be7334e4f",
+        "cpuType": 16777228,
+        "uuid": "799845d97beb30fa89ea542d4e6d2590",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 36784,
+            "sha256": "dc772d18350ab08ad8aa1565e8fc00cca3dfb29ddd4b9425d58348c9f812f5e1"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 384,
+            "sha256": "b31e41d0b299ef2d097f53a29127f785a78f099a4700373f1a085aba6d62fbe9"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stub_helper",
+            "size": 408,
+            "sha256": "cb6fa27de8c289f3c97c3b80d08e22e7eb97bd1cbdaaf0f77098b9fb16b01093"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libtheoradec.1.dylib",
+      "formula": "theora",
+      "sha256": "ede0ff746d1694039eb3f7435b45d757b82f9374d98587bcc4525b66eda5c46d",
+      "originalMember": "theora/1.1.1/lib/libtheoradec.1.dylib",
+      "original": {
+        "sha256": "0d299343536b29f17e917ec31e0e8a4d7c10453dd09c979de6a22c13cddf7c87",
+        "cpuType": 16777228,
+        "uuid": "a03d1876ebc83326b48a7e46189cb986",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 31252,
+            "sha256": "675f6d9cc414d3c50734d8deafb5a4c89af826837437e30e87ea71c700b29e7b"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 384,
+            "sha256": "2c016492c7ff4b29cef9050e9713643e4f55c72d018cd43ff19020225f46f929"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stub_helper",
+            "size": 408,
+            "sha256": "45808df1b763d4dbfb2b28036274779906b8d7e7e6b5dd76594098e56eb8fe27"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libtheoraenc.1.dylib",
+      "formula": "theora",
+      "sha256": "b1c0c69954cee1806341ccdf498e40d04f2b08a5e8aa62380c4e90168f01d17a",
+      "originalMember": "theora/1.1.1/lib/libtheoraenc.1.dylib",
+      "original": {
+        "sha256": "eaea726972d48591ed5137b6823fe9f9ba2632dbf1d043d1a3c2b6594f7cabe9",
+        "cpuType": 16777228,
+        "uuid": "22c1a2e4e4e03f0ba401f27730148761",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 64588,
+            "sha256": "08112e2857154c2c1abf7ba72dc19a2ae458dbdb33ad853043daf00b2b755930"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 384,
+            "sha256": "f338e16816307e78286fcc400fe55d6f6cdd864671d4c976273b1a1145ddc01a"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stub_helper",
+            "size": 408,
+            "sha256": "4e623f0fef47f8dd0a64366e249d5ac5e64d29df64f23ea44ade2dbc741eb41b"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libunistring.5.dylib",
+      "formula": "libunistring",
+      "sha256": "eaef30477cbc2cffa2162c2233b597ef7bfcec470bca38dfa362725e6a34df61",
+      "originalMember": "libunistring/1.3/lib/libunistring.5.dylib",
+      "original": {
+        "sha256": "53e89f1caf97c9cb1d995b0fdc2dc1fa860c0434ccb0337a599cd590313b56ca",
+        "cpuType": 16777228,
+        "uuid": "858fa2c424bc3058b6ff0b0038dca1b8",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 276072,
+            "sha256": "5089881bb9ec68ad2d23ea18215d6dd51cdaa5717affcdf58007ef7f180806c4"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 744,
+            "sha256": "3848a09516e4b2d368e652d422a6b347bb6b1551c8c0ad9bc9be122e23c0e250"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libvmaf.3.dylib",
+      "formula": "libvmaf",
+      "sha256": "c545c9a7bb271c6ff97c7c22aaf4669ecbdead0c0074fb1492c875717ac57b2a",
+      "originalMember": "libvmaf/3.0.0/lib/libvmaf.3.dylib",
+      "original": {
+        "sha256": "3e95a60d6aa4055c6607fac58d11b0977dc3bbc853d353d27914ce7801ffad08",
+        "cpuType": 16777228,
+        "uuid": "729670e8fe693506ab7b095243908866",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 134040,
+            "sha256": "e3ee3ad8e96bf8415e87b48375be092cf9560fb241e79933163528eedb055b61"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 1404,
+            "sha256": "69b133d1fc0d1dcc1e9cfff2eede555c957a65da089d1337acc8ffdab161d0da"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libvorbis.0.dylib",
+      "formula": "libvorbis",
+      "sha256": "1b35d2055e3cbbe00003f263628142d373ec1d6521c5318373b489d87a2f219e",
+      "originalMember": "libvorbis/1.3.7/lib/libvorbis.0.dylib",
+      "original": {
+        "sha256": "9625c793d1de768ce450e3d2c204de894d6b981405442a5a7eff11dcb85ec24f",
+        "cpuType": 16777228,
+        "uuid": "edb49fa178963e7f8b16813fc1b05112",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 72060,
+            "sha256": "472077e09bed2b551d7f2b32960e86181ad1428144b64a0f4dce07f53681dc23"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 420,
+            "sha256": "0b7799e5b6c8cae2425d2906c3e80571c89eef1e3bc2f7cedb4da0a79ae90ae1"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stub_helper",
+            "size": 444,
+            "sha256": "4cd2b1c78050f5c791dfdfa0410b0bbd9635e53c204d4be5f8063e2fecd11105"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libvorbisenc.2.dylib",
+      "formula": "libvorbis",
+      "sha256": "d06aa4dee2ac57255d2b16bfbc7c441d5c190a6649959a921e1c37f5c18811c9",
+      "originalMember": "libvorbis/1.3.7/lib/libvorbisenc.2.dylib",
+      "original": {
+        "sha256": "9bf20178170394ba5e6abcdb56aaec27fe96b32c34db06f20faec01df0c638e0",
+        "cpuType": 16777228,
+        "uuid": "2664b49377043fd9a41f9fe10b9dfb62",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 7132,
+            "sha256": "94ea447ce7400990ecf99d2ebe9f48f7e85c915e5a3212400fb0ed490174c3b8"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 48,
+            "sha256": "141cb1d4d712407ef281d7bc1ac2cd233f1b7bc775e2a751545c545ad284439f"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stub_helper",
+            "size": 72,
+            "sha256": "6b5f8bf3396ae5deaa34766667364185aea3401688e263344d8c2c3c7d336c6c"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libvpx.9.dylib",
+      "formula": "libvpx",
+      "sha256": "6864bdf9950766c6c56fae718831031fecfd704e0664144f30ef07f59fcff1d7",
+      "originalMember": "libvpx/1.15.0/lib/libvpx.9.dylib",
+      "original": {
+        "sha256": "08076b30d8855803de7235750d67567d0b78c2401da3995042d83510e959e11e",
+        "cpuType": 16777228,
+        "uuid": "372c58528f4536e998fdf8a278a3e8f7",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 1392800,
+            "sha256": "9c20adc778c9a0dd0c72ebd36403888bae9fd1c745a3d6cfc12bc6e100f19307"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 576,
+            "sha256": "cd5a0174ea9867e81156fa944bea80ca713e3dde8030e98f8c3ee64fc77866ee"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libwebp.7.1.9.dylib",
+      "formula": "webp",
+      "sha256": "a130713f15144ceebe845db7f5f36fa1287ae54b68533ea247590ca4a0907933",
+      "originalMember": "webp/1.4.0/lib/libwebp.7.1.9.dylib",
+      "original": {
+        "sha256": "27848b086974c53a52e00481d1a922e8ee9316f4339c2527fc5921e24b09fc68",
+        "cpuType": 16777228,
+        "uuid": "d1426720337c339cb9cf6bb4c8be4b4e",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 213840,
+            "sha256": "befffba289853758053a73ec6694837e1f27c4f7c6cc95b47bb6f49c5293c1a8"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 336,
+            "sha256": "70a24a52fbc92e39c38339e6a81262997f90d9c2f250a795e87e2b3a146fd585"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libwebpmux.3.1.0.dylib",
+      "formula": "webp",
+      "sha256": "bdb62cbbc648860338e1ae7889ad7130da475f373fe44a2bdd1edc1a3514a86e",
+      "originalMember": "webp/1.4.0/lib/libwebpmux.3.1.0.dylib",
+      "original": {
+        "sha256": "252d59cac95ae82023698b9de892e8ca1436807deb871d62c055fccb6161c101",
+        "cpuType": 16777228,
+        "uuid": "5321b6253a003afcb9a25bba55f629de",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 19324,
+            "sha256": "b9997993e8af713b5617153bed4827966ee6e6c87a06ce1d20f9706002960a22"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 360,
+            "sha256": "f62afc73efd5d298fb22bcd33e438a1414ab74138b93d26d7c9022c6ec36ce04"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libX11.6.dylib",
+      "formula": "libx11",
+      "sha256": "102b2e6938be03a030846440910a02b00cec5400bc8c0825eb2b40e326a9c1b9",
+      "originalMember": "libx11/1.8.10/lib/libX11.6.dylib",
+      "original": {
+        "sha256": "a0b9515137a9215b30eb606e255071b1bcadd4cadef4d1cf969b593dc6bb4c7d",
+        "cpuType": 16777228,
+        "uuid": "e86456c2f20f36fa92c8bf90bc3ab8c3",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 365788,
+            "sha256": "0d69780559834d6ee33e040e8b84af18bc11dce43dd59d4a9118d833eab549bd"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 1524,
+            "sha256": "68d7f5239f90f50bea1d63f126634b832456df5fd25d474cca67589c1e5c4709"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libx264.164.dylib",
+      "formula": "x264",
+      "sha256": "7f02ead8b5987d7441c56521a80a3e894b44fa5f49a57f8dd515ac3b3f733564"
+    },
+    {
+      "file": "libx265.212.dylib",
+      "formula": "x265",
+      "sha256": "08cd5864a1a560a276da36aa4a1ebdc5793d7db6c5210fa91f24219c27db0e9b",
+      "originalMember": "x265/4.0_1/lib/libx265.212.dylib",
+      "original": {
+        "sha256": "2ada8488d0958981086e386a23c4dad8656c0a283eb36f830ce731a7dc580e81",
+        "cpuType": 16777228,
+        "uuid": "e2d5eb1133b83becb1e9a131942509ae",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 3405116,
+            "sha256": "dff1791b72a30c04e12e14f50d77354e6ddd8d7a5e4c98fc593bfdd18fc334f4"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 4824,
+            "sha256": "993cbe6782f25382089e1386a216d01976f6db7c452016604dbd9fff0b0b1deb"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libXau.6.0.0.dylib",
+      "formula": "libxau",
+      "sha256": "f44c4583f5a948f540d2d802a1823178fc0cb881a325eed191dc10e364fbabef",
+      "originalMember": "libxau/1.0.11/lib/libXau.6.0.0.dylib",
+      "original": {
+        "sha256": "89b63344f006a46b8b2cc9778eb5467e860ed2d41aa9dbe1abc91f66c1385140",
+        "cpuType": 16777228,
+        "uuid": "52eda2b712f83daa888bd615e658c4f0",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 2644,
+            "sha256": "fee95e3dd0ad480fe958c5fdfe283ecac67d8013d9e19eea0b308b5d86833549"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 312,
+            "sha256": "9a1ddc658d445a4af02e418576e8a34ee78ad016babfc487d14bbd910c360841"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stub_helper",
+            "size": 336,
+            "sha256": "e35a491ba27525b0e5b33c33da5ebdea23e01d547536ae8109f74aae0d3e1a2b"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libxcb.1.1.0.dylib",
+      "formula": "libxcb",
+      "sha256": "8aa179bc0f5d9176fee5990556730e3bda6c36cacaf9c6250bbfdd2d91468ddd",
+      "originalMember": "libxcb/1.17.0/lib/libxcb.1.1.0.dylib",
+      "original": {
+        "sha256": "3da32b0582288543e3fa7ac9abbd6da62e3d7a035d5fbc77eeb236504c215e8e",
+        "cpuType": 16777228,
+        "uuid": "4a99b22375563032bc74446af7dc9d3c",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 66364,
+            "sha256": "d769125e556772bfdfb8a446ada1702f1dcca7b709dcf755cabb12f880e5709d"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 648,
+            "sha256": "99bf0f4b800c774720389fc746565fa9cba1374d0883528c210d783bb8985c61"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libXdmcp.6.dylib",
+      "formula": "libxdmcp",
+      "sha256": "45c2e3258da22b3ca4d272b28468208893a40dded5bfcc3d472b24e9ae9a1af4",
+      "originalMember": "libxdmcp/1.1.5/lib/libXdmcp.6.dylib",
+      "original": {
+        "sha256": "59ef1e638cc56fb6f3125d6012666fc19d79d340a54fd2d4f675e1e7edcef9fa",
+        "cpuType": 16777228,
+        "uuid": "42c126583b203f04be21140f32e8b64a",
+        "instructions": [
+          {
+            "segment": "__TEXT",
+            "section": "__text",
+            "size": 5972,
+            "sha256": "efcc925c3bd8a4924dc90ad425b70aa76391b36b5eea5de5b0fc36db9b900312"
+          },
+          {
+            "segment": "__TEXT",
+            "section": "__stubs",
+            "size": 132,
+            "sha256": "5c27c1661d59411a682c1ecd0943df405172937c13ec31a9f3089c51e0fe36fb"
+          }
+        ]
+      }
+    },
+    {
+      "file": "libzmq.5.dylib",
+      "formula": "zeromq",
+      "sha256": "fed205cfafd903ca9a833f7291454901ba62e5ab274f145e052b22a75b087d2c"
+    }
+  ]
+}
