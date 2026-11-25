@@ -1,0 +1,6 @@
+# Check text files out with LF on every platform. Committed checksums (licence texts,
+# recipes, provenance) and shell scripts depend on the bytes in the repository.
+* text=auto eol=lf
+
+# Checksum-pinned evidence is never line-ending converted, whatever its content looks like.
+desktop/compliance/** -text

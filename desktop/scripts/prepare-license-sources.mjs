@@ -77,7 +77,8 @@ export function sourceNoticePath(member) {
 
 // Stream individual texts out of tar, never unpack or execute downloaded source.
 async function collectSourceNotices(archive, destination) {
-  const members = execFileSync('tar', ['-tf', archive], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }).split('\n').filter(Boolean);
+  // Windows tar ends listing lines with CRLF.
+  const members = execFileSync('tar', ['-tf', archive], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }).split(/\r?\n/).filter(Boolean);
   const notices = members.map(sourceNoticePath).filter(Boolean);
   if (notices.length > 2000) throw new Error('Unexpected number of source notices.');
   await mkdir(destination, { recursive: true });

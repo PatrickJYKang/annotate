@@ -80,7 +80,8 @@ export async function collectNotices(root, runtime, sitePackages, notices = path
     if (sourceDirectory && ['@img/sharp-libvips-darwin-arm64', '@img/sharp-win32-x64'].includes(metadata.name)) {
       const index = JSON.parse(await readFile(path.join(sourceDirectory, 'index.json'), 'utf8'));
       for (const archive of index.archives.filter((item) => ['sharp-native-source', 'sharp-subproject-source'].includes(item.kind))) {
-        const prefix = path.join('native', archive.name);
+        // Inventory paths are recorded with forward slashes on every platform.
+        const prefix = path.posix.join('native', archive.name);
         const copied = await copyNotices(path.join(sourceDirectory, 'notices', archive.name), path.join(destination, prefix));
         files.push(...copied.map((file) => `${prefix}/${file}`));
         nativeLibraries.push({ name: archive.name, version: archive.version, url: archive.url, sha256: archive.sha256, coverage: archive.coverage });
