@@ -4,7 +4,7 @@ Date: 2026-08-08 (documentation sync amendment)
 Status: Locked and implemented
 Parent: [v0.2-scope.md](v0.2-scope.md)
 
-Current-state review: 2026-09-27. Browser and desktop use this same format. Desktop window/session mechanics do not migrate project data; see the [desktop reference](../../desktop/README.md). Localizing an unmodified built-in tagging board changes its displayed labels only, not stored identifiers or documents.
+Current-state review: 2026-11-24. Browser and desktop use this same format. Optional recording fields are documented in section 3.4a below; the schema identifiers have not changed. Desktop window/session mechanics do not migrate project data; see the [desktop reference](../../desktop/README.md). Localizing an unmodified built-in tagging board changes displayed labels, not tag IDs or existing saved names. New captures snapshot the displayed label. The original application migration sequence remains historical.
 
 ## Purpose
 
@@ -32,7 +32,7 @@ Frozen before phase 0 code; later changes are explicit amendments.
 
 1. **Absolute media frames** — as above. Branded types (`VideoFrame`, `FrameBoundary` for exclusive ends, `Milliseconds`) enforce the distinction in the types/storage/frameMath layer; component props stay plain numbers.
 2. **Video-element mapping** — seeking writes an exact frame timestamp; playback frame identity comes from presented-frame media time, not `round(currentTime × fps)`. Every result clamps to `[0, frameCount - 1]`; the exclusive `frameCount` boundary is never a displayable frame.
-3. **Sidecar boundary rule** — the sidecar samples **inclusively** through `endMs` (`frame_extractor.py:139`). Tracking/homography requests therefore end at `frameToMs(endFrame − 1)`, never `frameToMs(endFrame)`; export/encode durations use the exclusive bound. Source-video FPS and requested sample FPS are separate. One-frame clips are valid, but range-based sidecar actions are unavailable because the current sidecar requires `endMs > startMs`.
+3. **Sidecar boundary rule** — timestamp-based tracking and pin/compatibility calibration sample inclusively through `endMs`, so they send `frameToMs(endFrame − 1)`, not the exclusive boundary. Current clip calibration instead sends absolute `startFrame`, exclusive `endFrame`, `sourceFps` and `everyNFrames: 15`; result caches remain millisecond-keyed. Source-video FPS and requested tracking sample FPS are separate. One-frame clips are valid data, but editor range-based tracking/calibration actions require at least two frames. Recording export uses its exclusive range end for motion duration and preserves fractional output FPS.
 4. **Pin/document invariants** — per clip: folder id equals `clip.id`, unique pin ids, at most one pin per frame, pins sorted, and pin frames within `[startFrame, endFrame)`; annotation ids are unique across the entire clip, paths are relative and confined to its `annotations/` directory, and each pin has at most one `role: 'default'` document. Every document's annotation id and anchor (clipId/pinId/frame) equal its owning reference. Pin frames are immutable. Duplicate pins across overlapping clips are allowed by design because clips are independent.
 5. **Deletion policy** — the browser cannot move local directories. Deletion therefore copies to `.trash/`, verifies file count/byte sizes, writes an operation record/tombstone, then recursively removes the source. Undo copies back under the same lock. Cleanup runs after a successful open or explicit Empty Trash, not on unreliable close events. Cleanup may remove old recovery payloads but retains clip tombstones until restore, permanently preventing stale tabs from recreating deleted ids. Clip, pin, and annotation deletion never hard-blocks on presentation references; affected slides degrade to `missing` and integrity reports them.
 6. **Single mutation boundary and field ownership** — every mutation in a clip subtree (`clip.json` and annotation documents) uses the same per-clip Web Lock. `clip.json` callers submit field mutations (`annotations`, `pins`, or `tags`), not stale whole-clip snapshots; document saves nest any per-document lock inside the clip lock. Delete/restore uses that lock, and tombstones make queued autosaves refuse deleted clips.
@@ -152,10 +152,10 @@ The clip absorbs marks (as pins) and carries tags.
 }
 ```
 
-This example is canonical. A matching JSON fixture is imported by a compile/parse test using `satisfies ClipV2`; markdown is updated from that fixture whenever the type changes. There are no `tracking`/`homography` fields on the clip document: tracking output lives in `annotations[].keyframes` (provenance-tagged, as in v1), and the homography cache remains a **project-level, ms-keyed** store (`homography-cache/`, a sidecar-boundary artifact — see Appendix C of the implementation plan).
+This JSONC sketch illustrates the core fields; placeholder IDs and abbreviated styles are not a loadable project fixture. Runtime types and parsers in `webapp/lib/types/clip.ts`, with their fixtures/tests, are authoritative. Optional `generatedLabel` distinguishes automatic from custom names, and optional `recordings` stores takes as described in section 3.4a. There are no `tracking`/`homography` fields on the clip document: accepted tracking output lives in `annotations[].keyframes`, while homography remains a project-level, video-namespaced, millisecond-keyed cache. A separate process-local detection cache now accelerates repeated tracking; it is not authored project data.
 
 Notes:
-- A pin is the annotate entry point: scrub → Annotate → editor opens on the pin's frame → the saved document is `annotations.v2` inside the clip folder (`annotations[].file` is relative to the clip folder).
+- A pin is the annotate entry point: scrub, Add pin or Open pin, then annotate the pin frame in its separate window/tab. The saved document is `annotations.v2` inside the clip folder (`annotations[].file` is relative to the clip folder).
 - **Pin annotations and clip annotations are unrelated layers.** `keyframes` is the clip's own animated-annotation track, rendered during playback. A pin's documents are still-style drawings for that single frame, shown when playback pauses on the pin (or when the pin is used directly as a presentation slide). Neither reads or writes the other.
 - Multiple annotation documents per pin keep the v1 default/alternate model.
 - Annotation ids are unique across the clip, not merely within one pin, because filenames share the clip's `annotations/` directory.
@@ -252,13 +252,13 @@ Animation step IDs are unique, shape references must resolve within the document
 }
 ```
 
-Canonical types:
+Core presentation types (the temporary `V2` suffixes were removed at the canonical route flip):
 
-- `ClipSlideV2 { id; kind: 'clip'; clipId; pausePins: string[] | null; pauseCues?: ClipPauseCueV2[]; notes?; holdMs? }`.
-- `ClipPauseCueV2 { pinId; holdMs?; annotationIds?: string[] | null; annotationCues?: PinAnnotationCueV2[] }`. Missing `holdMs` means manual advance resumes; a value means automatic resume after that wall-clock delay.
-- `PinSlideV2 { id; kind: 'pin'; clipId; pinId; showAnnotations; annotationIds?: string[] | null; annotationCues?: PinAnnotationCueV2[]; notes?; holdMs? }` remains the secondary frozen-moment path.
-- `PinAnnotationCueV2 { annotationId; enterAtMs?; exitAtMs? }`; cue times are presentation wall-clock values, not video positions.
-- `TitleSlideV2` retains `kind: 'title'`, template/title/body/notes/hold.
+- `ClipSlide { id; kind: 'clip'; clipId; pausePins: string[] | null; pauseCues?: ClipPauseCue[]; range?: { startFrame; endFrame }; notes?; holdMs? }`.
+- `ClipPauseCue { pinId; holdMs?; clickTimesMs?: number[]; annotationIds?: string[] | null; annotationCues?: PinAnnotationCue[] }`. Missing `holdMs` means manual advance resumes; a value permits automatic resume after that wall-clock delay, subject to pending animation steps.
+- `PinSlide { id; kind: 'pin'; clipId; pinId; showAnnotations; annotationIds?: string[] | null; annotationCues?: PinAnnotationCue[]; notes?; holdMs?; clickTimesMs?: number[] }` remains the secondary frozen-moment path.
+- `PinAnnotationCue { annotationId; enterAtMs?; exitAtMs? }`; cue times are presentation wall-clock values, not video positions.
+- `TitleSlide` retains `kind: 'title'`, template/title/body/notes/hold.
 - `transitions.length === max(slides.length - 1, 0)`. `cut` works between any slides. `match_video` is valid only between forward-ordered pin slides on the same video and stores `startOffsetFrames >= 0`, `endOffsetFrames <= 0`, `playbackRate?`, and `hideAnnotationsDuringPlayback`. The resulting source range must remain non-empty and within the two pins.
 
 `pausePins` references pins by id; pins added later are included when it is `null` and ignored for explicit arrays. Pause/annotation cue ids must refer to the slide's effective pins/documents; invalid ids are integrity issues.
@@ -266,9 +266,42 @@ Canonical types:
 - Pin pauses follow the crossing state machine. Every scene carries an absolute source range on its owning video; playback media time maps directly to that video's absolute frame before pin and annotation evaluation.
 - Asset browsing filters by **clip tags** (replacing mark-tag browsing).
 
+### 3.4a Recording amendment for 0.2.4
+
+Adopted and implemented in source through `ed70920`, 2026-11-24. Existing schema identifiers remain unchanged; absent recording fields retain the previous behavior. Runtime definitions are `webapp/lib/types/recording.ts` and `webapp/lib/types/presentation.ts`.
+
+```ts
+interface ClipTake {
+  id: string;
+  name: string;
+  startFrame: number; // absolute source frame
+  endFrame: number;   // exclusive source boundary
+  pauses: Array<{
+    pinId: string;
+    holdMs: number;
+    clickTimesMs: number[];
+  }>;
+}
+
+interface DeckTake {
+  id: string;
+  name: string;
+  slides: PresentationSlide[];
+  transitions: PresentationTransition[];
+}
+```
+
+`Clip.recordings?: ClipTake[]` and `Presentation.recordings?: DeckTake[]` own the two independent take lists. Clip-take creation requires an explicit range within the current clip; it does not alter the clip's bounds. The setup UI includes the last selected frame, converting it to an exclusive stored end. Repository mutations append takes under the existing clip lock, while presentation saves retain their revision checks.
+
+Recorded click times are milliseconds since a pin pause/slide began, not source-video times. Parsers validate finite non-negative timings, ordered clicks within the hold, non-empty names and valid integer ranges. Importing a clip take copies its range and pause cues onto a clip slide; it is neither an MP4 embed nor a live reference to the take.
+
+A deck take snapshots slides and transitions, but neither take format snapshots source video, clip geometry or pin documents. Replay/export resolves current project material. Later trims or deletions can invalidate references; structural parsing is not a promise that a take remains playable forever. Do not imply safe round-trip saving through older app versions that do not know these fields. Back up before downgrade editing.
+
+MP4s are derived files in `exports/recordings/`, not part of the take schema. The export renderer samples current media and annotation layers at the chosen output clock. Existing report JSON/CSV/PNG output remains separate. See the [technical export contract](../../technical_document.md#13-exports) for host boundaries, mixed-source fitting and limitations.
+
 ### 3.5 Tagging board (`tagging-board.json`, replaces `tagging-schema.yaml`)
 
-The v1 YAML schema modeled a dropdown tree; the v2 artifact models a **button board** and moves to JSON. The board *is* the tag vocabulary: buttons define tag identity, toggles define facets, and the tag folder tree view derives its grouping from board groups. There is no separate schema document.
+The v1 YAML schema modeled a dropdown tree; the v2 artifact models a **button board** and moves to JSON. The board is the tag vocabulary: buttons define tag identity, toggles define facets, and the tag folder tree derives its grouping from board groups. Optional `exclusiveGroups` list mutually exclusive primary-button IDs independently of visual groups; the default board pairs the two possession buttons. An explicit empty array permits all overlaps. The runtime board parser and [as-built reference](../../technical_document.md#tagging-boardjson) describe current validation and default-board compatibility behavior.
 
 ```jsonc
 {
@@ -404,7 +437,7 @@ Each step landed green (build + tests). Two guiding rules were: **the v1 app kep
 Nothing to convert — with no v1 projects opening, stale caches are unreachable:
 
 - `homography-cache/` remains project-level and ms-keyed because it mirrors the sidecar boundary; v2 callers wrap it in frame-based APIs.
-- `derived-media/` exact-motion helpers and ms-derived generation keys remain implemented as dormant export-oriented infrastructure. Interactive presentation playback never reads them. Tracking output is not a separate cache: it lives in clip annotation keyframes.
+- `derived-media/` exact-motion helpers and ms-derived generation keys remain dormant export-oriented infrastructure. Neither interactive presentation playback nor current recording export reads them. Accepted tracking output lives in clip annotation keyframes; reusable all-player detections are a separate temporary process cache, not project data.
 - IndexedDB autosave backups (`annotate-backup-db`): anchor-shaped v2 doc keys cannot collide with v1. Old v1 entries remain unreachable; no unimplemented automatic aging is assumed.
 - OPFS quick-annotate storage: untouched.
 

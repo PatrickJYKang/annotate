@@ -4,7 +4,7 @@
 
 > **Goal:** Add video clip support — time-range segments with keyframed, trackable annotations. This is the prerequisite for the presentation feature.
 
-> **Status note:** This is now mainly a historical planning/spec document. The active implementation truth lives in [clips-implementation-checklist.md](clips-implementation-checklist.md) and [clips-roadmap.md](clips-roadmap.md). Some detailed assumptions below are now outdated, especially around trackable tool types, pitch/image coexistence, and how the sidecar treats raw tracker IDs.
+> **Status note:** This and the adjacent [checklist](clips-implementation-checklist.md) and [roadmap](clips-roadmap.md) are historical. Use the [current technical reference](../../../technical_document.md) for implemented behavior. Earlier assumptions below about trackable tool types, pitch/image coexistence and tracker identity are not current contracts.
 
 ---
 

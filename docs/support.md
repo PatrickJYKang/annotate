@@ -4,7 +4,7 @@ In desktop builds starting with 0.2.3-rc.1, the Help menu contains **User guide*
 
 Service logs are in `~/Library/Application Support/Annotate/logs/` on macOS and `%APPDATA%\Annotate\logs\` on Windows. Review them before attaching: they can contain local paths and filenames. Do not attach private footage, project folders or credentials. See [security reporting](../SECURITY.md) for sensitive reports.
 
-Current development source also adds **Help > Licences and source**, which opens the packaged licence folder or the source repository for the build commit. The browser header has a **Source** link. This addition is not in the already shared 0.2.3-rc.1 installers. Local builds with unpublished changes are not represented as complete matching public source. See [distribution compliance](distribution-compliance.md) for outstanding release requirements.
+Current development source also adds **Help > Licences and source**, which opens the packaged licence folder or the source repository for the build commit. The browser header has a **Source** link. This addition is not in the older candidate or public desktop.2 installers. Local builds with unpublished changes are not represented as complete matching public source. Include the commit as well as the version in reports: source development is targeting [0.2.4](../desktop/releases/0.2.4.md), while manifests still say 0.2.3-rc.1. See [distribution compliance](distribution-compliance.md) for outstanding release requirements.
 
 ## Saved state
 
@@ -12,7 +12,13 @@ Project JSON and media remain in the chosen project folder. Locale and panel lay
 
 Pin annotation recovery copies are written to the desktop `recovery/` directory before an annotation save is attempted. Their identity uses the authorized canonical project path and relative annotation path, not a session token. When opening a pin with a newer differing recovery copy, choose **Restore recovery copy** or **Keep saved version**. Neither option is chosen automatically. While the prompt is open, editing and autosave are blocked so the copy is not silently replaced. Closing the window without choosing preserves it for later.
 
-These copies cover pin annotation saves, not every keystroke or unsaved provisional tracking operation. A crash before the autosave debounce, a multi-file operation interrupted by power loss, a renamed project folder, or disk failure can still require manual recovery. Keep independent project-folder backups. Do not edit the same folder in browser and desktop at once; their locks are not shared. Old ambiguous browser backups are deliberately left untouched.
+These copies cover pin annotation saves, not every keystroke, an unfinished recording pass or an unsaved provisional tracking operation. A crash before the autosave debounce, a multi-file operation interrupted by power loss, a renamed project folder, or disk failure can still require manual recovery. Keep independent project-folder backups. Do not edit the same folder in browser and desktop at once; their locks are not shared. Old ambiguous browser backups are deliberately left untouched.
+
+## Recordings and exports
+
+Saved clip takes live in `clip.json`; presentation takes live in their presentation document. They contain ranges, timings and references, not copies of source video or annotation documents. Later edits can change a take's rendered appearance; deleting a source, pin or document can invalidate it. Back up the whole project, not only the take's JSON. After a failed save, **Save** retries the completed pass while its recording window stays open; it is not crash recovery.
+
+**Export MP4** writes a silent video to `<project>/exports/recordings/`. Rendering progress counts completed output frames and then encoding; it is not an estimate of real-time playback speed. Exporting the same take/name again replaces its output file. For a failure report, include the host, build identity, take type, source dimensions/FPS and exact error, without posting private media. Inspect referenced material and project-folder access before retrying. The report exporter is separate and writes JSON, CSV and PNGs to `exports/report/`.
 
 ## Unresponsive windows
 

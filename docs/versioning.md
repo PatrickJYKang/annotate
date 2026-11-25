@@ -5,8 +5,8 @@ Annotate uses one product version for the browser source, desktop app and sideca
 ## Version numbers
 
 - `0.2.3-rc.1`, `0.2.3-rc.2`: test candidates for the same release. Increment the candidate number whenever a shared build changes, including packaging-only or signing changes.
-- `0.2.3`: the approved release after testing and distribution gates are satisfied.
-- `0.2.4`: a subsequent compatible fix or packaging update.
+- `0.2.3`: an example final version after its candidate passes release gates; it has not been published. Current development is proceeding to 0.2.4 instead.
+- `0.2.4`: the agreed next release, including recording takes, match-data lookup and tracking improvements. This is a release target, not the current package version.
 - `0.3.0`: a substantial feature release or intentionally incompatible change during the 0.x series. Document migration requirements explicitly.
 
 Project schema versions such as `project.v2` are independent contracts, not app version numbers. A patch or release-candidate bump does not justify rewriting project data. Platform and architecture belong in artifact filenames, not separate product version sequences.
@@ -17,7 +17,7 @@ A tag is `v` followed by the complete product version. Once a tag or artifact is
 
 Each package contains `build-info.json` with product version, source commit, dirty-tree flag, build time and target. Help > Copy diagnostic information exposes the safe build identity. Filenames include version/platform/architecture; source archives and SHA-256 checksums use the same version. Build from a clean committed tree. Do not describe a dirty build as a release candidate suitable for distribution.
 
-The current working candidate is `0.2.3-rc.1`. It is a local test build, not a newly published GitHub release. Signing/notarization, unresolved licence questions and clean-machine testing still gate publication. When Apple enrollment is resolved, create a new candidate for the signed build rather than overwriting this one. Automatic updates are not implemented; Help > Downloads and updates opens the release page.
+As of 2026-11-24, manifests still identify `0.2.3-rc.1`, but `main` has continued beyond that candidate toward [0.2.4](../desktop/releases/0.2.4.md). Do not identify a current-source build solely by that unchanged version string; inspect its source commit. Public downloads remain `0.2.2-desktop.2`. Set a new candidate version, such as `0.2.4-rc.1`, before sharing the next build. The PnLCalib permission and Microsoft runtime confirmation are resolved; exact source packaging, Windows validation, signing/notarization and clean-machine testing remain publication gates. Automatic updates are not implemented; Help > Downloads and updates opens the release page.
 
 ## Release sequence
 

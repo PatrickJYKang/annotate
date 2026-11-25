@@ -1,8 +1,8 @@
-# Annotate 0.2 As-Built Technical Reference
+# Annotate As-Built Technical Reference
 
-Updated: 2026-10-23
+Updated: 2026-11-24
 
-Status: Current source is Annotate **0.2.3-rc.1**, with a shared browser/desktop product version and unchanged project.v2 schemas. The [published desktop release](https://github.com/PatrickJYKang/annotate/releases/tag/v0.2.2-desktop.2) remains the unsigned `0.2.2-desktop.2` evaluation package; the new local candidate is not published. Windows runtime, clean-machine verification, signing/notarization and the [distribution licence review](docs/licence-review.md) remain gates. The old v0.2.0 terminal installation path is archived in `legacy/browser-install/`; browser development remains supported. The code is authoritative if this document drifts.
+Status: `main` is preparing [Annotate 0.2.4](desktop/releases/0.2.4.md), through source commit `ed70920`; package manifests still use **0.2.3-rc.1**. Optional recording/timing fields extend the existing v2 schemas without a migration. The [published desktop release](https://github.com/PatrickJYKang/annotate/releases/tag/v0.2.2-desktop.2) remains the unsigned `0.2.2-desktop.2` evaluation package. Windows execution, matching native-source packaging, clean-machine verification and signing/notarization remain gates; the PnLCalib permission and Microsoft runtime confirmation are resolved in the [distribution review](docs/licence-review.md). The old v0.2.0 terminal installation path is archived in `legacy/browser-install/`; browser development remains supported. The code is authoritative if this document drifts.
 
 ## 1. Product model
 
@@ -14,7 +14,7 @@ Annotate is a local football analysis application with a self-hosted browser int
 4. Open a clip to animate tactical shapes and mark important frames with pins.
 5. Annotate a pin's exact video frame with one or more drawing documents.
 6. Build a presentation from clips, pins, and title cards.
-7. Export clip reports and annotated pin images into the project folder.
+7. Record named timing takes for clips or presentations, and export silent videos, clip reports and annotated pin images into the project folder.
 
 The three main analysis concepts are deliberately distinct:
 
@@ -34,7 +34,7 @@ The exception is the standalone `/quick-annotate` utility. It retains its indepe
 
 ### Web application
 
-- Next.js 15.5.21 App Router
+- Next.js 15.5.28 App Router
 - React 19.2 and TypeScript
 - Konva / React-Konva for drawing
 - Tailwind CSS 4 for styling
@@ -77,6 +77,8 @@ The standalone Next server uses Electron's bundled Node runtime. On macOS, `desk
 
 Native media uses authorized Range/HEAD URLs for video playback, pin rasterization, presentation thumbnails and report exports. The renderer holds metadata capabilities rather than whole-video Blobs. The host privately registers the original source with the sidecar and retains file ownership. Import reuses the existing preparation strategy, reports progress, supports cancellation, copies directly into the project and commits the manifest or rolls back. The per-window CV proxy rejects paths, foreign video references and private host routes; the upstream sidecar token is never exposed to the renderer.
 
+Recording export uses a separate project-bound host command family, `recording.start/frame/finish/cleanup`, implemented in `desktop/core/recording-export.mjs`. It owns per-window encoding sessions, calls the managed sidecar's existing export API privately, and writes the completed output through the authorized native store. The encoder's filesystem path never crosses renderer IPC. This does not broaden the renderer CV proxy or replace the browser export API.
+
 `npm run build:desktop-renderer` prepares standalone production output; `npm run desktop:dev` builds the host bundle and launches Electron with developer-provided Python, ffmpeg and models. Packaged builds resolve only their bundled runtime, validate required resource checksums and put writable files in user data. Python 3.12.14, the sidecar dependency lock, model weights/source and platform-specific ffmpeg are staged by `npm run stage:desktop -- <target>`. `npm run package:desktop -- <target>` builds an unsigned DMG or NSIS installer with product version and source commit metadata. Startup displays service progress; services get private dynamic ports and stop on graceful quit after editor save guards finish or private lifetime-pipe closure after main-process death. Native preferences and pin recovery now use atomic user-data files, and crashed/hung windows offer recovery choices. These do not provide multi-file crash transactions or preserve every unsaved provisional tracking change. Windows certification, clean-machine testing, signing and licence review remain release gates. Browser and native locks are not cross-host: avoid simultaneous editing of one project in both. See [Desktop Preview](desktop/README.md) and [support/recovery](docs/support.md).
 
 ### Python sidecar
@@ -104,7 +106,9 @@ Every authored media position is an absolute, zero-based source-video frame. The
 - `endFrame` may equal the video's `frameCount`.
 - Presentation cue durations remain wall-clock milliseconds because they are not media positions.
 
-`webapp/lib/clip/frameMath.ts` is the conversion boundary. Frame boundaries use `frame / fps`; frame-centred seeking uses `(frame + 0.5) / fps` so browser timestamp quantization does not select the preceding frame. The capture player, clip editor and pin annotator use frame-centred seeks. Arbitrary playback-clock times use `mediaTimeToVideoFrame` (floor with an epsilon). The capture player's decoded-frame callbacks use `presentedTimeToVideoFrame` (nearest boundary), because `requestVideoFrameCallback().mediaTime` identifies a decoded frame's start and may be rounded just below its exact timestamp. Both conversions clamp to `[0, frameCount - 1]`. The clip editor and presentation playback still use their existing floor-based presented-frame conversion; this capture-player fix does not change those paths.
+`webapp/lib/clip/frameMath.ts` is the conversion boundary. Frame boundaries use `frame / fps`; frame-centred seeking uses `(frame + 0.5) / fps` so browser timestamp quantization does not select the preceding frame. The capture player, clip editor and pin annotator use frame-centred seeks. Arbitrary playback-clock times use `mediaTimeToVideoFrame` (floor with an epsilon). The capture player's decoded-frame callbacks use `presentedTimeToVideoFrame` (nearest boundary), because `requestVideoFrameCallback().mediaTime` identifies a decoded frame's start and may be rounded just below its exact timestamp. Both conversions clamp to `[0, frameCount - 1]`.
+
+Presentation and recording playback now explicitly distinguish these timestamp kinds through `toSourceFrame(..., timestamp)`: `presented` selects nearest-boundary conversion and the default `clock` retains floor semantics. Seek completion releases the pending seek without requiring the compositor to deliver one exact callback timestamp. Paused-pin geometry samples the pin's exact frame. The clip editor's own playback loop is separate; these changes do not rewrite stored frames, import metadata or tracking results.
 
 Tracking and pin calibration use timestamp-based sidecar requests. Their frame sampler includes `endMs`, so a domain range sends `frameToMs(endFrame - 1)`, not the exclusive boundary. Clip homography uses `startFrame`, exclusive `endFrame`, `sourceFps`, and `everyNFrames` instead; output/cache timestamps remain milliseconds for compatibility. One-frame clips are valid data, but the editor currently enables tracking and homography range actions only for clips of at least two frames.
 
@@ -136,6 +140,8 @@ MyMatch/
       clips.json
       clips.csv
       annotated/
+    recordings/
+      <take-name>-<take-id>.mp4
   cache/
   .trash/
     clips/
@@ -216,6 +222,7 @@ interface Clip {
   tags: { primary: string | null; facets: Record<string, string | string[]> };
   pins: ClipPin[];
   annotations: ClipAnnotation[];
+  recordings?: ClipTake[];
 }
 ```
 
@@ -274,6 +281,14 @@ Slide kinds:
 
 Transitions are `cut` or `match_video`. A match-video transition is valid only between resolving, forward-ordered pin slides from the same video. Its trim is stored as frame offsets and must produce a non-empty source range.
 
+### Recording extensions
+
+`webapp/lib/types/recording.ts` defines `ClipTake`: `id`, `name`, absolute `startFrame`/exclusive `endFrame`, and `pauses[]` containing `pinId`, `holdMs` and `clickTimesMs`. `Clip.recordings` is optional. The parser validates safe IDs, non-empty names, integer non-empty ranges and finite non-negative click/hold timings, with clicks ordered and bounded by their hold. These checks are not a frozen-reference guarantee: export separately resolves current clips, pins and source videos.
+
+Presentation schema `2` has optional `recordings: DeckTake[]`; each take stores `id`, `name`, a slide array and transitions. Clip slides may supply an absolute half-open `range`. Clip pause cues and pin slides may supply `clickTimesMs` relative to the pin pause/slide's wall-clock start. Importing a clip take copies its range, pause-pin IDs and timings into a slide. It does not link back to the take or embed video. Default title/pin holds in export are 2000 ms when no duration is supplied.
+
+Existing documents without recordings remain valid. Old app versions are not promised to preserve these optional additions when saving. The v2 schema number is unchanged, but downgrade editing still requires a backup.
+
 ## 7. Project lifecycle and safety
 
 ### Open and restore
@@ -306,7 +321,7 @@ Every post-creation `project.json` write uses the exclusive `annotate:project:<s
 
 ### Clip mutation boundary
 
-Every clip-subtree mutation uses the same project-scoped Web Lock, `annotate:project:<scopeId>:clip:<clipId>`, through `webapp/lib/fs/clipRepository.ts`. Mutators read the latest document inside the lock and replace only their owned field (`annotations`, `pins`, or `tags`) rather than writing stale snapshots. Web Locks support is mandatory.
+Every clip-subtree mutation uses the same project-scoped Web Lock, `annotate:project:<scopeId>:clip:<clipId>`, through `webapp/lib/fs/clipRepository.ts`. Mutators read the latest document inside the lock and replace their owned fields, including annotations, pins, tags, recordings or an explicitly trimmed range, rather than writing stale snapshots. Web Locks support is mandatory in the browser; desktop commands use the shared repository through the trusted host.
 
 Pin annotation saves nest inside this clip lock. Clip tombstones reject queued or late writes after deletion.
 
@@ -397,9 +412,11 @@ Highlight-name Text size uses the shared `CommittedNumberInput` in both clip and
 
 ### Tracking
 
-`Track` detects every player at the current frame and draws provisional, foot-anchored highlights. Selecting one creates the highlight; `Start` runs OC-SORT plus the Annotate continuity adapter forward from that exact frame. Raw tracker IDs are preference signals rather than absolute identity because early-frame IDs can be immature or reassigned.
+`Track` detects every player at the current frame and draws provisional, foot-anchored highlights. Selecting one seeds the active highlight; a left-click away from a detection supplies a manual foot point instead. `Start` runs OC-SORT plus the Annotate continuity adapter forward from that exact frame. An eligible selected highlight can be extended instead of creating another object. Raw tracker IDs are preference signals rather than absolute identity because early-frame IDs can be immature or reassigned.
 
 The clip-scoped stream shares one YOLO/OC-SORT pass across all seeds. The sidecar spools boxes, IDs and appearance descriptors (not video) to private temporary files indexed by source frame. Two recent clip ranges can be retained; a changed file, range or detector configuration causes a miss. A lost target stops the individual path, not the shared pass. A left-click off a detection records the analyst's exact image point; it is not inserted into the shared detections. Reacquisition bridges trusted endpoints and the cached stream is paced at 3× in the renderer. The unscoped API retains the previous incremental-stop behaviour.
+
+With `stopOnLoss`, an isolated target may bridge up to ten consecutive missing samples if one plausible isolated return is found. Interpolated positions are emitted only after that recovery is accepted. Ambiguous, overlong or unfinished gaps stop at the first missing sample for manual correction. The cache is process-local and does not survive sidecar restart; it is shared computation, not a multi-highlight selection UI or pitch-coordinate tracking.
 
 While tracking runs, `/track/stream` emits each trusted keyframe as NDJSON. The clip editor applies those frames to its in-memory annotation state immediately, so the canvas and keyframe timeline grow live, then performs one persisted commit from the final result. The original `/track` JSON endpoint remains available.
 
@@ -433,6 +450,8 @@ The independent right-side Animations panel can assign one ordered entrance step
 
 The presentation authoring layout uses resizable asset browser, canvas, deck, and inspector regions. Present mode is intentionally panel-free and fills the viewport for every slide kind.
 
+`PresentationCanvas` is also the recording setup/replay renderer. One aspect-ratio container fits the source within the available width and height; the video and both annotation layers share that rectangle. This prevents short or narrow recording windows from scaling the drawings against a different area than the visible video. Frame updates after seeks and during playback use the explicit clock/presented mapping described above.
+
 The asset browser is clip-first and supports tag and chronological views; empty tag buckets are omitted. Clips and pins can be previewed independently from the selected deck slide, and both remain drag sources. The deck is a horizontal 16:9 thumbnail storyboard with drag reordering rather than a text-only strip. Title cards use three visually distinct templates.
 
 Authoring clip previews reuse the clip editor timeline in a pins-only variant. The shared controls provide frame-snapped click/drag seeking, single-frame and two-second transport, horizontal zoom, five-second manual-scroll override, pin markers, and the current-frame playhead. Full-screen present mode deliberately does not render a timeline or scrubber.
@@ -461,7 +480,21 @@ The dashboard's report export scans validated clips and writes:
 
 Rows include frame bounds, duration, primary/facet tags, pin counts, animated annotation counts, document/shape totals, and annotated output paths. Pin PNGs are rendered at the owning video's native resolution through the same payload renderer used by the editor.
 
-Report exports replace the previous report folder. A bad pin document is recorded as a partial failure while other clips/documents continue. Clip and presentation recordings are separate optional arrays on their owning documents. Clip takes store an absolute half-open frame range and per-pin hold/click times in milliseconds. Deck takes snapshot slides and transitions; importing a clip take copies its range and pause cues. Replay samples the current annotations. MP4 export renders the recorded sequence using the existing annotation painters, then uses the sidecar frame encoder to produce a silent video in `exports/recordings/`. Old projects without recordings require no migration.
+Report exports replace the previous report folder. A bad pin document is recorded as a partial failure while other clips/documents continue. PNGs show the final static annotation state, not an entrance-animation instant. Existing empty annotation documents export a plain video frame; missing or unreadable documents are errors, not empty documents.
+
+### Recording and replay
+
+`components/presentation/RecordingStudio.tsx` provides separate Clip recordings and Presentation recordings entry points. Clip setup requires an explicit first and last frame, selected with timeline handles, frame-stepping keys, Set start/Set end or Use full clip. The UI's last frame is inclusive; persisted ranges remain half-open. Recording consumes pin animation clicks before resuming motion and saves at the sequence end. Cancellation discards the provisional pass; a failed save retains it in memory for another Save attempt.
+
+Clip takes append to the owning clip under its repository lock; deck takes save with the presentation. A deck take snapshots its slide order, transitions and timing data. Referenced clip objects and pin documents are read from current project data for replay/export. These are timing recordings, not immutable snapshots or screen captures. Trimming/deleting referenced material can invalidate an earlier take. There is currently no UI for renaming/deleting takes or editing their recorded timings.
+
+### MP4 rendering
+
+`lib/export/recording.ts` expands a take into motion, frozen-pin and title segments. Motion uses source-video frames and the shared animated clip painter; pin segments use the shared document painter and saved animation-click times. Match-video transitions read the original video's frame range. `outputFrames` rounds accumulated duration rather than each short segment separately, avoiding rounding drift. The dormant exact-motion endpoint is not used.
+
+`lib/export/recordingMp4.ts` decodes and renders each output frame, letterboxes mixed-source media, and uploads JPEG frames for FFmpeg H.264 encoding. The first non-title segment supplies output FPS and dimensions, rounded to even pixels; title-only takes use 1280 x 720 at 30 fps. Fractional FPS is retained through the encoder rather than rounded to an integer. Exports contain no source audio, voice, UI or cursor.
+
+Browser export uses `/export/start`, `/export/frame`, `/export/encode`, the output download and session cleanup. Desktop uses the project-bound `recording.*` commands described in the host section, which reach that same sidecar encoder and copy the result privately. Output is `exports/recordings/<sanitized-name>-<take-id>.mp4`; repeating the same take/name replaces that file. The progress bar reserves its last 5% for encoding/write completion, and Cancel is disabled in that final phase. Frame rendering is not real-time capture and can be slower than playback.
 
 ## 14. Internationalization and layout
 
@@ -473,7 +506,9 @@ Resizable panels use visible, focusable separators, minimum sizes, keyboard oper
 
 ## 15. Match metadata
 
-`matchInfo` remains optional manifest data. Project setup and Match info fetch [OpenFootball season files](https://github.com/openfootball/football.json) on explicit search. Selecting a compatible fixture checks [StatsBomb Open Data](https://github.com/hudl/open-data) by competition, season, exact date and both team names; roster sides are joined by team ID. Both XIs must contain eleven explicit starters. Confirmed import fills empty rosters only and stores the StatsBomb match ID for attribution. Public requests contain dataset identifiers, not local filenames or project contents. Coverage varies by season. Pasted reports, CSV/TSV and the separate football-data.org importer remain available.
+`matchInfo` remains optional manifest data. Project setup and Match info fetch [OpenFootball season files](https://github.com/openfootball/football.json) on explicit search for the Premier League, La Liga, Bundesliga, Serie A and Ligue 1. Conflicting team/date details require Overwrite fixture confirmation. Rosters follow matching team identities, including a home/away swap; removed clubs are dropped. Selecting a fixture checks [StatsBomb Open Data](https://github.com/hudl/open-data) by competition, season, exact date and both team names; roster sides are joined by team ID. Both XIs must contain eleven explicit starters. Confirmed lineup import fills empty rosters only and stores the StatsBomb match ID for attribution.
+
+Lookups require internet access and public dataset coverage; they are not a complete live worldwide fixture or teamsheet service. Requests contain dataset identifiers, not local filenames or footage. Paste both lineups accepts two team-labelled, comma-separated starting XIs and parenthesized substitutions; team-panel CSV/TSV and the separate football-data.org importer remain alternatives.
 
 There is no period-boundary feature or period-aware timestamp model.
 
@@ -501,11 +536,15 @@ Important live endpoints:
 | `POST` | `/homography` | Non-streaming pin/compatibility PnLCalib calibration |
 | `POST` | `/homography/stream` | Clip PnLCalib progress and final result; disconnect cancels remaining computation |
 | `POST` | `/derived-media/exact-motion` | Dormant exact-motion primitive retained for future export use |
-| `POST/GET/DELETE` | `/export/*` | Available client/service boundary; no current clip-export button |
+| `POST/GET/DELETE` | `/export/*` | Silent clip/presentation take encoding; browser API or private desktop host commands |
 
 Authoritative probing first uses a positive container `nb_frames` value, which avoids scanning ordinary long MP4s. If absent, `ffprobe -count_frames` reads and counts frames; an OpenCV decode/count is the final fallback. This is distinct from the packet-timestamp scans used to assess fast remux eligibility. Browser duration is never used to invent a frame count.
 
 ## 17. Verification
+
+For source commit `ed70920` on 2026-11-24, the pre-commit checks passed 481 web unit tests in 64 files, 87 desktop contract tests, TypeScript and zero-warning lint. The recording work also passed six targeted Chromium presentation/recording tests, including range selection, persisted timing imports, MP4 output, missed callback handling and same-frame video/annotation alignment. That final commit check did not rerun the entire sidecar/browser suites or rebuild installers. The [0.2.4 status](desktop/releases/0.2.4.md) separates these results from remaining release checks.
+
+### Historical package evidence
 
 The 2026-09-27 renderer/sidecar baseline passed 372 Vitest tests across 57 files, 92 sidecar pytest tests, and all 46 Chromium Playwright flows locally. Strict zero-warning ESLint and the standalone production renderer build, including TypeScript checking, passed. The bundled Mac runtime separately executed YOLO detection, one-frame PnLCalib inference, and H.264 encoding without development search paths. The later icon/Dock-only refresh retains those builds and reran all 27 native-host contract tests and the packaged Electron smoke from the read-only DMG; it did not rerun the full browser/sidecar suites. These checks are not a real-match CV-quality benchmark, fresh dependency-vulnerability audit, or Windows runtime certification.
 
@@ -533,7 +572,7 @@ Playwright owns `webapp/e2e/**`; Vitest excludes those files. Browser coverage i
 - PnLCalib is mandatory. Desktop packages bundle its source and checksum-verified weights. Browser development provisions them with `scripts/setup-pnlcalib.sh`; the archived browser installer and launcher are retained under `legacy/browser-install/`.
 - The tagging board is file-configurable but has no in-app board designer.
 - Tracking is single-highlight per interactive session; linked followers move with that highlight, but multi-object batch tracking is not exposed.
-- Clip MP4 rendering is not exposed in the current v2 UI.
+- Clip and presentation take MP4 export is available in current source, not the published desktop.2 package. It is silent, frame-rendered output with no post-recording timing editor. Saved takes depend on current project references; they are not immutable visual archives.
 - French, Spanish, and Simplified Chinese need native copy review.
 - Quick Annotate is retained but is not a design or compatibility constraint on the project.v2 workflow.
 

@@ -4,7 +4,7 @@ A self-hosted football video analysis application for capturing passages of play
 
 Download [Annotate 0.2.2 Desktop Preview 2 for macOS or Windows](https://github.com/PatrickJYKang/annotate/releases/latest). These are unsigned evaluation builds. Annotate 0.1 projects are not supported.
 
-Current source is **0.2.3-rc.1**, a local release candidate that has not replaced those downloads. See [candidate changes](desktop/releases/0.2.3-rc.1.md), [support and recovery](docs/support.md), and the unresolved [distribution licence review](docs/licence-review.md).
+Development on `main` is preparing **0.2.4**, including match-data lookup and clip/presentation recording takes. Package manifests still read **0.2.3-rc.1**; neither the new features nor the later compliance work have replaced the published downloads. See [0.2.4 source status](desktop/releases/0.2.4.md), [support and recovery](docs/support.md), and [remaining distribution checks](docs/licence-review.md).
 
 ## Install
 
@@ -39,19 +39,22 @@ The browser and desktop app share the UI and project format. See [development se
 - **Observable, per-video import** that preserves compatible CFR H.264 MP4s, remuxes compatible streams without re-encoding video, and transcodes only as a fallback, with byte/media-time progress, Apple VideoToolbox acceleration, and a bounded four-thread software fallback.
 - **Frame-native clip capture** from a configurable button board, including exact-frame start/stop range toggles, overlapping captures, live pending ranges, facets, hotkeys, untagged capture, paused re-tagging, and drag-and-drop re-tagging in the clip tree. The built-in board follows the selected UI language; custom boards keep their labels. The multi-lane tagging timeline opens at a one-minute view and supports horizontal zoom and scrolling.
 - **Clip editor** with absolute-frame transport, inward-only clip trimming with immediate undo, keyframed tactical shapes, position keyframes and tracker-managed visibility, manual keyframe retiming, horizontal timeline zoom, image/pitch coordinate modes, undo/redo, and persisted resizable panels.
-- **Player tracking** for highlight objects through YOLO and vendored OC-SORT, with linked image-space tactical shapes following their highlight anchor and provisional re-tracking from any retained frame.
+- **Player tracking** for highlight objects through YOLO and vendored OC-SORT, with manual foot-point seeds, isolated-gap recovery, a reusable all-player clip cache, linked tactical shapes, and provisional re-tracking from any retained frame. Interactive selection remains one highlight at a time.
 - **Pitch homography** through vendored PnLCalib, interpolation and sanity filtering, video-namespaced project caching, and pitch-space box/circle authoring.
 - **Clip-local pins** for important frames, with multiple annotation documents, the shared tactical annotation editor, ordered per-shape entrance animations, five-second context preview, automatic or manual calibration, and explicit pin-document import into the animated clip layer.
 - **Presentations** built from clips, pins, and distinct title-card templates, with source preview, a thumbnail storyboard, frame-native authoring transport, animated pin pauses, document cues, match-video transitions, direct source-video playback, scrubber-free full-screen playback, and graceful handling of missing references. Referenced clips open in a desktop editor window or browser tab; saved changes refresh in presentation authoring.
-- **Exports** written to `exports/report/`: clip JSON and CSV reports plus one native-resolution annotated PNG per pin annotation document. Individual render failures are reported without discarding successful outputs.
+- **Match metadata lookup** from OpenFootball fixtures and, where available, confirmed StatsBomb Open Data lineups, plus pasted and CSV/TSV teamsheets. Conflicting fixture details can be overwritten after confirmation.
+- **Recording takes** for clips and presentations: multiple named passes with per-take clip bounds and recorded pin-animation clicks/holds. Presentations can import a clip take's structured timings. Replay and silent MP4 export use current annotations; takes are not frozen visual snapshots.
+- **Exports** written to the project: silent take videos in `exports/recordings/`, and clip JSON/CSV reports plus native-resolution annotated pin PNGs in `exports/report/`. Report rendering failures are listed without discarding successful outputs.
 - **English, French, Spanish, and Simplified Chinese UI** with aligned catalogs and localized built-in tagging boards. Non-English copy still awaits native-speaker editorial review. Locale and panel preferences persist per browser origin; current desktop source stores them in native user data across launches.
 - **Standalone quick annotate route** at `/quick-annotate` for a single image. It is retained as a best-effort compatibility utility and is not part of the canonical `project.v2` workflow.
 
-The Python sidecar owns smart media preparation, authoritative probing, tracking, homography, and export encoding APIs. Its exact-motion segment endpoint remains available as an export-oriented building block but is not used by presentation playback. See the [sidecar documentation](sidecar/README.md) for its endpoints and model requirements.
+The Python sidecar owns smart media preparation, authoritative probing, tracking, homography, and export encoding APIs. Desktop recording export reaches the same encoder through project-bound trusted-host commands. The exact-motion segment endpoint remains available as an export-oriented building block but is used by neither presentation playback nor recording export. See the [sidecar documentation](sidecar/README.md) and [desktop architecture](desktop/README.md).
 
 ## Tech Stack
 
 - Next.js 15 App Router, React 19, and TypeScript
+- Electron with an isolated renderer and trusted native filesystem/media services
 - Konva and React-Konva for tactical annotation
 - Tailwind CSS 4 and `react-resizable-panels`
 - File System Access API, IndexedDB, and OPFS
@@ -67,6 +70,7 @@ The Python sidecar owns smart media preparation, authoritative probing, tracking
 - [Desktop build and architecture](desktop/README.md)
 - [Support and recovery](docs/support.md)
 - [Versioning and release identity](docs/versioning.md)
+- [0.2.4 development changes and verification](desktop/releases/0.2.4.md)
 - [Distribution licence review](docs/licence-review.md)
 - [Distribution compliance and source preparation](docs/distribution-compliance.md)
 - **[As-built technical reference](technical_document.md)**
@@ -83,9 +87,10 @@ The Python sidecar owns smart media preparation, authoritative probing, tracking
 ```bash
 npm test                         # Vitest
 npm run test:e2e                # Playwright (Chromium)
+npm run test:desktop            # native-host contracts
 npm run build                   # production Next.js build
 npm --prefix webapp run lint    # ESLint
 (cd sidecar && .venv/bin/python -m pytest tests)
 ```
 
-Vitest excludes `webapp/e2e/**`; browser coverage is owned by Playwright.
+Vitest excludes `webapp/e2e/**`; browser coverage is owned by Playwright. Packaged Electron, clean-machine and Windows checks are separate from these shared-code tests; see [development setup](docs/development.md).

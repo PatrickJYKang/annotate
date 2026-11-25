@@ -1,9 +1,9 @@
 # Desktop Application Direction
 
 Date: 2026-08-10
-Updated: 2026-09-27
+Updated: 2026-11-24
 
-Status: Adopted direction with a working Electron host and self-contained Apple Silicon DMG/Windows x64 NSIS packages on `main`, distributed as `0.2.2-desktop.2`. Browser session isolation, native persistence/media, clip/pin windows, startup progress, and graceful save/shutdown guards are implemented. Native crash recovery, publisher signing, updates, and full platform certification remain open. Future-facing behavior below is a target, not a claim that every native convenience has shipped. See [Pre-Electron Implementation Checklist](pre-electron-implementation-checklist.md) and [Desktop build and architecture](../desktop/README.md).
+Status: Adopted direction with a working Electron host and self-contained Apple Silicon DMG/Windows x64 NSIS packages, publicly distributed as `0.2.2-desktop.2`. Source has advanced toward [0.2.4](../desktop/releases/0.2.4.md), with manifests still at 0.2.3-rc.1. Browser session isolation, native persistence/media, clip/pin windows, native preferences, pin recovery prompts, crash/close choices, diagnostics and graceful service shutdown are implemented. Comprehensive crash recovery, publisher signing, automatic updates and full platform certification remain open. Future-facing behavior below is a target, not a claim that every native convenience has shipped. See [the implementation checklist](pre-electron-implementation-checklist.md) and [desktop architecture](../desktop/README.md).
 
 Scope: Direction record, not an implementation checklist and not a definition of the remaining browser-release features or fixes
 
@@ -19,7 +19,7 @@ Desktop distribution is direct: a macOS DMG and a per-user Windows NSIS installe
 
 Annotate 0.2.1 delivered inward clip trimming and post-track tail repair. Annotate 0.2.2 added pin-annotation animations. Desktop packaging now includes these shared features. End-user documentation recommends the desktop downloads; the old command-line browser installer is archived under `legacy/browser-install/`, while browser source development remains supported.
 
-The written guide now distinguishes desktop windows from browser tabs and describes the current workflow. The next documentation task is to record the [guide demonstrations](../docs/demo-recording-checklist.md). Existing video placeholders remain until actual recordings are available.
+The written guide distinguishes desktop windows from browser tabs. The original twelve [guide demonstrations](../docs/demo-recording-checklist.md) and a combined walkthrough are published in four languages on the separate online guide; the app opens that site rather than bundling it. Updated guide text and targeted retakes for later fixes and recording-take workflows are pending.
 
 The browser remains supported after the desktop application ships. It is not a temporary compatibility fallback, and desktop work must not quietly degrade its workflows or test coverage.
 
@@ -55,7 +55,7 @@ Browser mode keeps its tab-based behavior. A shared host action such as `openCli
 
 ## Native application behavior
 
-The following remains the target native experience. The current host implements native folder/import dialogs, editor-window deduplication, recent-project restoration, startup progress, and graceful service shutdown. This list also includes unfinished conveniences such as a diagnostics action, full native menus, window restoration, and updates:
+The following remains the target native experience. The current host implements native folder/import dialogs, editor-window deduplication, recent-project restoration, startup progress, graceful service shutdown and a Help menu with diagnostics, logs, source/licences and release access. Full window restoration, broader native menus and automatic updates remain unfinished:
 
 - A compact opening screen for recent projects, Create project, and Open project.
 - Native project-folder, import, export, and Save As dialogs.
@@ -68,7 +68,7 @@ The following remains the target native experience. The current host implements 
 - An integrated route to the user guide and a simple Copy diagnostics or Open logs action.
 - Update checks and signed application updates once the distribution pipeline is stable.
 
-The app should remain fully local and usable offline after installation. Users should not need Node.js, Python, Homebrew, ffmpeg, a terminal, or a separately installed Chromium browser.
+Core analysis and local export should remain usable offline after installation. The online guide and explicit fixture/lineup searches need internet access; they do not upload local footage. Users should not need Node.js, Python, Homebrew, ffmpeg, a terminal, or a separately installed Chromium browser.
 
 ## Shared and platform-specific architecture
 
@@ -118,7 +118,7 @@ Electron should supervise the production web runtime and Python sidecar as appli
 
 Desktop mode can pass absolute project media paths to the local sidecar instead of uploading browser `File` objects into temporary registrations. The renderer should receive video through a controlled local protocol or equivalent range-capable media path so long match videos seek without being copied into memory or duplicated on disk.
 
-Bundled ffmpeg, ffprobe, Python, YOLO, PnLCalib code, and model weights are read-only application resources. The current packages put mutable runtime state outside the installation under Electron user data: `~/Library/Application Support/Annotate` on macOS and `%APPDATA%\Annotate` on Windows. Service logs are in `logs/services.log` there. User projects and exports stay in the selected project folder. Renderer locale/layout preferences are still origin-local and need a native persistence layer; they are not reliably restored across launches. Shared product code must not construct platform-specific home-directory paths.
+Bundled ffmpeg, ffprobe, Python, YOLO, PnLCalib code and model weights are read-only application resources. Mutable runtime state lives under Electron user data: `~/Library/Application Support/Annotate` on macOS and `%APPDATA%\Annotate` on Windows. Service logs are in `logs/services.log` there. User projects and exports stay in the selected project folder. Current native source stores locale/layout preferences independently of the local origin and synchronizes locale across windows; the older public desktop.2 preview used origin-local storage. Shared product code must not construct platform-specific home-directory paths.
 
 The packaged ffmpeg build must be self-contained rather than copied from a Homebrew installation with unresolved Homebrew library paths.
 

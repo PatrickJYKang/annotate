@@ -1,6 +1,6 @@
 # Demo Recording Checklist
 
-Updated: 2026-10-23. The requested recording set is complete and published on the online guide: twelve tutorials and one combined walkthrough in each of four languages. The recordings show the packaged Annotate 0.2.2 desktop app with real football footage. This is a recording inventory, not a release announcement.
+Updated: 2026-11-24. The original recording set is complete and published on the online guide: twelve tutorials and one combined walkthrough in each of four languages. Those October recordings show the packaged Annotate 0.2.2 desktop app with real football footage, not the newer 0.2.4 development workflows. This is a recording inventory, not a release announcement.
 
 Taking over production? Start with the [handoff](demo-recording-handoff.md). Use the [storyboards](demo-storyboards.md) for recorded click sequences and the [recording workflow](demo-recording-workflow.md) for capture, cursor synchronization, localization, re-rendering, and verification. Export durations are measured video lengths, not application performance claims.
 
@@ -84,6 +84,8 @@ Guide text and web media belong to `annotate-docs`; raw footage, production scri
 
 ## Prepare once
 
+Use a newly verified packaged build for new-feature recordings. The isolated October demo app cannot demonstrate later changes merely because this source checkout was updated. Check its embedded commit/version and create a fresh disposable project copy; do not reuse an old clip/take assuming it has been migrated or refreshed. The original session paths below identify production history and must be checked before reuse.
+
 Use the isolated demo app, app profile, and disposable project copies described in the workflow. Keep clean starting states for import, captured clips, annotated pins, and presentations. Never reset Patrick's working projects for a take. The reference source is `$HOME/Downloads/Tottenham Hotspur vs. Chelsea FC 2014-2015 Footballia.mp4`. Patrick's current guide/outreach footage decision is recorded in the [handoff](demo-recording-handoff.md#footage-and-outreach).
 
 Keep the established 1920 x 1240 framing, cropped macOS title bar, small synthetic cursor, visible click rings, and white-on-near-black captions. Do not silently change the series to 16:9. Captions explain the action, not promotional claims or unnecessary tactical interpretation. Retain raw takes. Preserve complete import and playback intervals, using labelled timelapse when necessary; show final tracking playback at normal speed. Cuts may remove idle setup and join native windows, but must not conceal a failed result or skipped processing.
@@ -120,7 +122,7 @@ Not needed: Patrick decided on 2026-10-07 that installation does not need record
 
 ## Recording order and reuse
 
-The original fifteen [app observations](demo-recording-bugs.md) have all been reviewed. #1, #2, #4-9 and #11-15 are implemented but not yet packaged; the issue list records each fix and its verification. #3 remains an unconfirmed blackout report after investigation, and #10 is intentional: an existing empty annotation set exports a plain-frame PNG. The last two fixes remove the initial Box/Circle drag-preview flash and make highlight-name text-size entry commit on Enter/blur in both editors. They passed browser interaction checks over copied match footage, including image/pitch drawing and digit-by-digit text entry. Next is packaged verification, followed by targeted retakes, not another unapproved feature pass.
+The original fifteen [app observations](demo-recording-bugs.md) have all been reviewed. #1, #2, #4-9 and #11-15 are implemented in committed source but have not replaced the public desktop.2 build or guide recordings; the issue list records dated verification. #3 remains an unconfirmed blackout report, and #10 is intentional plain-frame export for an existing empty annotation set. Verify the exact next recording build before targeted retakes; later release-candidate tests do not silently certify an old recording executable.
 
 After packaged verification, retake Clip trimming (combining #4 with the #11 opening/selection change) and the affected clip-selection segments of Export and recovery and Capture and tagging. Combine the capture retake with #1/#2/#13 and the export retake with #8 dashboard shots and the #9 one-frame clip-list shot in English/French/Spanish. Also retake the Add title segment of Presentation authoring in French, Spanish and Simplified Chinese, including the French/Spanish present-mode Exit control for #7, and the Box/Circle gestures in Clip editing wherever the #14 flash is visible. #12 changes backend privacy defaults and needs no visible retake. #15 does not require replacing the existing Tracking refinements take, which uses working arrow-key entry; direct typing plus Enter can be used in any replacement take. All requested topics are recorded; pin context/sets and installation were dropped on 2026-10-07. Re-record only sections affected by an agreed app change, after verifying that change in the build being filmed.
 
@@ -128,4 +130,17 @@ The existing Capture and tagging recordings still show the older re-tagging, pos
 
 A later 30-45 second outreach video for `@annotate_app` can reuse tutorial footage: capture a passage, track a player, annotate a pin, present the result. It does not require another end-to-end walkthrough. Follow the footage decision in the handoff and review visible build/UI changes before reuse.
 
-Retain raw captures, action logs, edit plans, caption text, QA images, and the explicit list of current exports. Review visible labels against the distributed build when replacing a published video. Do not claim MP4 clip export, automatic updates, arbitrary panel pop-outs, or full Windows certification on the basis of these recordings.
+Retain raw captures, action logs, edit plans, caption text, QA images, and the explicit list of current exports. Review visible labels against the distributed build when replacing a published video. These October recordings do not demonstrate the new MP4 take exporter; automatic updates, arbitrary panel pop-outs and full Windows certification also must not be inferred from them.
+
+## Unrecorded 0.2.4 additions
+
+The following source features need guide coverage after packaged verification. None has a new tutorial master or localized web encode yet. Detailed proposed actions are in the [storyboards](demo-storyboards.md#024-follow-up-storyboards). Record English for approval before repeating the same workflow in the other three languages.
+
+| Topic | Scope | Reuse |
+| --- | --- | --- |
+| Match details lookup | Search a known supported fixture, review lineup coverage, confirm overwrite, and show the paste fallback if needed. | Supplement First project; do not repeat the full upload solely to show metadata. |
+| Tracking recovery | Manual foot-point seed, clear-space gap recovery if the real footage exhibits it, and another highlight using the warm clip cache. | Supplement Basic tracking/Tracking correction; never manufacture a detection failure or promise instant recovery. |
+| Clip takes | Set bounds with handles, record pin cues, save two variants, replay, export MP4 and inspect the actual file. | New tutorial; report export is a different feature. |
+| Presentation takes | Import clip timings into a selected clip slide, record title/pin advances, replay and export the deck take. | Extend Presentation authoring without replaying all deck setup. |
+
+Update translated online text and the combined walkthrough only after selecting approved replacement masters. A source-documentation update does not publish changes to `annotate-docs`.

@@ -1,6 +1,6 @@
 # Demo Recording Workflow
 
-Updated: 2026-10-12. This records the production method established with the first-project and pin tutorials and reused for all twelve tutorials through October 7. The [handoff](demo-recording-handoff.md) describes the later shared per-session pipeline and is the place to start. All twelve topics and the combined walkthrough are published in four languages on the online guide. This page preserves technical details for editing and retakes; it is not a request to record. See the [inventory](demo-recording-checklist.md) for deliverables and the [storyboards](demo-storyboards.md) for the recorded sequences.
+Updated: 2026-11-24. This preserves the production method established with the first-project and pin tutorials and reused through October 7. The [handoff](demo-recording-handoff.md) describes the shared per-session pipeline and is the place to start. All twelve original topics and the combined walkthrough are published in four languages; 0.2.4 additions are not recorded. This page retains editing/retake details, not a request to record. See the [inventory](demo-recording-checklist.md) and [storyboards](demo-storyboards.md).
 
 ## Working arrangement
 
@@ -8,7 +8,11 @@ Patrick chooses or approves the football passage and the analysis. The assistant
 
 Automation is most useful for repeated UI sequences, localization, and editing revisions. Patrick may be faster at intricate drawing or a difficult correction than explaining every gesture. Those takes should use the same framing and final cursor/caption treatment. Do not build a global keylogger to reproduce them: log only the explicit demonstration actions and their timing. A sequence of keystrokes does not describe which player was intended or whether the UI was ready.
 
-The requested series is complete; pin context/annotation sets and installation were deliberately dropped. Next is the numbered app-issue review, followed by retakes only where an agreed fix changes the demonstrated behavior. No standing permission to capture the desktop is implied by a storyboard.
+The original series is complete; pin context/annotation sets and installation were deliberately dropped. The fifteen app observations have since been reviewed and approved fixes committed. As of 2026-11-24, next work is verification in the chosen recording build, targeted retakes and the unrecorded 0.2.4 additions listed in the [inventory](demo-recording-checklist.md#unrecorded-024-additions). No standing permission to capture the desktop is implied by a storyboard.
+
+## Screen recordings versus app takes
+
+This document describes tutorial production: capturing real desktop UI and compositing the synthetic pointer, click rings and captions. The app's new Clip recordings and Presentation recordings instead save cue/range data and render silent analysis MP4s without the UI or pointer. They do not replace the tutorial recorder. Use the existing screen-capture method to demonstrate those controls, and inspect the separately exported MP4 as the result. Old demo packages cannot show these source features; record only after verifying the build and its commit.
 
 ## Established visual and editing style
 
@@ -136,7 +140,7 @@ node "$DEMO/check-localized.cjs"
 
 Always pass the explicit current plan to the pin renderer. With no plan argument it builds the superseded English v2 output. Also note that the English introduction/drawing captions are inherited from the earlier verification plan; editing `localized-captions.json` alone does not update all of that reused English text. Update the relevant source plan deliberately and check the generated plan before rendering.
 
-These are local session scripts, not supported repository commands. They currently resolve Playwright/sharp from this checkout's `webapp/node_modules`, contain absolute paths, and use installed ffmpeg/ffprobe. The pin renderer uses macOS `h264_videotoolbox`; relocating the folder or rendering on Windows requires adapting those assumptions. The recording script additionally hardcodes session-specific app/window IDs and mutates demo pins: inspect and adapt it before any new recording, rather than running it unchanged.
+These are local session scripts, not supported repository commands. The original scripts resolved Playwright/sharp from this checkout's `webapp/node_modules`, contained absolute paths, and used installed ffmpeg/ffprobe. Current package cleanup does not promise those incidental modules remain available to a production script. Check its dependencies in an isolated production environment rather than adding them back to app runtime packages. The pin renderer uses macOS `h264_videotoolbox`; relocating folders or using Windows requires adapting those assumptions. The recorder also hardcodes session-specific app/window IDs and mutates demo pins: inspect it before a new capture instead of running it unchanged.
 
 ## Localization
 

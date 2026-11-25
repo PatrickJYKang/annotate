@@ -2,9 +2,11 @@
 
 Date: 2026-09-04
 
+Current-state review: 2026-11-24. The Electron preparation and initial packaging phases below are implemented; this is now a historical ledger plus remaining release checks, not work waiting to begin. Current source targets [0.2.4](../desktop/releases/0.2.4.md), while manifests still say 0.2.3-rc.1 and public installers remain desktop.2. Native preferences, pin recovery, crash/close handling, diagnostics and licence/source access have since landed. Optional clip/deck recording fields share the same project format across hosts; native MP4 writes use a private host command family. Dated dependency versions and test counts below describe their original builds.
+
 Status: Development returned to `main` on 2026-09-16; `codex/pre-electron` is no longer the working branch. This work started from `v0.2.2` (`b14783b1`). Browser host/session isolation, a native Electron host and self-contained unsigned preview packaging are implemented. Initial targets remain Apple Silicon macOS and Windows x64. User installation trials have taken place on Mac and Windows, but installation/startup performance, broader platform verification and the unchecked release gates below remain open; moving branches does not mark them complete.
 
-This checklist implements the direction in [Desktop Application Direction](desktop-application-direction.md). Completed steps must preserve project compatibility and browser workflows. There is no project-schema migration, UI redesign or browser version bump. Both desktop packages use `0.2.2-desktop.2`; the user requested another rebuild and movement of that desktop tag on 2026-09-27 to include the built-in board locale fix and current guide. Browser release tags remain unchanged. GitHub's prerelease flag is off and Latest is selected for homepage visibility; the builds remain unsigned evaluation previews. Superseded artifacts remain local. Electron 44.2.0, esbuild 0.28.2 and electron-builder 26.15.3 are pinned root development dependencies. The sidecar dependency lock is unchanged; packages bundle Python 3.12.14.
+This checklist implements the direction in [Desktop Application Direction](desktop-application-direction.md). The original preparation scope preserved project compatibility and browser workflows without a schema migration or UI redesign. The September packages used `0.2.2-desktop.2`; the user requested that tag's refresh for the board locale fix and guide. Those historical tag replacements predate the [immutable-release policy](../docs/versioning.md). GitHub's Latest label does not change their unsigned evaluation status. The original dependencies were Electron 44.2.0, esbuild 0.28.2 and electron-builder 26.15.3; current source uses Electron 44.9.3 and the package/lockfiles are authoritative. Packaged Python remains 3.12.14.
 
 Markers: `[x]` implemented and locally verified; `[-]` partly implemented or awaiting platform/integration verification; `[ ]` not done. [Desktop Foundations](../desktop/README.md) records the module contracts, mutable-resource inventory, commands, and limitations.
 
@@ -44,7 +46,7 @@ The browser no longer uses one global project identity for editors. Closing one 
 - [x] Connect the native AppHost/repository adapter using named domain commands, narrow auxiliary-file writes and reconstructed DOM errors. No arbitrary native callback or path-based host operation is exposed.
 - [ ] Verify that a native-written project opens and edits in the browser and vice versa, without schema conversion.
 
-The native store serializes cooperating calls and detects stale document revisions. It is not an OS-wide lock, multi-file recovery journal, or race-proof sandbox against a hostile local process swapping path ancestors. These distinctions must remain explicit when wiring the eventual preload and domain service.
+The native store serializes cooperating calls and detects stale document revisions. It is not an OS-wide lock, multi-file recovery journal, or race-proof sandbox against a hostile local process swapping path ancestors. These distinctions remain true of the implemented preload and domain service.
 
 ## 4. Media and service lifecycle
 
@@ -70,7 +72,7 @@ The native store serializes cooperating calls and detects stale document revisio
 
 - [x] Add a runnable Electron development shell with sandboxed/context-isolated windows, narrow preload and no renderer Node integration. Production renderer and Python services are managed on private dynamic ports.
 - [-] Implement project-owned clip/pin windows, focus-existing, native dialogs, menus and graceful close/quit. Local Mac flows pass; OS dialog interaction, failure/discard UX and Windows behavior require manual/platform testing.
-- [-] Add real Electron startup/window/persistence/media/import/export/presentation/security/shutdown tests while retaining browser coverage. Abrupt process crashes and recovery are not yet covered.
+- [-] Add real Electron startup/window/persistence/media/import/export/presentation/security/shutdown tests while retaining browser coverage. The recovery smoke now covers renderer crash/reload, main-process termination cleanup and pin recovery. Native Windows execution and current recording-take/export validation remain separate gates.
 - [-] Build and test self-contained macOS and Windows artifacts on clean machines without Node, Python, Homebrew, ffmpeg, or a separate Chrome installation. DMG/NSIS generation and restricted-search-path Mac checks exist; this is not yet a clean-machine or Windows test result.
 - [x] Display startup progress while checking resources and starting packaged services.
 - [ ] Add signing/notarization and platform installer/update handling before claiming stable desktop support. The unsigned downloads remain evaluation builds regardless of GitHub's Latest label. App Store distribution remains out of scope.
@@ -78,9 +80,12 @@ The native store serializes cooperating calls and detects stale document revisio
 ## 7. User guide
 
 - [x] Update written host-specific instructions for implemented desktop windows, direct import, installation, service logs, and browser differences. Keep unfinished native behavior labeled as pending.
-- [ ] Record and insert guide videos using the [recording checklist](../docs/demo-recording-checklist.md). Keep the current video placeholders until actual clips are available.
+- [x] Record and publish the original guide series: twelve tutorials and one combined walkthrough in each of four languages, hosted in the separate online-guide repository. The app opens the guide in the active UI language; no bundled placeholders remain.
+- [ ] Update the online guide and affected tutorials for the subsequent reviewed fixes and 0.2.4 match lookup, tracking recovery and recording-take workflows. See the [recording checklist](../docs/demo-recording-checklist.md); these additions have not been filmed.
 
 ## Verification log
+
+2026-11-24, source review through `ed70920`: 481 web unit tests, 87 native contract tests, TypeScript and zero-warning lint passed before commit; six targeted Chromium presentation/recording tests passed during implementation. Current source includes recording export through project-bound native commands without broadening the CV proxy. No new packaged app, full sidecar/browser rerun or native Windows certification is implied. The compliance record closes the PnLCalib permission and Microsoft confirmation questions while retaining exact-source, Windows and signed-package validation gates.
 
 2026-09-27, localized-board rebuild and documentation review: 372 unit tests in 57 files, 92 sidecar tests, 24 native-host tests, all 46 Chromium flows, strict lint, TypeScript, and the standalone renderer build pass. Both desktop.2 installers include the locale fix and corrected in-app guide. The Mac app passes the full Electron smoke from its read-only DMG with restricted PATH, deep/strict signature checks, and DMG integrity verification; bundled Python runs detection, PnLCalib, and encoding. Platform checks verify 289 Mac and 251 Windows native binaries; the Windows installer and its 25,328-file payload pass archive tests. Packaged versions, icons, renderer build IDs, and guide content match the build. The underlying `09d51833` also passed the macOS/Windows Node 22/24 host-contract CI matrix; this does not certify Windows Electron/CV execution. Documentation distinguishes implemented desktop behavior from future work, corrects probing and locale claims, and adds the guide recording checklist. The release tag moves only at the user's explicit request; browser tags and project schemas remain unchanged. Previous local installers are retained. Windows installed-app testing, fresh-machine certification, signing, startup optimization, and remaining unchecked gates are not marked complete.
 

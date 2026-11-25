@@ -14,9 +14,9 @@ Annotate keeps the required HRNet inference files with their MIT notice, exclude
 
 Marc Gutiérrez-Pérez, PnLCalib's first author and GitHub maintainer `mguti97`: **mgutierrez@iri.upc.edu**. This professional contact is published on the [IRI/UPC staff page](https://www.urus.upc.es/staff/mgutierrez), which also lists the PnLCalib paper. The GitHub [profile](https://github.com/mguti97) and [repository](https://github.com/mguti97/PnLCalib) establish the maintainer identity.
 
-Checked the repository licence, README, release v1.0.0, all eight existing issues and their public comments on 2026-10-24. No clarification of licence version or weight redistribution was found. The issue page reports restricted issue creation, so email is the more suitable first contact. This is an unanswered scope question, not an assertion that the author prohibits redistribution.
+The initial 2026-10-24 review covered the repository licence, README, release v1.0.0, all eight then-existing issues and their public comments. It found no clarification of licence version or weight redistribution. Restricted issue creation led to the email enquiry. That was the pre-reply uncertainty, not a current unanswered question or an assertion that the author prohibited redistribution.
 
-## Email draft
+## Original enquiry draft
 
 To: mgutierrez@iri.upc.edu
 

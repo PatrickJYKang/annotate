@@ -4,7 +4,7 @@
 
 ## Purpose
 
-This is the current actionable implementation checklist for clips.
+This was the actionable implementation checklist for the original clip rollout. Its remaining items and checkmarks are historical, not the current release checklist.
 
 It supersedes the older checklist sections in [clips-feature.md](../../../plans/post-mvp/clips/clips-feature.md) where the product model has since changed.
 

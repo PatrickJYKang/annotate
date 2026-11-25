@@ -8,6 +8,8 @@ Current-state amendment, 2026-09-27: desktop packaging and host-specific follow-
 
 ## How to read this
 
+Follow-up amendment, 2026-11-24: the phase sequence below remains the completed v0.2 implementation history, not the current release checklist. Subsequent work added native recovery/support, schema-driven possession exclusions, match lookup/overwrite, manual tracking seeds with cached all-player analysis and isolated-gap bridging, multiline annotation text, and named clip/presentation recording takes with silent MP4 export. The optional persisted fields are recorded in [schema section 3.4a](project-v2-schema-and-migration.md#34a-recording-amendment-for-024). Current evidence and remaining gates are in [0.2.4 status](../../desktop/releases/0.2.4.md); old test counts and migration-era file names below are intentionally preserved.
+
 - Steps are numbered `phase.step` and ordered — each lands **green** (build + `npm test`; e2e where stated) before the next starts.
 - Phase 1 builds a complete **v2 vertical slice in parallel** with the working v1 app (temporary `/v2/…` route namespace). The flip to v2-only is the *last* step of phase 1, after the slice is green end-to-end. v1 e2e specs keep running until the flip, so browser coverage never drops.
 - File paths are relative to `webapp/` unless prefixed. Line references locate today's code and will drift.

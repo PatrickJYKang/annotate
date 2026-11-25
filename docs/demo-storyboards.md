@@ -1,6 +1,6 @@
 # Demo Storyboards
 
-Updated: 2026-10-23. Companions: [recording inventory](demo-recording-checklist.md), [handoff](demo-recording-handoff.md), and [capture/editing workflow](demo-recording-workflow.md). All twelve requested tutorials are recorded and published in four languages. The sequences below describe the actual exports, replacing the broader original proposals. Pin context/sets and installation were dropped. Session `RECORDING-NOTES.txt` files preserve detailed take information; current publication status is in the handoff. No capture or input logging is enabled by this document.
+Updated: 2026-11-24. Companions: [recording inventory](demo-recording-checklist.md), [handoff](demo-recording-handoff.md), and [capture/editing workflow](demo-recording-workflow.md). The original twelve tutorials are recorded and published in four languages. Their sequences below describe the actual October exports; the separately labelled 0.2.4 follow-ups are unrecorded. Pin context/sets and installation remain dropped. Session `RECORDING-NOTES.txt` files preserve detailed take information; current publication status is in the handoff. No capture or input logging is enabled by this document.
 
 ## Recommended division of work
 
@@ -123,7 +123,7 @@ Status: recorded in four languages, about 77 seconds, as one continuous normal-s
 4. Click **Re-tag selected**, choose Offensive set piece > **Throw in** with Outcome **Turnover**, and confirm.
 5. Scroll the list to the Throw in grouping and drag timeline zoom to approximately x4.
 
-The recorded build keeps the old clip name after re-tagging, permits the overlapping captures, and saves English clip names even in localized takes. These are observations #1, #2, and #13, not behavior corrected for the video. The working tree now addresses all three, pending packaged verification: generated names follow re-tagging, the default possession buttons switch exclusively while unrelated captures can overlap, and new captures use the displayed label at capture start. Retake the affected segments after verification, using a Pass within a Possession to demonstrate intentional overlap and showing localized generated names in the non-English takes. There is no on-camera language switch.
+The recorded build keeps the old clip name after re-tagging, permits the overlapping captures, and saves English clip names even in localized takes. These are observations #1, #2 and #13, not behavior corrected for the video. Committed source addresses all three: generated names follow re-tagging, the default possession buttons switch exclusively while unrelated captures can overlap, and new captures use the displayed label at capture start. Verify the next recording package before retaking those segments, using a Pass within a Possession to demonstrate overlap and showing localized generated names. There is no on-camera language switch in the old exports.
 
 ## 5. Edit and trim a clip
 
@@ -212,6 +212,37 @@ Dropped: Patrick decided on 2026-10-07 that installation does not need recording
 
 ## Next action
 
-See the [handoff](demo-recording-handoff.md). All requested topics are recorded; pin context/sets and installation were dropped. Review the 15 app observations individually next. For any resulting retake, verify the new behavior first and record English for approval before localization unless Patrick requests otherwise.
+See the [handoff](demo-recording-handoff.md). The original topics are recorded; pin context/sets and installation remain dropped. All fifteen app observations have been reviewed and approved fixes implemented in source. Verify the next packaged build before retakes, then record English for approval before localization unless Patrick requests otherwise. The follow-ups below are not yet recorded.
 
 Later, a 30-45 second outreach montage for `@annotate_app` can reuse tutorial footage without another end-to-end session, following the footage plan in the handoff. The online guide is already published; an outreach post is a separate task.
+
+## 0.2.4 Follow-up Storyboards
+
+Drafted 2026-11-24 against the current UI. Use a disposable project and a verified package with these features. Keep the existing silent, captioned tutorial style; these sequences do not authorize starting a recording or publishing footage.
+
+### Match details
+
+1. Open Match info, then Import match metadata. Select a supported competition/season and search a known fixture.
+2. Select the exact fixture. If current teams/date conflict, show the Overwrite fixture confirmation before accepting it.
+3. Preview and import the confirmed lineup if that match exists in StatsBomb Open Data. Otherwise demonstrate Paste both lineups using a real report, without implying that the automatic lookup found them.
+4. Save and reopen Match info to show the teams, date and rosters persisted. Do not repeat the full video import unless demonstrating a changed import behavior.
+
+### Tracking recovery
+
+1. Open a short real passage with a known missed detection. Choose Track and left-click the player's feet away from a provisional target to establish the manual point.
+2. Step to a frame with a valid target, select it and Continue as offered. Show the resulting path at normal playback speed.
+3. Start another highlight in the same analysed clip to demonstrate cache reuse. Keep processing/playback speed labels honest; this is not simultaneous multi-selection.
+4. Show automatic isolated-gap bridging only if the real footage exhibits the relevant short failure and recovery. Do not fabricate a missing detection or describe all occlusions as automatically repaired.
+
+### Clip takes and MP4
+
+1. Open a clip with at least one animated pin and choose Clip recordings. Name the first take, then set first/last frames with the timeline handles. Nudge one handle by one frame and preview the range.
+2. Choose Record. At the pin, pause long enough to read the drawing, click through its entrance steps, then resume. Let the range end save the take.
+3. Record a second named take with different bounds or hold timing. Show both entries and replay one; the underlying clip should retain its original bounds.
+4. Choose Export MP4. Retain progress with labelled timelapse if necessary. Open the actual file in the project's exports/recordings folder and show the silent rendered result, not a screen capture passed off as export output.
+
+### Presentation takes
+
+1. Open a small title/clip/pin deck and select the clip slide. Choose Import clip timings and select the clip take from the previous demonstration.
+2. Open Presentation recordings, name the pass and choose Record. Advance the title after a readable hold; let the imported clip timings run automatically; click through the standalone pin before finishing.
+3. Replay the saved deck take, then Export MP4 and inspect the output. Explain only that the timings are copied while the drawings remain current project data; no immutable-snapshot claim.

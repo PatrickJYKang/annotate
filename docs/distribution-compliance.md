@@ -2,7 +2,11 @@
 
 This is the implementation record for release preparation, not a legal opinion or blanket clearance. Annotate-owned code remains GPL-3.0-only. Third-party components retain their licences. Nothing in this work authorizes changing a dependency's licence, removes required notices, or treats a process boundary as a copyleft exemption.
 
-## Current status (updated 2026-11-01)
+## Current status
+
+Reviewed against source on 2026-11-24. The compliance implementation is committed through `ed70920`; development now targets [0.2.4](../desktop/releases/0.2.4.md), with package manifests still at 0.2.3-rc.1. The evidence below records the October/November native candidates, not a newly packaged 0.2.4 release. Public desktop.2 assets remain unchanged. PnLCalib permission and Microsoft confirmation are closed; native Windows validation, adoption of the verified media candidate and exact final source/binary packaging remain outstanding.
+
+### Candidate evidence through 2026-11-01
 
 Two avoidable release questions are closed for newly built renderers. Annotate does not use Next's image optimizer; the renderer now explicitly disables it and omits `sharp` and `@img/*`, including libvips and its WASM fallback. This does not remove video codecs, drawing, image export or CV. Packaging checks the built Next configuration, hashes it, records the omitted packages and refuses a contradictory runtime. Legacy runtimes without this evidence keep their original source/notice obligations. The historical libvips investigation below applies to those old binaries, not the new renderer.
 

@@ -1,8 +1,10 @@
-# Annotate 0.2.2 User Guide
+# Annotate User Guide
 
 The canonical guide is the [online user guide](https://patrickjykang.github.io/annotate-docs/), in English, French, Spanish and Simplified Chinese, with a complete-workflow video and twelve tutorial videos; the **User guide** button in the app header opens it in the current UI language. This Markdown version remains available as an offline reference.
 
-This guide covers the `project.v2` workflow in Annotate 0.2. Annotate 0.1 projects are not compatible with 0.2; keep using the pinned 0.1 release for those projects.
+Updated 2026-11-24 for source development toward 0.2.4. Package manifests still use 0.2.3-rc.1 and public installers remain 0.2.2-desktop.2. New match lookup, tracking recovery and recording-take features below are not in those public installers. The online guide and its October tutorial videos are maintained separately and do not yet demonstrate these additions; see [source/release status](desktop/releases/0.2.4.md).
+
+This guide covers the `project.v2` workflow. Annotate 0.1 projects are not compatible; keep using the pinned 0.1 release for those projects. Use a project backup when testing development builds, especially before returning to an older app that does not understand newer optional fields.
 
 ## 1. Install and start Annotate
 
@@ -42,7 +44,7 @@ The tagging workspace has a video player, a fixed tag board, and a clip tree. Th
 
 Each main board button is a start/stop toggle. Press it once at the first relevant frame to begin a clip; press the same button again at the final relevant frame to finish it. The active state is visible on the board and as an in-progress range on the timeline.
 
-Different tag buttons can remain active at the same time, so clips may overlap. There is no automatic pre-roll or post-roll: the frames at which you press the button are the captured boundaries.
+Different tag buttons can remain active at the same time, so clips may overlap. The default board makes Offensive Possession and Defensive Possession mutually exclusive: starting one ends the other at that frame boundary. A Pass can still overlap a Possession. Custom boards can define their own exclusions. There is no automatic pre-roll or post-roll; a normal stop includes the displayed final frame.
 
 Modifier buttons add facets such as outcome or phase details. Applicable modifiers are captured when a clip begins and may be changed while that capture remains active. The board enforces any requirements defined by the project's `tagging-board.json`.
 
@@ -141,7 +143,7 @@ Create a presentation from the dashboard or the Presentations page, then open it
 
 Browse assets by tag or chronologically. Click a clip or pin to preview it without changing the deck. Drag a clip or pin into the deck to create a slide, drag deck thumbnails to reorder them, and use **Add title** for title, section, or divider cards.
 
-Clip slides play the original project video with animated clip annotations. Pin slides render the exact frozen frame and selected annotation sets. Use the inspector to choose annotation sets, pin-pause behavior, hold/cue timing, playback rate, title content, speaker notes, and the transition after the selected slide.
+Clip slides play the original project video with animated clip annotations. Pin slides render the exact frozen frame and selected annotation sets. Use the inspector to choose annotation sets, pin-pause behavior, hold/cue timing, title content, speaker notes, and the transition after the selected slide. Match-video transitions also have a playback-rate control.
 
 When a clip pauses at a pin, or a pin is used directly as a slide, its saved shape animations play on a live overlay. A click, Space, the play control, or **Next** fires a pending on-click step before resuming the clip or advancing the presentation. Presentation annotation cues still control when an entire annotation document enters or exits; the sequence stored inside that document controls how its individual shapes enter.
 
@@ -153,15 +155,29 @@ Choose **Present** for a panel-free, full-viewport presentation. Right advances,
 
 ## 11. Export and recover work
 
+### Reports and images
+
 Choose **Export report** on the dashboard to write `clips.json`, `clips.csv`, and one native-resolution PNG for every pin annotation set into `<project>/exports/report/`. PNG exports render the completed static annotation state rather than one moment of the entrance sequence. A failed annotation render is listed without discarding successful outputs.
 
-In the clip editor, open **Clip recordings** and name the take. Drag the two timeline handles to choose the first and last frames, or scrub to a frame and click **Set start** or **Set end**. Both frames are included. With a handle focused, press Left or Right to adjust it by one frame. **Use full clip** selects both ends at once. Press Play to check the range before choosing **Record**.
+### Clip takes
+
+In the clip editor, open **Clip recordings** and name the take. Drag the two timeline handles to choose the first and last frames, or scrub to a frame and click **Set start** or **Set end**. Both frames are included. With a handle focused, press Left or Right to adjust it by one frame. **Use full clip** selects both ends at once. Press Play to check the range before choosing **Record**; both ends must be set first.
 
 During recording, the video plays to each pin; click or press Space for each on-click animation, then once more to resume. Reaching the last frame saves the take. **Cancel** discards the current pass. Recording another take does not trim the clip or change earlier takes.
 
-In a presentation, select a clip slide and choose **Import clip timings** to copy a saved take's range and pin timings onto that slide. **Presentation recordings** records a separate pass through the whole deck: advance title slides, pin animations and pin slides when ready. Imported clip timings play automatically. The recording stores timings and references to project media and annotations, not a video of the screen.
+### Presentation takes
+
+In a presentation, select a clip slide and choose **Import clip timings** to copy a saved take's range and pin timings onto that slide. This is a copy of timing data, not an imported MP4 or a live link to the take. **Presentation recordings** records a separate pass through the whole deck: advance title slides, pin animations and pin slides when ready. Imported clip timings play automatically.
+
+A saved presentation take retains its slide order, transitions and timing choices. Both kinds of take use the current referenced clip objects and pin annotations when replayed or exported. Editing those drawings changes the result of an older take; deleting referenced material can prevent replay or export. Keep the project alongside any rendered MP4 if you want to edit it later.
+
+### Video output
 
 Choose **Replay** to review a saved take or **Export MP4** to render it into `<project>/exports/recordings/`. Each take has its own filename; exporting it again replaces that take's MP4. These exports are silent: they do not include the pointer, editor controls, microphone or match audio.
+
+Output uses the first video source's frame rate and dimensions, with even dimensions for encoding. Other sources are fitted inside that frame without stretching. A title-only take uses 1280 x 720 at 30 fps. Export renders each output frame, so its progress is separate from recording and it can take longer than playback. Cancel is unavailable during the final encoding/write phase. Saved takes currently have no rename, delete or post-recording timing editor in the UI; record another named take to make a variant. If saving fails, keep the recording window open and choose **Save** to retry.
+
+### Recovery and deletion
 
 Clip, pin, and annotation-set deletion first copies data into `<project>/.trash/`. Use the immediate Undo action when available. **Empty trash** permanently removes retained recovery operations; automatic cleanup also applies age and size limits.
 
@@ -190,12 +206,14 @@ The dashboard integrity section reports missing media, unreadable clips or prese
 | Pin editor | Hold Left / Right | Preview up to five seconds around the pin |
 | Pin editor | Space | Return to the exact pin frame |
 | Animation preview | Click / Next | Fire the next on-click shape animation |
+| Recording pass | Space / Right / click video / Next | Fire the next cue, resume motion, or advance the scene |
+| Recording range handle | Left / Right | Adjust the chosen boundary by one source frame |
 | Present mode | Left | Previous scene |
 | Present mode | Right | Fire the next animation, or advance when none remain |
 | Present mode | Space / click | Fire the next animation or resume a paused clip |
 | Present mode | Escape | Exit present mode |
 
-Shortcuts are ignored while typing in an input, text area, or select control.
+Playback and editor shortcuts are ignored while typing in an input, text area, or select control. Text annotations have their own editing keys: Enter adds a line, Cmd/Ctrl+Enter commits, and Escape cancels.
 
 ## 13. Troubleshooting
 
@@ -203,7 +221,7 @@ Shortcuts are ignored while typing in an input, text area, or select control.
 
 **The app opens but the sidecar is offline:** Quit and reopen Annotate. Retain the exact startup error and inspect `~/Library/Application Support/Annotate/logs/services.log` on macOS or `%APPDATA%\Annotate\logs\services.log` on Windows. Desktop services choose their own local ports; do not assume they use 3000 or 8321.
 
-**PnLCalib is unavailable:** The desktop packages include its source and model weights. Restart Annotate and report the startup error and service log if it persists; no separate model installation is required. Browser setup and repair commands are in the [legacy installation guide](legacy/browser-install/README.md) and [developer documentation](docs/development.md).
+**PnLCalib is unavailable:** The desktop packages include its source and model weights. Restart Annotate and report the startup error and service log if it persists; no separate model installation is required. For source development, use the [developer documentation](docs/development.md) and [sidecar setup](sidecar/README.md), not the archived release installer.
 
 **Tracking cannot load YOLO:** The desktop app bundles the model, so it should not need a first-use download. Restart and report the error with the service log. Browser development may download the model on first use.
 
@@ -211,6 +229,8 @@ Shortcuts are ignored while typing in an input, text area, or select control.
 
 **A long video import appears slow:** Watch the import phase and percentage. Compatible H.264 MP4 files are normally preserved or remuxed quickly; incompatible or variable-frame-rate files require a full transcode. Canceling is safe and removes temporary import files.
 
-**Language or panel layout resets after restarting desktop:** These preferences currently use the renderer's local storage. The desktop app selects a new local origin at startup, so preferences are not yet reliable across launches. Project contents are saved separately and are unaffected.
+**Language or panel layout resets after restarting desktop:** The published desktop.2 preview stores these preferences by local browser origin, which can change on restart. Current source stores desktop preferences in native user data and shares locale changes across windows; browser settings remain origin-local. Old preview settings are not migrated automatically. Project contents are separate and unaffected.
+
+**A take exports differently or reports a missing source:** A take saves timings, not copies of drawings or video. Check whether its clip, pins, annotation sets or source video were edited, trimmed or deleted since recording. Restore the project backup or record a new take from the current material. An already exported MP4 is unaffected unless you export over that file again.
 
 **A project reports missing references:** Expand the dashboard integrity report for the exact path. Restore the missing item from `.trash/` when possible, or remove the broken presentation slide/reference. Annotate keeps broken references visible rather than guessing how to repair authored work.

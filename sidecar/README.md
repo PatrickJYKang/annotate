@@ -10,7 +10,7 @@ This sidecar actively backs the frame-native project and clip workflows:
 - `/track/detect` supplies provisional player targets and `/track/stream` supplies live trusted keyframes for the highlight-driven tracking workflow; `/track` remains the equivalent non-streaming response path
 - `/homography/stream` supplies frame-based clip calibration progress and results; `/homography` remains the timestamp-based pin/compatibility path. Both use vendored `PnLCalib`; clip calibration solves every 15 source frames with interpolation and web-layer sanity filtering
 
-Clip and presentation recordings use the `/export/*` session API for silent MP4 encoding. Presentations play absolute frame ranges directly from original project videos; `/derived-media/exact-motion` is not required for recording or playback.
+Current source, targeting 0.2.4, uses the `/export/*` session API for silent clip and presentation take encoding. Browser clients call it directly; desktop routes project-bound `recording.*` commands through the trusted host to the same encoder. Export routes are not added to the renderer's CV proxy. These changes are not in the published desktop.2 installers. Presentations play absolute frame ranges directly from original project videos; `/derived-media/exact-motion` is not used for recording or playback.
 
 ## Requirements
 
@@ -108,6 +108,8 @@ Relative `videoPath` values are rejected.
 
 ## Architecture
 
+Recording timing and annotation painting live in the shared webapp, not in Python. The sidecar receives sequential JPEGs, encodes a silent H.264 MP4 at the requested fractional or integer FPS, and retains it until session cleanup. Browser clients download it before deleting the session; desktop privately copies the result into the authorized project's `exports/recordings/` directory. Failed or cancelled frame submission cleans up the temporary session. The UI reserves the last 5% for encoding/output and disables cancellation in that phase. Temporary numbered JPEGs can require substantially more disk space than the finished MP4.
+
 ```
 annotate_sidecar/
   __init__.py
@@ -150,6 +152,7 @@ Current ownership stance:
 Current app-facing tracking semantics:
 
 - `/track/detect` supplies provisional foot-anchored highlights for every detected player at the current frame. With `clipFrames: [start, endExclusive]` and source `fps`, it can reuse a previously analysed frame. The clip editor supplies the same scope to `/track/stream`: one all-player pass continues even if a selected target is lost. The process-local cache keeps the two most recently used ranges. A `manualSeed` belongs only to its individual tracking path.
+- Cached data is discarded with the sidecar process and invalidated by source/range/detector changes. It stores detection/identity data in temporary spool files, not rendered video. Cached individual paths are replayed at approximately 3x by the editor; interactive selection remains one highlight at a time.
 - the clip editor creates a `highlight` from the player the analyst selects
 - tracked highlight geometry is treated as foot-anchored
 - the sidecar seed matcher prefers the selected player's foot point and tolerates loose seeds

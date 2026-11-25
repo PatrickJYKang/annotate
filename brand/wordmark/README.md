@@ -35,4 +35,4 @@ Weight, tracking and colours are constants at the top of the script.
 
 ## Usage note
 
-The single-letter `a-icon.svg` also supplies the desktop application icon. `npm run build:desktop-icons` regenerates the committed PNG, ICNS and ICO files under `desktop/icons/` on macOS using ImageMagick and iconutil. This does not install or change a web favicon or any in-app branding.
+The single-letter `a-icon.svg` also supplies the desktop application icon. `npm run build:desktop-icons` regenerates the committed PNG, ICNS and ICO files under `desktop/icons/` on macOS using ImageMagick and iconutil. The desktop script fits the artwork into 922 x 922 pixels on a 1024 x 1024 canvas, adding approximately 10% padding without changing the shared source. Normal packaging uses those committed icons. This does not install or change a web favicon or any in-app branding.

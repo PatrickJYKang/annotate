@@ -2,6 +2,8 @@
 
 Reviewed 2026-10-24 for the local 0.2.3-rc.1 builds; updated 2026-11-01 with the completed Microsoft runtime inventory, GEOS sources and controlled Windows media candidate. This is an engineering inventory and release-gate assessment, not legal advice. PnLCalib's code-version and weight-permission questions and the Microsoft installation/file-scope review are resolved. Annotate's own licence has not changed. The remaining handoff is matching source packaging, Windows execution/replacement validation and final signed-package checks, not another request to change the project's licence. Current public installers and original staging runtimes are unchanged.
 
+Source-status review, 2026-11-24: the implemented compliance work is committed through `ed70920`, alongside the [0.2.4 application changes](../desktop/releases/0.2.4.md). No final 0.2.4 package/source pair has been produced by this documentation pass. The dated native-binary evidence below still applies only to those inspected artifacts; current application tests do not replace the remaining Windows or final-package checks.
+
 ## Findings
 
 | Component | Evidence and build inputs | Assessment |

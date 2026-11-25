@@ -1,14 +1,14 @@
 # Issues Found While Recording
 
-Updated: 2026-10-23. App bugs and behaviour questions noticed while recording the user-guide tutorials with the packaged demo build (Annotate 0.2.2-desktop.2). All fifteen observations have now been reviewed, with Patrick approving the last two fixes together. **#1, #2, #4-9 and #11-15 are implemented in the working tree, awaiting packaged verification; #3 was investigated but could not be reproduced; #10 is intentional behaviour.** Add new findings here as recording continues; mark an item shipped only after the fix is verified in the build used for recording, and note which tutorial videos would then need re-recording.
+Status reviewed: 2026-11-24. These observations came from the October user-guide recordings with Annotate 0.2.2-desktop.2. All fifteen have been reviewed. **#1, #2, #4-9 and #11-15 are implemented in committed source; #3 was investigated but could not be reproduced; #10 is intentional behavior.** The dated entries below preserve what each original pass verified, including then-uncommitted or unbuilt status. Later candidate tests are recorded in the [release notes](../desktop/releases/0.2.3-rc.1.md), but no public desktop.2 replacement or tutorial retakes are claimed. Verify the exact next recording build before marking those retakes ready.
 
 Context for recordings: [handoff](demo-recording-handoff.md). Local session folders are under `$HOME/Documents/Annotate Demos/`.
 
 ## Open
 
-No confirmed issue from the original list remains unimplemented. #3 remains unconfirmed below; packaged verification and the associated tutorial retakes are still outstanding.
+No confirmed issue from the original list remains unimplemented. #3 remains unconfirmed below; validation in the chosen recording/release build and the associated tutorial retakes remain outstanding. New 0.2.4 features have their own [source status and checks](../desktop/releases/0.2.4.md).
 
-## Implemented, awaiting packaged verification
+## Implemented, Dated Verification
 
 ### 1. Re-tagging generated clip names
 
@@ -122,7 +122,7 @@ The original 2026-10-06 recording note reported a black native clip-editor windo
 
 On 2026-10-13, the same packaged demo executable and a freshly built current desktop renderer were tested with disposable APFS copies of the original Tottenham v Chelsea recording project, using its clip at f548-800 and real match media. Both remained visible through English, French, Spanish and Simplified Chinese changes in the main window and the editor. The paused frame, video element and source URL stayed unchanged, with no media reload/error events; playback continued through language changes. The current build also passed focus/occlusion and minimize/restore checks with the original ScreenCaptureKit recorder running. Native-window screenshots showed the pitch, and a 25-second native recording contained no black interval in the tested central video region. Diagnostic artifacts are local and ignored under `output/playwright/locale/`; original demo projects were not edited.
 
-A main-window locale change currently does not live-update an already-open editor's locale. Changing it in the editor updates that window; newly opened windows read the stored preference. The original note therefore does not establish that an editor locale update caused the blackout. No GPU/compositing or playback workaround was added, and this is not marked fixed. If it recurs, collect native capture and Chromium screenshots at the same moment, exact window/focus actions, video state, and build details before choosing a fix.
+In the October recording build, a main-window locale change did not live-update an already-open editor; changing it inside the editor updated that window. Current native source synchronizes locale across windows through native preferences. The original note therefore does not establish that an editor locale update caused the blackout. No GPU/compositing workaround was added and this is not marked fixed. If it recurs, collect native capture and Chromium screenshots at the same moment, exact window/focus actions, video state and build details before choosing a fix.
 
 `desktop/scripts/smoke-electron.mjs` now checks all four language selections in both open windows: no video-element replacement, source change, seek/load/play/pause/error event, paused-frame change, or clip-file rewrite. This guards application media state; it does not by itself prove native compositor correctness. Native capture was checked separately as described above. No tutorial retake is required for this investigation.
 
@@ -136,4 +136,4 @@ No app-code change or tutorial retake is needed for #10.
 
 ## Shipped
 
-None yet.
+None of these fixes is claimed as a replacement of the public desktop.2 installers or published tutorial footage. Source commits and local candidates are separate from that shipped status.

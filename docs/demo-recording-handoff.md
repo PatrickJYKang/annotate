@@ -1,6 +1,6 @@
 # Demo Recording Handoff
 
-Updated: 2026-10-23. **Start here** if you are taking over maintenance of the online user-guide tutorials. The requested recordings are complete: twelve tutorials in four languages plus a combined walkthrough per language. This page gives the current state, next steps, and practical lessons from the October recording sessions. Companions: the [inventory](demo-recording-checklist.md) (deliverables), the [storyboards](demo-storyboards.md) (recorded click sequences), and the [workflow](demo-recording-workflow.md) (capture, editing, and verification). Each local session folder has a `RECORDING-NOTES.txt`; its take details remain useful, but old "publication not done" notes are superseded by the publication status here.
+Updated: 2026-11-24. Start here for maintenance of the online user-guide tutorials. The original requested recordings are complete: twelve tutorials in four languages plus a combined walkthrough per language, showing the October desktop.2 build. New 0.2.4 workflows are not recorded. Companions: the [inventory](demo-recording-checklist.md), [storyboards](demo-storyboards.md) and [capture workflow](demo-recording-workflow.md). Original session `RECORDING-NOTES.txt` files retain take details; their old publication/status notes are historical, and local paths must be checked before reuse.
 
 Everything below `$HOME/Documents/Annotate Demos/` is local production material: raw captures, scripts, disposable project clones and exports. None of it is in this repository. Back it up separately.
 
@@ -29,10 +29,10 @@ Superseded and rejected takes are kept in `superseded/`, `rejected/`, or under a
 
 ## Next steps
 
-1. **Verify the accumulated fixes in a packaged build before filming replacements.** All fifteen observations have been reviewed; Patrick approved #14/#15 together. #1, #2, #4-9 and #11-15 are implemented in the working tree but not packaged. #3 remains unconfirmed after investigation with the original build, current renderer and native recording; #10 is intentional plain-frame export for existing empty annotation sets. The final fixes separate Box/Circle drag previews from click-placement defaults and let highlight-name text-size drafts commit on Enter/blur in both editors. They passed real-browser checks over copied match footage, including image/pitch drawing, typing, cancellation, undo and persistence. All 468 unit tests, nine clip/pin browser regressions, TypeScript and lint pass. See the [issue list](demo-recording-bugs.md) for detailed verification and retake status; no recordings, installers or release tags were replaced during these fixes.
-2. **All requested recordings are complete.** Pin context/annotation sets (8b) and installation (11) were dropped. Remaining production work is native-speaker caption review and targeted retakes after agreed fixes to the [issue list](demo-recording-bugs.md).
-3. **New topics** only if Patrick asks; copy the closest session's scripts (see the table under Production pipeline).
-4. **Repository docs.** Keep this page, the inventory, and the storyboards in step with replaced exports and site publication.
+1. **Verify the exact packaged build before filming replacements.** All fifteen original observations have been reviewed, and the agreed fixes are in committed source. #3 remains unconfirmed and #10 is intentional empty-set PNG export. See the [issue list](demo-recording-bugs.md) for dated evidence and specific retakes; the old demo app and published videos were not replaced by those source commits.
+2. **Prepare new-feature coverage separately.** Match lookup, manual/cached tracking recovery, clip takes and presentation takes need the [0.2.4 follow-up storyboards](demo-storyboards.md#024-follow-up-storyboards). They are not part of the completed October series. English approval still precedes localization; do not start recording without an explicit request.
+3. **Retain the existing production style.** Native-speaker caption review remains pending. Pin context/annotation sets (8b) and installation (11) remain dropped; the new work does not reinstate them.
+4. **Publish deliberately.** Guide text and videos live in `annotate-docs`. Update its four languages and affected combined walkthroughs alongside approved replacement exports, then update this inventory. Editing this app repository alone does not update the live guide.
 
 ## How Patrick works
 
@@ -94,7 +94,7 @@ Session folder contents:
 
 ### Launch the isolated demo app
 
-The packaged demo copy is `pin-annotation-2026-10-04/Annotate Demo.app` (Annotate 0.2.2-desktop.2). Launch it per session with its own profile and a loopback-only CDP port:
+The original packaged demo copy was `pin-annotation-2026-10-04/Annotate Demo.app` (Annotate 0.2.2-desktop.2). Check that it still exists before replaying an old production script. It is suitable for reproducing the old videos, not for demonstrating current features. Substitute a verified current package in an isolated session for new tutorials, with its own profile and a loopback-only CDP port:
 
 ```bash
 S="$HOME/Documents/Annotate Demos/<session>"
@@ -121,7 +121,7 @@ Control is Playwright `chromium.connectOverCDP('http://127.0.0.1:9227')` from th
 
 ## Lessons and gotchas
 
-- **Language switching:** the original session reported a black editor video and worked around it by setting the main-window language before opening the editor. The 2026-10-13 investigation could not reproduce this in the original or current build, including native capture; do not present it as a confirmed app defect. Existing recording scripts still set the language before opening windows, which also ensures consistent labels because locale changes are not live-synchronized between open windows. See issue #3 for evidence and recurrence diagnostics.
+- **Language switching:** the original session reported black editor video; the 2026-10-13 investigation could not reproduce it, including native capture. Do not present it as a confirmed defect. The old recording build did not live-synchronize locale across open windows; current native source does. Setting the language before opening recording windows remains useful for repeatable setup. See issue #3 for historical evidence and recurrence diagnostics.
 - **Localized labels and numbers:** look up the exact i18n key in `webapp/lib/i18n/messages/<locale>.json` (for example `presentation.slidePosition`, not an invented key). Numbers are locale-formatted (`10 579` with a narrow no-break space in French, `10.579` in Spanish). Saved data names ("Possession", "Pin f10740") are not translated. Identify items by their own text, not by translated badges (a French take once dragged the wrong slide because of this).
 - **Clip-editor selection (#11):** the old packaged recording build auto-selects the first annotation and needs Cmd-click to deselect. The current working tree opens with no object selected; Escape clears object/keyframe selection after any active drawing, trim or re-track cancellation. Verify the recording build before relying on the new behaviour.
 - **Controls at the window edge** (the clip trim end handle at x 1434 of 1440): grab at the left border (`box.x + 2`), not the centre.
@@ -133,8 +133,8 @@ Control is Playwright `chromium.connectOverCDP('http://127.0.0.1:9227')` from th
 - **Finder (export and recovery):** drive it with `osascript` (`tell application "Finder"`); its window `id` equals the ScreenCaptureKit window id. A new window auto-selects the first row, so `select {}`. Hide the sidebar (`sidebar width 0`) and status bar. `qlmanage -p` shows a "[DEBUG]" title and renders CSV blank, so use Finder's gallery view (`flow view`) for images. Never `activate` an app named "Annotate" by name: that can launch Patrick's real install. Make each Finder change at the moment of the logged synthetic click.
 - **Recorder success:** `FINISHED` is not enough; confirm with ffprobe and a full decode.
 - **QA timing:** `clicks-N.png` grabs 0.06 s after a click and can precede the UI update; check a later frame before calling it a fault.
-- **Fresh app profiles:** the original recording build creates Ultralytics settings with `"sync": true`. Current source disables `sync` and `hub` for both fresh and existing Annotate profiles before prediction callbacks load, without touching unrelated Python settings. This has not yet been packaged; do not assume older recording builds contain the fix. No visible workflow changes or tutorial retakes are needed for #12.
+- **Fresh app profiles:** the original recording build creates Ultralytics settings with `"sync": true`. Current source disables `sync` and `hub` for both fresh and existing Annotate profiles before prediction callbacks load, without touching unrelated Python settings. The public desktop.2 and old demo executable do not gain that change automatically. No visible tutorial retake is needed for #12.
 
 ## App issues found while recording
 
-Tracked in [Issues found while recording](demo-recording-bugs.md) (open list with code pointers). Patrick asked for these to be tracked, not fixed; add new findings there.
+Tracked in [Issues found while recording](demo-recording-bugs.md). The original fifteen items were reviewed and the approved fixes implemented; add new findings separately rather than reopening completed decisions or treating a source fix as proof that the old recording executable changed.
